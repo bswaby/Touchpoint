@@ -3,9 +3,10 @@
 #This is a report that is used to email staff new members so that pastors can reach out.  
 #Report includes some basic stats and list of new members that have been added the last 7 days
 
-#Edits:  Script will run naturally w/o changes, however there are two ares you might want to adjusts
+#Edits:  Script will run naturally w/o changes, however here are two areas you might want to adjusts
 #Edit Area 1: Update the dates in sqlmemberstat sql script with your fiscal year or calendar year dates.  
 #Edit Area 2: Update # of days to pull memmbers to your liking
+#Edit Area 3: Update Email Report Button to what you called the Email python script 
 
 #improvements: I need to update sql to by dynamic with the dates so that I don't need to adjust each calendar year
 
