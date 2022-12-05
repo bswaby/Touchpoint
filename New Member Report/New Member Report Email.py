@@ -1,4 +1,5 @@
-#edit the last line to who you want to email the report to
+#create a new saved search with people that should receive the report
+#update model.Eamil with saved search and who the email will be from
 
 
 model.Header = 'New Member Email Report Sent'
