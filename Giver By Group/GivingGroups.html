@@ -1,0 +1,21 @@
+<div class="box box-responsive">
+    <div class="box-content">
+        <h4>{{Title}}</h4>
+        <form method="post" enctype="multipart/form-data">
+            <div class="row">
+                <div class="col-sm-3">
+                    <div class="form-group">
+                        <label for="bundleType" class="control-label">Involvement</label>
+                        <select name="bundleType" class="form-control">
+                            <option value=0> -- select involvement -- </option>
+                        {{#each bundletypes}}
+                           <option value="{{OrganizationId}}">{{OrganizationName}}</option>
+                        {{/each}}
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Submit</button>
+        </form>
+    </div>
+ </div>
