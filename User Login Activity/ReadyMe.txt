@@ -10,6 +10,6 @@ Section 3: Last 50 Logins
   Show the last 50 successful logins.
   
 In addition to the 3 sections, this report runs James @ Tenth Pres User Account Info script, which you can find here.
-
+https://github.com/tenthpres/touchpointscripts 
 
 Setup:  Add User Login Activity.py as a new Python script.  Script should run naturally 
