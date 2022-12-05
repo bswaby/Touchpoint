@@ -1,4 +1,4 @@
-Giver By Group
+Givers By Group
 
 Note: This is a specialized report that should be used with caution to only those with financials as it gives insight to who members of groups gives.
 
