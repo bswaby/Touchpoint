@@ -60,4 +60,4 @@ template = '''
 
 Data.fundreport = q.QuerySql(sqlFundReport)
 NMReport = model.RenderTemplate(template)
-print(NMReport)
+print(NMReport) 
