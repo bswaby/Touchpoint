@@ -1,3 +1,10 @@
+Update: 2022/12/06
+- squashed join bug
+- updated to use fiscal year
+- changed from sql to python
+
+<h3>Contribution</h3>
+
 Contribution SQL Script Over the Last 10 Years
 
 
