@@ -1,12 +1,15 @@
 #Roles=rpt_BusinessAdmin
 
-#script will run naturally w/o edits.
+#Update fiscal month to your need.  If you want calendar year set to 0.  If you want August as your start month, count backwards..
+#so in the case of an August fiscal year, you would put in 5.
 
 model.Header = 'Contribution By Age Bin'
 
+fiscalmonth = '3'
+
 sqlgifts = '''
 SELECT  
-  Year(c.ContributionDate) AS [UniqueContributorsbyYear],
+  DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate))) AS [UniqueContributorsbyYear],
   Sum(CASE WHEN p.Age >= 0 AND p.Age < 10 THEN c.ContributionAmount END) AS [ca],
   Sum(CASE WHEN p.Age >= 10 AND p.Age < 20 THEN c.ContributionAmount END) AS [cb],
   Sum(CASE WHEN p.Age >= 20 AND p.Age < 30 THEN c.ContributionAmount END) AS [cc],
@@ -33,9 +36,9 @@ FROM Contribution c
 INNER JOIN
   People p
 ON c.PeopleID =  p.PeopleID
-WHERE Year(c.ContributionDate) >= (DATEPART(Year,getdate())-10)
- Group By Year(c.ContributionDate)
- Order By Year(c.ContributionDate)
+WHERE DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate))) >= (DATEPART(Year,getdate())-10)
+ Group By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate)))
+ Order By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate)))
 '''
 
 sqlgiftstotal = '''
@@ -64,14 +67,14 @@ FROM Contribution c
 INNER JOIN
   People p
 ON c.PeopleID =  p.PeopleID
---WHERE Year(c.ContributionDate) >= (DATEPART(Year,getdate())-10)
--- Group By Year(c.ContributionDate)
--- Order By Year(c.ContributionDate)
+--WHERE DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(Year(c.ContributionDate))) >= (DATEPART(Year,getdate())-10)
+-- Group By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(Year(c.ContributionDate)))
+-- Order By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(Year(c.ContributionDate)))
 '''
 
 sqlContributionNumbers = '''
 Select
-  Year(c.ContributionDate) AS [UniqueContributorsbyYear],
+  DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate) AS [UniqueContributorsbyYear],
   Sum(c.ContributionAmount) AS [Contributed],
   Round(Sum(c.ContributionAmount)/Count(Distinct c.ContributionID),2) AS [AverageGift],
   Count(c.ContributionID) AS [Contributions], 
@@ -81,9 +84,9 @@ FROM Contribution c
 INNER JOIN
   People p
 ON c.PeopleID =  p.PeopleID
-WHERE Year(c.ContributionDate) >= (DATEPART(Year,getdate())-10)
- Group By Year(c.ContributionDate)
- Order By Year(c.ContributionDate)
+WHERE DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate))) >= (DATEPART(Year,getdate())-10)
+ Group By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate)))
+ Order By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate)))
 '''
 
 template = '''
