@@ -22,24 +22,32 @@ GROUP BY
     dbo.ContributionFund.FundName;
 '''   
 
-
-
 template = '''
-<table ; width="400px" border="1" cellpadding="5" style="border:1px solid black; border-collapse:collapse">
-    <tbody>
-    {{#each fundreport}}
-    <tr style="{{Bold}}">
-            <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{FundName}}</td>
-            <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{Fmt Total 'N2'}}</td>
-            <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{Fmt c2020 'N2'}}</td>
-    </tr>
-    {{/each}}
-    </tbody>
-</table>
-<br />
-<br />
-'''
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+      google.charts.load('current', {'packages':['table']});
+      google.charts.setOnLoadCallback(drawTable);
 
+      function drawTable() {
+        var data = new google.visualization.DataTable();
+        data.addColumn('string', 'Fund');
+        data.addColumn('number', 'Total');
+
+        data.addRows([
+            {{#each fundreport}}
+                [
+                '{{FundName}}',
+                {v: {{Total}},  f: '{{FmtMoney Total}}'}
+                ],
+            {{/each}}
+        ]);
+        
+        var table = new google.visualization.Table(document.getElementById('table_wklybudget'));
+        table.draw(data, {showRowNumber: false, alternatingRowStyle: true, width: '100%', height: '100%'});
+      }
+    </script>
+    <div id='table_wklybudget' style='width: 400px; height: 800px;'></div>
+'''
 
 Data.fundreport = q.QuerySql(sqlFundReport)
 NMReport = model.RenderTemplate(template)
