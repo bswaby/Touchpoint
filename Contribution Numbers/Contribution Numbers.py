@@ -2,10 +2,6 @@
 
 #sql statement is based on fiscal year.  Ours runs Oct - Sept, so fiscal year is 3 as it's 3 months from the new year. 
 #If you want to it to be calendar year, just change it to 0 and update yeartype to nothing or something else you want it to pre-fix
-
-#added a second report called Weekly budget that pulls into a temp table a custom week to week budget to get a over/under comparison. 
-#just update values in the temp table to your custom budget
-
 model.Header = 'Contribution Numbers'
 
 fiscalmonth = '3'
@@ -27,9 +23,9 @@ LEFT JOIN
 ON c.PeopleID =  p.PeopleID
 WHERE Year(c.ContributionDate) >= (DATEPART(Year,getdate())-10)
  Group By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate))) ---Year(c.ContributionDate) 
- Order By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate)))---Year(c.ContributionDate)
+ Order By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate))) Desc---Year(c.ContributionDate)
 '''
-sqlweeklybudget = '''
+sqlcontributiondata = '''
 --Drop Table #tempBudget1
 CREATE TABLE #tempBudget1
 (
@@ -378,76 +374,98 @@ LEFT JOIN
 ON c.PeopleID =  p.PeopleID
 WHERE DATEPART(Year,DATEADD(month,3,(c.ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate()))) AND FundID = 1 --(DATEPART(Year,getdate())-10)
  Group By DATEPART(week,c.ContributionDate)--DATEPART(Year,DATEADD(month,3,(c.ContributionDate)))
- Order By DATEPART(week,c.ContributionDate)--DATEPART(Year,DATEADD(month,3,(c.ContributionDate)))
+ Order By DATEPART(week,c.ContributionDate) Desc --DATEPART(Year,DATEADD(month,3,(c.ContributionDate))) 
 
 Drop Table #tempBudget1
 '''
 
 template = '''
-<h3>YoY Contributions</h3>
-<table ; width="700px" border="1" cellpadding="5" style="border:1px solid black; border-collapse:collapse">
-    <tbody>
-    <tr style="{{Bold}}">
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>Year</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>Contributed</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>Avg Gift</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5># of Gifts</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>Unique Givers</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>Avg # of Gifts</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>10k-99k</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>100k+</h5></b></td>
-    </tr>
-    {{#each fundreport}}
-    <tr style="{{Bold}}">
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><a href="https://myfbch.com/PyScript/ContributionFundYear?p1={{Year}}" target="_blank">''' + yeartype + '''{{Year}}</a></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{FmtMoney Contributed}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{FmtMoney AverageGift}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{Fmt Gifts 'N0'}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{Fmt UniqueGivers 'N0'}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{Fmt AvgNumofGifts 'N0'}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{Gifts10kto99k}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{Gifts100kPlus}}</td>
-    </tr>
-    {{/each}}
-    </tbody>
-</table>
-<br><h3>Weekly Budget</h3>
-<table ; width="1000px" border="1" cellpadding="5" style="border:1px solid black; border-collapse:collapse">
-    <tbody>
-    <tr style="{{Bold}}">
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>Week</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>Sunday</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>Weekly Budget</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>YTD Budget</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>Over/Under</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>Contributed</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>Avg Gift</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>Gifts</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>10k-99k</h5></b></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;"><b><h5>100k+</h5></b></td>
-    </tr>
-    {{#each weeklybudget}}
-    <tr style="{{Bold}}">
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{Week}}</a></td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{Fmt WeekStart 'd'}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{FmtMoney WklyBudget}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{FmtMoney YTDBudget}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{FmtMoney OverUnder}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{FmtMoney Contributed}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{FmtMoney AverageGift}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{Gifts}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{Gifts10kto99k}}</td>
-        <td border: 2px solid #000; vertical-align:top; style="text-align:center;">{{Gifts100kPlus}}</td>
-    </tr>
-    {{/each}}
-    </tbody>
-</table>
-<br />
-<br />
+    <h3>YoY Contributions</h3>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+
+      google.charts.load('current', {'packages':['table']});
+      google.charts.setOnLoadCallback(drawTable);
+
+      function drawTable() {
+        var data = new google.visualization.DataTable();
+        data.addColumn('string', 'Year');
+        data.addColumn('number', 'Contributed');
+        data.addColumn('number', 'Avg Gift');
+        data.addColumn('number', 'Gifts');
+        data.addColumn('number', 'Unique Givers');
+        data.addColumn('number', 'Avg Gifts');
+        data.addColumn('number', '10-99k');
+        data.addColumn('number', '100k+');
+
+        data.addRows([
+            {{#each fundreport}}
+                [
+                '<a href="https://myfbch.com/PyScript/ContributionFundYear?p1={{Year}}" target="_blank">{{Year}}</a>',
+                {v: {{Contributed}},  f: '{{FmtMoney Contributed}}'}, 
+                {v: {{AverageGift}},  f: '{{FmtMoney AverageGift}}'}, 
+                {v: {{Gifts}},  f: '{{Fmt Gifts 'N0'}}'},
+                {v: {{UniqueGivers}},  f: '{{Fmt UniqueGivers 'N0'}}'},
+                {v: {{AvgNumofGifts}},  f: '{{Fmt AverageGift 'N0'}}'},
+                {{Gifts10kto99k}},
+                {{Gifts100kPlus}}
+                ],
+            {{/each}}
+        ]);
+        
+        var table = new google.visualization.Table(document.getElementById('table_div'));
+        table.draw(data, {showRowNumber: false, alternatingRowStyle: true, allowHtml: true, width: '100%', height: '100%'});
+      }
+    </script>
+    <div id='table_div' style='width: 550px; height: 320px;'></div>
+    
+    <br><h3>Weekly Budget</h3>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+      google.charts.load('current', {'packages':['table']});
+      google.charts.setOnLoadCallback(drawTable);
+
+      function drawTable() {
+        var data = new google.visualization.DataTable();
+        data.addColumn('number', 'Week');
+        data.addColumn('string', 'Sunday');
+        data.addColumn('number', 'Weekly Budget');
+        data.addColumn('number', 'YTD Budget');
+        data.addColumn('number', 'OverUnder');
+        data.addColumn('number', 'Contributed');
+        data.addColumn('number', 'Avg Gift');
+        data.addColumn('number', 'Gifts');
+        data.addColumn('number', '10k-99k');
+        data.addColumn('number', '100k+');
+        
+        data.addRows([
+            {{#each contributiondata}}
+                [
+                {{Week}}, 
+                '{{Fmt WeekStart 'd'}}', 
+                {v: {{WklyBudget}},  f: '{{FmtMoney WklyBudget}}'}, 
+                {v: {{YTDBudget}},  f: '{{FmtMoney YTDBudget}}'}, 
+                {v: {{OverUnder}},  f: '{{FmtMoney OverUnder}}'},
+                {v: {{Contributed}},  f: '{{FmtMoney Contributed}}'},
+                {v: {{AverageGift}},  f: '{{FmtMoney AverageGift}}'},
+                {{Gifts}},
+                {{Gifts10kto99k}},
+                {{Gifts100kPlus}}
+                ],
+            {{/each}}
+
+        ]);
+        
+        
+        var table = new google.visualization.Table(document.getElementById('table_wklybudget'));
+        table.draw(data, {showRowNumber: false, alternatingRowStyle: true, width: '100%', height: '100%'});
+      }
+    </script>
+    <div id='table_wklybudget' style='width: 800px; height: 400px;'></div>
 '''
 
 
 Data.fundreport = q.QuerySql(sqlFundReport)
-Data.weeklybudget= q.QuerySql(sqlweeklybudget)
+Data.contributiondata = q.QuerySql(sqlcontributiondata)
 NMReport = model.RenderTemplate(template)
 print(NMReport)
