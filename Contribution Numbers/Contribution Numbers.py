@@ -7,7 +7,9 @@ model.Header = 'Contribution Numbers'
 fiscalmonth = '3'
 yeartype = 'FY'
 
+
 sqlFundReport = '''
+
 Select
   DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate))) AS [Year],
   Sum(c.ContributionAmount) AS [Contributed],
@@ -88,277 +90,180 @@ VALUES  (1,230208),
         (52,230208);
 
 Select
-  DATEPART(week,c.ContributionDate) - 40 as [Week],--DATEPART(Year,DATEADD(month,3,(c.ContributionDate))) AS [Year],
+  --DATEPART(week,c.ContributionDate) AS [ACTUALWEEK],
+  CASE WHEN DATEPART(week,c.ContributionDate) BETWEEN 1 AND 40 
+   THEN DATEPART(week,c.ContributionDate) + 13
+   ELSE DATEPART(week,c.ContributionDate) - 40 END AS [Week],
+  -- DATEPART(week,c.ContributionDate) - 40 as [Week],--DATEPART(Year,DATEADD(month,3,(c.ContributionDate))) AS [Year],
   Min(c.ContributionDate) as [WeekStart],
 
-  CASE DATEPART(week,c.ContributionDate) - 40 
-    WHEN 1 THEN (Select budget from #tempBudget1 Where week = 1) 
-    WHEN 2 THEN (Select budget from #tempBudget1 Where week = 2) 
-    WHEN 3 THEN (Select budget from #tempBudget1 Where week = 3) 
-    WHEN  4 THEN (Select budget from #tempBudget1 Where week = 4) 
-    WHEN  5 THEN (Select budget from #tempBudget1 Where week = 5) 
-    WHEN  6 THEN (Select budget from #tempBudget1 Where week = 6) 
-    WHEN  7 THEN (Select budget from #tempBudget1 Where week = 7) 
-    WHEN  8 THEN (Select budget from #tempBudget1 Where week = 8) 
-    WHEN  9 THEN (Select budget from #tempBudget1 Where week = 9) 
-    WHEN  10 THEN (Select budget from #tempBudget1 Where week = 10) 
-    WHEN  11 THEN (Select budget from #tempBudget1 Where week = 11) 
-    WHEN  12 THEN (Select budget from #tempBudget1 Where week = 12) 
-    WHEN  13 THEN (Select budget from #tempBudget1 Where week = 13) 
-    WHEN  14 THEN (Select budget from #tempBudget1 Where week = 14) 
-    WHEN  15 THEN (Select budget from #tempBudget1 Where week = 15) 
-    WHEN  16 THEN (Select budget from #tempBudget1 Where week = 16) 
-    WHEN  17 THEN (Select budget from #tempBudget1 Where week = 17) 
-    WHEN  18 THEN (Select budget from #tempBudget1 Where week = 18) 
-    WHEN  19 THEN (Select budget from #tempBudget1 Where week = 19) 
-    WHEN  20 THEN (Select budget from #tempBudget1 Where week = 20) 
-    WHEN  21 THEN (Select budget from #tempBudget1 Where week = 21) 
-    WHEN  22 THEN (Select budget from #tempBudget1 Where week = 22) 
-    WHEN  23 THEN (Select budget from #tempBudget1 Where week = 23) 
-    WHEN  24 THEN (Select budget from #tempBudget1 Where week = 24) 
-    WHEN  25 THEN (Select budget from #tempBudget1 Where week = 25) 
-    WHEN  26 THEN (Select budget from #tempBudget1 Where week = 26) 
-    WHEN  27 THEN (Select budget from #tempBudget1 Where week = 27) 
-    WHEN  28 THEN (Select budget from #tempBudget1 Where week = 28) 
-    WHEN  29 THEN (Select budget from #tempBudget1 Where week = 29) 
-    WHEN  30 THEN (Select budget from #tempBudget1 Where week = 30) 
-    WHEN  31 THEN (Select budget from #tempBudget1 Where week = 31) 
-    WHEN  32 THEN (Select budget from #tempBudget1 Where week = 32) 
-    WHEN  33 THEN (Select budget from #tempBudget1 Where week = 33) 
-    WHEN  34 THEN (Select budget from #tempBudget1 Where week = 34) 
-    WHEN  35 THEN (Select budget from #tempBudget1 Where week = 35) 
-    WHEN  36 THEN (Select budget from #tempBudget1 Where week = 36) 
-    WHEN  37 THEN (Select budget from #tempBudget1 Where week = 37) 
-    WHEN  38 THEN (Select budget from #tempBudget1 Where week = 38) 
-    WHEN  39 THEN (Select budget from #tempBudget1 Where week = 39) 
-    WHEN  40 THEN (Select budget from #tempBudget1 Where week = 40) 
-    WHEN  41 THEN (Select budget from #tempBudget1 Where week = 41) 
-    WHEN  42 THEN (Select budget from #tempBudget1 Where week = 42) 
-    WHEN  43 THEN (Select budget from #tempBudget1 Where week = 43) 
-    WHEN  44 THEN (Select budget from #tempBudget1 Where week = 44) 
-    WHEN  45 THEN (Select budget from #tempBudget1 Where week = 45) 
-    WHEN  46 THEN (Select budget from #tempBudget1 Where week = 46) 
-    WHEN  47 THEN (Select budget from #tempBudget1 Where week = 47) 
-    WHEN  48 THEN (Select budget from #tempBudget1 Where week = 48) 
-    WHEN  49 THEN (Select budget from #tempBudget1 Where week = 49) 
-    WHEN  50 THEN (Select budget from #tempBudget1 Where week = 50) 
-    WHEN  51 THEN (Select budget from #tempBudget1 Where week = 51) 
-    WHEN  52 THEN (Select budget from #tempBudget1 Where week = 52) 
-    ELSE 0
+  CASE WHEN DATEPART(week,c.ContributionDate) BETWEEN 1 AND 40
+    THEN (Select budget from #tempBudget1 Where week = (DATEPART(week,c.ContributionDate) + 13)) 
+    ELSE (Select budget from #tempBudget1 Where week = (DATEPART(week,c.ContributionDate) - 40))
     END AS [WklyBudget],
 
-  CASE DATEPART(week,c.ContributionDate) - 40
-    WHEN 1 THEN (Select sum(budget) from #tempBudget1 Where week = 1) 
-    WHEN 2 THEN (Select sum(budget) from #tempBudget1 Where week <= 2) 
-    WHEN 3 THEN (Select sum(budget) from #tempBudget1 Where week <= 3) 
-    WHEN  4 THEN (Select sum(budget) from #tempBudget1 Where week <= 4) 
-    WHEN  5 THEN (Select sum(budget) from #tempBudget1 Where week <= 5) 
-    WHEN  6 THEN (Select sum(budget) from #tempBudget1 Where week <= 6) 
-    WHEN  7 THEN (Select sum(budget) from #tempBudget1 Where week <= 7) 
-    WHEN  8 THEN (Select sum(budget) from #tempBudget1 Where week <= 8) 
-    WHEN  9 THEN (Select sum(budget) from #tempBudget1 Where week <= 9) 
-    WHEN  10 THEN (Select sum(budget) from #tempBudget1 Where week <= 10) 
-    WHEN  11 THEN (Select sum(budget) from #tempBudget1 Where week <= 11) 
-    WHEN  12 THEN (Select sum(budget) from #tempBudget1 Where week <= 12) 
-    WHEN  13 THEN (Select sum(budget) from #tempBudget1 Where week <= 13) 
-    WHEN  14 THEN (Select sum(budget) from #tempBudget1 Where week <= 14) 
-    WHEN  15 THEN (Select sum(budget) from #tempBudget1 Where week <= 15) 
-    WHEN  16 THEN (Select sum(budget) from #tempBudget1 Where week <= 16) 
-    WHEN  17 THEN (Select sum(budget) from #tempBudget1 Where week <= 17) 
-    WHEN  18 THEN (Select sum(budget) from #tempBudget1 Where week <= 18) 
-    WHEN  19 THEN (Select sum(budget) from #tempBudget1 Where week <= 19) 
-    WHEN  20 THEN (Select sum(budget) from #tempBudget1 Where week <= 20) 
-    WHEN  21 THEN (Select sum(budget) from #tempBudget1 Where week <= 21) 
-    WHEN  22 THEN (Select sum(budget) from #tempBudget1 Where week <= 22) 
-    WHEN  23 THEN (Select sum(budget) from #tempBudget1 Where week <= 23) 
-    WHEN  24 THEN (Select sum(budget) from #tempBudget1 Where week <= 24) 
-    WHEN  25 THEN (Select sum(budget) from #tempBudget1 Where week <= 25) 
-    WHEN  26 THEN (Select sum(budget) from #tempBudget1 Where week <= 26) 
-    WHEN  27 THEN (Select sum(budget) from #tempBudget1 Where week <= 27) 
-    WHEN  28 THEN (Select sum(budget) from #tempBudget1 Where week <= 28) 
-    WHEN  29 THEN (Select sum(budget) from #tempBudget1 Where week <= 29) 
-    WHEN  30 THEN (Select sum(budget) from #tempBudget1 Where week <= 30) 
-    WHEN  31 THEN (Select sum(budget) from #tempBudget1 Where week <= 31) 
-    WHEN  32 THEN (Select sum(budget) from #tempBudget1 Where week <= 32) 
-    WHEN  33 THEN (Select sum(budget) from #tempBudget1 Where week <= 33) 
-    WHEN  34 THEN (Select sum(budget) from #tempBudget1 Where week <= 34) 
-    WHEN  35 THEN (Select sum(budget) from #tempBudget1 Where week <= 35) 
-    WHEN  36 THEN (Select sum(budget) from #tempBudget1 Where week <= 36) 
-    WHEN  37 THEN (Select sum(budget) from #tempBudget1 Where week <= 37) 
-    WHEN  38 THEN (Select sum(budget) from #tempBudget1 Where week <= 38) 
-    WHEN  39 THEN (Select sum(budget) from #tempBudget1 Where week <= 39) 
-    WHEN  40 THEN (Select sum(budget) from #tempBudget1 Where week <= 40) 
-    WHEN  41 THEN (Select sum(budget) from #tempBudget1 Where week <= 41) 
-    WHEN  42 THEN (Select sum(budget) from #tempBudget1 Where week <= 42) 
-    WHEN  43 THEN (Select sum(budget) from #tempBudget1 Where week <= 43) 
-    WHEN  44 THEN (Select sum(budget) from #tempBudget1 Where week <= 44) 
-    WHEN  45 THEN (Select sum(budget) from #tempBudget1 Where week <= 45) 
-    WHEN  46 THEN (Select sum(budget) from #tempBudget1 Where week <= 46) 
-    WHEN  47 THEN (Select sum(budget) from #tempBudget1 Where week <= 47) 
-    WHEN  48 THEN (Select sum(budget) from #tempBudget1 Where week <= 48) 
-    WHEN  49 THEN (Select sum(budget) from #tempBudget1 Where week <= 49) 
-    WHEN  50 THEN (Select sum(budget) from #tempBudget1 Where week <= 50) 
-    WHEN  51 THEN (Select sum(budget) from #tempBudget1 Where week <= 51) 
-    WHEN  52 THEN (Select sum(budget) from #tempBudget1 Where week <= 52) 
-    ELSE 0
+  CASE WHEN DATEPART(week,c.ContributionDate) BETWEEN 1 AND 40
+    THEN (Select sum(budget) from #tempBudget1 Where week <= (DATEPART(week,c.ContributionDate) + 13)) 
+    ELSE (Select sum(budget) from #tempBudget1 Where week <= (DATEPART(week,c.ContributionDate) - 40))
     END AS [YTDBudget],
+    
   CASE 
     WHEN DATEPART(week,c.ContributionDate) - 40 = 1 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week = 1) FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
                                                                       AND (DATEPART(week,ContributionDate) - 40) = 1 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 2 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 2)  FROM Contribution
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 2 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND  2)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 2 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 3 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 3)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND 2 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 3 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND  3)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 3 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 4 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 4)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND 3 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 4 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 4)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 4 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 5 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 5)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  4 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 5 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 5)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 5 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 6 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 6)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  5 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 6 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 6)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 6 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 7 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 7)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  6 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 7 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 7)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 7 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 8 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 8)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  7 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 8 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 8)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 8 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 9 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 9)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  8 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 9 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 9)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 9 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 10 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 10)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  9 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 10 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 10)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 10 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 11 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 11)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  10 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 11 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 11)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 11 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 12 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 12)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  11 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 12 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 12)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 12 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 13 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 13)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  12 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 13 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 13)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 13 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 14 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 14)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  13 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 14 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 14)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 14 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 15 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 15)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  14 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 15 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 15)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 15 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 16 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 16)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  15 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 16 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 16)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 16 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 17 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 17)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  16 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 17 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 17)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 17 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 18 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 18)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  17 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 18 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 18)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 18 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 19 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 19)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  18 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 19 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 19)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 19 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 20 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 20)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  19 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) - 40 <= 20 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 20)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 20 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 21 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 21)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  20 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 21 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 21)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 21 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 22 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 22)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  21 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 22 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 22)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 22 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 23 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 23)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  22 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 23 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 23)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 23 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 24 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 24)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  23 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 24 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 24)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 24 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 25 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 25)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  24 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 25 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 25)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 25 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 26 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 26)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  25 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 26 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 26)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 26 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 27 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 27)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  26 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 27 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 27)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 27 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 28 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 28)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  27 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 28 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 28)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 28 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 29 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 29)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  28 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 29 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 29)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 29 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 30 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 30)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  29 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 30 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 30)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 30 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 31 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 31)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  30 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 31 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 31)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 31 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 32 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 32)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  31 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 32 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 32)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 32 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 33 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 33)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  32 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 33 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 33)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 33 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 34 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 34)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  33 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 34 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 34)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 34 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 35 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 35)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  34 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 35 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 35)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 35 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 36 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 36)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  35 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 36 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 36)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 36 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 37 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 37)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  36 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 37 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 37)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 37 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 38 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 38)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  37 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 38 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 38)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 38 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 39 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 39)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  38 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 39 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 39)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 39 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 40 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 40)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) + 13) BETWEEN 1 AND  39 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 40 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 40)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 40 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 41 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 41)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  40 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 41 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 41)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 41 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 42 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 42)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  41 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 42 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 42)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 42 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 43 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 43)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  42 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 43 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 43)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 43 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 44 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 44)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  43 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 44 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 44)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 44 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 45 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 45)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  44 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 45 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 45)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 45 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 46 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 46)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  45 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 46 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 46)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 46 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 47 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 47)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  46 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 47 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 47)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 47 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 48 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 48)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  47 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 48 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 48)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 48 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 49 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 49)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  48 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 49 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 49)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 49 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 50 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 50)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  49 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 50 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 50)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 50 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 51 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 51)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  50 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 51 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 51)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 51 AND FundID = 1)
-    WHEN DATEPART(week,c.ContributionDate) - 40 <= 52 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week <= 52)  FROM Contribution
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  51 AND FundID = 1)
+    WHEN DATEPART(week,c.ContributionDate) <= 52 THEN (Select Sum(ContributionAmount) - (Select sum(budget) from #tempBudget1 Where week BETWEEN 1 AND 52)  FROM Contribution
                                                                     WHERE DATEPART(Year,DATEADD(month,3,(ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate())))
-                                                                      AND (DATEPART(week,ContributionDate) - 40) <= 52 AND FundID = 1)
+                                                                      AND (DATEPART(week,ContributionDate) - 40) BETWEEN 1 AND  52 AND FundID = 1)
     ELSE 0
     END AS [OverUnder],
   
@@ -374,7 +279,7 @@ LEFT JOIN
 ON c.PeopleID =  p.PeopleID
 WHERE DATEPART(Year,DATEADD(month,3,(c.ContributionDate))) >= DATEPART(Year,DATEADD(month,3,(getdate()))) AND FundID = 1 --(DATEPART(Year,getdate())-10)
  Group By DATEPART(week,c.ContributionDate)--DATEPART(Year,DATEADD(month,3,(c.ContributionDate)))
- Order By DATEPART(week,c.ContributionDate) Desc --DATEPART(Year,DATEADD(month,3,(c.ContributionDate))) 
+ Order By Week Desc, DATEPART(week,c.ContributionDate) Desc --DATEPART(Year,DATEADD(month,3,(c.ContributionDate))) 
 
 Drop Table #tempBudget1
 '''
@@ -422,6 +327,44 @@ template = '''
     <br><h3>Weekly Budget</h3>
     <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
     <script type="text/javascript">
+        google.charts.load('current', {packages: ['corechart', 'line']});
+        google.charts.setOnLoadCallback(drawTrendlines);
+        
+        function drawTrendlines() {
+              var data = new google.visualization.DataTable();
+              data.addColumn('string', 'Sunday')
+              data.addColumn('number', 'budget');
+              data.addColumn('number', 'contributed');
+        
+              data.addRows([
+                {{#each contributiondata}}
+                  [
+                    '{{Fmt WeekStart 'd'}}', 
+                    {{WklyBudget}}, 
+                    {{Contributed}},
+                  ],
+                {{/each}}    
+              ]);
+        
+              var options = {
+                hAxis: {
+                  title: 'Fiscal Week'
+                },
+                vAxis: {
+                  title: 'Amount'
+                },
+                colors: ['#AB0D06', '#007329'],
+
+              };
+        
+              var chart = new google.visualization.LineChart(document.getElementById('chart_div'));
+              chart.draw(data, options);
+          }
+    </script>
+    <div id='chart_div' style='width: 800px; height: 300px;'></div>
+
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
       google.charts.load('current', {'packages':['table']});
       google.charts.setOnLoadCallback(drawTable);
 
@@ -456,14 +399,12 @@ template = '''
 
         ]);
         
-        
         var table = new google.visualization.Table(document.getElementById('table_wklybudget'));
         table.draw(data, {showRowNumber: false, alternatingRowStyle: true, width: '100%', height: '100%'});
       }
     </script>
     <div id='table_wklybudget' style='width: 800px; height: 400px;'></div>
 '''
-
 
 Data.fundreport = q.QuerySql(sqlFundReport)
 Data.contributiondata = q.QuerySql(sqlcontributiondata)
