@@ -59,17 +59,19 @@ Organizations_alias1.OrganizationId = @P1
 Order By     dbo.TransactionSummary.TotDue Desc, dbo.People.Name2;
 '''
 
+sqlFMCOrganizations = '''Select OrganizationName, OrganizationId FROM Organizations Order by OrganizationName'''
 
 
-template = '''
+header = '''
 <script src ="https://code.jquery.com/jquery-3.5.1.min.js"></script>                 
 <script src ="https://ajax.googleapis.com/ajax/libs/jqueryui/1.11.2/jquery-ui.min.js"> </script>  
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.0.0/jquery.min.js"></script>
 <!-- jQuery Modal -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-modal/0.9.1/jquery.modal.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery-modal/0.9.1/jquery.modal.min.css" />
+'''
 
-<a onclick="history.back()"><i class="fa fa-hand-o-left fa-2x" aria-hidden="true"></i></a>&nbsp;&nbsp;
+body = '''
   <table>
 	   {{#each duetotals}}
 		  <tr><td width="200px"><h4>CurrentDue</h4></td><td align="right"><h4>{{FmtMoney CurrentDue}}</h4></td></tr>
@@ -115,7 +117,31 @@ template = '''
     </script>
     <div id='table_div' style='width: 900px;'></div>
 '''
+footer = '''
+<script>
+    $(function(){
+      // bind change event to select
+      $('#org_select').on('change', function () {
+          var url = $(this).val(); // get selected value
+          if (url) { // require a URL
+              window.location = url; // redirect
+          }
+          return false;
+      });
+    });
+</script>
+'''
+
+print model.RenderTemplate(header)
+
+print '''<select id="org_select"><option value="Ben?p1=0"></option>'''
+
+for a in q.QuerySql(sqlFMCOrganizations):
+    print '<option value="Ben?p1={1}">{0}</option>'.format(a.OrganizationName, a.OrganizationId)
+
+print '''</select>'''
+
 Data.duetotals = q.QuerySql(sqlFMCDueTotals)
 Data.balancereport = q.QuerySql(sqlFMCBalance)
-NMReport = model.RenderTemplate(template)
-print(NMReport)
+print model.RenderTemplate(body)
+print model.RenderTemplate(footer)
