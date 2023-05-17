@@ -1,0 +1,35 @@
+;WITH backgroundchecksq AS (
+Select 
+ p.Name2 AS [Name]
+ ,v.PeopleID
+ ,bg.Created AS [BGRequestedOn]
+ ,v.ProcessedDate AS [VerifiedOn]
+ ,v.Comments 
+ ,bg.ApprovalStatus
+from Volunteer v
+Inner JOIN (Select PeopleID, Max(ProcessedDate) AS [LastProcessed]
+  FROM Volunteer 
+  Group By PeopleID) v1 
+  ON v1.PeopleID = v.PeopleID 
+  AND v1.LastProcessed = v.ProcessedDate
+
+LEFT JOIN BackgroundChecks bg ON v.PeopleId = bg.PeopleID
+INNER JOIN (Select PeopleID, Max(ID) AS [MaxID]
+  FROM BackGroundChecks
+  Group By PeopleID) bg1
+  ON bg.PeopleID = bg1.PeopleID
+  AND bg1.MaxID = bg.ID
+  
+INNER JOIN People p ON v.PeopleID = p.PeopleID
+
+Where DATEDIFF(day,bg.Created,GETDATE()) between 0 and 30
+)
+SELECT 
+ CASE WHEN CAST(bgq.BGRequestedOn as date) <= CAST(bgq.VerifiedOn as date) THEN 'Complete' ELSE 'Not Complete' END AS [Status]
+ ,bgq.Name
+ ,bgq.PeopleID
+ ,bgq.BGRequestedOn AS [Requested]
+ ,bgq.VerifiedOn [HR Last Verification]
+ ,bgq.Comments AS [Last Comment]
+FROM backgroundchecksq bgq
+Order By Status, bgq.Name
