@@ -28,8 +28,7 @@ SELECT
  CASE WHEN CAST(bgq.BGRequestedOn as date) <= CAST(bgq.VerifiedOn as date) THEN 'Complete' ELSE 'Not Complete' END AS [Status]
  ,bgq.Name
  ,bgq.PeopleID
- ,bgq.BGRequestedOn AS [Requested]
- ,bgq.VerifiedOn [HR Last Verification]
- ,bgq.Comments AS [Last Comment]
+ ,Cast(bgq.BGRequestedOn as date) AS [Requested]
+ ,CASE WHEN CAST(bgq.BGRequestedOn as date) <= CAST(bgq.VerifiedOn as date) THEN bgq.Comments ELSE '' END AS [Comments]
 FROM backgroundchecksq bgq
 Order By Status, bgq.Name
