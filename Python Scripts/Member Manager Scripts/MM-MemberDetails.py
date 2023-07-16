@@ -5,11 +5,11 @@ FamilyId = model.Data.FamilyId
 
 model.Header = ProgramName +' Member Details'
 
-declareVariables = '''
-DECLARE @ProgramID int = ''' + ProgramID + '''
-DECLARE @ProgramName varchar(30) = ''' + ProgramName
+# declareVariables = '''
+# DECLARE @ProgramID int = ''' + ProgramID + '''
+# DECLARE @ProgramName varchar(30) = "''' + ProgramName + '''"'''
 
-q.QuerySql(declareVariables)
+# q.QuerySql(declareVariables)
 
 listsql = '''
     SELECT 
@@ -186,7 +186,7 @@ sqlCheckinTimes1 = '''
         dbo.CheckInTimes CheckInTimes_alias1 
     WHERE 
         CheckInTimes_alias1.PeopleId = @P1
-    AND CheckInTimes_alias1.location = @ProgramName 
+    AND CheckInTimes_alias1.location = "''' + ProgramName + '''"
     ORDER BY 
         CheckInTimes_alias1.CheckInTime DESC;
 '''
@@ -199,7 +199,7 @@ sqlCheckinTimes = '''
         dbo.CheckInTimes CheckInTimes_alias1 
     WHERE 
         CheckInTimes_alias1.PeopleId = @P1
-    --AND CheckInTimes_alias1.location = @ProgramName 
+    --AND CheckInTimes_alias1.location = "''' + ProgramName + '''" 
     ORDER BY 
         CheckInTimes_alias1.CheckInTime DESC;
 '''
@@ -575,7 +575,7 @@ print '''
             <a href="#notifications" aria-controls="notificatons" data-toggle="tab">Notifications (Last 20)</a>
         </li>
         <li id="involvementstop">
-            <a href="#attendence" aria-controls="attendence" data-toggle="tab">Gym Attendance</a>
+            <a href="#attendence" aria-controls="attendence" data-toggle="tab">''' + ProgramName + ''' Attendance</a>
         </li>
     </ul>
     
@@ -740,7 +740,7 @@ for a in q.QuerySql(sqlMemberOrganization):
 
     print '''
         <td role = "cell">
-        <form id="payfee{2}" class="modal" action="Payment">
+        <form id="payfee{2}" class="modal" action="MM-Payment">
           <div class="modalparagraph">
            <input type="hidden" id="pid" name="pid" value="{0}">
            <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{1}">
