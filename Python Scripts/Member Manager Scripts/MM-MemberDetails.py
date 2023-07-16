@@ -280,6 +280,16 @@ sqlFamily = '''
         dbo.People.FamilyId = {};
 '''.format(FamilyId)
 
+
+print '''
+<script>
+var perfEntries = performance.getEntriesByType("navigation");
+
+if (perfEntries[0].type === "back_forward") {
+    location.reload();
+}</script
+'''
+
 print '''
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 <script src ="https://code.jquery.com/jquery-3.5.1.min.js"></script>                 
@@ -638,7 +648,7 @@ for a in q.QuerySql(transactions):
                   <div class="modalparagraph">
                   Pay Amount:<input type="number" name="PayAmount" step="any" id="PayAmount"/>
                   </div>
-                  <button >submit</button>
+                  <button>Submit</button>
                 </form>
                 <a href="#payfee{3}" rel="modal:open">Pay by Cash/Check</a></br>'''.format('${:,.2f}'.format(a.TotalDue), a.PeopleId, a.OrganizationId, a.RegId)
             print '<a href="{0}" target="_blank">Pay in Person</a><i>(Open via Incognito)</i>'.format(paylink)
@@ -718,7 +728,7 @@ print '''
         </select>
         </br>
         </br>
-        <button >submit</button>
+        <button>Submit</button>
         </form>
         <a href="#frmaddgroup" rel="modal:open">Add to ''' + ProgramName + ''' Group</a></br>
 
@@ -757,7 +767,7 @@ for a in q.QuerySql(sqlMemberOrganization):
           <div class="modalparagraph">
           Fee Amount:<input type="number" name="PayAmount" step="any" id="PayAmount"/>
           </div>
-          <button >submit</button>
+          <button>Submit</button>
         </form>
         <a href="#payfee{2}" rel="modal:open">Add Fee</a></td>'''.format(a.PeopleId, a.OrganizationId, addfee)
 
