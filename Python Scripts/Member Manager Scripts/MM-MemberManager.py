@@ -12,45 +12,27 @@ SELECT
     dbo.People.FirstName, 
     dbo.People.LastName, 
     dbo.People.Age,
-    Max(CheckInTimes_alias1.CheckInTime) AS [LastCheckin],
-    Count(CheckInTimes_alias1.CheckInTime) AS [CheckIns],
+    dbo.People.EmailAddress,
+    dbo.People.PrimaryAddress,
+    dbo.People.PrimaryCity,
+    dbo.People.PrimaryState,
+    dbo.People.PrimaryZip,
+    dbo.People.CellPhone,
+    dbo.People.HomePhone,
     Organizations_alias1.OrganizationName,
     Organizations_alias1.OrganizationId,
-    dbo.MemberTags.Name AS [SubGroup]
+    dbo.MemberTags.Name AS [SubGroup],
+	dbo.TransactionSummary.TotDue
 FROM 
     dbo.ProgDiv 
-INNER JOIN 
-    dbo.Program 
-ON 
-    (dbo.ProgDiv.ProgId = dbo.Program.Id) 
-INNER JOIN 
-    dbo.Division 
-ON 
-    (dbo.ProgDiv.DivId = dbo.Division.Id) 
-INNER JOIN 
-    dbo.Organizations Organizations_alias1 
-ON 
-    (dbo.Division.Id = Organizations_alias1.DivisionId) 
-INNER JOIN 
-    dbo.OrganizationMembers 
-ON 
-    (Organizations_alias1.OrganizationId = dbo.OrganizationMembers.OrganizationId) 
-INNER JOIN 
-    dbo.People 
-ON 
-    (dbo.OrganizationMembers.PeopleId = dbo.People.PeopleId) 
-LEFT JOIN 
-    dbo.CheckInTimes CheckInTimes_alias1 
-ON 
-    (dbo.People.PeopleId = CheckInTimes_alias1.PeopleId) 
-LEFT JOIN
-    dbo.OrgMemMemTags
-ON
-    (dbo.OrgMemMemTags.PeopleId = dbo.People.PeopleId) AND (dbo.OrgMemMemTags.OrgId = Organizations_alias1.OrganizationId)
-LEFT JOIN 
-    dbo.MemberTags
-ON
-    (dbo.MemberTags.Id = dbo.OrgMemMemTags.MemberTagId)
+INNER JOIN dbo.Program ON (dbo.ProgDiv.ProgId = dbo.Program.Id) 
+INNER JOIN dbo.Division ON (dbo.ProgDiv.DivId = dbo.Division.Id) 
+INNER JOIN dbo.Organizations Organizations_alias1 ON (dbo.Division.Id = Organizations_alias1.DivisionId) 
+INNER JOIN dbo.OrganizationMembers ON (Organizations_alias1.OrganizationId = dbo.OrganizationMembers.OrganizationId) 
+LEFT JOIN dbo.TransactionSummary ON (dbo.OrganizationMembers.TranId = dbo.TransactionSummary.RegId) 
+INNER JOIN dbo.People ON (dbo.OrganizationMembers.PeopleId = dbo.People.PeopleId) 
+LEFT JOIN dbo.OrgMemMemTags ON (dbo.OrgMemMemTags.PeopleId = dbo.People.PeopleId) AND (dbo.OrgMemMemTags.OrgId = Organizations_alias1.OrganizationId)
+LEFT JOIN dbo.MemberTags ON (dbo.MemberTags.Id = dbo.OrgMemMemTags.MemberTagId)
 WHERE 
     dbo.Program.Id = @ProgramID --AND EXISTS (Select CheckInTimes_alias1.CheckInTime From dbo.CheckInTimes Where dbo.People.PeopleId = CheckInTimes_alias1.PeopleId)
 GROUP BY Organizations_alias1.OrganizationId, 
@@ -62,8 +44,17 @@ GROUP BY Organizations_alias1.OrganizationId,
     dbo.People.LastName, 
     dbo.People.EmailAddress, 
     dbo.People.Age,
-    dbo.MemberTags.Name
+    dbo.MemberTags.Name,
+	dbo.TransactionSummary.TotDue,
+	dbo.People.EmailAddress,
+    dbo.People.PrimaryAddress,
+    dbo.People.PrimaryCity,
+    dbo.People.PrimaryState,
+    dbo.People.PrimaryZip,
+    dbo.People.CellPhone,
+    dbo.People.HomePhone
 ORDER BY 
+	dbo.TransactionSummary.TotDue Desc,
     dbo.People.LastName ASC, 
     dbo.People.FirstName ASC;
 '''
@@ -72,6 +63,10 @@ ORDER BY
 print ('''
 <script src ="https://code.jquery.com/jquery-3.5.1.min.js"></script>
 <script src ="https://ajax.googleapis.com/ajax/libs/jqueryui/1.11.2/jquery-ui.min.js"> </script> 
+<!-- jQuery Modal -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-modal/0.9.1/jquery.modal.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery-modal/0.9.1/jquery.modal.min.css" />
+
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 <a onclick="history.back()"><i class="fa fa-hand-o-left fa-2x" aria-hidden="true"></i></a>&nbsp;&nbsp;
 <a href="'''+ model.CmsHost + '''/PyScript/MM-Balance"><i class="fa fa-usd fa-2x" class=”button-solid”></i></a>&nbsp;&nbsp;&nbsp;&nbsp;
@@ -127,7 +122,7 @@ table {
 }  
 th {  
   color: #ffffff;  
-  background: #39a2fb;  
+  background: #003d4c;  
   font-weight: 700;  
 }  
 tr {  
@@ -159,8 +154,9 @@ td  {
         <tr role = "row">  
           <th role = "columnheader"> FamilyId </th>  
           <th role = "columnheader"> Name </th>  
-          <th role = "columnheader"> Last / Count </th>
           <th role = "columnheader"> Involvement (subgroup) </th>
+          <th role = "columnheader"> Outstanding </th>
+          <th role = "columnheader"> Pay By </th>
           <th role = "columnheader">  </th>  
         </tr>  
       </thead>  
@@ -169,12 +165,57 @@ td  {
 ''')
 
 for a in q.QuerySql(listsql):
+    paylink = " "
+    paylinkauth = " "
+    sendemail = "n"
+    sendtext = "n"
+    if a.TotDue != None:
+        due = '${:,.2f}'.format(a.TotDue)
+        #if a.OrganizationId != None and a.PeopleId != None:
+        paylink = model.GetPayLink(a.PeopleId, a.OrganizationId)
+        paylinkauth = model.GetAuthenticatedUrl(a.OrganizationId, paylink, True)
+        #paylink = a.PeopleId + " : " + a.OrganizationID
 
     print ('<tr role = "row">')
     print ('<td role = "cell"> {} </td>').format(a.FamilyId)
-    print ('<td role = "cell"><a href="') + model.CmsHost + '/PyScript/MM-MemberDetails?p1={1}&FamilyId={3}&ProgramName={4}&ProgramID={5}"> {0} ({2}) </a></td>'.format(a.Name, a.PeopleId, a.Age, a.FamilyId, ProgramName, ProgramID)
-    print ('<td role = "cell"> {0} / {1}</td>').format(a.LastCheckin, a.CheckIns)
+    print ('<td role = "cell"><a href="') + model.CmsHost + '/PyScript/MM-MemberDetails?p1={1}&FamilyId={3}&ProgramName={4}&ProgramID={5}"> {0} ({2}) </a><br>{6}<br>{7}<br>{8}, {9}, {10}<br>{11}</td>'.format(a.Name, a.PeopleId, a.Age, a.FamilyId, ProgramName, ProgramID,a.EmailAddress,a.PrimaryAddress,a.PrimaryCity,a.PrimaryState,a.PrimaryZip,a.CellPhone)
     print ('<td role = "cell"><a href="') + model.CmsHost + '/Org/{2}" target="_blank"> {0} ({1})</a></td>'.format(a.OrganizationName,a.SubGroup,a.OrganizationId)
+    print ('<td role = "cell">{0}</td>').format(a.TotDue)
+    print '<td role = "cell">'
+    if a.EmailAddress != None:
+        sendemail = "y"
+    
+    if a.CellPhone != None:
+        sendtext = "y"
+    
+    if due != 0:
+        if paylinkauth != " ":
+            print '<a href="PaymentNotify?pid={0}&totaldue={1}&oid={2}&sendemail={3}&sendtext={4}&ProgramName={5}&ProgramID={6}"><i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i></a></br>'.format(a.PeopleId, a.TotDue, a.OrganizationId,sendemail,sendtext,ProgramName,ProgramID)
+            print '''
+              <br>
+                <form id="payfee{1}{2}" class="modal" action="MM-Payment">
+                  <div class="modalparagraph">
+                  <input type="hidden" id="ProgramName" name="ProgramName" value="{3}">
+                  <input type="hidden" id="ProgramID" name="ProgramID" value="{4}">
+                   <h3>Amount Due:{0}</h3>
+                   <input type="hidden" id="pid" name="pid" value="{1}">
+                   <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
+                   <input type="hidden" id="addpayment" name="addpayment" value="y">
+                  Payment Type:
+                   <input type="radio" name="PaymentType" value="CSH|" id="PaymentType">CASH
+                   <input type="radio" name="PaymentType" value="CHK|" id="PaymentType">CHECK
+                  </div>
+                  <div class="modalparagraph">
+                  Description:
+                   <input type="text" name="PaymentDescription" id="PaymentDescription"/>
+                  </div>
+                  <div class="modalparagraph">
+                  Pay Amount:<input type="number" name="PayAmount" step="any" id="PayAmount"/>
+                  </div>
+                  <button>Submit</button>
+                </form>
+                <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(a.TotDue, a.PeopleId, a.OrganizationId,ProgramName,ProgramID)
+    print '</td>'
     print ('<td role = "cell"><a href="') + model.CmsHost + '/Person2/{0}#tab-current" target="_blank"><i class="fa fa-info-circle" aria-hidden="true"></i></a></td>'.format(a.PeopleId)
     print ('<tr>')
 
