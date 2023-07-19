@@ -33,8 +33,11 @@ LEFT JOIN dbo.TransactionSummary ON (dbo.OrganizationMembers.TranId = dbo.Transa
 INNER JOIN dbo.People ON (dbo.OrganizationMembers.PeopleId = dbo.People.PeopleId) 
 LEFT JOIN dbo.OrgMemMemTags ON (dbo.OrgMemMemTags.PeopleId = dbo.People.PeopleId) AND (dbo.OrgMemMemTags.OrgId = Organizations_alias1.OrganizationId)
 LEFT JOIN dbo.MemberTags ON (dbo.MemberTags.Id = dbo.OrgMemMemTags.MemberTagId)
+LEFT JOIN dbo.OrganizationExtra ON Organizations_alias1.OrganizationId = OrganizationExtra.OrganizationID
 WHERE 
     dbo.Program.Id = @ProgramID --AND EXISTS (Select CheckInTimes_alias1.CheckInTime From dbo.CheckInTimes Where dbo.People.PeopleId = CheckInTimes_alias1.PeopleId)
+    AND OrganizationExtra.Field = 'MemberManagerEnabled' 
+    AND OrganizationExtra.BitValue = 1
 GROUP BY Organizations_alias1.OrganizationId, 
     Organizations_alias1.OrganizationName, 
     dbo.People.Name, 
@@ -68,7 +71,6 @@ print ('''
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery-modal/0.9.1/jquery.modal.min.css" />
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
-<a onclick="history.back()"><i class="fa fa-hand-o-left fa-2x" aria-hidden="true"></i></a>&nbsp;&nbsp;
 <a href="'''+ model.CmsHost + '''/PyScript/MM-Balance"><i class="fa fa-usd fa-2x" class=”button-solid”></i></a>&nbsp;&nbsp;&nbsp;&nbsp;
 <a href="'''+ model.CmsHost + '''/PyScript/MM-Reports"><i class="fa fa-stack-exchange fa-2x" aria-hidden="true"></i></a>
 <style>    
@@ -152,20 +154,20 @@ td  {
     <table role = "table" class = "table filtered-table">  
       <thead role = "rowgroup">  
         <tr role = "row">  
-          <th role = "columnheader"> FamilyId </th>  
           <th role = "columnheader"> Name </th>  
           <th role = "columnheader"> Involvement (subgroup) </th>
           <th role = "columnheader"> Outstanding </th>
           <th role = "columnheader"> Pay By </th>
-          <th role = "columnheader">  </th>  
         </tr>  
       </thead>  
       <tbody role = "rowgroup">  
 
 ''')
 
+
 for a in q.QuerySql(listsql):
     paylink = " "
+    AltPayIDNote = " "
     paylinkauth = " "
     sendemail = "n"
     sendtext = "n"
@@ -176,21 +178,36 @@ for a in q.QuerySql(listsql):
         paylinkauth = model.GetAuthenticatedUrl(a.OrganizationId, paylink, True)
         #paylink = a.PeopleId + " : " + a.OrganizationID
 
-    print ('<tr role = "row">')
-    print ('<td role = "cell"> {} </td>').format(a.FamilyId)
-    print ('<td role = "cell"><a href="') + model.CmsHost + '/PyScript/MM-MemberDetails?p1={1}&FamilyId={3}&ProgramName={4}&ProgramID={5}"> {0} ({2}) </a><br>{6}<br>{7}<br>{8}, {9}, {10}<br>{11}</td>'.format(a.Name, a.PeopleId, a.Age, a.FamilyId, ProgramName, ProgramID,a.EmailAddress,a.PrimaryAddress,a.PrimaryCity,a.PrimaryState,a.PrimaryZip,a.CellPhone)
-    print ('<td role = "cell"><a href="') + model.CmsHost + '/Org/{2}" target="_blank"> {0} ({1})</a></td>'.format(a.OrganizationName,a.SubGroup,a.OrganizationId)
+    AltPayID = model.ExtraValueInt(int(a.PeopleId), str(ProgramID) + '_AltPayID')
+    if AltPayID != 0:
+        AltPayPerson = q.QuerySql("Select PeopleId, EmailAddress, FirstName, LastName, CellPhone from People Where PeopleId = "+ str(AltPayID))
+        for hoh in AltPayPerson:
+            Data.PeopleId = hoh.PeopleId
+            Data.EmailAddress = hoh.EmailAddress
+            Data.FirstName = hoh.FirstName
+            Data.LastName = hoh.LastName
+            Data.CellPhone = hoh.CellPhone
+            AltPayIDNote = '<i>alternate pay: </i>' + Data.FirstName + ' ' + Data.LastName + '<br>'
+    else:
+        AltPayIDNote = ""
+    
+    print '<tr role = "row">'
+    print '''<td role = "cell">
+      <a href="{12}/PyScript/MM-MemberDetails?p1={1}&FamilyId={3}&ProgramName={4}&ProgramID={5}"> {0} ({2})</a>
+      &nbsp<a href="{12}/Person2/{1}#tab-current" target="_blank"><i class="fa fa-info-circle" aria-hidden="true"></i></a>
+      <br>{14} email:{6}<br>{7}<br>{8}, {9}, {10}<br>cell:{11}</td>'''.format(a.Name, a.PeopleId, a.Age, a.FamilyId, ProgramName, ProgramID,a.EmailAddress,a.PrimaryAddress,a.PrimaryCity,a.PrimaryState,a.PrimaryZip,a.CellPhone,model.CmsHost, AltPayID, AltPayIDNote)
+    print ('<td role = "cell"><a href="') + model.CmsHost + '/Org/{2}" target="_blank">{0}<br>({1})</a></td>'.format(a.OrganizationName,a.SubGroup,a.OrganizationId)
     print ('<td role = "cell">{0}</td>').format(a.TotDue)
-    print '<td role = "cell">'
+    print '<td>'
     if a.EmailAddress != None:
         sendemail = "y"
     
     if a.CellPhone != None:
         sendtext = "y"
     
-    if due != 0:
+    if a.TotDue != 0 or a.TotDue != 0.0000:
         if paylinkauth != " ":
-            print '<a href="PaymentNotify?pid={0}&totaldue={1}&oid={2}&sendemail={3}&sendtext={4}&ProgramName={5}&ProgramID={6}"><i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i></a></br>'.format(a.PeopleId, a.TotDue, a.OrganizationId,sendemail,sendtext,ProgramName,ProgramID)
+            print '<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&sendemail={3}&sendtext={4}&ProgramName={5}&ProgramID={6}&AltPayID={7}&FamilyId={8}"><i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i></a></br>'.format(a.PeopleId, a.TotDue, a.OrganizationId,sendemail,sendtext,ProgramName,ProgramID,AltPayID,a.FamilyId)
             print '''
               <br>
                 <form id="payfee{1}{2}" class="modal" action="MM-Payment">
@@ -216,7 +233,6 @@ for a in q.QuerySql(listsql):
                 </form>
                 <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(a.TotDue, a.PeopleId, a.OrganizationId,ProgramName,ProgramID)
     print '</td>'
-    print ('<td role = "cell"><a href="') + model.CmsHost + '/Person2/{0}#tab-current" target="_blank"><i class="fa fa-info-circle" aria-hidden="true"></i></a></td>'.format(a.PeopleId)
     print ('<tr>')
 
 
