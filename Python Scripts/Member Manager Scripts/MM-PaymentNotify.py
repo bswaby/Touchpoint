@@ -3,12 +3,17 @@ AutomationAccount = 40678
 
 ProgramID = model.Data.ProgramID
 ProgramName = model.Data.ProgramName
+FamilyId = model.Data.FamilyId
 
 #Get Email from and EmailAddress
-EmailFrom = model.ExtraValueInt(AutomationAccount, str(ProgramID) + '_EmailFrom')
-getEmailAddress = q.QuerySql("SELECT TOP 1 EmailAddress from People Where PeopleId = " + str(EmailFrom))
+EmailFrom = int(model.ExtraValueInt(AutomationAccount, str(ProgramID) + '_EmailFrom'))
+getEmailAddress = q.QuerySql("SELECT TOP 1 EmailAddress, FirstName from People Where PeopleId = " + str(EmailFrom))
 for em in getEmailAddress:
-        Data.email = em.EmailAddress
+    Data.email = em.EmailAddress
+    
+getProgramName = q.QuerySql("Select Name from Program Where Program.Id = " + str(ProgramID))
+for pg in getProgramName:
+    Data.ProgramName = pg.Name
         
 #Build PayLink
 paylink = " "
@@ -20,31 +25,58 @@ paylink = model.GetAuthenticatedUrl(int(model.Data.oid), paylink, True)
 
 sendGroup = q.QuerySqlInt("SELECT TOP 1 ID from SmsGroups")
 
-message = '''Click to pay the outstanding balance of {0}.  {1}'''.format(due,paylink) 
-
-if model.Data.sendemail == "y":
-    model.Email(a.PeopleId, EmailFrom, Data.email, "need to automate program name - FBCHville", "FBCHville Open Invoice", message)
-    #if ProgramID == 1108:
-    #  model.Email(a.PeopleId, 3414, "dmeyer@fbchtn.org", "David Meyer - FBCHville", "FBCHville Receipt", message)
-    #elif ProgramID == 1109:
-    #  model.Email(a.PeopleId, 7365, "tklapwyk@fbchtn.org", "Tammy Klapwyk - FBCHville", "FBCHville Receipt", message)
-    #elif ProgramID == 1143:
-    #  model.Email(a.PeopleId, 11180, "lpoteet@fbchtn.org", "Laura Poteet - FBCHville", "FBCHville Receipt", message)
-    #elif ProgramID == 1149:
-    #  model.Email(a.PeopleId, 36153, "sgilmore@fbchtn.org", "Shannon Gilmore - FBCHville", "FBCHville Receipt", message)
-    #elif ProgramID == 1152:
-    #  model.Email(a.PeopleId, 14221, "tbeals@fbchtn.org", "Tucker Beals - FBCHville", "FBCHville Test Receipt", message)
-    print '''<h2>Paylink link to email<h2></br>'''
-else: 
-    print '''<h2>Account does not have an email address associated with it</h2>'''
-
-if model.Data.sendtext == "y":
-    model.SendSms(int(model.Data.pid), sendGroup, "Open Invoice", message)
-    print '''<h2>Paylink link to text<h2></br>'''
-else:
-    print '''<h2>Account does not have an cell phone associated with it</h2>'''
+#build message
+message = '''You have open balance of due with the <b>''' + Data.ProgramName + '''</b> minsitry at FBCHville.
+ Click the following link to pay the outstanding balance of {0}.  {1}'''.format(due,paylink) 
+messagesms = '''You an open balance with the ''' + Data.ProgramName + ''' at FBCHville.  Click the following link to pay the outstanding balance of {0}.  {1}'''.format(due,paylink) 
+#print(int(model.Data.pid), EmailFrom, Data.email, "need to automate program name - FBCHville", "FBCHville Open Invoice", message)
 
 
-print '''</br></br><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">'''    
-print '''<input type="button" value=" < " onclick="history.back()">
-<button onclick="window.location.href='{0}/PyScript/MM-MemberManager?ProgramName={1}&ProgramID={2}';"><i class="fa fa-home"></i></button>'''.format(model.CmsHost, ProgramName, ProgramID)
+#get specific billing or head of household billing
+AltPayID = int(model.Data.AltPayID)
+
+
+
+if AltPayID == 0: #head of household
+    HoHPeople = q.QuerySql("Select PeopleId, EmailAddress, FirstName, LastName, CellPhone from People Where FamilyId = "+ FamilyId + " and PositionInFamilyId = 10")
+    for hoh in HoHPeople:
+        Data.PeopleId = hoh.PeopleId
+        Data.EmailAddress = hoh.EmailAddress
+        Data.FirstName = hoh.FirstName
+        Data.LastName = hoh.LastName
+        Data.CellPhone = hoh.CellPhone
+        
+        if Data.EmailAddress != "":
+            model.Email(int(Data.PeopleId), EmailFrom, Data.email, Data.ProgramName + " - FBCHville", "FBCHville Open Invoice", message)
+            print ('''<h2>Paylink sent to {0} {1}'s email address of {2}.<h2>''').format(Data.FirstName,Data.LastName,Data.EmailAddress)
+        else: 
+            print '''<h2>Account does not have an email address associated with it</h2>'''
+        
+        if Data.CellPhone != "":
+            model.SendSms(int(Data.PeopleId), sendGroup, "Open Invoice", messagesms)
+            print ('''<h2>Paylink sent to {0} {1}'s cell phone number ({2}).<h2>''').format(Data.FirstName,Data.LastName,Data.CellPhone)
+        else:
+            print '''<h2>Account does not have an cell phone associated with it</h2>'''
+else: #Specific Pay
+    HoHPeople = q.QuerySql("Select PeopleId, EmailAddress, FirstName, LastName, CellPhone from People Where PeopleId = "+ str(AltPayID))
+    for hoh in HoHPeople:
+        Data.PeopleId = hoh.PeopleId
+        Data.EmailAddress = hoh.EmailAddress
+        Data.FirstName = hoh.FirstName
+        Data.LastName = hoh.LastName
+        Data.CellPhone = hoh.CellPhone
+        
+        if Data.EmailAddress != "":
+            model.Email(int(Data.PeopleId), EmailFrom, Data.email, Data.ProgramName + " - FBCHville", "FBCHville Open Invoice", message)
+            print ('''<h2>Paylink sent to {0} {1}'s email address of {2}.<h2>''').format(Data.FirstName,Data.LastName,Data.EmailAddress)
+        else: 
+            print '''<h2>Account does not have an email address associated with it</h2>'''
+        
+        if Data.CellPhone != "":
+            model.SendSms(int(Data.PeopleId), sendGroup, "Open Invoice", messagesms)
+            print ('''<h2>Paylink sent to {0} {1}'s cell phone number ({2}).<h2>''').format(Data.FirstName,Data.LastName,Data.CellPhone)
+        else:
+            print '''<h2>Account does not have an cell phone associated with it</h2>'''
+
+#print '''</br></br><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">'''
+print '''<a href="''' + model.CmsHost + '''/PyScript/MM-MemberManager?ProgramName=''' + ProgramName + '''&ProgramID=''' + ProgramID + '''"><i class="fa fa-home fa-3x"></i></a>'''.format(model.CmsHost,model.Data.pid)
