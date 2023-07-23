@@ -29,22 +29,21 @@ chargeVariables = {
     [{
             'title': "Staff Discount",
             'percentage': .50,
+            'amount': 50,
+            'discountType': "percentage",
             'code': 1,
         },{
             'title': "Multiple Family Member Discount",
             'percentage': .10,
+            'amount': 2,
+            'discountType': "amount",
             'code': 2,
         }
     ]
 }
     
-print chargeVariables
-print '<br>'
-# for cv in chargeVariables:
-#     if cv.has_key('id') and cv['id'] == ProgramID + '_2-Day':
-#         print 'YeP'
 
-familysql = '''
+familysqlold = '''
 DECLARE @ProgramID int = ''' + ProgramID +'''
 SELECT 
     dbo.People.PeopleId,
@@ -90,6 +89,62 @@ GROUP BY Organizations_alias1.OrganizationId,
     dbo.People.EmailAddress, 
     dbo.People.Age,
     dbo.MemberTags.Name,
+	dbo.TransactionSummary.TotDue,
+	dbo.People.EmailAddress,
+    dbo.People.PrimaryAddress,
+    dbo.People.PrimaryCity,
+    dbo.People.PrimaryState,
+    dbo.People.PrimaryZip,
+    dbo.People.CellPhone,
+    dbo.People.HomePhone
+ORDER BY 
+	dbo.TransactionSummary.TotDue Desc,
+    dbo.People.LastName ASC, 
+    dbo.People.FirstName ASC;
+'''
+
+familysql = '''
+DECLARE @ProgramID int = ''' + ProgramID +'''
+SELECT 
+    dbo.People.PeopleId,
+    dbo.People.Name, 
+    dbo.People.FamilyId, 
+    dbo.People.FirstName, 
+    dbo.People.LastName, 
+    dbo.People.Age,
+    dbo.People.EmailAddress,
+    dbo.People.PrimaryAddress,
+    dbo.People.PrimaryCity,
+    dbo.People.PrimaryState,
+    dbo.People.PrimaryZip,
+    dbo.People.CellPhone,
+    dbo.People.HomePhone,
+    Organizations_alias1.OrganizationName,
+    Organizations_alias1.OrganizationId,
+	dbo.TransactionSummary.TotDue
+FROM 
+    dbo.ProgDiv 
+INNER JOIN dbo.Program ON (dbo.ProgDiv.ProgId = dbo.Program.Id) 
+INNER JOIN dbo.Division ON (dbo.ProgDiv.DivId = dbo.Division.Id) 
+INNER JOIN dbo.Organizations Organizations_alias1 ON (dbo.Division.Id = Organizations_alias1.DivisionId) 
+INNER JOIN dbo.OrganizationMembers ON (Organizations_alias1.OrganizationId = dbo.OrganizationMembers.OrganizationId) 
+LEFT JOIN dbo.TransactionSummary ON (dbo.OrganizationMembers.TranId = dbo.TransactionSummary.RegId) 
+INNER JOIN dbo.People ON (dbo.OrganizationMembers.PeopleId = dbo.People.PeopleId) 
+LEFT JOIN dbo.OrganizationExtra ON Organizations_alias1.OrganizationId = OrganizationExtra.OrganizationID
+WHERE 
+    dbo.Program.Id = 1152--@ProgramID --AND EXISTS (Select CheckInTimes_alias1.CheckInTime From dbo.CheckInTimes Where dbo.People.PeopleId = CheckInTimes_alias1.PeopleId)
+    AND OrganizationExtra.Field = 'MemberManagerEnabled' 
+    AND OrganizationExtra.BitValue = 1
+    AND dbo.People.FamilyId = {0}
+GROUP BY Organizations_alias1.OrganizationId, 
+    Organizations_alias1.OrganizationName, 
+    dbo.People.Name, 
+    dbo.People.FamilyId, 
+    dbo.People.PeopleId, 
+    dbo.People.FirstName, 
+    dbo.People.LastName, 
+    dbo.People.EmailAddress, 
+    dbo.People.Age,
 	dbo.TransactionSummary.TotDue,
 	dbo.People.EmailAddress,
     dbo.People.PrimaryAddress,
@@ -166,6 +221,27 @@ GROUP BY
     dbo.MemberTags.Name
     '''
 
+#page styling
+print '''
+<head>
+	<style>
+		button {
+            width: 100%;
+			color: #ffffff;
+			background-color: #2d63c8;
+			font-size: 19px;
+			border: 1px solid #2d63c8;
+			padding: 15px 50px;
+			cursor: pointer
+		}
+		button:hover {
+			color: #2d63c8;
+			background-color: #ffffff;
+		}
+	</style>
+</head>
+'''
+
 print '''
   <div class = "table-responsive">  
     <table role = "table" class = "table filtered-table">  
@@ -188,36 +264,7 @@ for a in q.QuerySql(listsql):
 
     print '<tr role = "row"><td>'
     
-    cost = 0
-    totalDiscountPercentage = 0
-
     for tID in TuitionID:
-    
-        for cs in chargeVariables['fees']:
-            if (ProgramID + "_" + tID.SubGroup) == cs['id']:
-                cost = cs['cost']
-                print(cost)
-            
-        # print (cost)
-        # print '''</br></br>'''
-
-        if tID.Name == "Ben Swaby":
-            discountCode = 1
-            for vc in chargeVariables['discounts']:
-                if discountCode == vc['code']:
-                    totalDiscountPercentage = totalDiscountPercentage + vc['percentage']
-
-        discountCode = 2
-        for vc in chargeVariables['discounts']:
-            if discountCode == vc['code']:
-                if len(TuitionID) > 1:
-                    totalDiscountPercentage = totalDiscountPercentage + (vc['percentage']*len(TuitionID))
-
-        cost = cost - (cost*totalDiscountPercentage)
-
-        # print (cost)
-        # print '''</br></br>'''
-
         print '<tr role = "row">'
         print '''<td role = "cell">
           <a href="{12}/PyScript/MM-MemberDetails?p1={1}&FamilyId={3}&ProgramName={4}&ProgramID={5}"> {0} ({2})</a>
@@ -225,7 +272,6 @@ for a in q.QuerySql(listsql):
           cell:{11}</td>'''.format(tID.Name, tID.PeopleId, tID.Age, tID.FamilyId, ProgramName, ProgramID,tID.EmailAddress,tID.PrimaryAddress,tID.PrimaryCity,tID.PrimaryState,tID.PrimaryZip,tID.CellPhone,model.CmsHost)
         
         subGroupList = q.QuerySql(subgrouplistsql.format(tID.PeopleId))
-        print(subGroupList)
         # changes needed here to implement subgrouplistsql
         print ('<td role = "cell"><a href="') + model.CmsHost + '/Org/{0}" target="_blank">'.format(tID.OrganizationId) + '{0}<br>('.format(tID.OrganizationName)
 
@@ -240,9 +286,45 @@ for a in q.QuerySql(listsql):
             
 
         print(')</a></td>')
-        
+
         print ('<td role = "cell">{0}</td>').format(tID.TotDue)
-        print '<td>{0}</td>'.format(cost)
+
+
+        cost = 0
+        totalDiscountPercentage = 0
+        totalDiscountAmount = 0
+
+        for sgl in subGroupList:
+        
+            for cs in chargeVariables['fees']:
+                if (str(ProgramID) + "_"+ str(sgl.SubGroup)) == cs['id']:
+                    cost = cs['cost']
+            
+            discountCode = 1
+            for vc in chargeVariables['discounts']:
+                if discountCode == vc['code']:
+                    if sgl.SubGroup == "Staff":
+                        if vc['discountType'] == "percentage":
+                            totalDiscountPercentage = totalDiscountPercentage + vc['percentage']
+                        else:
+                            totalDiscountAmount = totalDiscountAmount + vc['amount']
+
+        discountCode = 2
+        for vc in chargeVariables['discounts']:
+            if discountCode == vc['code']:
+                if len(TuitionID) > 1:
+                    if vc['discountType'] == "percentage":
+                            totalDiscountPercentage = totalDiscountPercentage + vc['percentage']
+                    else:
+                        totalDiscountAmount = totalDiscountAmount + vc['amount']
+
+
+
+        cost = cost - (cost*totalDiscountPercentage)
+
+        cost = cost - totalDiscountAmount
+
+        print '<td><button  type="button" name="chargeNow">Charge ${0} Now</button></td>'.format("%.2f" % cost)
         print '</td>'
         print '</tr>'
     
