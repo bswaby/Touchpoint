@@ -1,5 +1,6 @@
 SELECT  
-  DATEPART(Month,c.CheckInTime) AS [Month],
+  DATEPART(Week,c.CheckInTime) AS [Week],
+    MIN(FORMAT(c.CheckInTime, 'MM-dd-yyyy')) AS [Week Start],
   Count( CASE WHEN p.Age >= 0 AND p.Age < 5 THEN p.PeopleID END) AS [0-5],
   Count( CASE WHEN p.Age >= 6 AND p.Age < 11 THEN p.PeopleID END) AS [6-11],
   Count( CASE WHEN p.Age >= 12 AND p.Age < 17 THEN p.PeopleID END) AS [12-17],
@@ -13,5 +14,5 @@ INNER JOIN
   People p
 ON c.PeopleID =  p.PeopleID
 WHERE DATEPART(Year,c.CheckInTime) >= 2023
- Group By DATEPART(Month,c.CheckInTime)
- Order By DATEPART(Month,c.CheckInTime)
+ Group By DATEPART(week,c.CheckInTime)
+ Order By DATEPART(week,c.CheckInTime)
