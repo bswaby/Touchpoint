@@ -1,6 +1,6 @@
 model.Header = 'Involvement Balance'
 
-sqlFMCDueTotals = '''
+sqlDueTotals = '''
 SELECT 
   SUM(CASE WHEN (dbo.TransactionSummary.TranDate <= GetDate() 
              AND dbo.TransactionSummary.TranDate >= DateAdd(mm,-1, GetDate())) 
@@ -23,7 +23,7 @@ WHERE
     Organizations_alias1.OrganizationId = @P1
 '''
 
-sqlFMCBalance = '''
+sqlBalance = '''
 SELECT 
     dbo.People.FamilyId, 
     dbo.People.PeopleId, 
@@ -59,7 +59,7 @@ Organizations_alias1.OrganizationId = @P1
 Order By     dbo.TransactionSummary.TotDue Desc, dbo.People.Name2;
 '''
 
-sqlFMCOrganizations = '''Select OrganizationName, OrganizationId FROM Organizations Order by OrganizationName'''
+sqlOrganizations = '''Select OrganizationName, OrganizationId FROM Organizations Order by OrganizationName'''
 
 
 header = '''
@@ -136,12 +136,12 @@ print model.RenderTemplate(header)
 
 print '''<select id="org_select"><option value="Ben?p1=0"></option>'''
 
-for a in q.QuerySql(sqlFMCOrganizations):
+for a in q.QuerySql(sqlOrganizations):
     print '<option value="Ben?p1={1}">{0}</option>'.format(a.OrganizationName, a.OrganizationId)
 
 print '''</select>'''
 
-Data.duetotals = q.QuerySql(sqlFMCDueTotals)
-Data.balancereport = q.QuerySql(sqlFMCBalance)
+Data.duetotals = q.QuerySql(sqlDueTotals)
+Data.balancereport = q.QuerySql(sqlBalance)
 print model.RenderTemplate(body)
 print model.RenderTemplate(footer)

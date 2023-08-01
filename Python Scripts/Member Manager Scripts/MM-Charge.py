@@ -182,12 +182,58 @@ GROUP BY
     dbo.MemberTags.Name
     '''
 
+sqlOrganizations = '''
+    SELECT 
+        Organizations_alias1.OrganizationId,
+        Organizations_alias1.OrganizationName
+    FROM 
+        dbo.ProgDiv 
+    INNER JOIN 
+        dbo.Program 
+    ON 
+        ( 
+            dbo.ProgDiv.ProgId = dbo.Program.Id) 
+    INNER JOIN 
+        dbo.Division 
+    ON 
+        ( 
+            dbo.ProgDiv.DivId = dbo.Division.Id) 
+    INNER JOIN 
+        dbo.Organizations Organizations_alias1 
+    ON 
+        ( 
+            dbo.Division.Id = Organizations_alias1.DivisionId) 
+    INNER JOIN 
+        dbo.OrganizationMembers 
+    ON 
+        ( 
+            Organizations_alias1.OrganizationId = dbo.OrganizationMembers.OrganizationId) 
+    WHERE 
+        dbo.Program.Id = ''' + ProgramID + ''' --and dbo.OrganizationMembers.PeopleId = 3134
+    GROUP BY Organizations_alias1.OrganizationId, 
+        Organizations_alias1.OrganizationName
+    ORDER BY 
+        Organizations_alias1.OrganizationName
+    '''
+
+
+
 #page styling
 print '''
 <head>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<script src ="https://code.jquery.com/jquery-3.5.1.min.js"></script>                 
+<script src ="https://ajax.googleapis.com/ajax/libs/jqueryui/1.11.2/jquery-ui.min.js"> </script>  
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.0.0/jquery.min.js"></script>
+
+<!-- jQuery Modal -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-modal/0.9.1/jquery.modal.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery-modal/0.9.1/jquery.modal.min.css" />
+
 	<style>
-		button {
-            width: 40%;
+		button, #buttonLink {
+            width: 45%;
 			color: #ffffff;
 			background-color: #2d63c8;
 			font-size: 15px;
@@ -196,8 +242,11 @@ print '''
 			cursor: pointer;
 			display: inline-block;
 			float: left;
+            text-decoration: none;
+            text-align: center;
+            margin-right: 5px;
 		}
-		button:hover {
+		button:hover, #buttonLink:hover {
 			color: #2d63c8;
 			background-color: #ffffff;
 		}
@@ -229,6 +278,10 @@ print '''
       <tbody role = "rowgroup">  
 
 '''
+
+for b in q.QuerySql(sqlOrganizations):
+    organizationID = b.OrganizationId
+
 
 for a in q.QuerySql(listsql):
 
@@ -263,7 +316,7 @@ for a in q.QuerySql(listsql):
             else:
                 print(a.SubGroup)
             
-        print '</td><td role = "cell">{0}</td>'.format(tID.TotDue)
+        print '</td><td role = "cell">{0}</td>'.format("%.2f" % tID.TotDue)
 
         cost = 0
         totalDiscountPercentage = 0
@@ -298,9 +351,46 @@ for a in q.QuerySql(listsql):
         cost = cost - (cost*totalDiscountPercentage)
 
         cost = cost - totalDiscountAmount
+        formatCost = "%.2f" % cost
 
-        print '''<td><button  type="button" name="chargeNow">Charge ${0} Now</button>&nbsp
-            <button  type="button" name="chargeNow">Variable Charge</button></td>'''.format("%.2f" % cost)
+        # model.AddTransaction(int(tID.PeopleId), int(paymentOrg.OrganizationId), float("%.2f" % cost), messageDescription)
+
+        print '''<td role = "cell">
+        <form id="chargeIndividual" action="MM-ChargeIndividual">
+                  <div>
+                   <input type="hidden" id="pid" name="pid" value="{1}">
+                   <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
+                    <input type="hidden" id="ProgramID" name="ProgramID" value="{3}">
+                    <input type="hidden" name="PayAmount" value="{0}"/>
+                    <input type="hidden" name="PaymentType" value="FEE">
+                    <input type="hidden" name="PaymentDescription" id="PaymentDescription" value="This is a charge of ${0} for {4}"/>
+                   </div>
+                  <button name="chargeNow">Charge ${5} Now</button>
+                </form>
+     
+        <form id="chargeIndividualVariable" class = "modal" action="MM-ChargeIndividual">
+                <div>
+                    <input type="hidden" id="pid" name="pid" value="{1}">
+                    <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
+                    <input type="hidden" id="ProgramID" name="ProgramID" value="{3}">
+                    <input type="hidden" name="PaymentType" value="FEE" id="PaymentType"/>
+                    <input type="hidden" name="PaymentDescription" id="PaymentDescription" value="This is a charge for {4}"/>
+                    <div class="modalparagraph">
+                    <input type="number" name="PayAmount" step="any" id="PayAmount"/> &nbsp
+                    
+                    </div>
+                  
+                  </div>
+                  <button name="variableCharge">Variable Charge</button> 
+                </form>
+        </form>
+        <a id = "buttonLink" href="#chargeIndividualVariable" rel="modal:open">Variable Charge</a>
+
+            </td>'''.format(formatCost, tID.PeopleId, organizationID, ProgramID, ProgramName, formatCost)
+
+#TODO add modal in for variable charge
+#paymentOrg.OrganizationId
+
         print '</td>'
         print '</tr>'
     

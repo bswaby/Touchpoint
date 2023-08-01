@@ -1,11 +1,6 @@
-model.Title = "MM-Payment"
+model.Title = "MM-ChargeIndividual"
 ProgramID = model.Data.ProgramID
-
-for a in q.QuerySql("Select Name From Program Where Id = " + ProgramID):
-    ProgramName = a.Name 
-    
-model.Header = ProgramName + ' | Program Manager'
-
+ProgramName = model.Data.ProgramName
 
 #make payment
 if model.Data.pid == "":
@@ -20,11 +15,13 @@ elif model.Data.PaymentOrg == "":
     print '<h2>organization missing</h2>'
 else:
     messageDescription = model.Data.PaymentType + model.Data.PaymentDescription
-    model.AddTransaction(int(model.Data.pid), int(model.Data.PaymentOrg), float(model.Data.PayAmount), messageDescription)
+    model.AdjustFee(int(model.Data.pid), int(model.Data.PaymentOrg), -float(model.Data.PayAmount), messageDescription)
     #model.Email(3134,3134, "bswaby@fbchtn.org", "Ben Swaby - FBCHville", "Test", messageDescription)
-    print '<p><h2>A {0} payment of {1} has been made with (<i>{2}</i>) description</h2></p>'.format(model.Data.PaymentType,model.Data.PayAmount,model.Data.PaymentDescription)
-    
 
+    #TODO rewrite message displayed
+    print '<p><h2>A charge of ${1} has been made </h2></p>'.format(model.Data.PaymentType, model.Data.PayAmount,model.Data.PaymentDescription)
+    
+#TODO redirect back to charge
 print '''<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
         </br></br></br>
-        <a href="''' + model.CmsHost + '''/PyScript/MM-MemberManager?ProgramID=''' + ProgramID + '''"><i class="fa fa-home fa-3x"></i></a>'''.format(model.CmsHost,model.Data.pid)
+        <a href="''' + model.CmsHost + '''/PyScript/MM-Charge?ProgramName=''' + ProgramName + '''&ProgramID=''' + ProgramID + '''"><i class="fa fa-home fa-3x"></i></a>'''.format(model.CmsHost,model.Data.pid)

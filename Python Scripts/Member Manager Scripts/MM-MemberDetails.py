@@ -631,12 +631,13 @@ for a in q.QuerySql(transactions):
         if paylinkauth != " ":
             print '<a href="PaymentNotify?pid={0}&totaldue={1}&oid={2}&sendemail={3}&sendtext={4}">Text/Email Payment Link</a></br>'.format(a.PeopleId, a.TotalDue, a.OrganizationId,sendemail,sendtext)
             print '''
-                <form id="payfee{3}" class="modal" action="Payment">
+                <form id="payfee{3}" class="modal" action="MM-Payment">
                   <div class="modalparagraph">
                    <h3>Amount Due:{0}</h3>
                    <input type="hidden" id="pid" name="pid" value="{1}">
                    <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
-                   <input type="hidden" id="addpayment" name="addpayment" value="y">
+                   <input type="hidden" id="ProgramID" name="ProgramID" value="{4}">
+
                   Payment Type:
                    <input type="radio" name="PaymentType" value="CSH|" id="PaymentType">CASH
                    <input type="radio" name="PaymentType" value="CHK|" id="PaymentType">CHECK
@@ -650,9 +651,10 @@ for a in q.QuerySql(transactions):
                   </div>
                   <button>Submit</button>
                 </form>
-                <a href="#payfee{3}" rel="modal:open">Pay by Cash/Check</a></br>'''.format('${:,.2f}'.format(a.TotalDue), a.PeopleId, a.OrganizationId, a.RegId)
+                <a href="#payfee{3}" rel="modal:open">Pay by Cash/Check</a></br>'''.format('${:,.2f}'.format(a.TotalDue), a.PeopleId, a.OrganizationId, a.RegId, ProgramID)
             print '<a href="{0}" target="_blank">Pay in Person</a><i>(Open via Incognito)</i>'.format(paylink)
         
+        #                  <input type="hidden" id="addpayment" name="addpayment" value="y">
     #if a.TotalPaid != None:
     #    print '''</br><a href="''' + model.CmsHost + '''/PyScript/MM-Receipt?p1={}">Receipt</a>'''.format(a.RegId)    
     
@@ -755,6 +757,7 @@ for a in q.QuerySql(sqlMemberOrganization):
            <input type="hidden" id="pid" name="pid" value="{0}">
            <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{1}">
            <input type="hidden" id="addpayment" name="addpayment" value="y">
+           <input type="hidden" id="ProgramID" name="ProgramID" value="{3}">
           FEE Type:
            <input type="radio" name="PaymentType" value="FEE|" id="PaymentType">ADD FEE
            <br>
@@ -769,7 +772,7 @@ for a in q.QuerySql(sqlMemberOrganization):
           </div>
           <button>Submit</button>
         </form>
-        <a href="#payfee{2}" rel="modal:open">Add Fee</a></td>'''.format(a.PeopleId, a.OrganizationId, addfee)
+        <a href="#payfee{2}" rel="modal:open">Add Fee</a></td>'''.format(a.PeopleId, a.OrganizationId, addfee, ProgramID)
 
     print '</tr>'
 
