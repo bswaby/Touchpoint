@@ -5,7 +5,7 @@ ProgramID = model.Data.ProgramID
 for a in q.QuerySql("Select Name From Program Where Id = " + ProgramID):
     ProgramName = a.Name #model.Data.ProgramName
     
-model.Header = ProgramName + ' | Program Charge Manager'
+model.Header = ProgramName + ' | Program Charge All'
 
 chargeVariables = {
     'fees' : [
@@ -217,68 +217,6 @@ sqlOrganizations = '''
     '''
 
 
-
-#page styling
-print '''
-<head>
-
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
-<script src ="https://code.jquery.com/jquery-3.5.1.min.js"></script>                 
-<script src ="https://ajax.googleapis.com/ajax/libs/jqueryui/1.11.2/jquery-ui.min.js"> </script>  
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.0.0/jquery.min.js"></script>
-
-<!-- jQuery Modal -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-modal/0.9.1/jquery.modal.min.js"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery-modal/0.9.1/jquery.modal.min.css" />
-
-	<style>
-		button, #buttonLink {
-            width: 45%;
-			color: #ffffff;
-			background-color: #2d63c8;
-			font-size: 15px;
-			border: 1px solid #2d63c8;
-			padding: 5px 5px;
-			cursor: pointer;
-			display: inline-block;
-			float: left;
-            text-decoration: none;
-            text-align: center;
-            margin-right: 5px;
-		}
-		button:hover, #buttonLink:hover {
-			color: #2d63c8;
-			background-color: #ffffff;
-		}
-	</style>
-</head>
-'''
-
-#<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
-
-
-print '''
-<table width="100%">
-    <tr>
-        <td align="left"><a href="''' + model.CmsHost + '''/PyScript/MM-MemberManager?ProgramID=''' + ProgramID + '''"><i class="fa fa-home fa-3x"></i></a></td>
-        <td align="right"><a href="''' + model.CmsHost + '''/PyScript/MM-ChargeAll?ProgramID=''' + ProgramID + '''">Charge All</a></td>
-    </tr>
-</table>
-    <br>
-  <div class = "table-responsive">  
-    <table role = "table" class = "table filtered-table">  
-      <thead role = "rowgroup">  
-        <tr role = "row">  
-          <th role = "columnheader"> Name </th>  
-          <th role = "columnheader"> Involvement (subgroup) </th>
-          <th role = "columnheader"> Outstanding </th>
-          <th role = "columnheader"> New Charges </th>
-        </tr>  
-      </thead>  
-      <tbody role = "rowgroup">  
-
-'''
-
 for b in q.QuerySql(sqlOrganizations):
     organizationID = b.OrganizationId
 
@@ -287,36 +225,11 @@ for a in q.QuerySql(listsql):
 
     #get each family member participating
     TuitionID = q.QuerySql(familysql.format(a.FamilyId))
-
-    #simple way to group like families together visually
-    print '''<tr role = "row"><td style="background-color:#D3D3D3"></td>
-        <td style="background-color:#D3D3D3"></td>
-        <td style="background-color:#D3D3D3"></td>
-        <td style="background-color:#D3D3D3"></td>'''
     
     #pull tuition
     for tID in TuitionID:
-        print '<tr role = "row">'
-        print '''<td role = "cell">
-          <a href="{12}/PyScript/MM-MemberDetails?p1={1}&FamilyId={3}&ProgramName={4}&ProgramID={5}"> {0} ({2})</a>
-             &nbsp<a href="{12}/Person2/{1}#tab-current" target="_blank"><i class="fa fa-info-circle" aria-hidden="true"></i></a>
-          </td>'''.format(tID.Name, tID.PeopleId, tID.Age, tID.FamilyId, ProgramName, ProgramID,tID.EmailAddress,tID.PrimaryAddress,tID.PrimaryCity,tID.PrimaryState,tID.PrimaryZip,tID.CellPhone,model.CmsHost)
-        
         #pull all subgroup(s) assigned
         subGroupList = q.QuerySql(subgrouplistsql.format(tID.PeopleId))
-        # changes needed here to implement subgrouplistsql
-        print ('<td role = "cell"><a href="') + model.CmsHost + '/Org/{0}" target="_blank">'.format(tID.OrganizationId) + '{0}</a><br>'.format(tID.OrganizationName)
-
-        subGroupResults = q.QuerySql(subgrouplistsql.format(tID.PeopleId))
-        i = 0
-        for a in subGroupResults:
-            if len(subGroupResults)>1 & i != (len(subGroupResults)-1):
-                print(a.SubGroup + ", ")
-                i = i+1
-            else:
-                print(a.SubGroup)
-            
-        print '</td><td role = "cell">{0}</td>'.format("%.2f" % tID.TotDue)
 
         cost = 0
         totalDiscountPercentage = 0
@@ -353,46 +266,26 @@ for a in q.QuerySql(listsql):
         cost = cost - totalDiscountAmount
         formatCost = "%.2f" % cost
 
-        # model.AddTransaction(int(tID.PeopleId), int(paymentOrg.OrganizationId), float("%.2f" % cost), messageDescription)
 
-        print '''<td role = "cell">
-        <form id="chargeIndividual" action="MM-ChargeIndividual">
-                  <div>
-                   <input type="hidden" id="pid" name="pid" value="{1}">
-                   <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
-                    <input type="hidden" id="ProgramID" name="ProgramID" value="{3}">
-                    <input type="hidden" name="PayAmount" value="{0}"/>
-                    <input type="hidden" name="PaymentType" value="FEE">
-                    <input type="hidden" name="PaymentDescription" id="PaymentDescription" value="This is a charge of ${0} for {4}"/>
-                   </div>
-                  <button>Charge ${5} Now</button>
-                </form>
-     
-        
-        <a id = "buttonLink" href="#chargeIndividualVariable{1}" rel="modal:open">Variable Charge</a>
-            <form id="chargeIndividualVariable{1}" class = "modal" action="MM-ChargeIndividual">
-                <div>
-                    <input type="hidden" id="pid" name="pid" value="{1}">
-                    <p>{1}</p>
-                    <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
-                    <input type="hidden" id="ProgramID" name="ProgramID" value="{3}">
-                    <input type="hidden" name="PaymentType" value="FEE" id="PaymentType"/>
-                    <input type="hidden" name="PaymentDescription" id="PaymentDescription" value="This is a charge for {4}"/>
-                    <div class="modalparagraph">
-                    <input type="number" name="PayAmount" step="any" id="PayAmount"/> &nbsp
-                    
-                    </div>
-                  
-                  </div>
-                  <button>Variable Charge</button> 
-                </form>
-            </form>
-            </td>'''.format(formatCost, tID.PeopleId, organizationID, ProgramID, ProgramName, formatCost)
 
-#TODO add modal in for variable charge
-#paymentOrg.OrganizationId
 
-        print '</td>'
-        print '</tr>'
-    
-    print ('</td></tr>')
+        #make payment
+        if tID.PeopleId == "":
+            print ""
+        elif cost == "":
+            print '<h2>missing payment</h2>'
+        elif organizationID == "":
+            print '<h2>organization missing</h2>'
+        else:
+            messageDescription = "The all participants in " + ProgramName + " have been charged."
+            model.AdjustFee(int(tID.PeopleId), int(organizationID), -float(cost), messageDescription)
+            #model.Email(3134,3134, "bswaby@fbchtn.org", "Ben Swaby - FBCHville", "Test", messageDescription)
+
+            #TODO rewrite message displayed
+            # print '<p><h2>A charge of ${1} has been made </h2></p>'.format(model.Data.PaymentType, model.Data.PayAmount,model.Data.PaymentDescription)
+            
+        #TODO redirect back to charge
+print '''<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+        </br>
+        <p><h2>All participants of {2} have been charged.</h2></p>
+        <a href="{0}/PyScript/MM-Charge?ProgramName={1}&ProgramID={2}"><i class="fa fa-home fa-3x"></i></a>'''.format(model.CmsHost, ProgramName, ProgramID,model.Data.pid)
