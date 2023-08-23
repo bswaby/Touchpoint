@@ -1,5 +1,5 @@
 <head>
-    <!--[if gte mso 9]>
+  <!--[if gte mso 9]>
     <xml>
       <o:OfficeDocumentSettings>
         <o:AllowPNG></o:AllowPNG>
@@ -7,16 +7,16 @@
       </o:OfficeDocumentSettings>
     </xml>
     <![endif]-->
-    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="x-apple-disable-message-reformatting">
-    <!--[if !mso]><!-->
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <!--<![endif]-->
-    <title>FBCH Payment Receipt</title>
-    <link rel="icon" type="image/x-icon" href="https://fbchville.com/wp-content/uploads/2022/02/MenuLogo.png">
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="x-apple-disable-message-reformatting">
+  <!--[if !mso]><!-->
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <!--<![endif]-->
+  <title>FBCH Payment Receipt</title>
+  <link rel="icon" type="image/x-icon" href="https://fbchville.com/wp-content/uploads/2022/02/MenuLogo.png">
 
-    <!-- <style type="text/css">
+  <!-- <style type="text/css">
           @media only screen and (min-width: 520px) {
       .u-row {
         width: 500px !important;
@@ -85,97 +85,140 @@
             table, td { color: #000000; } 
         </style> -->
 
-    <style>
-        body {
-            background-color: #ccd6d9;
-        }
+  <style>
+    body {
+      background-color: #ccd6d9;
+      font-family: Arial, Helvetica, sans-serif;
+    }
 
-        .content-container {
-            display: flex;
-            height: 88vh;
-            margin: 3%;
-        }
+    .content-container {
+      display: flex;
+      height: 88vh;
+      margin: 3%;
+    }
 
-        .main-column {
-            background-color: white;
-            flex-grow: 3;
-            height: 100%;
-            box-shadow: 5px 5px 20px gray;
-        }
+    .main-column {
+      background-color: white;
+      flex-grow: 3;
+      box-shadow: 5px 5px 20px gray;
+      max-width: 600px;
+      height: 820px
 
-        .side-column {
-            flex-grow: 2;
-        }
+    }
 
-        .column-header {
-            width: 100%;
-            /* height: 300px; */
-        }
+    .side-column {
+      flex-grow: 2;
+    }
 
+    .column-header {
+      width: 100%;
+      /* height: 300px; */
+    }
 
-        .column-header-content {
-            background-color: white;
-            height: 20%;
-            margin: auto;
-            display: block;
-        }
+    .column-header-content {
+      background-color: white;
+      height: 20%;
+      margin: auto;
+      display: block;
+    }
 
-        .column-header-shape {
-            clip-path: polygon(0% 0%, 100% 0%, 100% 32%, 0% 100%);
-            background-color: #579cac;
-            height: 100%;
-        }
+    .column-header-shape {
+      clip-path: polygon(0% 0%, 100% 0%, 100% 32%, 0% 100%);
+      background-color: #579cac;
+      height: 100%;
+    }
 
-        .content-header-image {
-            position: relative;
-            top: -130px;
-            width: fit-content;
-            margin: auto;
-            margin-top:3%;
-            padding:5px;
-            background-color:white;
-            clip-path: circle(50%);
-        }
+    .content-header-image {
+      position: relative;
+      top: -130px;
+      width: fit-content;
+      margin: auto;
+      margin-top: 3%;
+      padding: 5px;
+      background-color: white;
+      clip-path: circle(50%);
+    }
 
-        .column-content {
-            margin: 2%;
-        }
-    </style>
+    .column-content {
+      margin: 2%;
+    }
+
+    .receipt-amount {
+      display: flex;
+      flex-direction: row;
+    }
+
+    .receipt-amount-middle {
+      flex-grow: 1;
+    }
+
+    .column-footer {
+      background-color: #579cac;
+      position: relative;
+      bottom: -100;
+      height: 70px;
+    }
+
+    .column-footer-content{
+      margin: auto;
+    }
+  </style>
 
 </head>
 
 <body>
 
-
-    <div class="content-container">
-        <div class="side-column"></div>
-        <div class="main-column">
-            <div class="column-header">
-                <div class="column-header-content">
-                    <div class="column-header-shape">
-                    </div>
-                    <div class="content-header-image">
-                        <img height="75" width="75" src="https://fbchville.com/wp-content/uploads/2022/02/cropped-Favicon-1-192x192.png">
-                    </div>
-                </div>
-            </div>
-
-            <div class="column-content">
-
-                <p>Hi ''' + a.FirstName + ''',
-
- 
-
-                        Here is your payment confirmation for the transaction on ''' + str(a.TransactionDate) + '''.</p>
-                <p style="font-size: 14px; line-height: 140%;">&nbsp;</p>
-                    <p style="font-size: 14px; line-height: 140%;">Your Ministry Team</p>
-                    <p style="font-size: 14px; line-height: 140%;">First Baptist Church Hendersonville</br>
-                        106 Bluegrass Commons Blvd., Hendersonvillle, TN 37075</br>
-                        (615) 824-6154</br>
-                        <a href="https://fbchville.com">https://fbchville.com </a>     </p> </div> </div> <div
-                        class="side-column">
-            </div>
+  <div class="content-container">
+    <div class="side-column"></div>
+    <div class="main-column">
+      
+      <div class="column-header">
+        <div class="column-header-content">
+          <div class="column-header-shape">
+          </div>
+          <div class="content-header-image">
+            <img height="75" width="75"
+              src="https://fbchville.com/wp-content/uploads/2022/02/cropped-Favicon-1-192x192.png">
+          </div>
         </div>
+      </div>
+
+
+      <div class="column-content">
+        <h1>Thanks for your payment!</h1>
+        <p>Hi ''' + a.FirstName + ''', </p>
+        <p>Here is your payment confirmation for the transaction on ''' + str(a.TransactionDate) + '''.</p>
+
+        <hr>
+
+        <div class="receipt-amount">
+          <p>Total:</p>
+          <div class="receipt-amount-middle"></div>
+          <p> $''' + dollarAmount + ''' </p>
+        </div>
+
+        <hr>
+        <p>Your Ministry Team,</p>
+        <p>First Baptist Church Hendersonville</br>
+          106 Bluegrass Commons Blvd., Hendersonvillle, TN 37075</br>
+          (615) 824-6154</br>
+          <a href="https://fbchville.com">https://fbchville.com </a>
+        </p>
+      </div>
+
+      <div class="column-footer">
+        <div class="column-footer-content">
+           <p>First baptist hendersonville</p> 
+        </div>
+      </div>
+      
+    </div>
+    <div class="side-column">
+    </div>
+
+
+
+  </div>
 
 
 
