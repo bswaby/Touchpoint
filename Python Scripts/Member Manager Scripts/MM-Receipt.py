@@ -266,7 +266,7 @@ for a in q.QuerySql(transactionsnew):
                     <div class="receipt-amount">
                       <p>Total:</p>
                       <div class="receipt-amount-middle"></div>
-                      <p> $''' + dollarAmount + ''' </p>
+                      <p> $''' + a.AdjustFee + ''' </p>
                     </div>
 
                     <hr>
