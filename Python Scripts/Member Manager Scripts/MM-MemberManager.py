@@ -197,6 +197,11 @@ td  {
 
 ''')
 
+print '''<tr role = "row"><td style="background-color:#D3D3D3"></td>
+    <td style="background-color:#D3D3D3"></td>
+    <td style="background-color:#D3D3D3"></td>
+    <td style="background-color:#D3D3D3"></td>'''
+
 #get list of families
 families = q.QuerySql(listsql)
 for a in families:
@@ -207,11 +212,13 @@ for a in families:
     #get each family member participating
     TuitionID = q.QuerySql(familysql.format(a.FamilyId))
 
-    print '''<tr role = "row"><td style="background-color:#D3D3D3"></td>
-        <td style="background-color:#D3D3D3"></td>
-        <td style="background-color:#D3D3D3"></td>
-        <td style="background-color:#D3D3D3"></td>'''
+    # print '''<tr role = "row"><td style="background-color:#D3D3D3"></td>
+    #     <td style="background-color:#D3D3D3"></td>
+    #     <td style="background-color:#D3D3D3"></td>
+    #     <td style="background-color:#D3D3D3"></td>'''
     
+    grandTotal = 0
+
     #interate through each family 
     for tID in TuitionID:
         print '<tr role = "row">'
@@ -223,11 +230,25 @@ for a in families:
         headCheck = " "
         userID = " " 
         userIDType = " " 
+        AltPayID = 0
 
-        #Check to see if there is an alternate pay id
-        AltPayID = model.ExtraValueInt(int(tID.PeopleId), str(ProgramID) + '_AltPayID')
+
+
+
+        #for each family identify a payer, set that variable, add up the total to be owed, have one payment link, figure out how to make one payment go across multiple people
+
+        #on payment, maybe have some logic where balance applies to payer first, then trickles down to the subsequent family members
+
+        #with any fees on child, move amounts from child to payer, therefore, all payments will not need to be split
+
+        #at the time of payment, merge all outstanding balances for the family in that program to the payer. That way, each individual will have their specific total
         
-        if AltPayID != 0:
+
+
+
+        if model.ExtraValueInt(int(tID.PeopleId), str(ProgramID) + '_AltPayID') != 0:
+            #Check to see if there is an alternate pay id
+            AltPayID = model.ExtraValueInt(int(tID.PeopleId), str(ProgramID) + '_AltPayID')
             PayPerson = q.QuerySql("Select PeopleId, EmailAddress, FirstName, LastName, CellPhone, HomePhone from People Where PeopleId = "+ str(AltPayID))
             for alt in PayPerson:
                 PayID = alt.PeopleId
@@ -303,9 +324,14 @@ for a in families:
         for a in subGroupResults:
             print '{0}<br>'.format(a.SubGroup)
 
-        print ('</td><td role = "cell">{0}</td><td>').format(tID.TotDue)
+        print ('</td><td role = "cell">{0}</td>').format("%.2f" % float(tID.TotDue))
 
 
+        #grab the grand total per family
+        grandTotal = grandTotal + float(tID.TotDue)
+
+        print '''<td>'''
+        #Where CC and cash icon are
         if tID.TotDue != 0 or tID.TotDue != 0.0000:
             if paylinkauth != " ":
                 print '<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}"><i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i></a>'.format(PayID, tID.TotDue, tID.OrganizationId,ProgramName,ProgramID,AltPayID,tID.FamilyId)
@@ -337,6 +363,36 @@ for a in families:
   
     print ('</td></tr>')
 
+    print '''<tr><td>hello world</td><td></td><td>${0}</td><td>'''.format(grandTotal)
+
+    if tID.TotDue != 0 or tID.TotDue != 0.0000:
+        if paylinkauth != " ":
+            print '<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}"><i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i></a>'.format(PayID, tID.TotDue, tID.OrganizationId,ProgramName,ProgramID,AltPayID,tID.FamilyId)
+            print '''
+                <form id="payfee{1}{2}" class="modal" action="MM-Payment">
+                  <div class="modalparagraph">
+                  <input type="hidden" id="ProgramName" name="ProgramName" value="{3}">
+                  <input type="hidden" id="ProgramID" name="ProgramID" value="{4}">
+                    <h3>Amount Due:{0}</h3>
+                    <input type="hidden" id="pid" name="pid" value="{1}">
+                    <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
+                    <input type="hidden" id="addpayment" name="addpayment" value="y">
+                  Payment Type:
+                    <input type="radio" name="PaymentType" value="CSH|" id="PaymentType">CASH
+                    <input type="radio" name="PaymentType" value="CHK|" id="PaymentType">CHECK
+                  </div>
+                  <div class="modalparagraph">
+                  Description:
+                    <input type="text" name="PaymentDescription" id="PaymentDescription"/>
+                  </div>
+                  <div class="modalparagraph">
+                  Pay Amount:<input type="number" name="PayAmount" step="any" id="PayAmount"/>
+                  </div>
+                  <button>Submit</button>
+                </form>
+                <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(tID.TotDue, tID.PeopleId, tID.OrganizationId,ProgramName,ProgramID)
+    print '</td>'
+    print '</tr>'
 
 print ('''
       </tbody>  
