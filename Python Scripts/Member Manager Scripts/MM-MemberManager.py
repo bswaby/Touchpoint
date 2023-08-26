@@ -218,6 +218,7 @@ for a in families:
     #     <td style="background-color:#D3D3D3"></td>'''
     
     grandTotal = 0
+    totalsList = []
 
     #interate through each family 
     for tID in TuitionID:
@@ -329,6 +330,7 @@ for a in families:
 
         #grab the grand total per family
         grandTotal = grandTotal + float(tID.TotDue)
+        totalsList.append(float(tID.TotDue))
 
         print '''<td>'''
         #Where CC and cash icon are
@@ -344,6 +346,8 @@ for a in families:
                        <input type="hidden" id="pid" name="pid" value="{1}">
                        <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
                        <input type="hidden" id="addpayment" name="addpayment" value="y">
+                       <input type="hidden" id="payer" name="payer" value="{5}">
+                       <input type="hidden" id="totalsList" name="totalsList" value="{6}">
                       Payment Type:
                        <input type="radio" name="PaymentType" value="CSH|" id="PaymentType">CASH
                        <input type="radio" name="PaymentType" value="CHK|" id="PaymentType">CHECK
@@ -357,13 +361,13 @@ for a in families:
                       </div>
                       <button>Submit</button>
                     </form>
-                    <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(tID.TotDue, tID.PeopleId, tID.OrganizationId,ProgramName,ProgramID)
+                    <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(tID.TotDue, tID.PeopleId, tID.OrganizationId,ProgramName,ProgramID, PayID, totalsList)
         print '</td>'
         print '</tr>'
   
     print ('</td></tr>')
 
-    print '''<tr><td>hello world</td><td></td><td>${0}</td><td>'''.format(grandTotal)
+    print '''<tr><td>hello world</td><td>{1}</td><td>${0}</td><td>'''.format(grandTotal, totalsList)
 
     if tID.TotDue != 0 or tID.TotDue != 0.0000:
         if paylinkauth != " ":
@@ -377,6 +381,8 @@ for a in families:
                     <input type="hidden" id="pid" name="pid" value="{1}">
                     <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
                     <input type="hidden" id="addpayment" name="addpayment" value="y">
+                    <input type="hidden" id="payer" name="payer" value="{5}">
+                    <input type="hidden" id="totalsList" name="totalsList" value="{6}">
                   Payment Type:
                     <input type="radio" name="PaymentType" value="CSH|" id="PaymentType">CASH
                     <input type="radio" name="PaymentType" value="CHK|" id="PaymentType">CHECK
@@ -390,7 +396,7 @@ for a in families:
                   </div>
                   <button>Submit</button>
                 </form>
-                <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(tID.TotDue, tID.PeopleId, tID.OrganizationId,ProgramName,ProgramID)
+                <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(grandTotal, tID.PeopleId, tID.OrganizationId, ProgramName,ProgramID, PayID, totalsList)
     print '</td>'
     print '</tr>'
 

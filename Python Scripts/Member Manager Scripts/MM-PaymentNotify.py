@@ -1,3 +1,6 @@
+print(model.Data.totalsList)
+
+
 #Automation Acccount Where Global Values are Stored
 AutomationAccount = 40678
 
@@ -46,17 +49,17 @@ if AltPayID == 0: #head of household
         Data.LastName = hoh.LastName
         Data.CellPhone = hoh.CellPhone
         
-        if Data.EmailAddress != "":
-            model.Email(int(Data.PeopleId), EmailFrom, Data.email, Data.ProgramName + " - FBCHville", "FBCHville Open Invoice", message)
-            print ('''<h2>Paylink sent to {0} {1}'s email address of {2}.<h2>''').format(Data.FirstName,Data.LastName,Data.EmailAddress)
-        else: 
-            print '''<h2>Account does not have an email address associated with it</h2>'''
+        # if Data.EmailAddress != "":
+        #     model.Email(int(Data.PeopleId), EmailFrom, Data.email, Data.ProgramName + " - FBCHville", "FBCHville Open Invoice", message)
+        #     print ('''<h2>Paylink sent to {0} {1}'s email address of {2}.<h2>''').format(Data.FirstName,Data.LastName,Data.EmailAddress)
+        # else: 
+        #     print '''<h2>Account does not have an email address associated with it</h2>'''
         
-        if Data.CellPhone != "":
-            model.SendSms(int(Data.PeopleId), sendGroup, "Open Invoice", messagesms)
-            print ('''<h2>Paylink sent to {0} {1}'s cell phone number ({2}).<h2>''').format(Data.FirstName,Data.LastName,Data.CellPhone)
-        else:
-            print '''<h2>Account does not have an cell phone associated with it</h2>'''
+        # if Data.CellPhone != "":
+        #     model.SendSms(int(Data.PeopleId), sendGroup, "Open Invoice", messagesms)
+        #     print ('''<h2>Paylink sent to {0} {1}'s cell phone number ({2}).<h2>''').format(Data.FirstName,Data.LastName,Data.CellPhone)
+        # else:
+        #     print '''<h2>Account does not have an cell phone associated with it</h2>'''
 else: #Specific Pay
     HoHPeople = q.QuerySql("Select PeopleId, EmailAddress, FirstName, LastName, CellPhone from People Where PeopleId = "+ str(AltPayID))
     for hoh in HoHPeople:
@@ -66,17 +69,17 @@ else: #Specific Pay
         Data.LastName = hoh.LastName
         Data.CellPhone = hoh.CellPhone
         
-        if Data.EmailAddress != "":
-            model.Email(int(Data.PeopleId), EmailFrom, Data.email, Data.ProgramName + " - FBCHville", "FBCHville Open Invoice", message)
-            print ('''<h2>Paylink sent to {0} {1}'s email address of {2}.<h2>''').format(Data.FirstName,Data.LastName,Data.EmailAddress)
-        else: 
-            print '''<h2>Account does not have an email address associated with it</h2>'''
-        
-        if Data.CellPhone != "":
-            model.SendSms(int(Data.PeopleId), sendGroup, "Open Invoice", messagesms)
-            print ('''<h2>Paylink sent to {0} {1}'s cell phone number ({2}).<h2>''').format(Data.FirstName,Data.LastName,Data.CellPhone)
-        else:
-            print '''<h2>Account does not have an cell phone associated with it</h2>'''
+if Data.EmailAddress != "":
+    model.Email(int(Data.PeopleId), EmailFrom, Data.email, Data.ProgramName + " - FBCHville", "FBCHville Open Invoice", message)
+    print ('''<h2>Paylink sent to {0} {1}'s email address of {2}.<h2>''').format(Data.FirstName,Data.LastName,Data.EmailAddress)
+else: 
+    print '''<h2>Account does not have an email address associated with it</h2>'''
+
+if Data.CellPhone != "":
+    model.SendSms(int(Data.PeopleId), sendGroup, "Open Invoice", messagesms)
+    print ('''<h2>Paylink sent to {0} {1}'s cell phone number ({2}).<h2>''').format(Data.FirstName,Data.LastName,Data.CellPhone)
+else:
+    print '''<h2>Account does not have an cell phone associated with it</h2>'''
 
 #print '''</br></br><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">'''
 print '''<a href="''' + model.CmsHost + '''/PyScript/MM-MemberManager?ProgramName=''' + ProgramName + '''&ProgramID=''' + ProgramID + '''"><i class="fa fa-home fa-3x"></i></a>'''.format(model.CmsHost,model.Data.pid)
