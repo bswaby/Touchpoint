@@ -316,7 +316,10 @@ for a in q.QuerySql(listsql):
             else:
                 print(a.SubGroup)
             
-        print '</td><td role = "cell">{0}</td>'.format("%.2f" % tID.TotDue)
+        if tID.TotDue == None:
+            tID.TotDue = 0.00
+
+        print '</td><td role = "cell">{0}</td>'.format("%.2f" % float(tID.TotDue))
 
         cost = 0
         totalDiscountPercentage = 0

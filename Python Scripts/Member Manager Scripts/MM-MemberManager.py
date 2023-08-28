@@ -7,7 +7,6 @@ model.Header = ProgramName + ' | Program Manager'
 
 
 familysql = '''
-DECLARE @ProgramID int = ''' + ProgramID +'''
 SELECT 
     dbo.People.PeopleId,
     dbo.People.Name, 
@@ -30,7 +29,7 @@ FROM
     INNER JOIN dbo.People ON (dbo.OrganizationMembers.PeopleId = dbo.People.PeopleId) 
     LEFT JOIN dbo.OrganizationExtra ON Organizations_alias1.OrganizationId = OrganizationExtra.OrganizationID
 WHERE 
-    dbo.Program.Id = @ProgramID --AND EXISTS (Select CheckInTimes_alias1.CheckInTime From dbo.CheckInTimes Where dbo.People.PeopleId = CheckInTimes_alias1.PeopleId)
+    dbo.Program.Id = {1} --AND EXISTS (Select CheckInTimes_alias1.CheckInTime From dbo.CheckInTimes Where dbo.People.PeopleId = CheckInTimes_alias1.PeopleId)
     AND OrganizationExtra.Field = 'MemberManagerEnabled' 
     AND OrganizationExtra.BitValue = 1
     AND dbo.People.FamilyId = {0}
@@ -210,7 +209,7 @@ for a in families:
     FamilyId = a.FamilyId
     
     #get each family member participating
-    TuitionID = q.QuerySql(familysql.format(a.FamilyId))
+    TuitionID = q.QuerySql(familysql.format(a.FamilyId, ProgramID))
 
     # print '''<tr role = "row"><td style="background-color:#D3D3D3"></td>
     #     <td style="background-color:#D3D3D3"></td>
@@ -219,6 +218,7 @@ for a in families:
     
     grandTotal = 0
     totalsList = []
+    familyTotalsOrderList = []
 
     #interate through each family 
     for tID in TuitionID:
@@ -305,17 +305,24 @@ for a in families:
         if tID.TotDue != None:
             due = '${:,.2f}'.format(tID.TotDue)
             paylink = model.GetPayLink(PayID, tID.OrganizationId)
+            #grab the grand total per family
+            grandTotal = grandTotal + float(tID.TotDue)
+            totalsList.append(float(tID.TotDue))
+            familyTotalsOrderList.append(tID.PeopleId)
+
             try:
                 paylinkauth = model.GetAuthenticatedUrl(tID.OrganizationId, paylink, True)
             except:
                 paylinkauth = " "
+        else:
+            tID.TotDue = 0.00
 
         print '''<td role = "cell">''' 
 
         print '''
           <a href="{6}/PyScript/MM-MemberDetails?p1={1}&FamilyId={3}&ProgramName={4}&ProgramID={5}"> {0} ({2})</a>&nbsp
           <a href="{6}/Person2/{1}#tab-current" target="_blank"><i class="fa fa-info-circle" aria-hidden="true"></i></a>
-          <br>{7}</td>'''.format(tID.Name, tID.PeopleId, tID.Age, tID.FamilyId, ProgramName,ProgramID,model.CmsHost, PayIDNote)
+          <br>{7}</td>'''.format(tID.Name, tID.PeopleId, tID.Age, tID.FamilyId, ProgramName, ProgramID, model.CmsHost, PayIDNote)
 
             
         print ('<td role = "cell"><a href="') + model.CmsHost + '/Org/{1}" target="_blank">{0}</a><br>'.format(tID.OrganizationName,tID.OrganizationId)
@@ -325,18 +332,17 @@ for a in families:
         for a in subGroupResults:
             print '{0}<br>'.format(a.SubGroup)
 
+
+
         print ('</td><td role = "cell">{0}</td>').format("%.2f" % float(tID.TotDue))
-
-
-        #grab the grand total per family
-        grandTotal = grandTotal + float(tID.TotDue)
-        totalsList.append(float(tID.TotDue))
 
         print '''<td>'''
         #Where CC and cash icon are
         if tID.TotDue != 0 or tID.TotDue != 0.0000:
             if paylinkauth != " ":
-                print '<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}"><i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i></a>'.format(PayID, tID.TotDue, tID.OrganizationId,ProgramName,ProgramID,AltPayID,tID.FamilyId)
+                print ('<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}">' +
+                       '<i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i>'+
+                       '</a>').format(PayID, tID.TotDue, tID.OrganizationId, ProgramName, ProgramID, AltPayID, tID.FamilyId)
                 print '''
                     <form id="payfee{1}{2}" class="modal" action="MM-Payment">
                       <div class="modalparagraph">
@@ -370,35 +376,38 @@ for a in families:
     print '''<tr><td>hello world</td><td>{1}</td><td>${0}</td><td>'''.format(grandTotal, totalsList)
 
     if tID.TotDue != 0 or tID.TotDue != 0.0000:
-        if paylinkauth != " ":
-            print '<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}"><i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i></a>'.format(PayID, tID.TotDue, tID.OrganizationId,ProgramName,ProgramID,AltPayID,tID.FamilyId)
-            print '''
-                <form id="payfee{1}{2}" class="modal" action="MM-Payment">
-                  <div class="modalparagraph">
-                  <input type="hidden" id="ProgramName" name="ProgramName" value="{3}">
-                  <input type="hidden" id="ProgramID" name="ProgramID" value="{4}">
-                    <h3>Amount Due:{0}</h3>
-                    <input type="hidden" id="pid" name="pid" value="{1}">
-                    <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
-                    <input type="hidden" id="addpayment" name="addpayment" value="y">
-                    <input type="hidden" id="payer" name="payer" value="{5}">
-                    <input type="hidden" id="totalsList" name="totalsList" value="{6}">
-                  Payment Type:
-                    <input type="radio" name="PaymentType" value="CSH|" id="PaymentType">CASH
-                    <input type="radio" name="PaymentType" value="CHK|" id="PaymentType">CHECK
-                  </div>
-                  <div class="modalparagraph">
-                  Description:
-                    <input type="text" name="PaymentDescription" id="PaymentDescription"/>
-                  </div>
-                  <div class="modalparagraph">
-                  Pay Amount:<input type="number" name="PayAmount" step="any" id="PayAmount"/>
-                  </div>
-                  <button>Submit</button>
-                </form>
-                <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(grandTotal, tID.PeopleId, tID.OrganizationId, ProgramName,ProgramID, PayID, totalsList)
-    print '</td>'
-    print '</tr>'
+        if paylinkauth != " " and grandTotal != 0:
+          print ('<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}&FamilyTotal={7}&FamilyTotals={8}&FamilyOrder={9}">' +
+                  '<i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i>'+
+                  '</a>').format(PayID, tID.TotDue, tID.OrganizationId, ProgramName, ProgramID, AltPayID,tID.FamilyId, grandTotal, totalsList, familyTotalsOrderList)
+        
+          print '''
+            <form id="payfee{1}{2}" class="modal" action="MM-Payment">
+              <div class="modalparagraph">
+              <input type="hidden" id="ProgramName" name="ProgramName" value="{3}">
+              <input type="hidden" id="ProgramID" name="ProgramID" value="{4}">
+                <h3>Amount Due:{0}</h3>
+                <input type="hidden" id="pid" name="pid" value="{1}">
+                <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
+                <input type="hidden" id="addpayment" name="addpayment" value="y">
+                <input type="hidden" id="payer" name="payer" value="{5}">
+                <input type="hidden" id="totalsList" name="totalsList" value="{6}">
+              Payment Type:
+                <input type="radio" name="PaymentType" value="CSH|" id="PaymentType">CASH
+                <input type="radio" name="PaymentType" value="CHK|" id="PaymentType">CHECK
+              </div>
+              <div class="modalparagraph">
+              Description:
+                <input type="text" name="PaymentDescription" id="PaymentDescription"/>
+              </div>
+              <div class="modalparagraph">
+              Pay Amount:<input type="number" name="PayAmount" step="any" id="PayAmount"/>
+              </div>
+              <button>Submit</button>
+            </form>
+            <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(grandTotal, tID.PeopleId, tID.OrganizationId, ProgramName,ProgramID, PayID, totalsList)
+          print '</td>'
+          print '</tr>'
 
 print ('''
       </tbody>  

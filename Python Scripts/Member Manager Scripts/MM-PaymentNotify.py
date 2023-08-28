@@ -1,4 +1,5 @@
-print(model.Data.totalsList)
+# print(model.Data.FamilyTotals)
+# print(model.Data.FamilyOrder)
 
 
 #Automation Acccount Where Global Values are Stored
@@ -7,6 +8,12 @@ AutomationAccount = 40678
 ProgramID = model.Data.ProgramID
 ProgramName = model.Data.ProgramName
 FamilyId = model.Data.FamilyId
+FamilyTotals = list((model.Data.FamilyTotals).replace('[', '').replace(']', '').replace('', '').split(','))
+FamilyOrder = list((model.Data.FamilyOrder).replace('[', '').replace(']', '').replace('', '').split(','))
+
+print(FamilyOrder)
+print(FamilyTotals)
+
 
 #Get Email from and EmailAddress
 EmailFrom = int(model.ExtraValueInt(AutomationAccount, str(ProgramID) + '_EmailFrom'))
@@ -68,15 +75,26 @@ else: #Specific Pay
         Data.FirstName = hoh.FirstName
         Data.LastName = hoh.LastName
         Data.CellPhone = hoh.CellPhone
-        
-if Data.EmailAddress != "":
-    model.Email(int(Data.PeopleId), EmailFrom, Data.email, Data.ProgramName + " - FBCHville", "FBCHville Open Invoice", message)
+
+
+for i in range(len(FamilyOrder)):
+    if FamilyOrder[i] != Data.PeopleId:
+        model.AdjustFee(int(FamilyOrder[i]), int(model.Data.oid), float(FamilyTotals[i]), "move-to-payer charge")
+        print(FamilyOrder[i])
+        print(FamilyTotals[i])
+        model.AdjustFee(int(Data.PeopleId), int(model.Data.oid), -float(FamilyTotals[i]), "move-to-payer charge")
+
+
+print (Data.PeopleId)
+
+if Data.EmailAddress != None:
+    # model.Email(int(Data.PeopleId), EmailFrom, Data.email, Data.ProgramName + " - FBCHville", "FBCHville Open Invoice", message)
     print ('''<h2>Paylink sent to {0} {1}'s email address of {2}.<h2>''').format(Data.FirstName,Data.LastName,Data.EmailAddress)
 else: 
     print '''<h2>Account does not have an email address associated with it</h2>'''
 
-if Data.CellPhone != "":
-    model.SendSms(int(Data.PeopleId), sendGroup, "Open Invoice", messagesms)
+if Data.CellPhone != None:
+    # model.SendSms(int(Data.PeopleId), sendGroup, "Open Invoice", messagesms)
     print ('''<h2>Paylink sent to {0} {1}'s cell phone number ({2}).<h2>''').format(Data.FirstName,Data.LastName,Data.CellPhone)
 else:
     print '''<h2>Account does not have an cell phone associated with it</h2>'''
