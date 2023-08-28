@@ -302,16 +302,47 @@ for a in families:
 
             PayIDNote = PayIDNote  + parent.FirstName + ' ' + parent.LastName + phoneContact + '<br>'
             
+        #Automatically creates a Program Payment org if not one already
+        #Checks to see if there is a "Program Payment" involement withing the div
+        orgInfo = q.QuerySql( '''SELECT ProgId, DivId, OrganizationName
+          FROM [CMS_fbchville].[dbo].[Organizations]
+          INNER JOIN dbo.ProgDiv ON dbo.ProgDiv.DivId = dbo.Organizations.DivisionId
+          WHERE OrganizationId = {0}'''.format(tID.OrganizationId) )
+      
+        for info in orgInfo:
+          divOrgInfo = q.QuerySql('''SELECT DivisionId, OrganizationName
+          FROM [CMS_fbchville].[dbo].[Organizations]
+          WHERE DivisionId = {0}'''.format(info.DivId))
+
+          paymentInvolvementExists = False
+          for divInfo in divOrgInfo:
+            if divInfo.OrganizationName == "Program Payment":
+              paymentInvolvementExists = True
+          
+        if not paymentInvolvementExists: 
+          model.AddExtraValueIntOrg(tID.OrganizationId, "payerInvolvement", model.AddOrganization('Program Payment', tID.OrganizationId, False))
+
+        payerInvolvement = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
+        inOrg = model.InOrg(PayID, payerInvolvement)
+
+        #If Not in org, add to org and change the paylink organization to the payerInvolvement Org
+        if not inOrg:
+          model.AddMemberToOrg(PayID, payerInvolvement)
+          model.AddSubGroup(PayID, payerInvolvement, 'Payer')
+          paylinkOrg = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
+        else:
+          paylinkOrg = tID.OrganizationId
+
         if tID.TotDue != None:
             due = '${:,.2f}'.format(tID.TotDue)
-            paylink = model.GetPayLink(PayID, tID.OrganizationId)
+            paylink = model.GetPayLink(PayID, paylinkOrg)
             #grab the grand total per family
             grandTotal = grandTotal + float(tID.TotDue)
             totalsList.append(float(tID.TotDue))
             familyTotalsOrderList.append(tID.PeopleId)
 
             try:
-                paylinkauth = model.GetAuthenticatedUrl(tID.OrganizationId, paylink, True)
+                paylinkauth = model.GetAuthenticatedUrl(int(paylinkOrg), paylink, True)
             except:
                 paylinkauth = " "
         else:
