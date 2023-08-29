@@ -316,11 +316,11 @@ for a in families:
 
           paymentInvolvementExists = False
           for divInfo in divOrgInfo:
-            if divInfo.OrganizationName == "Program Payment":
+            if divInfo.OrganizationName == ("Program Payment - " + info.OrganizationName):
               paymentInvolvementExists = True
           
         if not paymentInvolvementExists: 
-          model.AddExtraValueIntOrg(tID.OrganizationId, "payerInvolvement", model.AddOrganization('Program Payment', tID.OrganizationId, False))
+          model.AddExtraValueIntOrg(tID.OrganizationId, "payerInvolvement", model.AddOrganization(('Program Payment - ' + info.OrganizationName), tID.OrganizationId, False))
 
         payerInvolvement = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
         inOrg = model.InOrg(PayID, payerInvolvement)
@@ -373,7 +373,7 @@ for a in families:
             if paylinkauth != " ":
                 print ('<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}">' +
                        '<i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i>'+
-                       '</a>').format(PayID, tID.TotDue, tID.OrganizationId, ProgramName, ProgramID, AltPayID, tID.FamilyId)
+                       '</a>').format(PayID, tID.TotDue, paylinkOrg, ProgramName, ProgramID, AltPayID, tID.FamilyId)
                 print '''
                     <form id="payfee{1}{2}" class="modal" action="MM-Payment">
                       <div class="modalparagraph">

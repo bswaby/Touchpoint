@@ -31,7 +31,9 @@ paylink = " "
 due = '${:,.2f}'.format(float(model.Data.totaldue))
 #if a.OrganizationId != None and a.PeopleId != None:
 paylink = model.GetPayLink(int(model.Data.pid), int(model.Data.oid))
-paylink = model.GetAuthenticatedUrl(int(model.Data.oid), paylink, True)
+paylink = model.GetAuthenticatedUrl(int(model.Data.oid), 
+                                    paylink, 
+                                    True)
 
 sendGroup = q.QuerySqlInt("SELECT TOP 1 ID from SmsGroups")
 
@@ -76,13 +78,13 @@ else: #Specific Pay
         Data.LastName = hoh.LastName
         Data.CellPhone = hoh.CellPhone
 
-
-for i in range(len(FamilyOrder)):
-    if FamilyOrder[i] != Data.PeopleId:
-        model.AdjustFee(int(FamilyOrder[i]), int(model.Data.oid), float(FamilyTotals[i]), "move-to-payer charge")
-        print(FamilyOrder[i])
-        print(FamilyTotals[i])
-        model.AdjustFee(int(Data.PeopleId), int(model.Data.oid), -float(FamilyTotals[i]), "move-to-payer charge")
+if FamilyTotals != None:
+    for i in range(len(FamilyOrder)):
+        if FamilyOrder[i] != Data.PeopleId:
+            model.AdjustFee(int(FamilyOrder[i]), int(model.Data.oid), float(FamilyTotals[i]), "move-to-payer charge")
+            print(FamilyOrder[i])
+            print(FamilyTotals[i])
+            model.AdjustFee(int(Data.PeopleId), int(model.Data.oid), -float(FamilyTotals[i]), "move-to-payer charge")
 
 
 print (Data.PeopleId)
