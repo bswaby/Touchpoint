@@ -4,11 +4,17 @@ AutomationAccount = 40678
 ProgramID = model.Data.ProgramID
 ProgramName = model.Data.ProgramName
 FamilyId = model.Data.FamilyId
-FamilyTotals = list((model.Data.FamilyTotals).replace('[', '').replace(']', '').replace('', '').split(','))
-FamilyOrder = list((model.Data.FamilyOrder).replace('[', '').replace(']', '').replace('', '').split(','))
 
-print(FamilyOrder)
-print(FamilyTotals)
+
+if model.Data.FamilyTotals != "":
+    FamilyTotals = list((model.Data.FamilyTotals).replace('[', '').replace(']', '').replace('', '').split(','))
+else:
+    FamilyTotals = []
+
+if model.Data.FamilyOrder != "":
+    FamilyOrder = list((model.Data.FamilyOrder).replace('[', '').replace(']', '').replace('', '').split(','))
+else:
+    FamilyOrder = []
 
 #Get Email from and EmailAddress
 EmailFrom = int(model.ExtraValueInt(AutomationAccount, str(ProgramID) + '_EmailFrom'))
@@ -68,15 +74,20 @@ else: #Specific Pay
         Data.LastName = hoh.LastName
         Data.CellPhone = hoh.CellPhone
 
-if FamilyTotals != None:
+if len(FamilyTotals) > 0:
     for i in range(len(FamilyOrder)):
         if FamilyOrder[i] != Data.PeopleId:
             model.AdjustFee(int(FamilyOrder[i]), int(model.Data.oid), float(FamilyTotals[i]), "move-to-payer charge")
-            print(FamilyOrder[i])
-            print(FamilyTotals[i])
-            model.AdjustFee(int(Data.PeopleId), int(model.Data.oid), -float(FamilyTotals[i]), "move-to-payer charge")
+            model.AdjustFee(int(Data.PeopleId), model.ExtraValueIntOrg(int(model.Data.oid), 'payerInvolvement'), -float(FamilyTotals[i]), "move-to-payer charge")
+else:
+    totDue = float(model.Data.totaldue)
+    print(model.ExtraValueIntOrg(int(model.Data.oid), 'payerInvolvement'))
+    print(model.Data.pid)
+    print(Data.PeopleId)
 
-print (Data.PeopleId)
+    #TODO need to reconsider this logic since the payer is outside of the involvement
+    model.AdjustFee(int(model.Data.pid), int(model.Data.oid), totDue, "move-to-payer charge")
+    model.AdjustFee(int(Data.PeopleId), model.ExtraValueIntOrg(int(model.Data.oid), 'payerInvolvement'), -totDue, "move-to-payer charge")
 
 if Data.EmailAddress != None:
     # model.Email(int(Data.PeopleId), EmailFrom, Data.email, Data.ProgramName + " - FBCHville", "FBCHville Open Invoice", message)

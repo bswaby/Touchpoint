@@ -356,7 +356,7 @@ for a in families:
           if paylinkauth != " ":
             print ('<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}">' +
                     '<i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i>'+
-                    '</a>').format(PayID, tID.TotDue, paylinkOrg, ProgramName, ProgramID, AltPayID, tID.FamilyId)
+                    '</a>').format(tID.PeopleId, tID.TotDue, tID.OrganizationId, ProgramName, ProgramID, PayID, tID.FamilyId)
             print '''
                 <form id="payfee{1}{2}" class="modal" action="MM-Payment">
                   <div class="modalparagraph">
