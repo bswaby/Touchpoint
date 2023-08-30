@@ -1,7 +1,3 @@
-# print(model.Data.FamilyTotals)
-# print(model.Data.FamilyOrder)
-
-
 #Automation Acccount Where Global Values are Stored
 AutomationAccount = 40678
 
@@ -13,7 +9,6 @@ FamilyOrder = list((model.Data.FamilyOrder).replace('[', '').replace(']', '').re
 
 print(FamilyOrder)
 print(FamilyTotals)
-
 
 #Get Email from and EmailAddress
 EmailFrom = int(model.ExtraValueInt(AutomationAccount, str(ProgramID) + '_EmailFrom'))
@@ -31,9 +26,7 @@ paylink = " "
 due = '${:,.2f}'.format(float(model.Data.totaldue))
 #if a.OrganizationId != None and a.PeopleId != None:
 paylink = model.GetPayLink(int(model.Data.pid), int(model.Data.oid))
-paylink = model.GetAuthenticatedUrl(int(model.Data.oid), 
-                                    paylink, 
-                                    True)
+paylink = model.GetAuthenticatedUrl(int(model.Data.oid), paylink, True)
 
 sendGroup = q.QuerySqlInt("SELECT TOP 1 ID from SmsGroups")
 
@@ -43,11 +36,8 @@ message = '''You have open balance of due with the <b>''' + Data.ProgramName + '
 messagesms = '''You an open balance with the ''' + Data.ProgramName + ''' at FBCHville.  Click the following link to pay the outstanding balance of {0}.  {1}'''.format(due,paylink) 
 #print(int(model.Data.pid), EmailFrom, Data.email, "need to automate program name - FBCHville", "FBCHville Open Invoice", message)
 
-
 #get specific billing or head of household billing
 AltPayID = int(model.Data.AltPayID)
-
-
 
 if AltPayID == 0: #head of household
     HoHPeople = q.QuerySql("Select PeopleId, EmailAddress, FirstName, LastName, CellPhone from People Where FamilyId = "+ FamilyId + " and PositionInFamilyId = 10")
@@ -85,7 +75,6 @@ if FamilyTotals != None:
             print(FamilyOrder[i])
             print(FamilyTotals[i])
             model.AdjustFee(int(Data.PeopleId), int(model.Data.oid), -float(FamilyTotals[i]), "move-to-payer charge")
-
 
 print (Data.PeopleId)
 

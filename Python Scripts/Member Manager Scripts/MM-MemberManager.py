@@ -150,8 +150,9 @@ body {
   margin-bottom: 5px;  
 }  
 table {  
-  box-shadow: 0px 0px 20px rgba(0, 0, 0, 0.1), 0px 10px 20px rgba(0, 0, 0, 0.05),  
-    0px 20px 20px rgba(0, 0, 0, 0.05), 0px 30px 20px rgba(0, 0, 0, 0.05);  
+  // box-shadow: 0px 0px 20px rgba(0, 0, 0, 0.1), 0px 10px 20px rgba(0, 0, 0, 0.05),  
+  // 0px 20px 20px rgba(0, 0, 0, 0.05), 0px 30px 20px rgba(0, 0, 0, 0.05);  
+
   border-collapse: collapse;
 }  
 
@@ -209,13 +210,7 @@ for a in families:
     FamilyId = a.FamilyId
     
     #get each family member participating
-    TuitionID = q.QuerySql(familysql.format(a.FamilyId, ProgramID))
-
-    # print '''<tr role = "row"><td style="background-color:#D3D3D3"></td>
-    #     <td style="background-color:#D3D3D3"></td>
-    #     <td style="background-color:#D3D3D3"></td>
-    #     <td style="background-color:#D3D3D3"></td>'''
-    
+    TuitionID = q.QuerySql(familysql.format(a.FamilyId, ProgramID))    
     grandTotal = 0
     totalsList = []
     familyTotalsOrderList = []
@@ -232,20 +227,6 @@ for a in families:
         userID = " " 
         userIDType = " " 
         AltPayID = 0
-
-
-
-
-        #for each family identify a payer, set that variable, add up the total to be owed, have one payment link, figure out how to make one payment go across multiple people
-
-        #on payment, maybe have some logic where balance applies to payer first, then trickles down to the subsequent family members
-
-        #with any fees on child, move amounts from child to payer, therefore, all payments will not need to be split
-
-        #at the time of payment, merge all outstanding balances for the family in that program to the payer. That way, each individual will have their specific total
-        
-
-
 
         if model.ExtraValueInt(int(tID.PeopleId), str(ProgramID) + '_AltPayID') != 0:
             #Check to see if there is an alternate pay id
@@ -278,29 +259,29 @@ for a in families:
         Parents = q.QuerySql("Select PeopleId, EmailAddress, FirstName, LastName, CellPhone, HomePhone from dbo.People where FamilyId = " + str(FamilyId) + " AND PositionInFamilyId = 10")
         
         for parent in Parents:
-            phoneContact = ""
-            if parent.CellPhone != "":
-                phoneContact = model.FmtPhone(parent.CellPhone, " c: ")
-            if parent.HomePhone != "":
-                phoneContact = phoneContact + model.FmtPhone(parent.HomePhone, " h:")
-             
-            if AltPayID == 0:
-                #check to see if parent is head
-                headCheck = q.QuerySqlInt("SELECT COUNT(FamilyId) FROM Families WHERE FamilyId = " + str(tID.FamilyId) + " AND HeadOfHouseholdId = " + str(parent.PeopleId))
-
-                if headCheck != 0:
-                    PayID = parent.PeopleId
-                    PayIDNote = PayIDNote + '''<i class="fa fa-usd" aria-hidden="true"></i>'''
+          phoneContact = ""
+          if parent.CellPhone != "":
+            phoneContact = model.FmtPhone(parent.CellPhone, " c: ")
+          if parent.HomePhone != "":
+            phoneContact = phoneContact + model.FmtPhone(parent.HomePhone, " h:")
             
-                
-            #check to see username exists
-            hasusername = q.QuerySqlInt("SELECT COUNT(UserId) FROM Users Where PeopleId = " + str(parent.PeopleId)) 
-            if hasusername == 0:
-                #add username so paylinks work
-                model.AddRole(parent.PeopleId,"Access")
-                model.RemoveRole(parent.PeopleId, "Access")
+          if AltPayID == 0:
+            #check to see if parent is head
+            headCheck = q.QuerySqlInt("SELECT COUNT(FamilyId) FROM Families WHERE FamilyId = " + str(tID.FamilyId) + " AND HeadOfHouseholdId = " + str(parent.PeopleId))
 
-            PayIDNote = PayIDNote  + parent.FirstName + ' ' + parent.LastName + phoneContact + '<br>'
+            if headCheck != 0:
+              PayID = parent.PeopleId
+              PayIDNote = PayIDNote + '''<i class="fa fa-usd" aria-hidden="true"></i>'''
+          
+              
+          #check to see username exists
+          hasusername = q.QuerySqlInt("SELECT COUNT(UserId) FROM Users Where PeopleId = " + str(parent.PeopleId)) 
+          if hasusername == 0:
+            #add username so paylinks work
+            model.AddRole(parent.PeopleId,"Access")
+            model.RemoveRole(parent.PeopleId, "Access")
+
+          PayIDNote = PayIDNote  + parent.FirstName + ' ' + parent.LastName + phoneContact + '<br>'
             
         #Automatically creates a Program Payment org if not one already
         #Checks to see if there is a "Program Payment" involement withing the div
@@ -325,28 +306,32 @@ for a in families:
         payerInvolvement = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
         inOrg = model.InOrg(PayID, payerInvolvement)
 
-        #If Not in org, add to org and change the paylink organization to the payerInvolvement Org
-        if not inOrg:
-          model.AddMemberToOrg(PayID, payerInvolvement)
-          model.AddSubGroup(PayID, payerInvolvement, 'Payer')
+        if model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement') != None:
           paylinkOrg = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
         else:
           paylinkOrg = tID.OrganizationId
+                
+        #If Not in org, add to org and change the paylink organization to the payerInvolvement Org
+        
+        if not inOrg:
+          model.AddMemberToOrg(PayID, payerInvolvement)
+          model.AddSubGroup(PayID, payerInvolvement, 'Payer')
 
-        if tID.TotDue != None:
-            due = '${:,.2f}'.format(tID.TotDue)
-            paylink = model.GetPayLink(PayID, paylinkOrg)
-            #grab the grand total per family
-            grandTotal = grandTotal + float(tID.TotDue)
-            totalsList.append(float(tID.TotDue))
-            familyTotalsOrderList.append(tID.PeopleId)
 
-            try:
-                paylinkauth = model.GetAuthenticatedUrl(int(paylinkOrg), paylink, True)
-            except:
-                paylinkauth = " "
+        if tID.TotDue != None or grandTotal != 0:
+          due = '${:,.2f}'.format(tID.TotDue)
+          paylink = model.GetPayLink(PayID, paylinkOrg)
+          #grab the grand total per family
+          grandTotal = grandTotal + float(tID.TotDue)
+          totalsList.append(float(tID.TotDue))
+          familyTotalsOrderList.append(tID.PeopleId)
+
+          try:
+            paylinkauth = model.GetAuthenticatedUrl(int(paylinkOrg), paylink, True)
+          except:
+            paylinkauth = " "
         else:
-            tID.TotDue = 0.00
+          tID.TotDue = 0.00
 
         print '''<td role = "cell">''' 
 
@@ -361,84 +346,93 @@ for a in families:
         #display subgroups the participant is in
         subGroupResults = q.QuerySql(subgrouplistsql.format(tID.PeopleId))
         for a in subGroupResults:
-            print '{0}<br>'.format(a.SubGroup)
-
-
+          print '{0}<br>'.format(a.SubGroup)
 
         print ('</td><td role = "cell">{0}</td>').format("%.2f" % float(tID.TotDue))
 
         print '''<td>'''
         #Where CC and cash icon are
         if tID.TotDue != 0 or tID.TotDue != 0.0000:
-            if paylinkauth != " ":
-                print ('<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}">' +
-                       '<i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i>'+
-                       '</a>').format(PayID, tID.TotDue, paylinkOrg, ProgramName, ProgramID, AltPayID, tID.FamilyId)
-                print '''
-                    <form id="payfee{1}{2}" class="modal" action="MM-Payment">
-                      <div class="modalparagraph">
-                      <input type="hidden" id="ProgramName" name="ProgramName" value="{3}">
-                      <input type="hidden" id="ProgramID" name="ProgramID" value="{4}">
-                       <h3>Amount Due:{0}</h3>
-                       <input type="hidden" id="pid" name="pid" value="{1}">
-                       <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
-                       <input type="hidden" id="addpayment" name="addpayment" value="y">
-                       <input type="hidden" id="payer" name="payer" value="{5}">
-                       <input type="hidden" id="totalsList" name="totalsList" value="{6}">
-                      Payment Type:
-                       <input type="radio" name="PaymentType" value="CSH|" id="PaymentType">CASH
-                       <input type="radio" name="PaymentType" value="CHK|" id="PaymentType">CHECK
-                      </div>
-                      <div class="modalparagraph">
-                      Description:
-                       <input type="text" name="PaymentDescription" id="PaymentDescription"/>
-                      </div>
-                      <div class="modalparagraph">
-                      Pay Amount:<input type="number" name="PayAmount" step="any" id="PayAmount"/>
-                      </div>
-                      <button>Submit</button>
-                    </form>
-                    <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(tID.TotDue, tID.PeopleId, tID.OrganizationId,ProgramName,ProgramID, PayID, totalsList)
+          if paylinkauth != " ":
+            print ('<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}">' +
+                    '<i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i>'+
+                    '</a>').format(PayID, tID.TotDue, paylinkOrg, ProgramName, ProgramID, AltPayID, tID.FamilyId)
+            print '''
+                <form id="payfee{1}{2}" class="modal" action="MM-Payment">
+                  <div class="modalparagraph">
+                  <input type="hidden" id="ProgramName" name="ProgramName" value="{3}">
+                  <input type="hidden" id="ProgramID" name="ProgramID" value="{4}">
+                    <h3>Amount Due:{0}</h3>
+                    <input type="hidden" id="pid" name="pid" value="{1}">
+                    <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
+                    <input type="hidden" id="addpayment" name="addpayment" value="y">
+                    <input type="hidden" id="payer" name="payer" value="{5}">
+                    <input type="hidden" id="totalsList" name="totalsList" value="{6}">
+                  Payment Type:
+                    <input type="radio" name="PaymentType" value="CSH|" id="PaymentType">CASH
+                    <input type="radio" name="PaymentType" value="CHK|" id="PaymentType">CHECK
+                  </div>
+                  <div class="modalparagraph">
+                  Description:
+                    <input type="text" name="PaymentDescription" id="PaymentDescription"/>
+                  </div>
+                  <div class="modalparagraph">
+                  Pay Amount:<input type="number" name="PayAmount" step="any" id="PayAmount"/>
+                  </div>
+                  <button>Submit</button>
+                </form>
+                <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(tID.TotDue, tID.PeopleId, tID.OrganizationId,ProgramName,ProgramID, PayID, totalsList)
         print '</td>'
         print '</tr>'
   
     print ('</td></tr>')
 
-    print '''<tr><td>hello world</td><td>{1}</td><td>${0}</td><td>'''.format(grandTotal, totalsList)
+    tally = 0
+    for tot in totalsList:
+      if tot != 0:
+        tally = tally + 1
 
-    if tID.TotDue != 0 or tID.TotDue != 0.0000:
-        if paylinkauth != " " and grandTotal != 0:
-          print ('<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}&FamilyTotal={7}&FamilyTotals={8}&FamilyOrder={9}">' +
-                  '<i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i>'+
-                  '</a>').format(PayID, tID.TotDue, tID.OrganizationId, ProgramName, ProgramID, AltPayID,tID.FamilyId, grandTotal, totalsList, familyTotalsOrderList)
-        
-          print '''
-            <form id="payfee{1}{2}" class="modal" action="MM-Payment">
-              <div class="modalparagraph">
-              <input type="hidden" id="ProgramName" name="ProgramName" value="{3}">
-              <input type="hidden" id="ProgramID" name="ProgramID" value="{4}">
-                <h3>Amount Due:{0}</h3>
-                <input type="hidden" id="pid" name="pid" value="{1}">
-                <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
-                <input type="hidden" id="addpayment" name="addpayment" value="y">
-                <input type="hidden" id="payer" name="payer" value="{5}">
-                <input type="hidden" id="totalsList" name="totalsList" value="{6}">
-              Payment Type:
-                <input type="radio" name="PaymentType" value="CSH|" id="PaymentType">CASH
-                <input type="radio" name="PaymentType" value="CHK|" id="PaymentType">CHECK
-              </div>
-              <div class="modalparagraph">
-              Description:
-                <input type="text" name="PaymentDescription" id="PaymentDescription"/>
-              </div>
-              <div class="modalparagraph">
-              Pay Amount:<input type="number" name="PayAmount" step="any" id="PayAmount"/>
-              </div>
-              <button>Submit</button>
-            </form>
-            <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(grandTotal, tID.PeopleId, tID.OrganizationId, ProgramName,ProgramID, PayID, totalsList)
-          print '</td>'
-          print '</tr>'
+    if tally > 1:
+      print '''<tr><td><strong>Family Total:</strong></td><td></td><td>${0}</td><td>'''.format("%.2f" % float(grandTotal))
+
+
+      if paylinkauth != " " and grandTotal != 0:
+        print ('<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}&FamilyTotal={7}&FamilyTotals={8}&FamilyOrder={9}">' +
+               '<i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i>'+
+               '</a>').format(PayID, tID.TotDue, tID.OrganizationId, ProgramName, ProgramID, AltPayID,tID.FamilyId, grandTotal, totalsList, familyTotalsOrderList)
+      
+        print '''
+          <form id="payfee{1}{2}" class="modal" action="MM-Payment">
+            <div class="modalparagraph">
+            <input type="hidden" id="ProgramName" name="ProgramName" value="{3}">
+            <input type="hidden" id="ProgramID" name="ProgramID" value="{4}">
+              <h3>Amount Due:{0}</h3>
+              <input type="hidden" id="pid" name="pid" value="{1}">
+              <input type="hidden" id="PaymentOrg" name="PaymentOrg" value="{2}">
+              <input type="hidden" id="addpayment" name="addpayment" value="y">
+              <input type="hidden" id="payer" name="payer" value="{5}">
+              <input type="hidden" id="totalsList" name="totalsList" value="{6}">
+            Payment Type:
+              <input type="radio" name="PaymentType" value="CSH|" id="PaymentType">CASH
+              <input type="radio" name="PaymentType" value="CHK|" id="PaymentType">CHECK
+            </div>
+            <div class="modalparagraph">
+            Description:
+              <input type="text" name="PaymentDescription" id="PaymentDescription"/>
+            </div>
+            <div class="modalparagraph">
+            Pay Amount:<input type="number" name="PayAmount" step="any" id="PayAmount"/>
+            </div>
+            <button>Submit</button>
+          </form>
+          <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(grandTotal, tID.PeopleId, tID.OrganizationId, ProgramName,ProgramID, PayID, totalsList)
+        print '</td>'
+        print '</tr>'
+
+    print '''<tr role = "row"><td style="background-color:#D3D3D3"></td>
+      <td style="background-color:#D3D3D3"></td>
+      <td style="background-color:#D3D3D3"></td>
+      <td style="background-color:#D3D3D3"></td>'''
 
 print ('''
       </tbody>  
@@ -461,21 +455,21 @@ print ('''
 
 if model.HttpMethod == 'post' and model.Data.a == "send":  # Posting a message to be sent
     
-    print " "
-    # TODO verify that person should be allowed to send such a thing, to the given recipient. 
-    
-    sendGroup = q.QuerySqlInt("SELECT TOP 1 ID from SmsGroups")  # TODO eventually: make this vaguely intelligent or something
-    # For testing, change model.Data.to to model.UserPeopleId to send the message to the active user.
-    #link = model.GetPayLink(peopleId, orgId)
-    #link = model.GetAuthenticatedUrl(peopleId, link, True)
-    
-    #model.SendSms(peopleId, sendGroupId, title, "Please pay the balance here: " + link)
-    #print model.SendSms('PeopleId = {}'.format(model.Data.to), sendGroup, "Open Invoice", model.Data.message)
-    print model.SendSms('PeopleId = {}'.format(model.Data.to), sendGroup, "Open Invoice", model.Data.message)
-    print model.Email('PeopleId = {}'.format(model.Data.to),3134, "bswaby@fbchtn.org", "Ben Swaby - FBCHville", "Outstanding " + model.Data.ProgramName + " Fees", model.Data.message)
-    
-    
-    #print('PeopleId = {}'.format(model.Data.to), sendGroup, "Open Invoice", model.Data.message)
+  print " "
+  # TODO verify that person should be allowed to send such a thing, to the given recipient. 
+  
+  sendGroup = q.QuerySqlInt("SELECT TOP 1 ID from SmsGroups")  # TODO eventually: make this vaguely intelligent or something
+  # For testing, change model.Data.to to model.UserPeopleId to send the message to the active user.
+  #link = model.GetPayLink(peopleId, orgId)
+  #link = model.GetAuthenticatedUrl(peopleId, link, True)
+  
+  #model.SendSms(peopleId, sendGroupId, title, "Please pay the balance here: " + link)
+  #print model.SendSms('PeopleId = {}'.format(model.Data.to), sendGroup, "Open Invoice", model.Data.message)
+  print model.SendSms('PeopleId = {}'.format(model.Data.to), sendGroup, "Open Invoice", model.Data.message)
+  print model.Email('PeopleId = {}'.format(model.Data.to),3134, "bswaby@fbchtn.org", "Ben Swaby - FBCHville", "Outstanding " + model.Data.ProgramName + " Fees", model.Data.message)
+  
+  
+  #print('PeopleId = {}'.format(model.Data.to), sendGroup, "Open Invoice", model.Data.message)
     
                 
 print ('''
