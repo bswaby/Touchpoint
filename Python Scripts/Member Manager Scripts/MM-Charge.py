@@ -279,10 +279,10 @@ print '''
 
 '''
 
-for b in q.QuerySql(sqlOrganizations):
-    organizationID = b.OrganizationId
+# for b in q.QuerySql(sqlOrganizations):
+#     organizationID = b.OrganizationId
 
-
+organizationID = 0
 for a in q.QuerySql(listsql):
 
     #get each family member participating
@@ -296,6 +296,7 @@ for a in q.QuerySql(listsql):
     
     #pull tuition
     for tID in TuitionID:
+        organizationID = tID.OrganizationId
         print '<tr role = "row">'
         print '''<td role = "cell">
           <a href="{12}/PyScript/MM-MemberDetails?p1={1}&FamilyId={3}&ProgramName={4}&ProgramID={5}"> {0} ({2})</a>
@@ -348,12 +349,13 @@ for a in q.QuerySql(listsql):
                             totalDiscountPercentage = totalDiscountPercentage + vc['percentage']
                     else:
                         totalDiscountAmount = totalDiscountAmount + vc['amount']
-
-
-
+        
         cost = cost - (cost*totalDiscountPercentage)
-
         cost = cost - totalDiscountAmount
+
+        if cost < 0:
+            cost = 0
+
         formatCost = "%.2f" % cost
 
         # model.AddTransaction(int(tID.PeopleId), int(paymentOrg.OrganizationId), float("%.2f" % cost), messageDescription)

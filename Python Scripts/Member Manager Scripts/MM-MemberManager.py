@@ -199,6 +199,7 @@ print ('''<tr role = "row"><td style="background-color:#D3D3D3"></td>
     <td style="background-color:#D3D3D3"></td>
     <td style="background-color:#D3D3D3"></td>''')
 
+paymentInvolvementExists = False
 #get list of families
 families = q.QuerySql(listsql)
 for a in families:
@@ -293,35 +294,38 @@ for a in families:
           FROM [CMS_fbchville].[dbo].[Organizations]
           WHERE DivisionId = {0}'''.format(info.DivId))
 
-          paymentInvolvementExists = False
+          
           for divInfo in divOrgInfo:
             if divInfo.OrganizationName == ("Program Payment - " + info.OrganizationName) and (model.ExtraValueIntOrg(tID.OrganizationId, "payerInvolvement") == divInfo.OrganizationId and model.ExtraValueBitOrg(tID.OrganizationId, "mainInvolvement")):
               paymentInvolvementExists = True
+            # print(paymentInvolvementExists)
+            # print(tID.OrganizationId)
           
         if not paymentInvolvementExists: 
           newOrg = model.AddOrganization(('Program Payment - ' + info.OrganizationName), tID.OrganizationId, False)
           model.AddExtraValueIntOrg(tID.OrganizationId, "payerInvolvement", newOrg,)
           model.AddExtraValueBoolOrg(tID.OrganizationId, "MemberManagerEnabled", True)
 
+        # print('''What is the pay involvement of ''' )
+        # print (tID.OrganizationId )
+        # print ''' - '''
+        # print (model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement'))
 
-        payerInvolvement = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
-        inOrg = model.InOrg(PayID, payerInvolvement)
-
-        if model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement') != None:
+        if model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement') != 0 or model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement') != None:
+          payerInvolvement = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
+          inOrg = model.InOrg(PayID, payerInvolvement)
           paylinkOrg = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
         else:
           paylinkOrg = tID.OrganizationId
                 
         #If Not in org, add to org and change the paylink organization to the payerInvolvement Org
         
-        if not inOrg:
+        if not inOrg and payerInvolvement:
           model.AddMemberToOrg(PayID, payerInvolvement)
           model.AddSubGroup(PayID, payerInvolvement, 'Payer')
 
           #Insert Fees of 0 here
-          
-
-
+          model.AdjustFee(PayID, payerInvolvement, 0.0, "init charge")
 
         # if model.InOrg(PayID, tID.OrganizationId) and model.ExtraValueBitOrg(tID.OrganizationId, 'mainInvolvement'):
         #   model.DropOrgMember(PayID, tID.OrganizationId)

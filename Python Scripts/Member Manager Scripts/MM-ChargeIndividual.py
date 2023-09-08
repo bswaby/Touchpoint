@@ -11,7 +11,7 @@ elif model.Data.PaymentType == "":
     print '<h2>missing payment type</h2>'
 elif model.Data.PaymentDescription == "":
     print '<h2>missing payment description</h2>'
-elif model.Data.PaymentOrg == "":
+elif model.Data.PaymentOrg == "" or model.Data.PaymentOrg == None:
     print '<h2>organization missing</h2>'
 else:
     messageDescription = model.Data.PaymentType + model.Data.PaymentDescription
