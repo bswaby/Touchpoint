@@ -94,6 +94,16 @@ GROUP BY
     dbo.MemberTags.Name
     '''
 
+sqlProgramOrgs = '''SELECT ProgId, DivId, OrganizationName
+          FROM [CMS_fbchville].[dbo].[Organizations]
+          INNER JOIN dbo.ProgDiv ON dbo.ProgDiv.DivId = dbo.Organizations.DivisionId
+          WHERE OrganizationId = {0}'''
+
+sqlDivOrgInfo = '''SELECT DivisionId, OrganizationName, OrganizationId
+          FROM [CMS_fbchville].[dbo].[Organizations]
+          WHERE DivisionId = {0}'''
+
+
 print ('''
 <script src ="https://code.jquery.com/jquery-3.5.1.min.js"></script>
 <script src ="https://ajax.googleapis.com/ajax/libs/jqueryui/1.11.2/jquery-ui.min.js"> </script> 
@@ -217,13 +227,14 @@ for a in families:
         print ('<tr role = "row">')
         paylink = " "
         PayIDNote = " " 
-        PayID = " "
+        PayerID = " "
         paylinkauth = " "
         hasusername = " "
         headCheck = " "
         userID = " " 
         userIDType = " " 
         AltPayID = 0
+        payerInvolvement = tID.OrganizationId
         totalDue = tID.TotDue
 
         if not tID.TotDue > 0:
@@ -234,7 +245,7 @@ for a in families:
             AltPayID = model.ExtraValueInt(int(tID.PeopleId), str(ProgramID) + '_AltPayID')
             PayPerson = q.QuerySql("Select PeopleId, EmailAddress, FirstName, LastName, CellPhone, HomePhone from People Where PeopleId = "+ str(AltPayID))
             for alt in PayPerson:
-                PayID = alt.PeopleId
+                PayerID = alt.PeopleId
                 
                 #set contact info for altPayID
                 phoneContact = ""
@@ -270,7 +281,7 @@ for a in families:
             headCheck = q.QuerySqlInt("SELECT COUNT(FamilyId) FROM Families WHERE FamilyId = " + str(tID.FamilyId) + " AND HeadOfHouseholdId = " + str(parent.PeopleId))
 
             if headCheck != 0:
-              PayID = parent.PeopleId
+              PayerID = parent.PeopleId
               PayIDNote = PayIDNote + '''<i class="fa fa-usd" aria-hidden="true"></i>'''
           
           #check to see username exists
@@ -284,55 +295,53 @@ for a in families:
             
         #Automatically creates a Program Payment org if not one already
         #Checks to see if there is a "Program Payment" involement withing the div
-        orgInfo = q.QuerySql( '''SELECT ProgId, DivId, OrganizationName
-          FROM [CMS_fbchville].[dbo].[Organizations]
-          INNER JOIN dbo.ProgDiv ON dbo.ProgDiv.DivId = dbo.Organizations.DivisionId
-          WHERE OrganizationId = {0}'''.format(tID.OrganizationId) )
-      
-        for info in orgInfo:
-          divOrgInfo = q.QuerySql('''SELECT DivisionId, OrganizationName, OrganizationId
-          FROM [CMS_fbchville].[dbo].[Organizations]
-          WHERE DivisionId = {0}'''.format(info.DivId))
+        orgInfo = q.QuerySql(sqlProgramOrgs.format(tID.OrganizationId))
 
-          
-          for divInfo in divOrgInfo:
-            if divInfo.OrganizationName == ("Program Payment - " + info.OrganizationName) and (model.ExtraValueIntOrg(tID.OrganizationId, "payerInvolvement") == divInfo.OrganizationId and model.ExtraValueBitOrg(tID.OrganizationId, "mainInvolvement")):
-              paymentInvolvementExists = True
-            # print(paymentInvolvementExists)
-            # print(tID.OrganizationId)
-          
+        for info in orgInfo:
+          divOrgInfo = q.QuerySql(sqlDivOrgInfo.format(info.DivId))
+
+          mainInvolvement = tID.OrganizationId
+          for divOrgInfo in divOrgInfo:
+            if model.ExtraValueBitOrg(divOrgInfo.OrganizationId, 'mainInvolvement'):
+               mainInvolvement = int(divOrgInfo.OrganizationId)
+
+            if model.ExtraValueIntOrg(mainInvolvement, "payerInvolvement") == divOrgInfo.OrganizationId:
+               paymentInvolvementExists = True
+
+        print(''' Here: {0}'''.format(not paymentInvolvementExists))
         if not paymentInvolvementExists: 
           newOrg = model.AddOrganization(('Program Payment - ' + info.OrganizationName), tID.OrganizationId, False)
           model.AddExtraValueIntOrg(tID.OrganizationId, "payerInvolvement", newOrg,)
           model.AddExtraValueBoolOrg(tID.OrganizationId, "MemberManagerEnabled", True)
+          print ("Add new Org")
 
         # print('''What is the pay involvement of ''' )
         # print (tID.OrganizationId )
         # print ''' - '''
         # print (model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement'))
 
-        if model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement') != 0 or model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement') != None:
+        if paymentInvolvementExists:
           payerInvolvement = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
-          inOrg = model.InOrg(PayID, payerInvolvement)
           paylinkOrg = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
         else:
           paylinkOrg = tID.OrganizationId
                 
         #If Not in org, add to org and change the paylink organization to the payerInvolvement Org
-        
-        if not inOrg and payerInvolvement:
-          model.AddMemberToOrg(PayID, payerInvolvement)
-          model.AddSubGroup(PayID, payerInvolvement, 'Payer')
+
+        if not model.InOrg(PayerID, payerInvolvement) and payerInvolvement:
+          model.AddMemberToOrg(PayerID, payerInvolvement)
+          model.AddSubGroup(PayerID, payerInvolvement, 'Payer')
 
           #Insert Fees of 0 here
-          model.AdjustFee(PayID, payerInvolvement, 0.0, "init charge")
+          model.AdjustFee(PayerID, payerInvolvement, 0.0, "init charge")
 
-        # if model.InOrg(PayID, tID.OrganizationId) and model.ExtraValueBitOrg(tID.OrganizationId, 'mainInvolvement'):
-        #   model.DropOrgMember(PayID, tID.OrganizationId)
+        if model.InOrg(PayerID, tID.OrganizationId) and model.ExtraValueBitOrg(tID.OrganizationId, 'mainInvolvement'):
+          print("Payer is a member of the og involv")
+        #   model.DropOrgMember(PayerID, tID.OrganizationId)
 
         if totalDue > 0:
           due = '${:,.2f}'.format(totalDue)
-          paylink = model.GetPayLink(PayID, paylinkOrg)
+          paylink = model.GetPayLink(PayerID, paylinkOrg)
           #grab the grand total per family
           grandTotal = grandTotal + float(totalDue)
           totalsList.append(float(totalDue))
@@ -364,7 +373,7 @@ for a in families:
           if paylinkauth != " ":
             print ('<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}">' +
                     '<i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i>'+
-                    '</a>').format(tID.PeopleId, totalDue, tID.OrganizationId, ProgramName, ProgramID, PayID, tID.FamilyId)
+                    '</a>').format(tID.PeopleId, totalDue, tID.OrganizationId, ProgramName, ProgramID, PayerID, tID.FamilyId)
             print ('''
                 <form id="payfee{1}{2}" class="modal" action="MM-Payment">
                   <div class="modalparagraph">
@@ -389,7 +398,7 @@ for a in families:
                   </div>
                   <button>Submit</button>
                 </form>
-                <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(totalDue, tID.PeopleId, tID.OrganizationId,ProgramName,ProgramID, PayID, totalsList))
+                <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(totalDue, tID.PeopleId, tID.OrganizationId,ProgramName,ProgramID, PayerID, totalsList))
         print ('</td></tr>')
   
     print ('</td></tr>')
@@ -405,7 +414,7 @@ for a in families:
       if paylinkauth != " " and grandTotal != 0:
         print ('<a href="MM-PaymentNotify?pid={0}&totaldue={1}&oid={2}&ProgramName={3}&ProgramID={4}&AltPayID={5}&FamilyId={6}&FamilyTotal={7}&FamilyTotals={8}&FamilyOrder={9}">' +
                '<i class="fa fa-credit-card-alt fa-3x" aria-hidden="true"></i>'+
-               '</a>').format(PayID, totalDue, tID.OrganizationId, ProgramName, ProgramID, AltPayID,tID.FamilyId, grandTotal, totalsList, familyTotalsOrderList)
+               '</a>').format(PayerID, totalDue, tID.OrganizationId, ProgramName, ProgramID, AltPayID,tID.FamilyId, grandTotal, totalsList, familyTotalsOrderList)
       
         print ('''
           <form id="payfee{1}{2}" class="modal" action="MM-Payment">
@@ -431,7 +440,7 @@ for a in families:
             </div>
             <button>Submit</button>
           </form>
-          <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(grandTotal, tID.PeopleId, tID.OrganizationId, ProgramName,ProgramID, PayID, totalsList))
+          <a href="#payfee{1}{2}" rel="modal:open"><i class="fa fa-money fa-4x" aria-hidden="true"></i></a></br>'''.format(grandTotal, tID.PeopleId, tID.OrganizationId, ProgramName,ProgramID, PayerID, totalsList))
         print ('</td></tr>')
 
     print ('''<tr role = "row"><td style="background-color:#D3D3D3"></td>
