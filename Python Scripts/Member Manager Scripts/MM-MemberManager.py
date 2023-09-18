@@ -31,6 +31,7 @@ WHERE
     dbo.Program.Id = {1} --AND EXISTS (Select CheckInTimes_alias1.CheckInTime From dbo.CheckInTimes Where dbo.People.PeopleId = CheckInTimes_alias1.PeopleId)
     AND OrganizationExtra.Field = 'MemberManagerEnabled' 
     AND OrganizationExtra.BitValue = 1
+    AND OrganizationName <> '' 
     AND dbo.People.FamilyId = {0}
     AND dbo.OrganizationMembers.MemberTypeId = 220
 GROUP BY Organizations_alias1.OrganizationId, 
@@ -234,7 +235,7 @@ for a in families:
         userID = " " 
         userIDType = " " 
         AltPayID = 0
-        payerInvolvement = tID.OrganizationId
+        payerInvolvement = None
         totalDue = tID.TotDue
 
         if not tID.TotDue > 0:
@@ -308,26 +309,18 @@ for a in families:
             if model.ExtraValueIntOrg(mainInvolvement, "payerInvolvement") == divOrgInfo.OrganizationId:
                paymentInvolvementExists = True
 
-        print(''' Here: {0}'''.format(not paymentInvolvementExists))
+        # print(''' Here: {0}'''.format(not paymentInvolvementExists))
         if not paymentInvolvementExists: 
           newOrg = model.AddOrganization(('Program Payment - ' + info.OrganizationName), tID.OrganizationId, False)
           model.AddExtraValueIntOrg(tID.OrganizationId, "payerInvolvement", newOrg,)
-          model.AddExtraValueBoolOrg(tID.OrganizationId, "MemberManagerEnabled", True)
-          print ("Add new Org")
+          model.AddExtraValueBoolOrg(newOrg, "MemberManagerEnabled", True)
+          print ("<h3>No Payment Involvement found. Generating now. This page will refresh momentarily.</h3>")
 
-        # print('''What is the pay involvement of ''' )
-        # print (tID.OrganizationId )
-        # print ''' - '''
-        # print (model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement'))
 
-        if paymentInvolvementExists:
-          payerInvolvement = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
-          paylinkOrg = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
-        else:
-          paylinkOrg = tID.OrganizationId
-                
+        payerInvolvement = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
+        paylinkOrg = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')   
+            
         #If Not in org, add to org and change the paylink organization to the payerInvolvement Org
-
         if not model.InOrg(PayerID, payerInvolvement) and payerInvolvement:
           model.AddMemberToOrg(PayerID, payerInvolvement)
           model.AddSubGroup(PayerID, payerInvolvement, 'Payer')
@@ -335,9 +328,18 @@ for a in families:
           #Insert Fees of 0 here
           model.AdjustFee(PayerID, payerInvolvement, 0.0, "init charge")
 
-        if model.InOrg(PayerID, tID.OrganizationId) and model.ExtraValueBitOrg(tID.OrganizationId, 'mainInvolvement'):
-          print("Payer is a member of the og involv")
-        #   model.DropOrgMember(PayerID, tID.OrganizationId)
+        #If Payer is also part of the main involvement, skip creating the row, and remove them from the main involvement
+        if model.InOrg(PayerID, tID.OrganizationId) and model.ExtraValueBitOrg(tID.OrganizationId, 'mainInvolvement') and tID.PeopleId == PayerID:
+          model.DropOrgMember(PayerID, tID.OrganizationId)
+          continue
+
+        # If no Payment Involvement Exists, refresh page to ensure it shows up
+        if not paymentInvolvementExists:
+          print('''<script>
+                    setTimeout(function(){
+                      window.location.reload();
+                      }, 5000);
+                </script>''')
 
         if totalDue > 0:
           due = '${:,.2f}'.format(totalDue)

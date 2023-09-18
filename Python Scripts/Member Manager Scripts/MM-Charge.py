@@ -312,7 +312,6 @@ for a in q.QuerySql(listsql):
         i = 0
         for a in subGroupResults:
             if len(subGroupResults)>1 & i != (len(subGroupResults)-1):
-                print(a.SubGroup + ", ")
                 i = i+1
             else:
                 print(a.SubGroup)
