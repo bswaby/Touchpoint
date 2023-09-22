@@ -96,12 +96,12 @@ GROUP BY
     '''
 
 sqlProgramOrgs = '''SELECT ProgId, DivId, OrganizationName
-          FROM [CMS_fbchville].[dbo].[Organizations]
-          INNER JOIN dbo.ProgDiv ON dbo.ProgDiv.DivId = dbo.Organizations.DivisionId
+          FROM [dbo].[Organizations]
+          INNER JOIN dbo.ProgDiv ON ProgDiv.DivId = Organizations.DivisionId
           WHERE OrganizationId = {0}'''
 
 sqlDivOrgInfo = '''SELECT DivisionId, OrganizationName, OrganizationId
-          FROM [CMS_fbchville].[dbo].[Organizations]
+          FROM [dbo].[Organizations]
           WHERE DivisionId = {0}'''
 
 
@@ -210,8 +210,9 @@ print ('''<tr role = "row"><td style="background-color:#D3D3D3"></td>
     <td style="background-color:#D3D3D3"></td>
     <td style="background-color:#D3D3D3"></td>''')
 
-paymentInvolvementExists = False
+
 #get list of families
+involsToBeCreated = []
 families = q.QuerySql(listsql)
 for a in families:
     FamilyId = ""
@@ -222,6 +223,7 @@ for a in families:
     grandTotal = 0
     totalsList = []
     familyTotalsOrderList = []
+
 
     #interate through each family 
     for tID in TuitionID:
@@ -237,6 +239,8 @@ for a in families:
         AltPayID = 0
         payerInvolvement = None
         totalDue = tID.TotDue
+        paymentInvolvementExists = False
+
 
         if not tID.TotDue > 0:
           totalDue = 0.0
@@ -296,27 +300,30 @@ for a in families:
             
         #Automatically creates a Program Payment org if not one already
         #Checks to see if there is a "Program Payment" involement withing the div
-        orgInfo = q.QuerySql(sqlProgramOrgs.format(tID.OrganizationId))
 
-        for info in orgInfo:
-          divOrgInfo = q.QuerySql(sqlDivOrgInfo.format(info.DivId))
+        paymentInvolvementName = 'Program Payment - ' + str(tID.OrganizationName)
 
-          mainInvolvement = tID.OrganizationId
-          for divOrgInfo in divOrgInfo:
-            if model.ExtraValueBitOrg(divOrgInfo.OrganizationId, 'mainInvolvement'):
-               mainInvolvement = int(divOrgInfo.OrganizationId)
+        if model.ExtraValueIntOrg(tID.OrganizationId, "payerInvolvement") != 0 or tID.OrganizationId in involsToBeCreated:
+          paymentInvolvementExists = True
 
-            if model.ExtraValueIntOrg(mainInvolvement, "payerInvolvement") == divOrgInfo.OrganizationId:
-               paymentInvolvementExists = True
-
-        # print(''' Here: {0}'''.format(not paymentInvolvementExists))
-        if not paymentInvolvementExists: 
-          newOrg = model.AddOrganization(('Program Payment - ' + info.OrganizationName), tID.OrganizationId, False)
+        if not paymentInvolvementExists and model.ExtraValueBitOrg(tID.OrganizationId, "mainInvolvement"):
+          newOrg = model.AddOrganization((paymentInvolvementName), tID.OrganizationId, False)
           model.AddExtraValueIntOrg(tID.OrganizationId, "payerInvolvement", newOrg,)
           model.AddExtraValueBoolOrg(newOrg, "MemberManagerEnabled", True)
-          print ("<h3>No Payment Involvement found. Generating now. This page will refresh momentarily.</h3>")
-
-
+          involsToBeCreated.append(tID.OrganizationId)
+          # print("Created 1 new org for org")
+          # print(tID.OrganizationId)
+          # print(tID.OrganizationName)
+          # print(involsToBeCreated)
+          if(len(involsToBeCreated)==1):
+            print ("<h3>No Payment Involvement found. Generating now. This page will refresh momentarily.</h3>")
+          # If no Payment Involvement Exists, refresh page to ensure it shows up
+          print('''<script>
+                    setTimeout(function(){
+                      window.location.reload();
+                      }, 5000);
+                </script>''')
+        
         payerInvolvement = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')
         paylinkOrg = model.ExtraValueIntOrg(tID.OrganizationId, 'payerInvolvement')   
             
@@ -333,13 +340,6 @@ for a in families:
           model.DropOrgMember(PayerID, tID.OrganizationId)
           continue
 
-        # If no Payment Involvement Exists, refresh page to ensure it shows up
-        if not paymentInvolvementExists:
-          print('''<script>
-                    setTimeout(function(){
-                      window.location.reload();
-                      }, 5000);
-                </script>''')
 
         if totalDue > 0:
           due = '${:,.2f}'.format(totalDue)
