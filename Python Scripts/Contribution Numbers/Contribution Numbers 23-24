@@ -1,0 +1,409 @@
+#Roles=rpt_BusinessAdmin
+
+#sql statement is based on fiscal year.  Ours runs Oct - Sept, so fiscal year is 3 as it's 3 months from the new year. 
+#If you want to it to be calendar year, just change it to 0 and update yeartype to nothing or something else you want it to pre-fix
+model.Header = 'Contribution Numbers 23/24'
+
+fiscalmonth = '3'
+yeartype = 'FY'
+
+
+sqlFundReport = '''
+
+Select
+  DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate))) AS [Year],
+  Sum(c.ContributionAmount) AS [Contributed],
+  Round(Sum(c.ContributionAmount)/Count(Distinct c.ContributionID),2) AS [AverageGift],
+  Count(c.ContributionID) AS [Gifts], 
+  Count(Distinct c.PeopleID) AS [UniqueGivers],
+  Count(c.ContributionID)/Count(Distinct c.PeopleID) AS [AvgNumofGifts],
+  Count(CASE WHEN c.ContributionAmount Between 10000 AND 99999 THEN c.ContributionID END) AS [Gifts10kto99k],
+  Count(CASE WHEN c.ContributionAmount >= 100000 THEN c.ContributionID END) AS [Gifts100kPlus]
+FROM Contribution c
+LEFT JOIN
+  People p
+ON c.PeopleID =  p.PeopleID
+WHERE Year(c.ContributionDate) >= (DATEPART(Year,getdate())-10)
+--AND FundId = 1
+ Group By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate))) ---Year(c.ContributionDate) 
+ Order By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate))) Desc---Year(c.ContributionDate)
+'''
+
+sqlcontributiondata = '''
+CREATE TABLE #tempBudget1
+(
+week DATE,
+budget INT
+)
+
+INSERT INTO #tempBudget1
+VALUES ('2021-10-10',213962),
+('2021-10-17',213962),
+('2021-10-24',213962),
+('2021-10-31',213962),
+('2021-11-07',213962),
+('2021-11-14',213962),
+('2021-11-21',213962),
+('2021-11-28',213962),
+('2021-12-05',503833),
+('2021-12-12',213962),
+('2021-12-19',412137),
+('2021-12-26',532453),
+('2022-01-02',199860),
+('2022-01-09',199860),
+('2022-01-16',199860),
+('2022-01-23',199860),
+('2022-01-30',199860),
+('2022-02-06',199860),
+('2022-02-13',199860),
+('2022-02-20',199860),
+('2022-02-27',199860),
+('2022-03-06',199860),
+('2022-03-13',199860),
+('2022-03-20',199860),
+('2022-03-27',199860),
+('2022-04-03',199860),
+('2022-04-10',199860),
+('2022-04-17',199860),
+('2022-04-24',199860),
+('2022-05-01',199860),
+('2022-05-08',199860),
+('2022-05-15',199860),
+('2022-05-22',199860),
+('2022-05-29',199860),
+('2022-06-05',199860),
+('2022-06-12',199860),
+('2022-06-19',199860),
+('2022-06-26',199860),
+('2022-07-03',199860),
+('2022-07-10',199860),
+('2022-07-17',199860),
+('2022-07-24',199860),
+('2022-07-31',199860),
+('2022-08-07',199860),
+('2022-08-14',199860),
+('2022-08-21',199860),
+('2022-08-28',199860),
+('2022-09-04',199860),
+('2022-09-11',199860),
+('2022-09-18',199860),
+('2022-09-25',199860),
+('2022-10-02',230208),
+('2022-10-09',230208),
+('2022-10-16',230208),
+('2022-10-23',230208),
+('2022-10-30',230208),
+('2022-11-06',230208),
+('2022-11-13',230208),
+('2022-11-20',230208),
+('2022-11-27',230208),
+('2022-12-04',300016),
+('2022-12-11',300000),
+('2022-12-18',450000),
+('2022-12-25',450000),
+('2023-01-01',230208),
+('2023-01-08',230208),
+('2023-01-15',230208),
+('2023-01-22',230208),
+('2023-01-29',230208),
+('2023-02-05',230208),
+('2023-02-12',230208),
+('2023-02-19',230208),
+('2023-02-26',230208),
+('2023-03-05',230208),
+('2023-03-12',230208),
+('2023-03-19',230208),
+('2023-03-26',230208),
+('2023-04-02',230208),
+('2023-04-09',230208),
+('2023-04-16',230208),
+('2023-04-23',230208),
+('2023-04-30',230208),
+('2023-05-07',230208),
+('2023-05-14',230208),
+('2023-05-21',230208),
+('2023-05-28',230208),
+('2023-06-04',230208),
+('2023-06-11',230208),
+('2023-06-18',230208),
+('2023-06-25',230208),
+('2023-07-02',230208),
+('2023-07-09',230208),
+('2023-07-16',230208),
+('2023-07-23',230208),
+('2023-07-30',230208),
+('2023-08-06',230208),
+('2023-08-13',230208),
+('2023-08-20',230208),
+('2023-08-27',230208),
+('2023-09-03',230208),
+('2023-09-10',230208),
+('2023-09-17',230208),
+('2023-09-24',230208),
+('2023-10-01',234636),
+('2023-10-08',234636),
+('2023-10-15',234636),
+('2023-10-22',234636),
+('2023-10-29',234636),
+('2023-11-05',234636),
+('2023-11-12',234636),
+('2023-11-19',234636),
+('2023-11-26',234636),
+('2023-12-03',234636),
+('2023-12-10',536500),
+('2023-12-17',337000),
+('2023-12-24',350000),
+('2023-12-31',1880141),
+('2024-01-07',200000),
+('2024-01-14',200000),
+('2024-01-21',200000),
+('2024-01-28',200000),
+('2024-02-04',200000),
+('2024-02-11',200000),
+('2024-02-18',200000),
+('2024-02-25',200000),
+('2024-03-03',200000),
+('2024-03-10',200000),
+('2024-03-17',200000),
+('2024-03-24',200000),
+('2024-03-31',200000),
+('2024-04-07',200000),
+('2024-04-14',200000),
+('2024-04-21',200000),
+('2024-04-28',200000),
+('2024-05-05',200000),
+('2024-05-12',200000),
+('2024-05-19',200000),
+('2024-05-26',200000),
+('2024-06-02',200000),
+('2024-06-09',200000),
+('2024-06-16',200000),
+('2024-06-23',200000),
+('2024-06-30',200000),
+('2024-07-07',200000),
+('2024-07-14',200000),
+('2024-07-21',200000),
+('2024-07-28',200000),
+('2024-08-04',200000),
+('2024-08-11',200000),
+('2024-08-18',200000),
+('2024-08-25',200000),
+('2024-09-01',200000),
+('2024-09-08',200000),
+('2024-09-15',200000),
+('2024-09-22',200000),
+('2024-09-29',199999)
+
+
+
+
+select * FROM (
+select budget.week as TheFirstofWeek
+-- , 
+, budget.budget as WklyBudget
+, SUM(CAST(budget.budget as bigint)) over (Partition By fy.FiscalYear ORDER BY budget.week) as YTDBudget
+, SUM(c.ContributionAmount) over (Partition By fy.FiscalYear ORDER BY budget.week) as TotalGiving -- fiscal YTD
+, SUM(c_rest.ContributionAmount) over (Partition By fy.FiscalYear ORDER BY budget.week) as TotalGivingwithRestricted -- fiscal YTD with restricted funds
+, SUM(c.ContributionAmount) over (Partition By fy.FiscalYear ORDER BY budget.week) - SUM(CAST(budget.budget as bigint)) over (Partition By fy.FiscalYear ORDER BY budget.week) as OverUnder -- TotalGiving - FiscalYTDBudget
+, ISNULL(c.ContributionAmount, 0) as Contributed
+, ISNULL(c_rest.ContributionAmount, 0) as ContributedwithRestricted
+, CASE WHEN MONTH(budget.week) = 12 and DAY(budget.week) = 31 THEN DATEFROMPARTS(YEAR(budget.week)-1,12,31)
+					ELSE DATEADD(week,datediff(week,0,DATEADD(WEEK,-52,budget.week)),-1) END as PreviousYear
+, py_c.Sunday
+, py_c.ContributionAmount as pyContributed
+, SUM(CAST(pybudget.budget as bigint)) over (Partition By fy.FiscalYear ORDER BY pybudget.week) as pyYTDBudget
+, SUM(py_c.ContributionAmount) over (Partition By fy.FiscalYear ORDER BY budget.week) as pyTotalGiving
+, SUM(py_c.ContributionAmount) over (Partition By fy.FiscalYear ORDER BY budget.week) - SUM(CAST(pybudget.budget as bigint)) over (Partition By fy.FiscalYear ORDER BY pybudget.week) as pyOverUnder -- TotalGiving - FiscalYTDBudget
+, ISNULL(c.AverageGift, 0) as AverageGift
+, ISNULL(c.Gifts, 0) as Gifts
+, ISNULL(c.UniqueGivers, 0) as UniqueGivers
+, ISNULL(c.Gifts10kto99k, 0) as Gifts10kto99k
+, ISNULL(c.Gifts100kPlus, 0) as Gifts100kPlus
+from #tempBudget1 budget
+inner join (select CASE WHEN MONTH(t.week) >= 10 THEN YEAR(t.week) + 1 ELSE YEAR(t.week) END as FiscalYear, week 
+			from #tempBudget1 t
+			) fy -- calculate fiscal year of each date in budget
+	on fy.week = budget.week
+left join (select ContributionDate as Sunday, SUM(ContributionAmount) ContributionAmount
+			FROM dbo.Contribution
+			group by ContributionDate
+			) c_rest  -- all funds, i.e. with restricted funds
+	on c_rest.Sunday = budget.week
+left join (select CASE WHEN DATEPART(dw, ContributionDate) = 2 THEN DATEADD(DAY, -1,ContributionDate)
+				ELSE DATEADD(DAY,((9-DATEPART(dw, ContributionDate))%7-1),ContributionDate) END as Sunday
+			, SUM(ContributionAmount) ContributionAmount
+			, Round(Sum(ContributionAmount)/Count(Distinct ContributionID),2) AS AverageGift
+			, Count(ContributionID) AS Gifts
+			, Count(Distinct PeopleID) AS UniqueGivers
+			, Count(CASE WHEN ContributionAmount Between 10000 AND 99999 THEN ContributionID END) AS Gifts10kto99k
+			, Count(CASE WHEN ContributionAmount >= 100000 THEN ContributionID END) AS Gifts100kPlus
+			FROM dbo.Contribution
+			WHERE FundID = 1 -- restricts to just general fund
+			group by CASE WHEN DATEPART(dw, ContributionDate) = 2 THEN DATEADD(DAY, -1,ContributionDate)
+				ELSE DATEADD(DAY,((9-DATEPART(dw, ContributionDate))%7-1),ContributionDate) END
+			) c
+	on c.Sunday = budget.week
+left join (select CASE WHEN DATEPART(dw, ContributionDate) = 2 THEN DATEADD(DAY, -1,ContributionDate)
+				ELSE DATEADD(DAY,((9-DATEPART(dw, ContributionDate))%7-1),ContributionDate) END as Sunday
+			, SUM(ContributionAmount) ContributionAmount
+			, Round(Sum(ContributionAmount)/Count(Distinct ContributionID),2) AS AverageGift
+			, Count(ContributionID) AS Gifts
+			, Count(Distinct PeopleID) AS UniqueGivers
+			, Count(CASE WHEN ContributionAmount Between 10000 AND 99999 THEN ContributionID END) AS Gifts10kto99k
+			, Count(CASE WHEN ContributionAmount >= 100000 THEN ContributionID END) AS Gifts100kPlus
+			FROM dbo.Contribution
+			WHERE FundID = 1 -- restricts to just general fund
+			group by CASE WHEN DATEPART(dw, ContributionDate) = 2 THEN DATEADD(DAY, -1,ContributionDate)
+				ELSE DATEADD(DAY,((9-DATEPART(dw, ContributionDate))%7-1),ContributionDate) END
+			) py_c
+	on py_c.Sunday = CASE WHEN YEAR(py_c.Sunday) % 4 = 0 AND MONTH(py_c.Sunday) = 12 and DAY(py_c.Sunday)=31 THEN DATEADD(DAY,-366,py_c.Sunday)
+					WHEN YEAR(py_c.Sunday) % 4 <> 0 AND MONTH(py_c.Sunday) = 12 and DAY(py_c.Sunday)=31 THEN DATEADD(DAY,-365,py_c.Sunday)
+					ELSE DATEADD(week,datediff(week,0,DATEADD(WEEK,-52,budget.week)),-1) END -- last years sunday
+left join #tempBudget1 pybudget
+	on DATEADD(week,datediff(week,0,DATEADD(WEEK,-52,budget.week)),-1) = pybudget.week
+) a
+WHERE TheFirstofWeek >= '10/1/2023'
+
+
+drop table #tempBudget1
+'''
+
+template = '''
+    <h3>YoY Contributions including Restricted</h3>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+
+      google.charts.load('current', {'packages':['table']});
+      google.charts.setOnLoadCallback(drawTable);
+
+      function drawTable() {
+        var data = new google.visualization.DataTable();
+        data.addColumn('string', 'Year');
+        data.addColumn('number', 'Contributed');
+        data.addColumn('number', 'Avg Gift');
+        data.addColumn('number', 'Gifts');
+        data.addColumn('number', 'Unique Givers');
+        data.addColumn('number', '10-99k');
+        data.addColumn('number', '100k+');
+
+        data.addRows([
+            {{#each fundreport}}
+                [
+                '<a href="https://myfbch.com/PyScript/ContributionFundYear?p1={{Year}}" target="_blank">{{Year}}</a>',
+                {v: {{Contributed}},  f: '{{FmtMoney Contributed}}'}, 
+                {v: {{AverageGift}},  f: '{{FmtMoney AverageGift}}'}, 
+                {v: {{Gifts}},  f: '{{Fmt Gifts 'N0'}}'},
+                {v: {{UniqueGivers}},  f: '{{Fmt UniqueGivers 'N0'}}'},
+                {{Gifts10kto99k}},
+                {{Gifts100kPlus}}
+                ],
+            {{/each}}
+        ]);
+        
+        var table = new google.visualization.Table(document.getElementById('table_div'));
+        table.draw(data, {showRowNumber: false, alternatingRowStyle: true, allowHtml: true, width: '100%', height: '100%'});
+      }
+    </script>
+    <div id='table_div' style='width: 550px; height: 320px;'></div>
+    
+    <br><h3>Weekly Budget</h3>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+        google.charts.load('current', {packages: ['corechart', 'line']});
+        google.charts.setOnLoadCallback(drawTrendlines);
+        
+        function drawTrendlines() {
+              var data = new google.visualization.DataTable();
+              data.addColumn('string', 'Sunday')
+              data.addColumn('number', 'budget');
+              data.addColumn('number', 'contributed');
+              data.addColumn('number', 'pyContributed');
+        
+              data.addRows([
+                {{#each contributiondata}}
+                  [
+                    '{{Fmt TheFirstofWeek 'd'}}', 
+                    {{WklyBudget}}, 
+                    {{Contributed}},
+                    {{pyContributed}},
+                  ],
+                {{/each}}    
+              ]);
+        
+              var options = {
+                hAxis: {
+                  title: 'Fiscal Week'
+                },
+                vAxis: {
+                  title: 'Amount'
+                },
+                colors: ['#AB0D06', '#007329'],
+                width: 900,
+                height: 500,
+                axes: {
+                  x: {
+                    0: {side: 'top'}
+                  }
+                }   
+              };
+     
+              var chart = new google.visualization.LineChart(document.getElementById('chart_div'));
+              chart.draw(data, options);
+
+          }
+    </script>
+    <div id='chart_div' style='width: 900px; height: 500px;'></div>
+
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+      google.charts.load('current', {'packages':['table']});
+      google.charts.setOnLoadCallback(drawTable);
+
+      function drawTable() {
+        var data = new google.visualization.DataTable();
+        data.addColumn('string', 'Sunday');
+        data.addColumn('number', 'Weekly Budget');
+        data.addColumn('number', 'YTD Budget');
+        data.addColumn('number', 'Contributed');
+        data.addColumn('number', 'OverUnder');
+        data.addColumn('number', 'Total Giving');
+        data.addColumn('number', 'pyContributed');
+        data.addColumn('number', 'pyOverUnder');
+        data.addColumn('number', 'pyTotal Giving');
+        data.addColumn('number', 'Avg Gift');
+        data.addColumn('number', 'Gifts');
+        data.addColumn('number', '10k-99k');
+        data.addColumn('number', '100k+');
+        
+        data.addRows([
+            {{#each contributiondata}}
+                [
+                '<a href="https://myfbch.com/PyScript/ContributionWeekReport23-24?P1={{Fmt TheFirstofWeek 'd'}}" target="_blank">{{Fmt TheFirstofWeek 'd'}}</a>',
+                {v: {{WklyBudget}},  f: '{{FmtMoney WklyBudget}}'},
+                {v: {{YTDBudget}},  f: '{{FmtMoney YTDBudget}}'},
+                {v: {{Contributed}},  f: '{{FmtMoney Contributed}}'},
+                {v: {{OverUnder}},  f: '{{FmtMoney OverUnder}}'},
+                {v: {{TotalGiving}},  f: '{{FmtMoney TotalGiving}}'},
+                {v: {{pyContributed}},  f: '{{FmtMoney pyContributed}}'},
+                {v: {{pyOverUnder}},  f: '{{FmtMoney pyOverUnder}}'},
+                {v: {{pyTotalGiving}},  f: '{{FmtMoney pyTotalGiving}}'},
+                {v: {{AverageGift}},  f: '{{FmtMoney AverageGift}}'},
+                {{Gifts}},
+                {{Gifts10kto99k}},
+                {{Gifts100kPlus}}
+                ],
+            {{/each}}
+
+        ]);
+        
+        var table = new google.visualization.Table(document.getElementById('table_wklybudget'));
+        table.draw(data, {showRowNumber: false, alternatingRowStyle: true, allowHtml: true, width: '100%', height: '100%'});
+      }
+    </script>
+    <div id='table_wklybudget' style='width: 1300px; height: 600px;'></div>
+'''
+
+Data.fundreport = q.QuerySql(sqlFundReport)
+Data.contributiondata = q.QuerySql(sqlcontributiondata)
+NMReport = model.RenderTemplate(template)
+print(NMReport)
