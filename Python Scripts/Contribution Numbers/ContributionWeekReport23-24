@@ -1,0 +1,1039 @@
+#Roles=rpt_BusinessAdmin
+from datetime import datetime
+#sql statement is based on fiscal year.  Ours runs Oct - Sept, so fiscal year is 3 as it's 3 months from the new year. 
+#If you want to it to be calendar year, just change it to 0 and update yeartype to nothing or something else you want it to pre-fix
+model.Header = ' '
+model.Title = 'Contribution 23-24 Overview'
+
+noteName = "ContibutionNoteText"
+fiscalmonth = '3'
+yeartype = 'FY'
+
+'P1 Expected format like M/D/YYYY'
+# date = '11/5/2023'
+date = model.Data.P1
+sendReport = model.Data.sendReport
+date = datetime.strptime(date, '%m/%d/%Y')
+date_str = date.strftime('%Y-%m-%d') # YYYY-MM-DD
+#text0 = model.Data.text0
+
+#replace \n with <br /> for custom text
+myText = model.Content(noteName)
+myText = "<br />".join(myText.split("\n"))
+
+
+sqlcontributiondata = '''
+
+CREATE TABLE #tempBudget1
+(
+week DATE,
+budget INT
+)
+
+INSERT INTO #tempBudget1
+VALUES ('2021-10-10',213962),
+('2021-10-17',213962),
+('2021-10-24',213962),
+('2021-10-31',213962),
+('2021-11-07',213962),
+('2021-11-14',213962),
+('2021-11-21',213962),
+('2021-11-28',213962),
+('2021-12-05',503833),
+('2021-12-12',213962),
+('2021-12-19',412137),
+('2021-12-26',532453),
+('2022-01-02',199860),
+('2022-01-09',199860),
+('2022-01-16',199860),
+('2022-01-23',199860),
+('2022-01-30',199860),
+('2022-02-06',199860),
+('2022-02-13',199860),
+('2022-02-20',199860),
+('2022-02-27',199860),
+('2022-03-06',199860),
+('2022-03-13',199860),
+('2022-03-20',199860),
+('2022-03-27',199860),
+('2022-04-03',199860),
+('2022-04-10',199860),
+('2022-04-17',199860),
+('2022-04-24',199860),
+('2022-05-01',199860),
+('2022-05-08',199860),
+('2022-05-15',199860),
+('2022-05-22',199860),
+('2022-05-29',199860),
+('2022-06-05',199860),
+('2022-06-12',199860),
+('2022-06-19',199860),
+('2022-06-26',199860),
+('2022-07-03',199860),
+('2022-07-10',199860),
+('2022-07-17',199860),
+('2022-07-24',199860),
+('2022-07-31',199860),
+('2022-08-07',199860),
+('2022-08-14',199860),
+('2022-08-21',199860),
+('2022-08-28',199860),
+('2022-09-04',199860),
+('2022-09-11',199860),
+('2022-09-18',199860),
+('2022-09-25',199860),
+('2022-10-02',230208),
+('2022-10-09',230208),
+('2022-10-16',230208),
+('2022-10-23',230208),
+('2022-10-30',230208),
+('2022-11-06',230208),
+('2022-11-13',230208),
+('2022-11-20',230208),
+('2022-11-27',230208),
+('2022-12-04',300016),
+('2022-12-11',300000),
+('2022-12-18',450000),
+('2022-12-25',450000),
+('2023-01-01',230208),
+('2023-01-08',230208),
+('2023-01-15',230208),
+('2023-01-22',230208),
+('2023-01-29',230208),
+('2023-02-05',230208),
+('2023-02-12',230208),
+('2023-02-19',230208),
+('2023-02-26',230208),
+('2023-03-05',230208),
+('2023-03-12',230208),
+('2023-03-19',230208),
+('2023-03-26',230208),
+('2023-04-02',230208),
+('2023-04-09',230208),
+('2023-04-16',230208),
+('2023-04-23',230208),
+('2023-04-30',230208),
+('2023-05-07',230208),
+('2023-05-14',230208),
+('2023-05-21',230208),
+('2023-05-28',230208),
+('2023-06-04',230208),
+('2023-06-11',230208),
+('2023-06-18',230208),
+('2023-06-25',230208),
+('2023-07-02',230208),
+('2023-07-09',230208),
+('2023-07-16',230208),
+('2023-07-23',230208),
+('2023-07-30',230208),
+('2023-08-06',230208),
+('2023-08-13',230208),
+('2023-08-20',230208),
+('2023-08-27',230208),
+('2023-09-03',230208),
+('2023-09-10',230208),
+('2023-09-17',230208),
+('2023-09-24',230208),
+('2023-10-01',234636),
+('2023-10-08',234636),
+('2023-10-15',234636),
+('2023-10-22',234636),
+('2023-10-29',234636),
+('2023-11-05',234636),
+('2023-11-12',234636),
+('2023-11-19',234636),
+('2023-11-26',234636),
+('2023-12-03',234636),
+('2023-12-10',536500),
+('2023-12-17',337000),
+('2023-12-24',350000),
+('2023-12-31',1880141),
+('2024-01-07',200000),
+('2024-01-14',200000),
+('2024-01-21',200000),
+('2024-01-28',200000),
+('2024-02-04',200000),
+('2024-02-11',200000),
+('2024-02-18',200000),
+('2024-02-25',200000),
+('2024-03-03',200000),
+('2024-03-10',200000),
+('2024-03-17',200000),
+('2024-03-24',200000),
+('2024-03-31',200000),
+('2024-04-07',200000),
+('2024-04-14',200000),
+('2024-04-21',200000),
+('2024-04-28',200000),
+('2024-05-05',200000),
+('2024-05-12',200000),
+('2024-05-19',200000),
+('2024-05-26',200000),
+('2024-06-02',200000),
+('2024-06-09',200000),
+('2024-06-16',200000),
+('2024-06-23',200000),
+('2024-06-30',200000),
+('2024-07-07',200000),
+('2024-07-14',200000),
+('2024-07-21',200000),
+('2024-07-28',200000),
+('2024-08-04',200000),
+('2024-08-11',200000),
+('2024-08-18',200000),
+('2024-08-25',200000),
+('2024-09-01',200000),
+('2024-09-08',200000),
+('2024-09-15',200000),
+('2024-09-22',200000),
+('2024-09-29',199999)
+
+
+
+
+select * FROM (
+select budget.week as TheFirstofWeek
+-- , 
+, budget.budget as WklyBudget
+, SUM(CAST(budget.budget as bigint)) over (Partition By fy.FiscalYear ORDER BY budget.week) as YTDBudget
+, SUM(c.ContributionAmount) over (Partition By fy.FiscalYear ORDER BY budget.week) as TotalGiving -- fiscal YTD
+, SUM(c_rest.ContributionAmount) over (Partition By fy.FiscalYear ORDER BY budget.week) as TotalGivingwithRestricted -- fiscal YTD with restricted funds
+, SUM(c.ContributionAmount) over (Partition By fy.FiscalYear ORDER BY budget.week) - SUM(CAST(budget.budget as bigint)) over (Partition By fy.FiscalYear ORDER BY budget.week) as OverUnder -- TotalGiving - FiscalYTDBudget
+, c.ContributionAmount as Contributed
+, c_rest.ContributionAmount as ContributedwithRestricted
+, CASE WHEN MONTH(budget.week) = 12 and DAY(budget.week) = 31 THEN DATEFROMPARTS(YEAR(budget.week)-1,12,31)
+					ELSE DATEADD(week,datediff(week,0,DATEADD(WEEK,-52,budget.week)),-1) END as PreviousYear
+, py_c.Sunday
+, py_c.ContributionAmount as pyContributed
+, SUM(CAST(pybudget.budget as bigint)) over (Partition By fy.FiscalYear ORDER BY pybudget.week) as pyYTDBudget
+, SUM(py_c.ContributionAmount) over (Partition By fy.FiscalYear ORDER BY budget.week) as pyTotalGiving
+, SUM(py_c.ContributionAmount) over (Partition By fy.FiscalYear ORDER BY budget.week) - SUM(CAST(pybudget.budget as bigint)) over (Partition By fy.FiscalYear ORDER BY pybudget.week) as pyOverUnder -- TotalGiving - FiscalYTDBudget
+, c.AverageGift
+, c.Gifts
+, c.UniqueGivers
+, c.Gifts10kto99k
+, c.Gifts100kPlus
+from #tempBudget1 budget
+inner join (select CASE WHEN MONTH(t.week) >= 10 THEN YEAR(t.week) + 1 ELSE YEAR(t.week) END as FiscalYear, week 
+			from #tempBudget1 t
+			) fy -- calculate fiscal year of each date in budget
+	on fy.week = budget.week
+left join (select ContributionDate as Sunday, SUM(ContributionAmount) ContributionAmount
+			FROM dbo.Contribution
+			group by ContributionDate
+			) c_rest  -- all funds, i.e. with restricted funds
+	on c_rest.Sunday = budget.week
+left join (select CASE WHEN DATEPART(dw, ContributionDate) = 2 THEN DATEADD(DAY, -1,ContributionDate)
+				ELSE DATEADD(DAY,((9-DATEPART(dw, ContributionDate))%7-1),ContributionDate) END as Sunday
+			, SUM(ContributionAmount) ContributionAmount
+			, Round(Sum(ContributionAmount)/Count(Distinct ContributionID),2) AS AverageGift
+			, Count(ContributionID) AS Gifts
+			, Count(Distinct PeopleID) AS UniqueGivers
+			, Count(CASE WHEN ContributionAmount Between 10000 AND 99999 THEN ContributionID END) AS Gifts10kto99k
+			, Count(CASE WHEN ContributionAmount >= 100000 THEN ContributionID END) AS Gifts100kPlus
+			FROM dbo.Contribution
+			WHERE FundID = 1 -- restricts to just general fund
+			group by CASE WHEN DATEPART(dw, ContributionDate) = 2 THEN DATEADD(DAY, -1,ContributionDate)
+				ELSE DATEADD(DAY,((9-DATEPART(dw, ContributionDate))%7-1),ContributionDate) END
+			) c
+	on c.Sunday = budget.week
+left join (select CASE WHEN DATEPART(dw, ContributionDate) = 2 THEN DATEADD(DAY, -1,ContributionDate)
+				ELSE DATEADD(DAY,((9-DATEPART(dw, ContributionDate))%7-1),ContributionDate) END as Sunday
+			, SUM(ContributionAmount) ContributionAmount
+			, Round(Sum(ContributionAmount)/Count(Distinct ContributionID),2) AS AverageGift
+			, Count(ContributionID) AS Gifts
+			, Count(Distinct PeopleID) AS UniqueGivers
+			, Count(CASE WHEN ContributionAmount Between 10000 AND 99999 THEN ContributionID END) AS Gifts10kto99k
+			, Count(CASE WHEN ContributionAmount >= 100000 THEN ContributionID END) AS Gifts100kPlus
+			FROM dbo.Contribution
+			WHERE FundID = 1 -- restricts to just general fund
+			group by CASE WHEN DATEPART(dw, ContributionDate) = 2 THEN DATEADD(DAY, -1,ContributionDate)
+				ELSE DATEADD(DAY,((9-DATEPART(dw, ContributionDate))%7-1),ContributionDate) END
+			) py_c
+	on py_c.Sunday = CASE WHEN YEAR(py_c.Sunday) % 4 = 0 AND MONTH(py_c.Sunday) = 12 and DAY(py_c.Sunday)=31 THEN DATEADD(DAY,-366,py_c.Sunday)
+					WHEN YEAR(py_c.Sunday) % 4 <> 0 AND MONTH(py_c.Sunday) = 12 and DAY(py_c.Sunday)=31 THEN DATEADD(DAY,-365,py_c.Sunday)
+					ELSE DATEADD(week,datediff(week,0,DATEADD(WEEK,-52,budget.week)),-1) END -- last years sunday
+left join #tempBudget1 pybudget
+	on DATEADD(week,datediff(week,0,DATEADD(WEEK,-52,budget.week)),-1) = pybudget.week
+) a
+WHERE TheFirstofWeek = '{0}'
+
+
+drop table #tempBudget1
+
+'''
+
+sqlAttendanceGiving = '''
+select *
+FROM 
+  ( SELECT m.Day
+  , dow as [Weekday]
+  , m.Attendance
+  , SUM(m.Attendance) OVER (Partition BY CutOff ORDER BY m.Day) TotalAttendance
+  , m.CutOff as FYCutoff
+  FROM (select SUM(MaxCount) as Attendance, CONVERT(date,MeetingDate) as Day, DATENAME(WEEKDAY,MeetingDate) dow
+		, CASE WHEN MONTH(MeetingDate)>=10 THEN DATEFROMPARTS(YEAR(MeetingDate),10,1)
+		    ELSE DATEFROMPARTS(YEAR(MeetingDate)-1,10,1) END CutOff
+		from dbo.Meetings m1
+		LEFT JOIN dbo.Organizations org ON m1.OrganizationId = org.OrganizationId
+		LEFT JOIN dbo.Division div ON div.Id = org.DivisionId
+		LEFT JOIN dbo.ProgDiv pdiv ON pdiv.DivId = div.Id
+		LEFT JOIN dbo.Program pg ON pg.Id = pdiv.ProgId
+		WHERE (div.ProgId = 1124 OR div.Id IN (88,137))
+		group by CONVERT(date,MeetingDate)
+				,CASE WHEN MONTH(MeetingDate)>=10 THEN DATEFROMPARTS(YEAR(MeetingDate),10,1)
+					ELSE DATEFROMPARTS(YEAR(MeetingDate)-1,10,1) END
+				, DATENAME(WEEKDAY,MeetingDate)
+		) m
+  Group By m.Day, dow, Cutoff, Attendance -- start of the date
+  ) a
+where a.Day = '{0}'
+'''
+
+sqlAttendance = '''
+SELECT
+  Sum([MaxCount]) AS [Attendance]
+  FROM [CMS_fbchville].[dbo].[Meetings]
+  LEFT JOIN Organizations org ON Meetings.OrganizationId = org.OrganizationId
+  LEFT JOIN Division div ON div.Id = org.DivisionId
+  LEFT JOIN ProgDiv pdiv ON pdiv.DivId = div.Id
+  LEFT JOIN Program pg ON pg.Id = pdiv.ProgId
+  WHERE (div.ProgId = 1124 OR div.Id IN (88,137))
+  AND CONVERT(DATETIME, FLOOR(CONVERT(FLOAT, MeetingDate))) = @P1
+  Group By CONVERT(DATETIME, FLOOR(CONVERT(FLOAT, MeetingDate)))
+'''
+
+sqlAttendanceSum = '''
+SELECT
+  Sum([MaxCount]) AS [Attendance]
+  FROM [CMS_fbchville].[dbo].[Meetings]
+  LEFT JOIN Organizations org ON Meetings.OrganizationId = org.OrganizationId
+  LEFT JOIN Division div ON div.Id = org.DivisionId
+  LEFT JOIN ProgDiv pdiv ON pdiv.DivId = div.Id
+  LEFT JOIN Program pg ON pg.Id = pdiv.ProgId
+  WHERE (div.ProgId = 1124 OR div.Id IN (88,137))
+  AND CONVERT(DATETIME, FLOOR(CONVERT(FLOAT, MeetingDate))) Between '10/1/2023' AND '9/30/2024'
+  --Group By CONVERT(DATETIME, FLOOR(CONVERT(FLOAT, MeetingDate)))
+'''
+
+
+sqlOnlineGiving = '''
+Select SUM(BundleTotal) AS [TotalOnline]
+, CONVERT(date,DepositDate) DepositDate
+FROM dbo.BundleHeader 
+WHERE CONVERT(DATETIME,CONVERT(date,DepositDate)) = '{0}'
+AND BundleHeaderTypeId = 7
+GROUP BY CONVERT(date,DepositDate)
+
+'''
+
+
+
+template = '''
+
+
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+
+	<title>Invoice2</title>
+
+	<!-- Bootstrap cdn 3.3.7 -->
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+
+	<!-- Custom font montseraat -->
+	<link href="https://fonts.googleapis.com/css?family=Montserrat:400,500,600,700" rel="stylesheet">
+
+	<!-- Custom style invoice1.css -->
+	<link rel="stylesheet" type="text/css" href="./invoice2.css">
+
+	<!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
+      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
+    
+    <!-- Font Awesome.. because it is -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+
+<style>
+body{
+	font-family: 'Montserrat', sans-serif;
+}
+
+
+
+element.style {
+}
+.invoice-bottom-total .no-padding {
+    padding-left: 0;
+    padding-right: 0;
+}
+
+@media (min-width: 768px)
+.col-sm-8 {
+    /*width: 66.66666667%;*/
+}
+@media (min-width: 768px)
+.col-sm-1, .col-sm-10, .col-sm-11, .col-sm-12, .col-sm-2, .col-sm-3, .col-sm-4, .col-sm-5, .col-sm-6, .col-sm-7, .col-sm-8, .col-sm-9 {
+    float: left;
+}
+.col-lg-1, .col-lg-10, .col-lg-11, .col-lg-12, .col-lg-2, .col-lg-3, .col-lg-4, .col-lg-5, .col-lg-6, .col-lg-7, .col-lg-8, .col-lg-9, .col-md-1, .col-md-10, .col-md-11, .col-md-12, .col-md-2, .col-md-3, .col-md-4, .col-md-5, .col-md-6, .col-md-7, .col-md-8, .col-md-9, .col-sm-1, .col-sm-10, .col-sm-11, .col-sm-12, .col-sm-2, .col-sm-3, .col-sm-4, .col-sm-5, .col-sm-6, .col-sm-7, .col-sm-8, .col-sm-9, .col-xs-1, .col-xs-10, .col-xs-11, .col-xs-12, .col-xs-2, .col-xs-3, .col-xs-4, .col-xs-5, .col-xs-6, .col-xs-7, .col-xs-8, .col-xs-9 {
+    position: relative;
+    min-height: 1px;
+    padding-right: 0px;
+    padding-left: 0px;
+}
+
+@media (min-width: 768px)
+.col-sm-1, .col-sm-10, .col-sm-11, .col-sm-12, .col-sm-2, .col-sm-3, .col-sm-4, .col-sm-5, .col-sm-6, .col-sm-7, .col-sm-8, .col-sm-9 {
+    float: left;
+}
+.col-lg-1, .col-lg-10, .col-lg-11, .col-lg-12, .col-lg-2, .col-lg-3, .col-lg-4, .col-lg-5, .col-lg-6, .col-lg-7, .col-lg-8, .col-lg-9, .col-md-1, .col-md-10, .col-md-11, .col-md-12, .col-md-2, .col-md-3, .col-md-4, .col-md-5, .col-md-6, .col-md-7, .col-md-8, .col-md-9, .col-sm-1, .col-sm-10, .col-sm-11, .col-sm-12, .col-sm-2, .col-sm-3, .col-sm-4, .col-sm-5, .col-sm-6, .col-sm-7, .col-sm-8, .col-sm-9, .col-xs-1, .col-xs-10, .col-xs-11, .col-xs-12, .col-xs-2, .col-xs-3, .col-xs-4, .col-xs-5, .col-xs-6, .col-xs-7, .col-xs-8, .col-xs-9 {
+    position: relative;
+    min-height: 1px;
+    padding-right: 0px;
+    padding-left: 0px;
+}
+@media (min-width: 768px)
+.col-sm-8 {
+    /*width: 66.66666667%;*/
+}
+* {
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+}
+*, :after, :before {
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+}
+user agent stylesheet
+div {
+    display: block;
+}
+@media (min-width: 768px)
+.container {
+    width: 750px;
+}
+
+.container {
+    padding-right: 0px;
+    padding-left: 0px;
+    margin-right: auto;
+    margin-left: auto;
+}
+.box-content {
+    background-color: #fff;
+    color: inherit;
+    padding: 15px 20px 20px;
+    border-color: #e7eaec;
+    border-style: solid solid none;
+    border-width: 1px 0;
+    clear: both;
+}
+body {
+    font-family: 'Montserrat', sans-serif;
+}
+body {
+    font-family: "Helvetica Neue",Helvetica,Arial,sans-serif;
+    font-size: 14px;
+    line-height: 1.42857143;
+    color: #333;
+    background-color: #fff;
+}
+body {
+    margin: 0;
+    font-family: "Open Sans","Helvetica Neue",Helvetica,Arial,sans-serif;
+    font-size: 14px;
+    line-height: 1.42857143;
+    color: #333;
+}
+@media only screen and (min-width: 992px)
+:root {
+    --seat-detail-width: calc(33vw - 30px);
+}
+:root {
+    --seat-detail-width: calc(100vw - 60px);
+}
+@media only screen and (min-width: 768px)
+:root {
+    --seat-detail-width: calc(50vw - 30px);
+}
+injected stylesheet
+:host, :root {
+    --rem: 16;
+}
+html {
+    font-size: 10px;
+    -webkit-tap-highlight-color: rgba(0,0,0,0);
+}
+html {
+    font-family: sans-serif;
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+}
+html {
+    font-size: 10px;
+    -webkit-tap-highlight-color: transparent;
+}
+html {
+    font-family: sans-serif;
+    -ms-text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
+}
+:after, :before {
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+}
+*, :after, :before {
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+}
+:after, :before {
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+}
+*, :after, :before {
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+}
+
+.row {
+    margin-right: -15px;
+    margin-left: -15px;
+}
+
+.btn-group-vertical>.btn-group:after, .btn-group-vertical>.btn-group:before, .btn-toolbar:after, .btn-toolbar:before, .clearfix:after, .clearfix:before, .container-fluid:after, .container-fluid:before, .container:after, .container:before, .dl-horizontal dd:after, .dl-horizontal dd:before, .form-horizontal .form-group:after, .form-horizontal .form-group:before, .modal-footer:after, .modal-footer:before, .modal-header:after, .modal-header:before, .nav:after, .nav:before, .navbar-collapse:after, .navbar-collapse:before, .navbar-header:after, .navbar-header:before, .navbar:after, .navbar:before, .pager:after, .pager:before, .panel-body:after, .panel-body:before, .row:after, .row:before {
+    display: table;
+    content: " ";
+}
+.btn-group-vertical>.btn-group:after, .btn-toolbar:after, .clearfix:after, .container-fluid:after, .container:after, .dl-horizontal dd:after, .form-horizontal .form-group:after, .modal-footer:after, .modal-header:after, .nav:after, .navbar-collapse:after, .navbar-header:after, .navbar:after, .pager:after, .panel-body:after, .row:after {
+    clear: both;
+}
+.h6, h6 {
+    font-size: 12px;
+    display: block;
+    font-size: 0.67em;
+    margin-block-start: 2.33em;
+    margin-block-end: 2.33em;
+    margin-inline-start: 0px;
+    margin-inline-end: 0px;
+    font-weight: bold;
+}
+.h1, .h2, .h3, .h4, .h5, .h6, h1, h2, h3, h4, h5, h6 {
+    font-family: inherit;
+    font-weight: 500;
+    line-height: 1.1;
+    color: inherit;
+}
+.invoice-top {
+    background: linear-gradient(135deg, #fafafa, #eeeeee);
+    background-color: #fafafa;
+}
+.front-invoice-wrapper{
+	margin: 20px auto;
+	max-width: 800px;
+	box-shadow: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);
+}
+.front-invoice-top{
+	background-color: #323149;
+	padding: 40px 60px;
+}
+.front-invoice-top-left h2, .front-invoice-top-right h2{
+	color: #ffffff;
+	font-size: 22px;
+	margin-bottom: 4px;
+}
+.front-invoice-top-left h3, .front-invoice-top-right h3{
+	color: rgba(255,255,255,0.7);
+	font-size: 15px;
+	font-weight: 400;
+	margin-top: 0;
+	margin-bottom: 5px;
+}
+.front-invoice-top-left h5, .front-invoice-top-right h5{
+	color: rgba(255,255,255,0.7);
+	font-size: 14px;
+	font-weight: 400;
+	margin-top: 0;
+}
+
+.front-invoice-top-right{
+	text-align: right;
+}
+
+.service-name{
+	color: #ffffff;
+	font-size: 22px;
+	font-weight: 500;
+	margin-top: 60px;
+}
+.date{
+	color: rgba(255,255,255,0.8);
+	font-size: 14px;
+}
+
+.front-invoice-bottom{
+	background-color: #ffffff;
+	padding: 20px; /* 60px;*/
+	position: relative;
+}
+.borderless td, .borderless th {
+    border: none !important;
+}
+.custom-table td{
+	font-size: 13px;
+    padding: 6px !important;
+    font-weight: 500;
+}
+.description{
+	line-height: 1.6;
+}
+.specs{
+	margin-top: 30px;
+	font-size: 14px;
+}
+
+.back{}
+.invoice-wrapper{
+	margin: 20px auto;
+	max-width: 800px;
+	min-width: 600px;
+	box-shadow: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);
+}
+.invoice-top{
+	background: linear-gradient(135deg, #fafafa, #eeeeee);
+	padding: 60px 60px 80px;
+}
+.invoice-top-left{
+	/*margin-top: 60px;*/
+}
+.invoice-top-left h2, .invoice-top-right h2{	
+	font-size: 22px;
+	margin-bottom: 4px;
+}
+.invoice-top-left h3, .invoice-top-right h3{
+	font-size: 15px;
+	font-weight: 400;
+	margin-top: 0;
+	margin-bottom: 5px;
+}
+.invoice-top-left h5, .invoice-top-right h5{
+	font-size: 14px;
+	font-weight: 400;
+	margin-top: 0;
+}
+
+.invoice-top-left h4{
+	margin-top: 40px;
+	font-size: 22px;
+}
+.invoice-top-left h6{
+	font-size: 14px;
+    font-weight: 400;
+}
+
+.invoice-top-right h2, .invoice-top-right h3, .invoice-top-right h5{
+	text-align: right;
+}
+
+.logo-wrapper{ overflow: auto; }
+
+
+.invoice-bottom{
+	background-color: #ffffff;
+	padding: 40px 60px;
+	position: relative;
+}
+
+.task-table-wrapper{
+	margin-top: -14%;
+}
+.task-table-wrapper .table > thead > tr> th{
+    padding-top: 0px;
+    padding-bottom: 30px;
+	border: none;
+	padding-left: 0;
+	/*text-align: left;*/
+	font-size: 16px;
+	/*padding-bottom: 30px;*/
+}
+.task-table-wrapper .table> tbody> tr:first-child > td{
+	border-top: 0;
+}
+.task-table-wrapper .table> tbody> tr> td{
+	padding-top: 0px;
+	padding-bottom: 0px;
+	/*padding-left: 0;*/
+	border: none;
+	font-size: 14px;
+}
+.task-table-wrapper .table> tbody> tr> td> h4{
+	margin-top: 0;
+}
+.task-table-wrapper .table tbody .desc{
+	/*width:80%;*/
+}
+.paddingBetweenCols td {
+  padding: 10px 15px;
+}
+.desc h3{
+	margin-top: 0;
+	font-size: 20px;
+}
+.desc h5{
+	font-weight: 400;
+	line-height: 1.4;
+	font-size: 14px;
+}
+.invoice-bottom-total{
+	background-color: #fafafa;
+	/*overflow: auto;*/
+	margin-top: 50px;
+}
+.invoice-bottom-total .no-padding{
+	padding-left: 0;
+	padding-right: 0;
+}
+.invoice-bottom-total .tax-box, .invoice-bottom-total .add-box, .invoice-bottom-total .sub-total-box{
+	/*display: inline-block;*/
+	margin-right: 10px;
+	/*padding: 10px;*/
+	font-size: 14px;
+}
+.invoice-bottom-total .total-box{
+	background-color: #323149;
+	/*padding: 10px;*/
+	color: white;
+	font-size: 18px;
+	text-align: right;
+}
+.invoice-bottom-total .total-box h6{
+	margin-top: 0;
+	color: #ffffff;
+	text-align: right;
+}
+.invoice-bottom-total .total-box h3{
+	margin-bottom: 0;
+	color: #ffffff;
+	text-align: right;
+}
+.summary-box-table{
+    width:100%;
+    /*table-layout: fixed;*/
+    overflow-wrap: break-word;
+}
+.summary-box-left{
+	background-color: #fafafa;
+	display: inline-block;
+	margin-right: 5px;
+	padding: 5px;
+	font-size: 14px;
+}
+.summary-box-right{
+    background-color: #323149;
+	padding: 5px;
+	color: white;
+	font-size: 18px;
+	text-align: right;
+}
+.divider{
+	margin-top: 50px;
+    margin-bottom: 5px;
+}
+
+.bottom-bar{
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	height: 26px;
+	background-color: #323149;
+}
+.text-left {
+    text-align: left;
+}
+.text-center {
+    text-align: center;
+}
+.text-right {
+    text-align: right;
+}
+
+</style>
+
+	<section class="back">
+		<div class="container">
+			<div class="row">
+				<div class="col-xs-12">
+					<div class="invoice-wrapper">
+						<div class="invoice-top">
+							<div class="row">
+								<div class="col-sm-6">
+									<div class="invoice-top-left">
+                                        <h2>First Baptist Hendersonville Giving Report</h2>
+										<h6>FY24 (October 2023 - September 2024)</h6>
+									</div>
+								</div>
+								<div class="col-sm-6">
+									<div class="invoice-top-right">
+										<h2>{{Fmt TheFirstofWeek 'd'}}</h2>
+										<!-- <div class="logo-wrapper">
+											<img src="https://fbchville.com/wp-content/uploads/2022/09/tp_450x100.png" class="img-responsive pull-right logo" />
+										</div> -->
+									</div>
+								</div>
+							</div>
+							<span style="white-space: pre-wrap;">''' + myText + '''</pre>
+						</div>
+						<div class="invoice-bottom">
+							<div>
+								<div>
+									<div class="task-table-wrapper">
+									    <br>
+										<table class="table">
+											<thead>
+												<tr>
+													<th><h4>BUDGET OFFERINGS</h4></th>
+													<th><h4>FY24</h4></th>
+													<th><h4>FY23</h4></th>
+													<th><h4>PY $|% VAR</h4></th>
+												</tr>
+											</thead>
+											<tbody>
+												<tr>
+													<td class="desc">
+													
+													</td>
+													<td class="desc">
+													({{Fmt TheFirstofWeek 'd'}})
+													</td>
+													<td class="desc">
+													({{Fmt PreviousYear 'd'}})
+													</td>
+													<td class="desc">
+													
+													</td>
+												</tr>
+												<tr>
+													<td class="desc">
+														Giving this Week
+													</td>
+													<td class="desc">
+														{{FmtMoney Contributed}}
+													</td>
+													<td class="desc">
+														{{FmtMoney pyContributed}}
+													</td>
+													<td class="desc">
+														
+													</td>
+												</tr>
+												<tr>
+													<td class="desc">
+														Giving Fiscal YTD
+													</td>
+													<td class="desc">
+														{{FmtMoney TotalGiving}}
+													</td>
+													<td class="desc">
+														{{FmtMoney pyTotalGiving}}
+													</td>
+													<td class="desc">
+														<b>{{FmtMoney vardGiving 'N0'}}|{{Fmt varpGiving 'N2'}}%</b>
+													</td>
+												</tr>
+												<tr>
+													<td class="desc">
+														Budget Needs Fiscal YTD
+													</td>
+													<td class="desc">
+														{{FmtMoney YTDBudget}}
+													</td>
+													<td class="desc">
+														{{FmtMoney pyYTDBudget}}
+													</td>
+													<td class="desc">
+														
+													</td>
+												</tr>	
+												<tr>
+													<td class="desc">
+														Amount Ahead/(Behind) of Budget
+													</td>
+													<td class="desc">
+														{{FmtMoney AheadBehind}}
+													</td>
+													<td class="desc">
+														{{FmtMoney pyAheadBehind}}
+													</td>
+													<td class="desc">
+													
+													</td>
+
+												</tr>
+								                <tr>
+								                    <td><br></td>
+								                    <td></td>
+								                    <td></td>
+								                    <td></td>
+								                </tr>
+												<tr>
+													<td class="desc">
+														YTD Budget % Over/(Behind)
+													</td>
+													<td>
+													  {{Fmt ytdBudgetOverBehind 'N2'}}%
+													</td>
+													<td>{{Fmt pyytdBudgetOverBehind 'N2'}}%</td>
+													<td></td>
+												</tr>
+												<tr>
+													<td class="desc">
+														Gift Per Attendee (current week)
+													</td>
+													<td>
+													  {{FmtMoney TotalAttendance}}
+													</td>
+													<td></td>
+													<td></td>
+												</tr>
+												<tr>
+													<td class="desc">
+														Gift Per Attendee (fiscal avg)
+													</td>
+													<td>
+													  {{FmtMoney AttendanceSum}}
+													</td>
+													<td></td>
+													<td></td>
+												</tr>
+											</tbody>
+										</table>
+									</div>
+								</div>
+								<div class="clearfix"></div>
+								    <div class="col-md-12">
+    								    <div class="invoice-bottom-total">
+            								<table class="summary-box-table">
+                							<colgroup>
+                                                <col span="1" style="width: 65%;">
+                                                <col span="1" style="width: 35%;">
+                                            </colgroup>
+            								    <tr>
+            								        <td class="summary-box-left" no-padding>
+            								            <b>{{FmtMoney ContributedwithRestricted}}</b> | Total Giving Including Restricted<br>
+            								            <b>{{FmtMoney TotalOnline}} ({{PercentOnline}}%)</b> | Online Giving
+            								        </td>
+            								        <td class="summary-box-right" no-padding>
+            								            Weekly Attendance<br>
+            											{{Attendance}}
+            								        </td>
+            								    <tr>
+            								</table>
+        								</div>
+    								</div>
+    							</div>
+								<div class="clearfix"></div>
+								<div class="col-xs-12">
+									<hr class="divider">
+								</div>
+								
+    								<p 
+    								<span style="text-align:left;">Shannon Benefiel</span>
+    								<span style="float:right">(615) 447-1309&nbsp;&nbsp;sbenefiel@fbchtn.org</span>
+    								</p>
+    							
+							</div>
+							<div class="bottom-bar"></div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</section>
+	
+
+	<!-- jquery slim version 3.2.1 minified -->
+	<script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha256-k2WSCIexGzOj3Euiig+TlR8gA0EmPjuc79OEeY5L45g=" crossorigin="anonymous"></script>
+
+	<!-- Latest compiled and minified JavaScript -->
+	<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+
+    <script>
+    function myFunction() {
+      window.location.reload();
+    }
+    </script>
+'''
+
+contributiondata = q.QuerySql(sqlcontributiondata.format(date_str))
+
+for d in contributiondata:
+    Data.TheFirstofWeek = d.TheFirstofWeek
+    Data.WklyBudget = d.WklyBudget
+    Data.YTDBudget = d.YTDBudget
+    Data.TotalGiving = d.TotalGiving
+    Data.TotalGivingwithRestricted = d.TotalGivingwithRestricted
+    Data.Contributed = d.Contributed
+    Data.ContributedwithRestricted = d.ContributedwithRestricted
+    Data.OverUnder = d.OverUnder
+    Data.PreviousYear = d.PreviousYear
+    Data.pyContributed = d.pyContributed
+    Data.pyYTDBudget = d.pyYTDBudget
+    Data.pyTotalGiving = d.pyTotalGiving
+    Data.pyOverUnder = d.pyOverUnder
+    Data.AverageGift = d.AverageGift
+    Data.Gifts = d.Gifts
+    Data.UniqueGivers = d.UniqueGivers
+    
+    Data.vardGiving = d.TotalGiving - d.pyTotalGiving
+    Data.varpGiving = (((d.TotalGiving / d.pyTotalGiving) -1) * 100)
+    Data.AheadBehind =  d.TotalGiving - d.YTDBudget
+    Data.pyAheadBehind =  d.pyTotalGiving - d.pyYTDBudget
+    Data.ytdBudgetOverBehind = (((d.TotalGiving / d.YTDBudget) - 1) * 100)
+    
+    Data.pyytdBudgetOverBehind = (((d.pyTotalGiving / d.pyYTDBudget) - 1) * 100)
+
+
+attendancesum = q.QuerySql(sqlAttendanceSum)
+for tatt in attendancesum:
+    Data.AttendanceSum = Data.TotalGiving/tatt.Attendance
+
+attendancedata = q.QuerySql(sqlAttendanceGiving.format(date_str))
+
+for a in attendancedata:
+    Data.Attendance = a.Attendance
+    Data.TotalAttendance = '{:.2f}'.format(float(Data.Contributed) / a.Attendance) #a.TotalAttendance)#'{:.2f}'.format(float(Data.TotalGiving) / a.Attendance) #a.TotalAttendance)
+
+OnlineGivingData = q.QuerySql(sqlOnlineGiving.format(date_str))
+
+for o in OnlineGivingData:
+    Data.TotalOnline = o.TotalOnline
+    Data.PercentOnline = '{:.2f}'.format(((float(o.TotalOnline) / Data.ContributedwithRestricted)) * 100)
+    #Data.PercentOnline = '{:.2f}'.format(((o.TotalOnline / Data.Contributed)) * 100)
+
+NMReport = model.RenderTemplate(template)
+
+if sendReport == 'y':
+    NMReport += '{track}{tracklinks}<br />'
+    print('<h3>Report Sent</h3>')
+    MailToQuery = 'FinanceReport' #'3134' #''HospitalPrayerNotification'  #'3134' name of saved search or comma-separated list of IDs (whether saved search or list, enclose in quotes)
+    QueuedBy = 3134        # People ID of record the email should be queued by
+    FromAddress = 'bswaby@fbchtn.org'
+    FromName = 'Finance'
+    Subject = 'Contribution Report'
+    #Report = 'ContributionWeekReport23-24?P1=12/10/2023' 
+    model.Email(MailToQuery, QueuedBy, FromAddress, FromName, Subject, NMReport)
+else:
+    print '''
+      <a href="/PyScriptForm/ContributionReportText" target="_blank"><button type="button">Edit Text</button></a>
+      <a href="/PyScript/ContributionWeekReport23-24?P1=''' + model.Data.P1 + '''&sendReport=y" target="_blank"><button type="button">Send Contribution Week Report</button></a>
+      <a href="#" onclick="myFunction()">Refresh Page</a>
+      '''
+    print(NMReport)
