@@ -83,6 +83,9 @@ sqlOpenProcessBuilderDetails = '''
 WITH OpenSteps AS (
 Select ProcessId, Count(pp.ProcessId) TotalOpen From ProcessPeople pp WHERE pp.IsActive = 1 and pp.IsComplete = 0 Group By ProcessId)
 
+,LastActivity AS(
+Select pp.ProcessId, Max(pp.CreatedDate) LastActivity from ProcessPeople pp where pp.IsActive = 1 Group By pp.ProcessId)
+
 
 SELECT pb.ProcessName
 	  ,pb.ProcessId	
@@ -93,6 +96,7 @@ SELECT pb.ProcessName
 	  ,CASE WHEN pp.IsAbandoned = 1 THEN COUNT(1) ELSE 0 END AS Abandoned
 	  ,ps.StepOrder
 	  ,os.TotalOpen
+	  ,la.LastActivity
       /** ,pp.PeopleId
       ,pp.ModifiedBy
       ,pp.ModifiedDate
@@ -109,6 +113,7 @@ SELECT pb.ProcessName
   INNER JOIN ProcessStep ps ON ps.ProcessId = pp.ProcessId
   INNER JOIN ProcessBuilder pb ON pb.ProcessId = ps.ProcessId
   LEFT JOIN OpenSteps os ON os.ProcessId = pp.ProcessId
+  LEFT JOIN LastActivity la ON la.ProcessId = pp.ProcessId
   
   Where pb.ProcessId = {0}
   Group By 
@@ -122,6 +127,7 @@ SELECT pb.ProcessName
 	  ,pb.ProcessId	
 	  ,ps.StepOrder
 	  ,os.TotalOpen
+	  ,la.LastActivity
 
   Order by pb.ProcessName, ps.StepOrder, ps.StepName
 '''
@@ -166,13 +172,15 @@ for d in sqlOpenProcessesData:
     stepName = '''<table>
                             <th>Process</th>
                             <th>Open</th>
-                            <th>Abandoned</th>'''
+                            <th>Abandoned</th>
+                            <th>Last Activity</th>'''
     for opd in sqlOpenProcessBuilderDetailsData:
         stepName += '''
                             <tr>
                                 <td>''' + str(opd.StepName) + '''</td>
                                 <td>''' + str(opd.Open) + '''</td>
                                 <td>''' + str(opd.Abandoned) + '''</td>
+                                <td>''' + str(opd.LastActivity) + '''</td>
                             </tr>'''
     
     
