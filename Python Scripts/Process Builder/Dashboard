@@ -1,0 +1,215 @@
+import re
+import locale
+from types import NoneType
+
+model.Header = "Process Builder Dashboard"
+
+ProcessId = ''
+
+#  background-color: #dddddd;
+print '''
+<style>
+  summary {
+    font-weight: bold;
+    cursor: pointer;
+  }
+
+  details[open] summary::before {
+    content: "▼ ";  /* Downward arrow when open */
+  }
+
+  summary::before {
+    content: "▶ ";  /* Rightward arrow when closed */
+  }
+table {
+  font-family: arial, sans-serif;
+  border-collapse: collapse;
+
+}
+
+td, th {
+  border: 1px solid #dddddd;
+  text-align: left;
+  padding: 8px;
+}
+
+tr:nth-child(even) {
+
+}
+* {
+  box-sizing: border-box;
+}
+
+.menu {
+  float: left;
+  width: 40%;
+  text-align: left;
+}
+
+
+
+.main {
+  float: left;
+  width: 50%;
+  padding: 0 20px;
+}
+
+.right {
+  float: left;
+  width: 60%;
+  padding: 15px;
+  margin-top: 7px;
+  text-align: left;
+}
+
+@media only screen and (max-width: 620px) {
+  /* For mobile phones: */
+  .menu, .main, .right {
+    width: 100%;
+  }
+}
+</style>'''
+sqlOpenProcesses = '''
+Select pb.ProcessName, pp.ProcessId, Count(pp.ProcessId) TotalOpen 
+From ProcessPeople pp 
+  INNER JOIN ProcessStep ps ON ps.ProcessId = pp.ProcessId
+  INNER JOIN ProcessBuilder pb ON pb.ProcessId = ps.ProcessId
+WHERE pp.IsActive = 1 and pp.IsComplete = 0 
+Group By pp.ProcessId, pb.ProcessName
+Order by pb.ProcessName
+'''
+    
+sqlOpenProcessBuilderDetails = '''
+WITH OpenSteps AS (
+Select ProcessId, Count(pp.ProcessId) TotalOpen From ProcessPeople pp WHERE pp.IsActive = 1 and pp.IsComplete = 0 Group By ProcessId)
+
+
+SELECT pb.ProcessName
+	  ,pb.ProcessId	
+	  ,ps.StepName
+	  ,ps.ProcessStepId
+      ,pp.ProcessId
+	  ,CASE WHEN pp.IsActive = 1 and pp.IsComplete = 0 THEN count(1) ELSE 0 END AS [Open]
+	  ,CASE WHEN pp.IsAbandoned = 1 THEN COUNT(1) ELSE 0 END AS Abandoned
+	  ,ps.StepOrder
+	  ,os.TotalOpen
+      /** ,pp.PeopleId
+      ,pp.ModifiedBy
+      ,pp.ModifiedDate
+      ,pp.CompletedBy
+      ,pp.CompletedDate
+      ,pp.IsActive
+      ,pp.IsComplete
+      ,pp.IsAbandoned
+      ,pp.Note
+      ,pp.CreatedBy
+      ,pp.CreatedDate **/
+  FROM [CMS_fbchville].[dbo].[ProcessPeople] pp
+  --LEFT JOIN People p ON p.PeopleId = pp.PeopleId
+  INNER JOIN ProcessStep ps ON ps.ProcessId = pp.ProcessId
+  INNER JOIN ProcessBuilder pb ON pb.ProcessId = ps.ProcessId
+  LEFT JOIN OpenSteps os ON os.ProcessId = pp.ProcessId
+  
+  Where pb.ProcessId = {0}
+  Group By 
+	   pb.ProcessName
+	  ,ps.StepName
+      ,pp.ProcessId
+	  ,pp.IsActive
+	  ,pp.IsComplete
+	  ,pp.IsAbandoned
+	  ,ps.ProcessStepId
+	  ,pb.ProcessId	
+	  ,ps.StepOrder
+	  ,os.TotalOpen
+
+  Order by pb.ProcessName, ps.StepOrder, ps.StepName
+'''
+
+sqlProcessBuilderLog = '''
+Select pb.ProcessName
+  ,ps.StepName
+  ,pp.ProcessStepId,psc.Condition
+  ,CAST(pp.CompletedDate AS DATE) [Completed]
+  ,CAST(pp.ModifiedDate AS DATE) [Modified]
+  ,Count(Distinct pp.ProcessProgressionId) [ProcessFired] 
+ From ProcessProgression pp
+ INNER JOIN ProcessStep ps ON ps.ProcessStepId = pp.ProcessStepId
+ INNER JOIN ProcessBuilder pb ON pb.ProcessId = ps.ProcessId
+ LEFT JOIN ProcessStepCompletion psc ON psc.ProcessStepId = pp.ProcessStepId
+ WHERE CAST(pp.CompletedDate AS DATE) >= CAST(DATEADD(DAY, -30, GETDATE()) AS DATE) 
+   OR CAST(pp.ModifiedDate AS DATE) >= CAST(DATEADD(DAY, -30, GETDATE()) AS DATE)
+ Group By pp.ProcessStepId,ps.StepName,pb.ProcessName,psc.Condition,CAST(pp.CompletedDate AS DATE),CAST(pp.ModifiedDate AS DATE)
+ Order By CAST(pp.CompletedDate AS DATE) Desc,CAST(pp.ModifiedDate AS DATE) Desc
+'''
+
+#print '''<table>
+#    <th>Process</th>
+#    <th>Open</th>
+#'''
+
+sqlOpenProcessesData = q.QuerySql(sqlOpenProcesses)
+
+print '''
+<div style="overflow:auto">
+  <div class="menu">
+  <h3>Open Processes</h3>
+'''
+
+for d in sqlOpenProcessesData:
+    #print '''<tr>
+    #        <td>{0}</td>
+    #        <td>{1}</td>
+    #        </tr>
+
+    sqlOpenProcessBuilderDetailsData = q.QuerySql(sqlOpenProcessBuilderDetails.format(d.ProcessId))
+    stepName = '''<table>
+                            <th>Process</th>
+                            <th>Open</th>
+                            <th>Abandoned</th>'''
+    for opd in sqlOpenProcessBuilderDetailsData:
+        stepName += '''
+                            <tr>
+                                <td>''' + str(opd.StepName) + '''</td>
+                                <td>''' + str(opd.Open) + '''</td>
+                                <td>''' + str(opd.Abandoned) + '''</td>
+                            </tr>'''
+    
+    
+    stepName += '''</table>'''
+
+        
+    print '''<details>
+                <summary>{0} - <a href="/Processes/ManageProcess?processId={2}">{1}</a></summary>
+                <p>{3}</p>
+            </details>
+        '''.format(d.ProcessName,d.TotalOpen,d.ProcessId,stepName)
+
+        
+print '''
+</table>
+</div>
+<div class="right">
+<h3>Last 30 Days of Logs</h3>
+<table>
+    <th>Process Name</th>
+    <th>Step Name</th>
+    <th>Condition</th>
+    <th>Completed</th>
+    <th>Modified</th>
+    <th>Processes Fired</th>
+'''
+sqlProcessBuilderLogData = q.QuerySql(sqlProcessBuilderLog)
+for l in sqlProcessBuilderLogData:
+    print '''
+        <tr>
+            <td>{0}</td>
+            <td>{1}</td>
+            <td>{2}</td>
+            <td>{3}</td>
+            <td>{4}</td>
+            <td>{5}</td>
+        </tr>
+        '''.format(l.ProcessName,l.StepName,l.Condition,l.Completed,l.Modified,l.ProcessFired)
+
+print '''</table></div></div>'''
