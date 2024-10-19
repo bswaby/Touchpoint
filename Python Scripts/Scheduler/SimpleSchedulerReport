@@ -1,0 +1,331 @@
+########################################################
+### Info
+
+#The built-in calendar view is complicated and this is just a basic simple view
+# to allow team members to see a full calendar over-time along with showing what
+# positions are still open.
+
+#This can be ran from Bluetoolbar menu or directly with ?CurrentOrgId=#### added
+# to the end of the python url. #### should be replaced with the involvement id
+
+#To add this to the Bluetoolbar, navigate to open CustomReport under special content 
+# / text and add in the following line.  Make sure to adjust report name to what
+# you called the Python report
+#
+#  <Report name="ScheduleList" type="PyScript" role="Access" />
+#
+# note: CustomReport changes can take 24 hrs to show on the site due to how cache 
+#  has implemented on the TP servers
+
+
+########################################################
+### User Config Area
+
+SendRoles = "Admin,ManageGroups"    #People with role(s) listed here will allow them to see the "Send Report to Involvement" button 
+ScheduleDays = '365'   #Add number of days to include in the report
+
+#Email Variables
+FromName = 'Scheduler' #Name Email comes from
+FromAddress = 'bswaby@fbchtn.org' #Email from for when sending 
+Subject = '' #default is to use the org name.  add something if you want to use something else
+
+
+########################################################
+### Start of Code
+import re
+import locale
+from types import NoneType
+import clr
+import math
+from pprint import pprint
+
+
+#url string variables
+sendReport = model.Data.sendReport
+reportTo = model.Data.reportTo
+OrgId = str(Data.CurrentOrgId)
+
+
+#Interate through permissionss and verify has one to show send report to involvement
+showSendToInvolvement = 'n'
+for item in SendRoles.split(','):
+    if model.UserIsInRole(item):
+        showSendToInvolvement = 'y'
+
+
+#set header info
+if model.CurrentOrgId is not None and Data.CurrentOrgId != '':
+    org = model.GetOrganization(model.CurrentOrgId)
+    if org is None:
+        org = model.GetOrganization(Data.CurrentOrgId)
+    
+    model.Header = "Schedule: {}".format(org.name)
+    template = "<h1>{}</h1>".format(org.name)
+
+
+sql = '''
+DECLARE @InvId Int = 2832
+DECLARE @days int = 365
+
+;With
+AllServices as 
+(
+SELECT 
+ tsm.MeetingDateTime as ServiceDate
+,format(tsm.MeetingDateTime, 'hh:mm tt') as ServiceTime
+,format(tsm.meetingdatetime, 'M/d/yy h:mm tt') as ServiceDateTime
+--,tstSG.TeamName
+,tstSG.NumberVolunteersNeeded Needed
+,tstSG.Require [Required]
+,tsmt.TimeSlotMeetingTeamId
+,tsgrpvol.TimeSlotMeetingTeamSubGroupId
+,tssg.NumberVolunteersNeeded SubGroupsNeeded
+,p.Name2 
+,p.Name
+,CASE WHEN mt.Name is NULL THEN tsmt.TeamName ELSE mt.Name END AS SubGroupTeam
+,tsmt.TeamName
+
+
+FROM TimeSlotMeetingTeams tsmt 
+LEFT JOIN TimeSlotMeetings tsm ON tsmt.TimeSlotMeetingId = tsm.TimeSlotMeetingId
+LEFT JOIN TimeSlotMeetingTeamSubGroups tssg ON tssg.TimeSlotMeetingTeamId = tsmt.TimeSlotMeetingTeamId
+LEFT JOIN TimeSlotTeamSubGroups tstSG ON tstSG.TimeSlotTeamSubGroupId = tssg.TimeSlotTeamSubGroupId --tsmt.TimeSlotTeamId = tstSG.TimeSlotTeamId  
+LEFT JOIN Meetings m on tsm.MeetingId = m.MeetingId
+LEFT JOIN TimeSlotMeetingTeamSubGroupVolunteers tsGrpVol ON 
+	(tsGrpVol.IsActive <> 0 AND tsGrpVol.TimeSlotMeetingTeamId = tsmt.TimeSlotMeetingTeamId AND tsGrpVol.TimeSlotMeetingTeamSubGroupId is NULL)
+		OR (tsGrpVol.IsActive <> 0 AND tsGrpVol.TimeSlotMeetingTeamSubGroupId = tssg.TimeSlotMeetingTeamSubGroupId  AND tsGrpVol.TimeSlotMeetingTeamSubGroupId is not NULL)
+LEFT JOIN MemberTags mt ON mt.Id = tssg.MemberTagId and mt.OrgId = {0} --904 --@InvId
+LEFT JOIN People p ON p.PeopleId = tsGrpVol.PeopleId
+WHERE 
+tsm.MeetingDateTime > GETDATE() 
+AND tsm.MeetingDateTime < DATEADD(d, {1} , GETDATE()) --@days
+AND OrganizationId = {0} --@InvId 
+)
+
+,allpeeps as (
+SELECT 
+ a.Name2
+,a.Name
+,a.ServiceDate
+,a.ServiceTime
+,a.ServiceDateTime
+--,a.TeamName
+,a.Needed
+,a.TimeSlotMeetingTeamId
+,a.SubGroupTeam
+,a.TeamName
+,a.Required
+FROM AllServices a
+ )
+
+,ServiceCount as
+(
+ Select ServiceDate
+	,ServiceDateTime
+	,ServiceTime
+	,Needed
+	,[Required] 
+	,TimeSlotMeetingTeamId
+	, SubGroupTeam
+	, TeamName
+	, Name2
+	, Count(name) as serving 
+From allpeeps 
+Group By TimeSlotMeetingTeamId,TeamName,subgroupteam, Name2,ServiceDate,ServiceDateTime,ServiceTime,Needed,[Required]  
+
+)
+
+
+,UniqueDates as
+(Select distinct
+DATEADD(dd, DATEDIFF(dd, 0, ServiceDateTime), 0)AS DateOnly
+--convert(varchar, ServiceDateTime, 101) AS DateOnly
+,count(DATEADD(dd, DATEDIFF(dd, 0, ServiceDateTime), 0)) AS countDate 
+From ServiceCount
+Group By DATEADD(dd, DATEDIFF(dd, 0, ServiceDateTime), 0)
+)
+
+SELECT
+sc.ServiceDate as 'Date'
+,sc.ServiceDateTime
+,convert(varchar(5), sc.ServiceDate, 101) AS DateOnly
+,DATEADD(dd, DATEDIFF(dd, 0, sc.ServiceDate), 0)AS DateOnly
+,ud.countDate
+,convert(char(5), sc.ServiceDate, 108) AS [TimeOnly]
+,a.TeamName [Team]
+,sc.SubGroupTeam
+,CONVERT(VARCHAR(10),sc.Serving)+' of '+CONVERT(VARCHAR(10),sc.Needed) as 'Filled'
+,sc.Serving
+,sc.Needed
+,sc.Required
+,a.TimeSlotMeetingTeamId
+,ISNULL(SUBSTRING(
+(
+	SELECT ', '
+	+a1.Name AS [text()]
+	FROM allpeeps a1
+	WHERE a1.ServiceDateTime = sc.ServiceDateTime
+		AND a1.SubGroupTeam = sc.SubGroupTeam 
+		--AND a1.ServiceDateTime = sc.ServiceDateTime--AND a1.TimeOnly = sc.ServiceTime
+	ORDER BY a1.Name2
+	FOR XML PATH ('')), 2, 1000),'--->none<---') Names
+FROM ServiceCount sc
+LEFT JOIN allpeeps a ON a.TeamName = sc.TeamName AND a.ServiceDateTime = sc.ServiceDateTime AND a.SubGroupTeam = sc.SubGroupTeam 
+LEFT JOIN UniqueDates ud ON ud.DateOnly = DATEADD(dd, DATEDIFF(dd, 0, sc.ServiceDate), 0)
+GROUP BY sc.ServiceDateTime,a.TeamName,sc.SubGroupTeam, sc.ServiceDate, sc.Serving, sc.Needed,a.TimeSlotMeetingTeamId,sc.Required,ud.countDate,a.Name2,a.Name--,a.ServiceDateTime
+ORDER BY sc.ServiceDate
+
+'''
+
+sql2 = '''
+SELECT p.PeopleId FROM dbo.People p JOIN dbo.TagPerson tp ON tp.PeopleId = p.PeopleId AND tp.Id = @BlueToolbarTagId
+'''
+
+#set style and table
+template += '''
+<style>
+#trnoborder {
+  border: 0px solid #dddddd;
+  text-align: left;
+  padding: 8px;
+  font-family: arial, sans-serif;
+  border-collapse: collapse;
+  width:100%;
+  max-width: 700px;
+}
+th, td{
+padding-top: 0px;
+padding-bottom: 0px;
+padding-left: 5px;
+padding-right: 5px;
+vertical-align:top;
+}
+tr:nth-child(even) {
+
+}
+.cellClassRed { background-color: red; color: #fff; text-align: center;}
+.cellClassYellow { background-color: yellow; color: black;}
+.CenterIt {text-align: center;}
+</style>
+
+<table id="trnoborder">
+    <tr id="trnoborder">
+        <td><h4>Date</h4></td>
+        <td><h4>Time</h4></td>
+        <td><h4>Group</h4></td>
+        <td class="CenterIt"><h4>Serving</h4></td>
+        <td><h4>Volunteer(s)</h4></td>
+    </td>
+'''
+
+sql = q.QuerySql(sql.format(OrgId,ScheduleDays)) #sql query
+
+
+vDateOnly = ''
+dDateOnly = ''
+vTimeOnly = ''
+dTimeOnly = ''
+
+for d in sql:
+    dDate = str(d.Date) #set data variable
+    
+    #formatting to remove duplicate values in subsequent columns.
+    if vDateOnly == str(d.DateOnly):
+        dDateOnly = ''
+        if vTimeOnly == str(d.TimeOnly):
+            dTimeOnly = ''
+        else: 
+            dTimeOnly = str(d.TimeOnly)
+            vTimeOnly = str(d.TimeOnly)
+    else: 
+        dDateOnly = str(d.DateOnly)
+        vDateOnly = str(d.DateOnly)
+        dTimeOnly = str(d.TimeOnly)
+        vTimeOnly = str(d.TimeOnly)
+        
+    #my cheesy way or saying how many needed
+    if str(d.Needed) == 'None':
+        dServing = str(d.Serving)
+    else:
+        dServing = str(d.Serving) + ' of ' + str(d.Needed)
+    
+    #add solid line between date rows
+    if dDateOnly != '': 
+        trBorder = ''' style="border-top: 1px solid #000;"'''
+    else:
+        trBorder = ''
+    
+    dNames = str(d.Names)
+    
+    if d.Serving == 0:
+        dServing = '''<td class="cellClassRed">''' + dServing + '''</td>'''
+        tdClass = ' class="cellClassRed"'
+    else:
+        dServing = '''<td class="CenterIt">''' + dServing + '''</td>'''
+        tdClass = ''
+    
+    #add sign-up link if no names
+    if dNames == '':
+        dNames = '''<td><a href="https://myfbch.com/OnlineReg/''' + OrgId + '''">--SIGN-UP--</a></td>'''
+    else:
+        dNames = '''<td>''' + dNames + '''</td>'''
+    
+    template += '''<tr {0}>
+                <td>{1}</td>
+                <td>{2}</td>
+                <td>{3}</td>
+                {4}
+                {5}
+            </tr>
+        '''.format(trBorder,dDateOnly,dTimeOnly,str(d.SubGroupTeam),dServing,dNames)
+         
+template += '''</table>'''
+
+NMReport = model.RenderTemplate(template)
+
+
+if sendReport == 'y' and reportTo == 'Self':
+    #Add Link Tracking
+    NMReport += '{track}{tracklinks}<br />'
+    
+    #Set variables
+    QueuedBy = model.UserPeopleId   # People ID of record the email should be queued by
+    MailToQuery = model.UserPeopleId # '3134' 
+
+    #set subject to default if no other name specified
+    if not Subject:
+        Subject = "{}".format(org.name)
+
+    #Email
+    model.Email(MailToQuery, QueuedBy, FromAddress, FromName, Subject, NMReport)
+    
+    #print str(MailToQuery) + ' - ' + str(QueuedBy) + ' - ' + str(FromAddress) + ' - ' + str(FromName) + ' - ' + str(Subject)
+    
+    #Notifiy User Report Sent
+    print('<h3>Report Sent to Self</h3>') #Let people know report was sent
+elif sendReport == 'y' and reportTo == 'Involvement':
+    NMReport += '{track}{tracklinks}<br />'
+    
+    QueuedBy = model.UserPeopleId        # People ID of record the email should be queued by
+
+    #set subject to default if no other name specified
+    if not Subject:
+        Subject = "{}".format(org.name)
+        
+    #Get List of Involvement PeopleId's to EmailTo
+    MailToQuery = ''
+    sqlEmailTo = '''Select PeopleId AS emailTo from OrganizationMembers Where OrganizationId = {0}'''
+    sqlEmailToData = q.QuerySql(sqlEmailTo.format(OrgId))
+    for e in sqlEmailToData:
+        MailToQuery = str(e.emailTo)
+        #Email
+        model.Email(MailToQuery, QueuedBy, FromAddress, FromName, Subject, NMReport)
+
+
+    #Notifiy User Report Sent
+    print('<h3>Report Sent to Involvement</h3>')
+else:
+    if showSendToInvolvement == 'y':
+        print '''<a href="/PyScript/ScheduleList?sendReport=y&reportTo=Involvement&CurrentOrgId=''' + OrgId + '''" target="_blank"><button type="button">Send Schedule to Involvement</button></a>'''
+    print '''<a href="/PyScript/ScheduleList?sendReport=y&reportTo=Self&CurrentOrgId=''' + OrgId + '''" target="_blank"><button type="button">Send Schedule to Self</button></a>'''
+    print(NMReport)
