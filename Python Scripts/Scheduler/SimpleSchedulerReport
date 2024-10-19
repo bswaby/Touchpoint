@@ -8,6 +8,7 @@
 #This can be ran from Bluetoolbar menu or directly with ?CurrentOrgId=#### added
 # to the end of the python url. #### should be replaced with the involvement id
 
+##BlueToolBar
 #To add this to the Bluetoolbar, navigate to open CustomReport under special content 
 # / text and add in the following line.  Make sure to adjust report name to what
 # you called the Python report
@@ -17,6 +18,18 @@
 # note: CustomReport changes can take 24 hrs to show on the site due to how cache 
 #  has implemented on the TP servers
 
+##Morning Batch
+#To set this to automatically go out, add the following to the morning batch
+#
+#from datetime import datetime
+#today = datetime.now()
+
+#if today.day in [1,15]: #set the day(s) you want to send the report on
+#    model.Data.sendReport = 'y'
+#    model.Data.reportTo = 'Self' #options are Self or Involvement  
+#    model.Data.CurrentOrgId = '2832' #set involvement number here
+#    print(model.CallScript("ScheduleList"))
+#
 
 ########################################################
 ### User Config Area
