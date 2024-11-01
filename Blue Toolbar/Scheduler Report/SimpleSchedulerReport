@@ -8,7 +8,6 @@
 #This can be ran from Bluetoolbar menu or directly with ?CurrentOrgId=#### added
 # to the end of the python url. #### should be replaced with the involvement id
 
-##BlueToolBar
 #To add this to the Bluetoolbar, navigate to open CustomReport under special content 
 # / text and add in the following line.  Make sure to adjust report name to what
 # you called the Python report
@@ -18,18 +17,6 @@
 # note: CustomReport changes can take 24 hrs to show on the site due to how cache 
 #  has implemented on the TP servers
 
-##Morning Batch
-#To set this to automatically go out, add the following to the morning batch
-#
-#from datetime import datetime
-#today = datetime.now()
-
-#if today.day in [1,15]: #set the day(s) you want to send the report on
-#    model.Data.sendReport = 'y'
-#    model.Data.reportTo = 'Self' #options are Self or Involvement  
-#    model.Data.CurrentOrgId = '2832' #set involvement number here
-#    print(model.CallScript("ScheduleList"))
-#
 
 ########################################################
 ### User Config Area
@@ -161,8 +148,9 @@ Group By DATEADD(dd, DATEDIFF(dd, 0, ServiceDateTime), 0)
 SELECT
 sc.ServiceDate as 'Date'
 ,sc.ServiceDateTime
-,convert(varchar(5), sc.ServiceDate, 101) AS DateOnly
-,DATEADD(dd, DATEDIFF(dd, 0, sc.ServiceDate), 0)AS DateOnly
+--,convert(varchar(5), sc.ServiceDate, 101) AS DateOnly
+--,DATEADD(dd, DATEDIFF(dd, 0, sc.ServiceDate), 0)AS DateOnly
+,FORMAT(sc.ServiceDate, 'dddd, MMMM dd, yyyy') AS DateOnly
 ,ud.countDate
 ,convert(char(5), sc.ServiceDate, 108) AS [TimeOnly]
 ,a.TeamName [Team]
@@ -185,6 +173,7 @@ sc.ServiceDate as 'Date'
 FROM ServiceCount sc
 LEFT JOIN allpeeps a ON a.TeamName = sc.TeamName AND a.ServiceDateTime = sc.ServiceDateTime AND a.SubGroupTeam = sc.SubGroupTeam 
 LEFT JOIN UniqueDates ud ON ud.DateOnly = DATEADD(dd, DATEDIFF(dd, 0, sc.ServiceDate), 0)
+Where sc.SubGroupTeam NOT LIKE 'EMS' AND sc.SubGroupTeam NOT LIKE 'LEO'
 GROUP BY sc.ServiceDateTime,a.TeamName,sc.SubGroupTeam, sc.ServiceDate, sc.Serving, sc.Needed,a.TimeSlotMeetingTeamId,sc.Required,ud.countDate,a.Name2,a.Name--,a.ServiceDateTime
 ORDER BY sc.ServiceDate
 
@@ -219,17 +208,33 @@ tr:nth-child(even) {
 .cellClassRed { background-color: red; color: #fff; text-align: center;}
 .cellClassYellow { background-color: yellow; color: black;}
 .CenterIt {text-align: center;}
+
+blank_row
+{
+height: 10px !important; /* overwrites any other rules */
+background-color: #FFFFFF;
+}
+h4{
+padding: 0px;
+margin: 0px;
+}
+#h4padding{
+padding: 20px;
+margin: 0px;
+}
 </style>
 
 <table id="trnoborder">
     <tr id="trnoborder">
-        <td><h4>Date</h4></td>
-        <td><h4>Time</h4></td>
-        <td><h4>Group</h4></td>
-        <td class="CenterIt"><h4>Serving</h4></td>
-        <td><h4>Volunteer(s)</h4></td>
+
+        <td><h4 id="h4padding">Time</h4></td>
+        <td><h4 id="h4padding">Group</h4></td>
+        <td class="CenterIt"><h4 id="h4padding">Serving</h4></td>
+        <td><h4 id="h4padding">Volunteer(s)</h4></td>
     </td>
 '''
+#        <td><h4>Date</h4></td>
+#        <td>{1}</td>
 
 sql = q.QuerySql(sql.format(OrgId,ScheduleDays)) #sql query
 
@@ -264,6 +269,7 @@ for d in sql:
     
     #add solid line between date rows
     if dDateOnly != '': 
+        template += '''<tr><td colspan="4" style="width:100%"><h4>{0}</h4></td></tr>'''.format(dDateOnly)
         trBorder = ''' style="border-top: 1px solid #000;"'''
     else:
         trBorder = ''
@@ -282,9 +288,9 @@ for d in sql:
         dNames = '''<td><a href="https://myfbch.com/OnlineReg/''' + OrgId + '''">--SIGN-UP--</a></td>'''
     else:
         dNames = '''<td>''' + dNames + '''</td>'''
-    
+
+
     template += '''<tr {0}>
-                <td>{1}</td>
                 <td>{2}</td>
                 <td>{3}</td>
                 {4}
