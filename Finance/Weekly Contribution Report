@@ -1,0 +1,270 @@
+#####################################################################
+####REPORT INFORMATION
+#####################################################################
+#Contribution totals is a tool to aide financials in verifying their books.  
+#To use this tool just create a Python script by going to Admin ~ 
+#Advanced ~ Special Content and then click on the python tab
+
+#####################################################################
+####USER CONFIG FIELDS
+#####################################################################
+model.Header = "Weekly Contribution Totals" #Set to the name you want to call the page
+ExcludedFundIds = '1307' #comma seperate funds that need to be excluded.  
+        #For example, we remove our non-contribution out of the report
+BundleReportName = 'BundleReport3' #name of BundleReport your finance team uses.  the report name  
+        #you use can be found in Custon Batch Report under Admin ~ Advanced ~ Settings ~ Finance
+        
+#Email Variables
+FromName = 'Finance' #Name Email comes from
+FromAddress = 'bswaby@fbchtn.org' #Email from for when sending 
+Subject = 'Weekly Contribution Totals' 
+
+
+#####################################################################
+####START OF CODE.  No configuration should be needed beyond this point
+#####################################################################
+import re
+import locale
+from types import NoneType
+
+
+#Get URL Variables
+sDate = model.Data.sDate
+eDate = model.Data.eDate
+DateSearch = model.Data.DateSearch
+sendReport = model.Data.sendReport
+
+#set form parameters 
+if DateSearch == 'contributed':
+    optionContributed = 'checked'
+    optionDeposited = ''
+    searchDate = 'bl.DepositDate'
+elif DateSearch == 'deposited':
+    optionContributed = ''
+    optionDeposited = 'checked'
+    searchDate = 'bl.DepositDate'
+else:
+    optionContributed = 'checked'
+    optionDeposited = ''
+    searchDate = 'bl.DepositDate'
+    
+if sDate is not None:
+    optionsDate = ' value="' + sDate + '"'
+    searchsDate = sDate
+else:
+    searchsDate = '2024-10-29'
+
+if eDate is not None:
+    optioneDate = ' value="' + eDate + '"'
+    searcheDate = eDate
+else:
+    searcheDate = '2024-11-04'
+    
+
+sql = '''
+  select 
+   bl.HeaderType
+  --,bl.[open]
+  ,sum(case when c.FundId = 1 THEN c.contributionAmount ELSE 0 END) AS GeneralSum
+  ,sum(case when c.FundId <> 1 THEN c.ContributionAmount ELSE 0 END) As DesignatedSum
+  from bundledetail bd 
+  left join contribution c on c.ContributionId = bd.ContributionId
+  left join bundlelist bl on bl.BundleHeaderId = bd.BundleHeaderId
+  where {2} BETWEEN '{0}' AND '{1}' AND c.FundId Not In ({3}) --bl.DepositDate BETWEEN '20241029' AND '20241104' 
+  --AND bl.[open] = 1
+  Group by bl.HeaderType--,bl.[open]
+  Order By bl.HeaderType
+'''
+
+
+sqlDetails = '''
+  select 
+    bl.HeaderType
+   ,Concat(bl.ReferenceId, ' (',bl.BundleHeaderId, ')') AS ReferenceId
+    ,bl.BundleHeaderId
+   ,FORMAT(bl.DepositDate, 'yyyy-MM-dd') as DepositDate
+   ,bl.[open]
+   ,sum(case when c.FundId = 1 THEN c.contributionAmount ELSE 0 END) AS GeneralSum
+   ,sum(case when c.FundId <> 1 THEN c.ContributionAmount ELSE 0 END) As DesignatedSum
+   ,bst.[Description] as BundleStatus
+  from bundledetail bd 
+  left join contribution c on c.ContributionId = bd.ContributionId
+  left join bundlelist bl on bl.BundleHeaderId = bd.BundleHeaderId
+  LEFT JOIN lookup.BundleStatusTypes bst on bl.BundleStatusId = bst.Id
+  where  bl.DepositDate BETWEEN '{0}' AND '{1}' AND bl.HeaderType = '{2}' AND c.FundId <> 1307
+  Group By --c.FundId
+    bl.HeaderType
+   ,bl.BundleHeaderId
+   ,bl.ReferenceId
+   ,bl.DepositDate
+   ,bl.PostingDate
+   ,bl.[open]
+   ,bst.[Description]
+  Order By bl.BundleHeaderId
+'''
+
+template = ''
+#  background-color: #dddddd;
+template += '''
+<style>
+
+
+#trnoborder {
+  border: 1px solid #dddddd;
+  text-align: left;
+  padding: 10px;
+  font-family: arial, sans-serif;
+  border-collapse: collapse;
+  max-width: 900px; /* Maximum width of the table */
+  width: 100%; /* Table adjusts to fit container */
+}
+
+tr:nth-child(even) {
+
+}
+</style>'''
+    
+    
+
+
+datesearch = '''
+        Search On Date:
+        <label>
+          <input type="radio" name="DateSearch" value="contributed" {0}>
+          Contributed
+        </label>h
+        <label>
+          <input type="radio" name="DateSearch" value="deposited" {1}>
+          Deposited
+        </label>
+        </br>
+'''
+
+
+template += '''
+    <form action="" method="GET">
+        <label for="sDate">Start Date:</label>
+        <input type="date" id="sDate" name="sDate" required {2}>
+        <label for="eDate">End Date:</label>
+        <input type="date" id="eDate" name="eDate" required {3}>
+        <input type="submit" value="Filter">
+    </form>
+
+    <h2>Summary</h2>
+    <table id="trnoborder">
+        <tr id="trnoborder">
+            <td><h4>Bundle Type</h4></td>
+            <td><h4>General</h4></td>
+            <td><h4>Designated</h4></td>
+            <td><h4>Total</h4></td>
+        </td>
+'''.format(optionContributed,optionDeposited,optionsDate,optioneDate)
+
+sql = q.QuerySql(sql.format(searchsDate,searcheDate,searchDate,ExcludedFundIds))
+
+GrandTotalGenDes = 0.00
+GrandTotalGen = 0.00
+GrandTotalDes = 0.00
+
+for d in sql:
+    
+    #Row Totals
+    TotalGenDes = d.GeneralSum + d.DesignatedSum
+    #Column Totals
+    GrandTotalGenDes += TotalGenDes 
+    GrandTotalGen += d.GeneralSum 
+    GrandTotalDes += d.DesignatedSum 
+
+    #Summary Details
+    template += '''<tr>
+            <td>{0}</td>
+            <td>{1}</td>
+            <td>{2}</td>
+            <td>{3}</td>
+            </tr>
+        '''.format(d.HeaderType,"${:,.2f}".format(d.GeneralSum),"${:,.2f}".format(d.DesignatedSum),"${:,.2f}".format(TotalGenDes))
+
+template += '''
+        <tr>
+            <td><h4></h4></td>
+            <td><h4>{0}</h4></td>
+            <td><h4>{1}</h4></td>
+            <td><h4>{2}</h4></td>
+        </tr>
+    </table></br>
+    '''.format("${:,.2f}".format(GrandTotalGen),"${:,.2f}".format(GrandTotalDes),"${:,.2f}".format(GrandTotalGenDes))
+
+
+template +=  '''<hr><h2>Details</h2>'''
+
+#set Variables
+FundId = ''
+cType = ''
+
+for d in sql:
+    if d.ContributionTypeId is None:
+        ContributionTypeId = 'is Null'
+    else:
+        ContributionTypeId = '= ' + str(d.ContributionTypeId)
+    
+    sqlDetailsData = q.QuerySql(sqlDetails.format(searchsDate,searcheDate,d.HeaderType))
+    template += '''
+        <table>
+        <tr>
+            <td><h4>{0} &nbsp</h4></td>
+        </tr>'''.format(d.HeaderType,d.GeneralSum,d.DesignatedSum)
+    template += '''</table>'''
+    template += '''<table id="trnoborder">
+        <tr id="trnoborder">
+            <td><h4>Reference</h4></td>
+            <td><h4>Status</h4></td>
+            <td><h4>Deposited</h4></td>
+            <td><h4>General</h4></td>
+            <td><h4>Designated</h4></td>
+            <td><h4>Total</h4></td>
+        </td>
+    '''
+    for dd in sqlDetailsData:
+        if dd.SourceType is None:
+            cType = ''
+            cType = str(dd.ContributionType)
+        else:
+            cType = str(dd.ContributionType) + ' (' + str(dd.SourceType) + ')'
+        
+        ReferenceId = '''<a href="/Batches/Detail/''' + str(dd.BundleHeaderId) + '''" target="_blank">''' + dd.ReferenceId + '''</a>&nbsp<a href="/PyScript/''' + BundleReportName + '''?p1=''' + str(dd.BundleHeaderId) + '''" target="_blank"><i class="fa fa-bar-chart" aria-hidden="true"></i></a>'''
+        template += '''
+            <tr>
+                <td>{0}</td>
+                <td>{1}</td>
+                <td>{2}</td>
+                <td>{3}</td>
+                <td>{4}</td>
+                <td>{5}</td>
+                </tr>
+            '''.format(ReferenceId,dd.BundleStatus,dd.DepositDate,"${:,.2f}".format(dd.GeneralSum),"${:,.2f}".format(dd.DesignatedSum),"${:,.2f}".format(dd.GeneralSum+dd.DesignatedSum))
+    template += '''</table></br>'''
+
+NMReport = model.RenderTemplate(template)
+
+if sendReport == 'y': # and reportTo == 'Self':
+    #Add Link Tracking
+    NMReport += '{track}{tracklinks}<br />'
+    
+    #Set variables
+    QueuedBy = model.UserPeopleId   # People ID of record the email should be queued by
+    MailToQuery = model.UserPeopleId # '3134' 
+
+    #set subject to default if no other name specified
+    #if not Subject:
+    #    Subject = "{}".format(org.name)
+
+    #Email
+    model.Email(MailToQuery, QueuedBy, FromAddress, FromName, Subject, NMReport)
+    
+    #print str(MailToQuery) + ' - ' + str(QueuedBy) + ' - ' + str(FromAddress) + ' - ' + str(FromName) + ' - ' + str(Subject)
+    
+    #Notifiy User Report Sent
+    print('<h3>Report Sent to Self</h3>') #Let people know report was sent
+else:
+    print '''<a href="?sendReport=y&sDate=''' + sDate + '''&eDate=''' + eDate + '''" target="_blank"><button type="button">Email to Self</button></a><hr>'''
+    print(NMReport)
