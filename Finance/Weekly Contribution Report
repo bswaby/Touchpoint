@@ -125,8 +125,10 @@ tr:nth-child(even) {
 </style>'''
     
     
-
-
+#not used...but leaving here in case I add back in ability to select to search by contributed or 
+#deposited dates.  also need to consider adding option to spit out non-contribution as those is 
+#currently hidden from the query results... if it is added, need to look at the query as those are 
+#pulling from an account vs fund and will need to detail that out a little differently
 datesearch = '''
         Search On Date:
         <label>
@@ -140,7 +142,7 @@ datesearch = '''
         </br>
 '''
 
-
+# set form date fields and table headers for bundle summary
 template += '''
     <form action="" method="GET">
         <label for="sDate">Start Date:</label>
@@ -160,12 +162,15 @@ template += '''
         </td>
 '''.format(optionContributed,optionDeposited,optionsDate,optioneDate)
 
+#bundle summary query
 sql = q.QuerySql(sql.format(searchsDate,searcheDate,searchDate,ExcludedFundIds))
 
+#set variables for bundle summary
 GrandTotalGenDes = 0.00
 GrandTotalGen = 0.00
 GrandTotalDes = 0.00
 
+#loop through bundle summary
 for d in sql:
     
     #Row Totals
@@ -201,13 +206,17 @@ template +=  '''<hr><h2>Details</h2>'''
 FundId = ''
 cType = ''
 
+#loop through bundle type showing batch details for each
 for d in sql:
     if d.ContributionTypeId is None:
         ContributionTypeId = 'is Null'
     else:
         ContributionTypeId = '= ' + str(d.ContributionTypeId)
     
+    #detail data pull
     sqlDetailsData = q.QuerySql(sqlDetails.format(searchsDate,searcheDate,d.HeaderType))
+    
+    #set table for each bundle
     template += '''
         <table>
         <tr>
@@ -224,6 +233,8 @@ for d in sql:
             <td><h4>Total</h4></td>
         </td>
     '''
+
+    #loop through each batch for the bundle
     for dd in sqlDetailsData:
         if dd.SourceType is None:
             cType = ''
@@ -244,9 +255,10 @@ for d in sql:
             '''.format(ReferenceId,dd.BundleStatus,dd.DepositDate,"${:,.2f}".format(dd.GeneralSum),"${:,.2f}".format(dd.DesignatedSum),"${:,.2f}".format(dd.GeneralSum+dd.DesignatedSum))
     template += '''</table></br>'''
 
-NMReport = model.RenderTemplate(template)
+NMReport = model.RenderTemplate(template) #render template and save to variable
 
-if sendReport == 'y': # and reportTo == 'Self':
+#send report to self if button is pressed
+if sendReport == 'y': 
     #Add Link Tracking
     NMReport += '{track}{tracklinks}<br />'
     
@@ -254,17 +266,12 @@ if sendReport == 'y': # and reportTo == 'Self':
     QueuedBy = model.UserPeopleId   # People ID of record the email should be queued by
     MailToQuery = model.UserPeopleId # '3134' 
 
-    #set subject to default if no other name specified
-    #if not Subject:
-    #    Subject = "{}".format(org.name)
-
     #Email
     model.Email(MailToQuery, QueuedBy, FromAddress, FromName, Subject, NMReport)
-    
-    #print str(MailToQuery) + ' - ' + str(QueuedBy) + ' - ' + str(FromAddress) + ' - ' + str(FromName) + ' - ' + str(Subject)
     
     #Notifiy User Report Sent
     print('<h3>Report Sent to Self</h3>') #Let people know report was sent
 else:
+    #show button if sendReport <> y and print to screen the rendered template
     print '''<a href="?sendReport=y&sDate=''' + sDate + '''&eDate=''' + eDate + '''" target="_blank"><button type="button">Email to Self</button></a><hr>'''
     print(NMReport)
