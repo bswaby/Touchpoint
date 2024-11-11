@@ -222,7 +222,36 @@ margin: 0px;
 padding: 20px;
 margin: 0px;
 }
+#ahrefblue{
+    box-sizing: border-box;
+    display: inline-block;
+    font-family: arial, helvetica, sans-serif;
+    text-decoration: none;
+    -webkit-text-size-adjust: none;
+    text-align: center;
+    color: #FFFFFF;
+    background-color: #3AAEE0;
+    border-radius: 4px;
+    -webkit-border-radius: 4px;
+    -moz-border-radius: 4px;
+    width: auto;
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    word-wrap: break-word;
+    mso-border-alt: none;
+    border-top-width: 0px;
+    border-top-style: solid;
+    border-left-width: 0px;
+    border-left-style: solid;
+    border-right-width: 0px;
+    border-right-style: solid;
+    border-bottom-width: 0px;
+    border-bottom-style: solid;
+}
 </style>
+
+<a style="background-color: #3AAEE0; color: #FFFFFF; padding: 10px 20px; text-decoration: none; font-weight: bold; display: inline-block;" href="''' + model.CmsHost + '''/OnlineReg/''' + OrgId + '''">MANAGE MY COMMITMENTS</a>
 
 <table id="trnoborder">
     <tr id="trnoborder">
@@ -285,7 +314,7 @@ for d in sql:
     
     #add sign-up link if no names
     if dNames == '':
-        dNames = '''<td><a href="https://myfbch.com/OnlineReg/''' + OrgId + '''">--SIGN-UP--</a></td>'''
+        dNames = '''<td><a href="''' + model.CmsHost + '''/OnlineReg/''' + OrgId + '''">--SIGN-UP--</a></td>'''
     else:
         dNames = '''<td>''' + dNames + '''</td>'''
 
