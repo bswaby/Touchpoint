@@ -308,5 +308,5 @@ if sendReport == 'y':
     print('<h3>Report Sent to Self</h3>') #Let people know report was sent
 else:
     #show button if sendReport <> y and print to screen the rendered template
-    print '''<a href="?sendReport=y&sDate=''' + sDate + '''&eDate=''' + eDate + '''" target="_blank"><button type="button">Email to Self</button></a><hr>'''
+    print '''<a href="?sendReport=y&sDate=''' + sDate + '''&eDate=''' + eDate + '''&ShowDesignatedDetails=''' + ShowDesignatedDetails + '''" target="_blank"><button type="button">Email to Self</button></a><hr>'''
     print(NMReport)
