@@ -8,305 +8,505 @@
 #####################################################################
 ####USER CONFIG FIELDS
 #####################################################################
-model.Header = "Weekly Contribution Totals" #Set to the name you want to call the page
-ExcludedFundIds = '1307' #comma seperate funds that need to be excluded.  
-        #For example, we remove our non-contribution out of the report
-GeneralFundIds = '1' #comma seperate funds that need to be excluded.  
-BundleReportName = 'BundleReport3' #name of BundleReport your finance team uses.  the report name  
-        #you use can be found in Custon Batch Report under Admin ~ Advanced ~ Settings ~ Finance
-        
-#Email Variables
-FromName = 'Finance' #Name Email comes from
-FromAddress = 'bswaby@fbchtn.org' #Email from for when sending 
-Subject = 'Weekly Contribution Totals' 
-
+#User config is done within the script itself.  Just copy this script to 
+#a new Python file and run.  The script will prompt if a config file has
+#not been created
 
 #####################################################################
 ####START OF CODE.  No configuration should be needed beyond this point
 #####################################################################
-import re
-import locale
-from types import NoneType
 
+#global
 
-#Get URL Variables
-sDate = model.Data.sDate
-eDate = model.Data.eDate
-DateSearch = model.Data.DateSearch
-sendReport = model.Data.sendReport
-ShowDesignatedDetails = model.Data.ShowDesignatedDetails
+######################
+##Config File Section
+######################
+from datetime import datetime
 
-#set form parameters 
-if DateSearch == 'contributed':
-    optionContributed = 'checked'
-    optionDeposited = ''
-    searchDate = 'bl.DepositDate'
-elif DateSearch == 'deposited':
-    optionContributed = ''
-    optionDeposited = 'checked'
-    searchDate = 'bl.DepositDate'
-else:
-    optionContributed = 'checked'
-    optionDeposited = ''
-    searchDate = 'bl.DepositDate'
+#config file name
+ConfigFile = 'ConfigFinanceSummaryReport'
+
+#Pull config text file
+data = model.DynamicDataFromJson(model.TextContent(ConfigFile))    
+
+#If text file doesn't exit, present message nad option to set with default values
+json = ''
+if not data:
+    json = '''
+            {
+                "Script": {
+                    "HeaderName": "Add title here",
+                    "LastUpdatedBy": "",
+                    "UpdatedLast": ""
+                },
+                "Email": {
+                    "FromName": "John Smith",
+                    "FromAddress": "jsmith@noreply.com",
+                    "Subject": "Add Email Title Here",
+                },
+                "Financial": {
+                    "ExcludedFundIds": "1307",
+                    "GeneralFundIds": "1",
+                    "BundleReportName": "BundleReport3",
+                }
+            }
+        '''
+    data = model.DynamicDataFromJson(json)
+
+#############Determine if values are from url or json.
+#Script
+HeaderName = str(model.Data.HeaderName) if model.Data.HeaderName else str(data.Script.HeaderName)
+LastUpdatedBy = model.UserName
+UpdatedLast = datetime.now()
+#Email
+FromName = str(model.Data.FromName) if model.Data.FromName else str(data.Email.FromName)
+FromAddress = str(model.Data.FromAddress) if model.Data.FromAddress else str(data.Email.FromAddress)
+Subject = str(model.Data.Subject) if model.Data.Subject else str(data.Email.Subject)
+#Financial
+ExcludedFundIds = str(model.Data.ExcludedFundIds) if model.Data.ExcludedFundIds else str(data.Financial.ExcludedFundIds)
+GeneralFundIds = str(model.Data.GeneralFundIds) if model.Data.GeneralFundIds else str(data.Financial.GeneralFundIds)
+BundleReportName = str(model.Data.BundleReportName) if model.Data.BundleReportName else str(data.Financial.BundleReportName)
+
+print '''  
+        <style>
+            /* Popup container */
+            .popup {
+                display: none;
+                position: fixed;
+                z-index: 1;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                overflow: auto;
+                background-color: rgba(0,0,0,0.4);
+            }
     
-if sDate is not None:
-    optionsDate = ' value="' + sDate + '"'
-    searchsDate = sDate
+            /* Popup content */
+            .popup-content {
+                background-color: #fefefe;
+                margin: 15% auto;
+                padding: 20px;
+                border: 1px solid #888;
+                width: 80%;
+            }
+    
+            /* Show the popup when the URL has #popup */
+            .popup:target {
+                display: block;
+            }
+        </style>'''
+
+
+if model.Data.EditParams == 'y':
+
+    #Set json file to write back
+    Newjson = '''
+    {
+        "Script": {
+            "HeaderName": "''' + HeaderName + '''",
+            "LastUpdatedBy": "''' + LastUpdatedBy + '''",
+            "UpdatedLast": "''' + str(UpdatedLast) + '''"
+        },
+        "Email": {
+            "FromName": "''' + FromName + '''",
+            "FromAddress": "''' + FromAddress + '''",
+            "Subject": "''' + Subject + '''",
+        },
+        "Financial": {
+            "ExcludedFundIds": "''' + ExcludedFundIds + '''",
+            "GeneralFundIds": "''' + GeneralFundIds + '''",
+            "BundleReportName": "''' + BundleReportName + '''",
+        }
+    }
+    '''
+
+    #write json file back
+    model.WriteContentText(ConfigFile, Newjson)
+    print '''
+        <!-- Go Back Button -->
+        <button onclick="goBack()">Go Back</button>
+        
+        <script>
+        // Function to remove query parameters and anchors from a URL
+        function cleanUrl(url) {
+          var cleanUrl = url.split('?')[0]; // Remove query parameters (if any)
+          cleanUrl = cleanUrl.split('#')[0]; // Remove anchor (if any)
+          return cleanUrl;
+        }
+        
+        // Function for going back to the previous page with a cleaned URL
+        function goBack() {
+          var referrer = document.referrer; // Get the previous page's URL
+          if (referrer) {
+            // Clean the referrer URL (remove query params and anchors)
+            var cleanedReferrer = cleanUrl(referrer);
+            // Go to the cleaned URL
+            window.location.href = cleanedReferrer;
+          } else {
+            // If there is no referrer, just go back using history.back()
+            window.history.back();
+          }
+        }
+        </script>
+        <br>
+        <h3>Parameters Updated</h3>'''
 else:
-    searchsDate = '2024-10-29'
+    if json != '':
+        print '''<h3>Config file does not exist.  You must set it first before script will run.</h2>'''
 
-if eDate is not None:
-    optioneDate = ' value="' + eDate + '"'
-    searcheDate = eDate
-else:
-    searcheDate = '2024-11-04'
+    print '''
+        <!-- Link to open the popup -->
+        <a href="#popup">Edit Parameters</a>
+        
+        <!-- The popup container -->
+        <div id="popup" class="popup">
+            <!-- Popup content -->
+            <div class="popup-content">
+                <a href="#">Close</a>
+    
+                <form action="" method="get">
+                    <input type="hidden" name="EditParams" value="y">
+                    <h4>Script Parameters</h4>
+                    <label for="email">Form Name:</label>
+                    <input type="text" id="HeaderName" name="HeaderName" value="{0}"><br>
+                    <hr>
+                    <h4>Email Parameters</h4>
+                    <label for="FromName">From Name:</label>
+                    <input type="text" id="FromName" name="FromName" value="{1}"><br>
+                    <label for="FromAddress">From Address:</label>
+                    <input type="text" id="FromAddress" name="FromAddress" value="{2}"><br>
+                    <label for="Subject">Email Subject:</label>
+                    <input type="text" id="Subject" name="Subject" value="{3}"><br>
+                    <hr>
+                    <h4>Financial Parameters</h4>
+                    <i>seperate funds by a comma.  example: 1,11,12</i></br>
+                    <label for="ExcludedFundIds">Excluded Funds:</label>
+                    <input type="text" id="ExcludedFundIds" name="ExcludedFundIds" value="{4}"><br>
+                    <label for="GeneralFundIds">General Fund:</label>
+                    <input type="text" id="GeneralFundIds" name="GeneralFundIds" value="{5}"><br>
+                    <label for="BundleReportName">Bundle Report Name:</label>
+                    <input type="text" id="Subject" name="BundleReportName" value="{6}"><br>
+                    <i>The bundle you are using can be found under Custom Batch Report in Admin ~ Settings ~ Finance ~ Batches</i><br><br>
+                    <input type="submit" value="Submit">
+                    <br><br><i>Last updated by {7} on {8}</i>
+                </form>
+            </div>
+        </div>
+    '''.format(HeaderName,FromName,FromAddress,Subject,ExcludedFundIds,GeneralFundIds,BundleReportName,LastUpdatedBy,UpdatedLast)
+    
 
-if ShowDesignatedDetails == 'yes':
-    optionShowDesignatedDetails = 'checked'
-else:
-    optionShowDesignatedDetails = ''
-
-sql = '''
-  select 
-   bl.HeaderType
-  --,bl.[open]
-  ,sum(case when c.FundId in ({4}) THEN c.contributionAmount ELSE 0 END) AS GeneralSum
-  ,sum(case when c.FundId Not IN ({4}) THEN c.ContributionAmount ELSE 0 END) As DesignatedSum
-  from bundledetail bd 
-  left join contribution c on c.ContributionId = bd.ContributionId
-  left join bundlelist bl on bl.BundleHeaderId = bd.BundleHeaderId
-  where {2} BETWEEN '{0}' AND '{1}' AND c.FundId Not In ({3}) --bl.DepositDate BETWEEN '20241029' AND '20241104' 
-  --AND bl.[open] = 1
-  Group by bl.HeaderType--,bl.[open]
-  Order By bl.HeaderType
-'''
-
-
-sqlDetails = '''
-  select 
-    bl.HeaderType
-   ,Concat(bl.ReferenceId, ' (',bl.BundleHeaderId, ')') AS ReferenceId
-    ,bl.BundleHeaderId
-   ,FORMAT(bl.DepositDate, 'yyyy-MM-dd') as DepositDate
-   ,bl.[open]
-   ,sum(case when c.FundId in ({4}) THEN c.contributionAmount ELSE 0 END) AS GeneralSum
-   ,sum(case when c.FundId Not IN ({4})  THEN c.ContributionAmount ELSE 0 END) As DesignatedSum
-   ,bst.[Description] as BundleStatus
-  from bundledetail bd 
-  left join contribution c on c.ContributionId = bd.ContributionId
-  left join bundlelist bl on bl.BundleHeaderId = bd.BundleHeaderId
-  LEFT JOIN lookup.BundleStatusTypes bst on bl.BundleStatusId = bst.Id
-  where  bl.DepositDate BETWEEN '{0}' AND '{1}' AND bl.HeaderType = '{2}' AND c.FundId Not In ({3})
-  Group By --c.FundId
-    bl.HeaderType
-   ,bl.BundleHeaderId
-   ,bl.ReferenceId
-   ,bl.DepositDate
-   ,bl.PostingDate
-   ,bl.[open]
-   ,bst.[Description]
-  Order By bl.BundleHeaderId
-'''
-sqlFundDetails = '''
-
-select concat(cf.FundName, ' (',c.FundId, ')') AS Fund, bd.BundleHeaderID, sum(c.contributionamount) AS ContributionAmount from BundleDetail bd
-LEFT JOIN Contribution c ON c.ContributionId = bd.ContributionId
-LEFT JOIN ContributionFund cf ON cf.FundId = c.FundId
-Where bd.BundleHeaderId = {0} and c.fundId Not In ({1})
-Group by c.FundId, cf.FundName, bd.BundleHeaderId
-Order by c.FundId
-
-'''
-
-template = ''
-#  background-color: #dddddd;
-template += '''
-<style>
-
-
-#trnoborder {
-  border: 1px solid #dddddd;
-  text-align: left;
-  padding: 10px;
-  font-family: arial, sans-serif;
-  border-collapse: collapse;
-  max-width: 900px; /* Maximum width of the table */
-  width: 100%; /* Table adjusts to fit container */
-}
-
-tr:nth-child(even) {e
-
-}
-</style>'''
+    model.Header = HeaderName#"Weekly Contribution Totals" #Set to the name you want to call the page
+    
+    import re
+    import locale
+    from types import NoneType
     
     
-#not used...but leaving here in case I add back in ability to select to search by contributed or 
-#deposited dates.  also need to consider adding option to spit out non-contribution as those is 
-#currently hidden from the query results... if it is added, need to look at the query as those are 
-#pulling from an account vs fund and will need to detail that out a little differently
-datesearch = '''
-        Search On Date:
-        <label>
-          <input type="radio" name="DateSearch" value="contributed" {0}>
-          Contributed
-        </label>h
-        <label>
-          <input type="radio" name="DateSearch" value="deposited" {1}>
-          Deposited
-        </label>
-        </br>
-'''
-
-# set form date fields and table headers for bundle summary
-template += '''
-    <form action="" method="GET">
-        <label for="sDate">Start Date:</label>
-        <input type="date" id="sDate" name="sDate" required {2}>
-        <label for="eDate">End Date:</label>
-        <input type="date" id="eDate" name="eDate" required {3}>
-        <input type="checkbox" id="ShowDesignatedDetails" name="ShowDesignatedDetails" value="yes" {4}>
-        <label for="ShowDesignatedDetails">Designated Details</label>
-        <input type="submit" value="Filter">
-    </form>
-
-    <h2>Summary</h2>
-    <table id="trnoborder">
-        <tr id="trnoborder">
-            <td><h4>Bundle Type</h4></td>
-            <td><h4>General</h4></td>
-            <td><h4>Designated</h4></td>
-            <td><h4>Total</h4></td>
-        </td>
-'''.format(optionContributed,optionDeposited,optionsDate,optioneDate,optionShowDesignatedDetails)
-
-#bundle summary query
-sql = q.QuerySql(sql.format(searchsDate,searcheDate,searchDate,ExcludedFundIds,GeneralFundIds))
-
-#set variables for bundle summary
-GrandTotalGenDes = 0.00
-GrandTotalGen = 0.00
-GrandTotalDes = 0.00
-
-#loop through bundle summary
-for d in sql:
+    #Get URL Variables
+    sDate = model.Data.sDate
+    eDate = model.Data.eDate
+    DateSearch = model.Data.DateSearch
+    sendReport = model.Data.sendReport
+    ShowDesignatedDetails = model.Data.ShowDesignatedDetails
     
-    #Row Totals
-    TotalGenDes = d.GeneralSum + d.DesignatedSum
-    #Column Totals
-    GrandTotalGenDes += TotalGenDes 
-    GrandTotalGen += d.GeneralSum 
-    GrandTotalDes += d.DesignatedSum 
-
-    #Summary Details
-    template += '''<tr>
-            <td>{0}</td>
-            <td>{1}</td>
-            <td>{2}</td>
-            <td>{3}</td>
-            </tr>
-        '''.format(d.HeaderType,"${:,.2f}".format(d.GeneralSum),"${:,.2f}".format(d.DesignatedSum),"${:,.2f}".format(TotalGenDes))
-
-template += '''
-        <tr>
-            <td><h4></h4></td>
-            <td><h4>{0}</h4></td>
-            <td><h4>{1}</h4></td>
-            <td><h4>{2}</h4></td>
-        </tr>
-    </table></br>
-    '''.format("${:,.2f}".format(GrandTotalGen),"${:,.2f}".format(GrandTotalDes),"${:,.2f}".format(GrandTotalGenDes))
-
-
-template +=  '''<hr><h2>Details</h2>'''
-
-#set Variables
-FundId = ''
-cType = ''
-
-#loop through bundle type showing batch details for each
-for d in sql:
-    if d.ContributionTypeId is None:
-        ContributionTypeId = 'is Null'
+    #set form parameters 
+    if DateSearch == 'contributed':
+        optionContributed = 'checked'
+        optionDeposited = ''
+        searchDate = 'bl.DepositDate'
+    elif DateSearch == 'deposited':
+        optionContributed = ''
+        optionDeposited = 'checked'
+        searchDate = 'bl.DepositDate'
     else:
-        ContributionTypeId = '= ' + str(d.ContributionTypeId)
+        optionContributed = 'checked'
+        optionDeposited = ''
+        searchDate = 'bl.DepositDate'
+        
+    if sDate is not None:
+        optionsDate = ' value="' + sDate + '"'
+        searchsDate = sDate
+    else:
+        searchsDate = '2024-10-29'
     
-    #detail data pull
-    sqlDetailsData = q.QuerySql(sqlDetails.format(searchsDate,searcheDate,d.HeaderType,ExcludedFundIds,GeneralFundIds))
+    if eDate is not None:
+        optioneDate = ' value="' + eDate + '"'
+        searcheDate = eDate
+    else:
+        searcheDate = '2024-11-04'
     
-    #set table for each bundle
-    template += '''
-        <table>
-        <tr>
-            <td><h4>{0} &nbsp</h4></td>
-        </tr>'''.format(d.HeaderType,d.GeneralSum,d.DesignatedSum)
-    template += '''</table>'''
-    template += '''<table id="trnoborder">
-        <tr id="trnoborder">
-            <td><h4>Reference</h4></td>
-            <td><h4>Status</h4></td>
-            <td><h4>Deposited</h4></td>
-            <td><h4>General</h4></td>
-            <td><h4>Designated</h4></td>
-            <td><h4>Total</h4></td>
-        </td>
+    if ShowDesignatedDetails == 'yes':
+        optionShowDesignatedDetails = 'checked'
+    else:
+        optionShowDesignatedDetails = ''
+    
+    sql = '''
+      select 
+       bl.HeaderType
+      --,bl.[open]
+      ,sum(case when c.FundId in ({4}) THEN c.contributionAmount ELSE 0 END) AS GeneralSum
+      ,sum(case when c.FundId Not IN ({4}) THEN c.ContributionAmount ELSE 0 END) As DesignatedSum
+      from bundledetail bd 
+      left join contribution c on c.ContributionId = bd.ContributionId
+      left join bundlelist bl on bl.BundleHeaderId = bd.BundleHeaderId
+      where {2} BETWEEN '{0}' AND '{1}' AND c.FundId Not In ({3}) --bl.DepositDate BETWEEN '20241029' AND '20241104' 
+      --AND bl.[open] = 1
+      Group by bl.HeaderType--,bl.[open]
+      Order By bl.HeaderType
     '''
     
-    #loop through each batch for the bundle
-    for dd in sqlDetailsData:
-        FundDetails = ''
-        if dd.SourceType is None:
-            cType = ''
-            cType = str(dd.ContributionType)
-        else:
-            cType = str(dd.ContributionType) + ' (' + str(dd.SourceType) + ')'
-
-        if ShowDesignatedDetails == 'yes':
-            if dd.DesignatedSum != 0.00:
-                CombinedFunds = GeneralFundIds + ',' + ExcludedFundIds
-                sqlFundDetailsData = q.QuerySql(sqlFundDetails.format(dd.BundleHeaderId,CombinedFunds))
-                for fd in sqlFundDetailsData:
-                    FundDetails += '''<tr>
-                                        <td>........''' + str(fd.Fund) + '''</td>
-                                        <td></td>
-                                        <td></td>
-                                        <td></td>
-                                        <td>''' + "${:,.2f}".format(fd.ContributionAmount) + '''</td>
-                                        <td></td>
-                                    </tr>
-                                        '''
-
-        ReferenceId = '''<a href="/Batches/Detail/''' + str(dd.BundleHeaderId) + '''" target="_blank">''' + dd.ReferenceId + '''</a>&nbsp<a href="/PyScript/''' + BundleReportName + '''?p1=''' + str(dd.BundleHeaderId) + '''" target="_blank"><i class="fa fa-bar-chart" aria-hidden="true"></i></a>'''
-        template += '''
-            <tr>
+    
+    sqlDetails = '''
+      select 
+        bl.HeaderType
+       ,Concat(bl.ReferenceId, ' (',bl.BundleHeaderId, ')') AS ReferenceId
+        ,bl.BundleHeaderId
+       ,FORMAT(bl.DepositDate, 'yyyy-MM-dd') as DepositDate
+       ,bl.[open]
+       ,sum(case when c.FundId in ({4}) THEN c.contributionAmount ELSE 0 END) AS GeneralSum
+       ,sum(case when c.FundId Not IN ({4})  THEN c.ContributionAmount ELSE 0 END) As DesignatedSum
+       ,bst.[Description] as BundleStatus
+      from bundledetail bd 
+      left join contribution c on c.ContributionId = bd.ContributionId
+      left join bundlelist bl on bl.BundleHeaderId = bd.BundleHeaderId
+      LEFT JOIN lookup.BundleStatusTypes bst on bl.BundleStatusId = bst.Id
+      where  bl.DepositDate BETWEEN '{0}' AND '{1}' AND bl.HeaderType = '{2}' AND c.FundId Not In ({3})
+      Group By --c.FundId
+        bl.HeaderType
+       ,bl.BundleHeaderId
+       ,bl.ReferenceId
+       ,bl.DepositDate
+       ,bl.PostingDate
+       ,bl.[open]
+       ,bst.[Description]
+      Order By bl.BundleHeaderId
+    '''
+    sqlFundDetails = '''
+    
+    select concat(cf.FundName, ' (',c.FundId, ')') AS Fund, bd.BundleHeaderID, sum(c.contributionamount) AS ContributionAmount from BundleDetail bd
+    LEFT JOIN Contribution c ON c.ContributionId = bd.ContributionId
+    LEFT JOIN ContributionFund cf ON cf.FundId = c.FundId
+    Where bd.BundleHeaderId = {0} and c.fundId Not In ({1})
+    Group by c.FundId, cf.FundName, bd.BundleHeaderId
+    Order by c.FundId
+    
+    '''
+    
+    template = ''
+    #  background-color: #dddddd;
+    template += '''
+    <style>
+    
+    
+    #trnoborder {
+      border: 1px solid #dddddd;
+      text-align: left;
+      padding: 10px;
+      font-family: arial, sans-serif;
+      border-collapse: collapse;
+      max-width: 900px; /* Maximum width of the table */
+      width: 100%; /* Table adjusts to fit container */
+    }
+    
+    tr:nth-child(even) {e
+    
+    }
+    </style>'''
+        
+        
+    #not used...but leaving here in case I add back in ability to select to search by contributed or 
+    #deposited dates.  also need to consider adding option to spit out non-contribution as those is 
+    #currently hidden from the query results... if it is added, need to look at the query as those are 
+    #pulling from an account vs fund and will need to detail that out a little differently
+    datesearch = '''
+            Search On Date:
+            <label>
+              <input type="radio" name="DateSearch" value="contributed" {0}>
+              Contributed
+            </label>h
+            <label>
+              <input type="radio" name="DateSearch" value="deposited" {1}>
+              Deposited
+            </label>
+            </br>
+    '''
+    
+    # set form date fields and table headers for bundle summary
+    template += '''
+        <form action="" method="GET">
+            <label for="sDate">Start Date:</label>
+            <input type="date" id="sDate" name="sDate" required {2}>
+            <label for="eDate">End Date:</label>
+            <input type="date" id="eDate" name="eDate" required {3}>
+            <input type="checkbox" id="ShowDesignatedDetails" name="ShowDesignatedDetails" value="yes" {4}>
+            <label for="ShowDesignatedDetails">Designated Details</label>
+            <input type="submit" value="Filter">
+        </form>
+    
+        <h2>Summary</h2>
+        <table id="trnoborder">
+            <tr id="trnoborder">
+                <td><h4>Bundle Type</h4></td>
+                <td><h4>General</h4></td>
+                <td><h4>Designated</h4></td>
+                <td><h4>Total</h4></td>
+            </td>
+    '''.format(optionContributed,optionDeposited,optionsDate,optioneDate,optionShowDesignatedDetails)
+    
+    #bundle summary query
+    sql = q.QuerySql(sql.format(searchsDate,searcheDate,searchDate,ExcludedFundIds,GeneralFundIds))
+    
+    #set variables for bundle summary
+    GrandTotalGenDes = 0.00
+    GrandTotalGen = 0.00
+    GrandTotalDes = 0.00
+    
+    #loop through bundle summary
+    for d in sql:
+        
+        #Row Totals
+        TotalGenDes = d.GeneralSum + d.DesignatedSum
+        #Column Totals
+        GrandTotalGenDes += TotalGenDes 
+        GrandTotalGen += d.GeneralSum 
+        GrandTotalDes += d.DesignatedSum 
+    
+        #Summary Details
+        template += '''<tr>
                 <td>{0}</td>
                 <td>{1}</td>
                 <td>{2}</td>
                 <td>{3}</td>
-                <td>{4}</td>
-                <td>{5}</td>
+                </tr>
+            '''.format(d.HeaderType,"${:,.2f}".format(d.GeneralSum),"${:,.2f}".format(d.DesignatedSum),"${:,.2f}".format(TotalGenDes))
+    
+    template += '''
+            <tr>
+                <td><h4></h4></td>
+                <td><h4>{0}</h4></td>
+                <td><h4>{1}</h4></td>
+                <td><h4>{2}</h4></td>
             </tr>
-            {6}    
-            '''.format(ReferenceId,dd.BundleStatus,dd.DepositDate,"${:,.2f}".format(dd.GeneralSum),"${:,.2f}".format(dd.DesignatedSum),"${:,.2f}".format(dd.GeneralSum+dd.DesignatedSum),FundDetails)
-    template += '''</table></br>'''
-
-NMReport = model.RenderTemplate(template) #render template and save to variable
-
-#send report to self if button is pressed
-if sendReport == 'y': 
-    #Add Link Tracking
-    NMReport += '{track}{tracklinks}<br />'
+        </table></br>
+        '''.format("${:,.2f}".format(GrandTotalGen),"${:,.2f}".format(GrandTotalDes),"${:,.2f}".format(GrandTotalGenDes))
     
-    #Set variables
-    QueuedBy = model.UserPeopleId   # People ID of record the email should be queued by
-    MailToQuery = model.UserPeopleId # '3134' 
-
-    #Email
-    model.Email(MailToQuery, QueuedBy, FromAddress, FromName, Subject, NMReport)
     
-    #Notifiy User Report Sent
-    print('<h3>Report Sent to Self</h3>') #Let people know report was sent
-else:
-    #show button if sendReport <> y and print to screen the rendered template
-    print '''<a href="?sendReport=y&sDate=''' + sDate + '''&eDate=''' + eDate + '''&ShowDesignatedDetails=''' + ShowDesignatedDetails + '''" target="_blank"><button type="button">Email to Self</button></a><hr>'''
-    print(NMReport)
+    template +=  '''<hr><h2>Details</h2>'''
+    
+    #set Variables
+    FundId = ''
+    cType = ''
+
+    
+    #loop through bundle type showing batch details for each
+    for d in sql:
+        if d.ContributionTypeId is None:
+            ContributionTypeId = 'is Null'
+        else:
+            ContributionTypeId = '= ' + str(d.ContributionTypeId)
+        
+        #detail data pull
+        sqlDetailsData = q.QuerySql(sqlDetails.format(searchsDate,searcheDate,d.HeaderType,ExcludedFundIds,GeneralFundIds))
+        
+        #set table for each bundle
+        template += '''
+            <table>
+            <tr>
+                <td><h4>{0} &nbsp</h4></td>
+            </tr>'''.format(d.HeaderType,d.GeneralSum,d.DesignatedSum)
+        template += '''</table>'''
+        template += '''<table id="trnoborder">
+            <tr id="trnoborder">
+                <td><h4>Reference</h4></td>
+                <td><h4>Status</h4></td>
+                <td><h4>Deposited</h4></td>
+                <td><h4>General</h4></td>
+                <td><h4>Designated</h4></td>
+                <td><h4>Total</h4></td>
+            </td>
+        '''
+        
+        GrandTotalDetailGenDes = 0.00
+        GrandTotalDetailGen = 0.00
+        GrandTotalDetailDes = 0.00  
+        
+        #loop through each batch for the bundle
+        for dd in sqlDetailsData:
+    
+            #Row Totals
+            TotalDetailGenDes = dd.GeneralSum + dd.DesignatedSum
+            #Column Totals
+            GrandTotalDetailGenDes += TotalDetailGenDes 
+            GrandTotalDetailGen += dd.GeneralSum 
+            GrandTotalDetailDes += dd.DesignatedSum 
+            
+            FundDetails = ''
+            if dd.SourceType is None:
+                cType = ''
+                cType = str(dd.ContributionType)
+            else:
+                cType = str(dd.ContributionType) + ' (' + str(dd.SourceType) + ')'
+    
+            if ShowDesignatedDetails == 'yes':
+                if dd.DesignatedSum != 0.00:
+                    CombinedFunds = GeneralFundIds + ',' + ExcludedFundIds
+                    sqlFundDetailsData = q.QuerySql(sqlFundDetails.format(dd.BundleHeaderId,CombinedFunds))
+                    for fd in sqlFundDetailsData:
+                        FundDetails += '''<tr>
+                                            <td>........''' + str(fd.Fund) + '''</td>
+                                            <td></td>
+                                            <td></td>
+                                            <td></td>
+                                            <td>''' + "${:,.2f}".format(fd.ContributionAmount) + '''</td>
+                                            <td></td>
+                                        </tr>
+                                            '''
+    
+            ReferenceId = '''<a href="/Batches/Detail/''' + str(dd.BundleHeaderId) + '''" target="_blank">''' + dd.ReferenceId + '''</a>&nbsp<a href="/PyScript/''' + BundleReportName + '''?p1=''' + str(dd.BundleHeaderId) + '''" target="_blank"><i class="fa fa-bar-chart" aria-hidden="true"></i></a>'''
+            template += '''
+                <tr>
+                    <td>{0}</td>
+                    <td>{1}</td>
+                    <td>{2}</td>
+                    <td>{3}</td>
+                    <td>{4}</td>
+                    <td>{5}</td>
+                </tr>
+                {6}    
+                '''.format(ReferenceId,dd.BundleStatus,dd.DepositDate,"${:,.2f}".format(dd.GeneralSum),"${:,.2f}".format(dd.DesignatedSum),"${:,.2f}".format(dd.GeneralSum+dd.DesignatedSum),FundDetails)
+    
+        template += '''
+            <tr>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td><h4>{0}</h4></td>
+                <td><h4>{1}</h4></td>
+                <td><h4>{2}</h4></td>
+            </tr>
+        </table></br>
+        '''.format("${:,.2f}".format(GrandTotalDetailGen),"${:,.2f}".format(GrandTotalDetailDes),"${:,.2f}".format(GrandTotalDetailGenDes))
+    
+        template += '''</table></br>'''
+    
+    NMReport = model.RenderTemplate(template) #render template and save to variable
+    
+    #send report to self if button is pressed
+    if sendReport == 'y': 
+        #Add Link Tracking
+        NMReport += '{track}{tracklinks}<br />'
+        
+        #Set variables
+        QueuedBy = model.UserPeopleId   # People ID of record the email should be queued by
+        MailToQuery = model.UserPeopleId # '3134' 
+    
+        #Email
+        model.Email(MailToQuery, QueuedBy, FromAddress, FromName, Subject, NMReport)
+        
+        #Notifiy User Report Sent
+        print('<h3>Report Sent to Self</h3>') #Let people know report was sent
+    else:
+        #show button if sendReport <> y and print to screen the rendered template
+        print '''<a href="?sendReport=y&sDate=''' + sDate + '''&eDate=''' + eDate + '''&ShowDesignatedDetails=''' + ShowDesignatedDetails + '''" target="_blank"><button type="button">Email to Self</button></a><hr>'''
+        print(NMReport)
