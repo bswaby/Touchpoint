@@ -23,6 +23,14 @@
 ######################
 from datetime import datetime
 
+#remove negative values
+def checkNeg(value):
+    if value == -0.0:
+        return "-"
+    else:
+        return "${:,.2f}".format(value)
+
+
 #config file name
 ConfigFile = 'ConfigFinanceSummaryReport'
 
@@ -95,6 +103,9 @@ print '''
             .popup:target {
                 display: block;
             }
+        }
+            
+            
         </style>'''
 
 
@@ -241,7 +252,7 @@ else:
     else:
         optionShowDesignatedDetails = ''
     
-    sql = '''
+    sqlold = '''
       select 
        bl.HeaderType
       --,bl.[open]
@@ -256,8 +267,32 @@ else:
       Order By bl.HeaderType
     '''
     
+    sql = '''
+        with bundlereport as (
+        Select 
+        bl.HeaderType
+        ,case when cb.FundId in ({4}) THEN sum(cb.ContributionAmount) ELSE 0 END AS General
+        ,case when ct.id <> 99 and cb.fundId not in ({4}) THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
+        ,case when ct.id = 99 THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
+        FROM [CMS_fbchville].[dbo].[ContributionsBasic] cb
+        LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
+        LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
+        LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
+        LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
+        Where ContributionDate BETWEEN '{0}' AND '{1}'
+        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundDescription)
+        
+        Select HeaderType
+        ,sum(General) as General
+        ,sum(Designated) as Designated
+        ,sum(NonContribution) as NonContribution
+        ,sum(General) + sum(Designated)  AS TotalContribution
+        ,sum(General) + sum(Designated) + sum(NonContribution) AS Total
+        From bundlereport
+        Group By HeaderType
+    '''
     
-    sqlDetails = '''
+    sqlDetailsold = '''
       select 
         bl.HeaderType
        ,Concat(bl.ReferenceId, ' (',bl.BundleHeaderId, ')') AS ReferenceId
@@ -282,15 +317,95 @@ else:
        ,bst.[Description]
       Order By bl.BundleHeaderId
     '''
-    sqlFundDetails = '''
     
-    select concat(cf.FundName, ' (',c.FundId, ')') AS Fund, bd.BundleHeaderID, sum(c.contributionamount) AS ContributionAmount from BundleDetail bd
+    sqlDetails = '''
+        with bundlereport as (
+        Select 
+        bl.HeaderType
+        ,bd.BundleHeaderId
+        ,bst.[Description] AS BundleStatus
+        ,FORMAT(bl.DepositDate, 'yyyy-MM-dd') as DepositDate
+        ,concat(cb.BundleReferenceId,' (',bd.BundleHeaderId,')') AS ReferenceId
+        ,case when cb.FundId = 1 THEN sum(cb.ContributionAmount) ELSE 0 END AS General
+        ,case when ct.id <> 99 and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
+        ,case when ct.id = 99 THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
+        FROM [CMS_fbchville].[dbo].[ContributionsBasic] cb
+        LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
+        LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
+        LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
+        LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
+        LEFT JOIN lookup.BundleStatusTypes bst ON bst.Id = bl.BundleStatusId
+        Where ContributionDate BETWEEN '{0}' AND '{1}' and bl.HeaderType = '{2}'
+        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundDescription,bst.[Description],bl.DepositDate)
+        
+        Select 
+        ReferenceId
+        ,BundleHeaderId
+        ,HeaderType
+        ,BundleStatus
+        ,DepositDate
+        ,sum(General) as General
+        ,sum(Designated) as Designated
+        ,sum(NonContribution) as NonContribution
+        ,sum(General) + sum(Designated)  AS TotalContribution
+        ,sum(General) + sum(Designated) + sum(NonContribution) AS Total
+        From bundlereport
+        Group By HeaderType,ReferenceId,BundleHeaderId,BundleStatus,DepositDate
+
+
+    
+    '''
+    
+    sqlFundDetailsold = '''
+    
+    select 
+     concat(cf.FundName, ' (',c.FundId, ')') AS Fund
+     , bd.BundleHeaderID
+     , sum(c.contributionamount) AS ContributionAmount 
+    from BundleDetail bd
     LEFT JOIN Contribution c ON c.ContributionId = bd.ContributionId
     LEFT JOIN ContributionFund cf ON cf.FundId = c.FundId
     Where bd.BundleHeaderId = {0} and c.fundId Not In ({1})
     Group by c.FundId, cf.FundName, bd.BundleHeaderId
     Order by c.FundId
     
+    '''
+    
+    sqlFundDetails = '''
+        with bundlereport as (
+        Select 
+        bl.HeaderType
+        ,concat(cf.FundDescription,' (',cb.FundId,')') AS Fund
+        ,bd.BundleHeaderId
+        ,bst.[Description] AS BundleStatus
+        ,concat(cb.BundleReferenceId,' (',bd.BundleHeaderId,')') AS ReferenceId
+        ,case when cb.FundId = 1 THEN sum(cb.ContributionAmount) ELSE 0 END AS General
+        ,case when ct.id <> 99 and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
+        ,case when ct.id = 99 THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
+        FROM [CMS_fbchville].[dbo].[ContributionsBasic] cb
+        LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
+        LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
+        LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
+        LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
+        LEFT JOIN lookup.BundleStatusTypes bst ON bst.Id = bl.BundleStatusId
+        Where bd.BundleHeaderId = {0}
+        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundDescription,bst.[Description],cf.FundDescription)
+        
+        Select 
+        ReferenceId
+        ,Fund
+        ,BundleHeaderId
+        ,HeaderType
+        ,BundleStatus
+        ,sum(General) as General
+        ,sum(Designated) as Designated
+        ,sum(NonContribution) as NonContribution
+        ,sum(General) + sum(Designated)  AS TotalContribution
+        ,sum(General) + sum(Designated) + sum(NonContribution) AS Total
+        From bundlereport
+        Group By HeaderType,ReferenceId,BundleHeaderId,BundleStatus,Fund
+        Order By General Desc, Designated Desc, NonContribution Desc, HeaderType
+        
     '''
     
     template = ''
@@ -305,12 +420,25 @@ else:
       padding: 10px;
       font-family: arial, sans-serif;
       border-collapse: collapse;
-      max-width: 900px; /* Maximum width of the table */
+      max-width: 1000px; /* Maximum width of the table */
       width: 100%; /* Table adjusts to fit container */
     }
     
     tr:nth-child(even) {e
     
+    }
+    td {
+        padding: 0 4px 0 4px; /* Top, Right, Bottom, Left */
+    }
+    .left-border {
+        border-left: 1px solid black;
+        background-color: lightblue;
+    }
+    .top-border {
+        border-bottom: 1px dashed lightblue;
+    }
+    .total-cell {
+        background-color: lightblue;
     }
     </style>'''
         
@@ -340,7 +468,7 @@ else:
             <label for="eDate">End Date:</label>
             <input type="date" id="eDate" name="eDate" required {3}>
             <input type="checkbox" id="ShowDesignatedDetails" name="ShowDesignatedDetails" value="yes" {4}>
-            <label for="ShowDesignatedDetails">Designated Details</label>
+            <label for="ShowDesignatedDetails">Show Details</label>
             <input type="submit" value="Filter">
         </form>
     
@@ -350,7 +478,9 @@ else:
                 <td><h4>Bundle Type</h4></td>
                 <td><h4>General</h4></td>
                 <td><h4>Designated</h4></td>
-                <td><h4>Total</h4></td>
+                <td><h4>NC</h4></td>
+                <td class="left-border"><h4>Contribution</h4></td>
+                <td class="total-cell"><h4>Grand</h4></td>
             </td>
     '''.format(optionContributed,optionDeposited,optionsDate,optioneDate,optionShowDesignatedDetails)
     
@@ -361,16 +491,20 @@ else:
     GrandTotalGenDes = 0.00
     GrandTotalGen = 0.00
     GrandTotalDes = 0.00
+    GrandTotalNon = 0.00
+    GrandTotal = 0.00
     
     #loop through bundle summary
     for d in sql:
         
         #Row Totals
-        TotalGenDes = d.GeneralSum + d.DesignatedSum
+        TotalGenDes = d.General + d.Designated
         #Column Totals
         GrandTotalGenDes += TotalGenDes 
-        GrandTotalGen += d.GeneralSum 
-        GrandTotalDes += d.DesignatedSum 
+        GrandTotalGen += d.General
+        GrandTotalDes += d.Designated
+        GrandTotalNon += d.NonContribution
+        GrandTotal += d.General + d.Designated + d.NonContribution
     
         #Summary Details
         template += '''<tr>
@@ -378,8 +512,10 @@ else:
                 <td>{1}</td>
                 <td>{2}</td>
                 <td>{3}</td>
+                <td class="left-border">{4}</td>
+                <td class="total-cell">{5}</td>
                 </tr>
-            '''.format(d.HeaderType,"${:,.2f}".format(d.GeneralSum),"${:,.2f}".format(d.DesignatedSum),"${:,.2f}".format(TotalGenDes))
+            '''.format(d.HeaderType,checkNeg(d.General),checkNeg(d.Designated),checkNeg(d.NonContribution),checkNeg(d.TotalContribution),checkNeg(d.Total))
     
     template += '''
             <tr>
@@ -387,9 +523,11 @@ else:
                 <td><h4>{0}</h4></td>
                 <td><h4>{1}</h4></td>
                 <td><h4>{2}</h4></td>
+                <td class="left-border"><h4>{3}</h4></td>
+                <td class="total-cell"><h4>{4}</h4></td>
             </tr>
         </table></br>
-        '''.format("${:,.2f}".format(GrandTotalGen),"${:,.2f}".format(GrandTotalDes),"${:,.2f}".format(GrandTotalGenDes))
+        '''.format(checkNeg(GrandTotalGen),checkNeg(GrandTotalDes),checkNeg(GrandTotalNon),checkNeg(GrandTotalGenDes),checkNeg(GrandTotal))
     
     
     template +=  '''<hr><h2>Details</h2>'''
@@ -423,23 +561,29 @@ else:
                 <td><h4>Deposited</h4></td>
                 <td><h4>General</h4></td>
                 <td><h4>Designated</h4></td>
-                <td><h4>Total</h4></td>
+                <td><h4>NC</h4></td>
+                <td class="left-border"><h4>Contributions</h4></td>
+                <td class="total-cell"><h4>Grand</h4></td>
             </td>
         '''
         
         GrandTotalDetailGenDes = 0.00
         GrandTotalDetailGen = 0.00
         GrandTotalDetailDes = 0.00  
+        GrandTotalDetailNon = 0.00
+        GrandDetailTotal = 0.00
         
         #loop through each batch for the bundle
         for dd in sqlDetailsData:
     
             #Row Totals
-            TotalDetailGenDes = dd.GeneralSum + dd.DesignatedSum
+            TotalDetailGenDes = dd.General + dd.Designated
             #Column Totals
             GrandTotalDetailGenDes += TotalDetailGenDes 
-            GrandTotalDetailGen += dd.GeneralSum 
-            GrandTotalDetailDes += dd.DesignatedSum 
+            GrandTotalDetailGen += dd.General
+            GrandTotalDetailDes += dd.Designated
+            GrandTotalDetailNon += dd.NonContribution
+            GrandDetailTotal += dd.General + dd.Designated + dd.NonContribution
             
             FundDetails = ''
             if dd.SourceType is None:
@@ -449,19 +593,21 @@ else:
                 cType = str(dd.ContributionType) + ' (' + str(dd.SourceType) + ')'
     
             if ShowDesignatedDetails == 'yes':
-                if dd.DesignatedSum != 0.00:
-                    CombinedFunds = GeneralFundIds + ',' + ExcludedFundIds
-                    sqlFundDetailsData = q.QuerySql(sqlFundDetails.format(dd.BundleHeaderId,CombinedFunds))
-                    for fd in sqlFundDetailsData:
-                        FundDetails += '''<tr>
-                                            <td>........''' + str(fd.Fund) + '''</td>
-                                            <td></td>
-                                            <td></td>
-                                            <td></td>
-                                            <td>''' + "${:,.2f}".format(fd.ContributionAmount) + '''</td>
-                                            <td></td>
-                                        </tr>
-                                            '''
+                #if dd.Designated != 0.00:
+                CombinedFunds = GeneralFundIds + ',' + ExcludedFundIds
+                sqlFundDetailsData = q.QuerySql(sqlFundDetails.format(dd.BundleHeaderId,CombinedFunds))
+                for fd in sqlFundDetailsData:
+                    FundDetails += '''<tr>
+                                        <td class="top-border">&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp''' + str(fd.Fund) + '''</td>
+                                        <td class="top-border"></td>
+                                        <td class="top-border"></td>
+                                        <td class="top-border">''' + checkNeg(fd.General) + '''</td>
+                                        <td class="top-border">''' + checkNeg(fd.Designated) + '''</td>
+                                        <td class="top-border">''' + checkNeg(fd.NonContribution) + '''</td>
+                                        <td class="left-border"></td>
+                                        <td class="total-cell"></td>
+                                    </tr>
+                                        '''
     
             ReferenceId = '''<a href="/Batches/Detail/''' + str(dd.BundleHeaderId) + '''" target="_blank">''' + dd.ReferenceId + '''</a>&nbsp<a href="/PyScript/''' + BundleReportName + '''?p1=''' + str(dd.BundleHeaderId) + '''" target="_blank"><i class="fa fa-bar-chart" aria-hidden="true"></i></a>'''
             template += '''
@@ -472,9 +618,11 @@ else:
                     <td>{3}</td>
                     <td>{4}</td>
                     <td>{5}</td>
+                    <td class="left-border">{6}</td>
+                    <td class="total-cell">{7}</td>
                 </tr>
-                {6}    
-                '''.format(ReferenceId,dd.BundleStatus,dd.DepositDate,"${:,.2f}".format(dd.GeneralSum),"${:,.2f}".format(dd.DesignatedSum),"${:,.2f}".format(dd.GeneralSum+dd.DesignatedSum),FundDetails)
+                {8}    
+                '''.format(ReferenceId,dd.BundleStatus,dd.DepositDate,checkNeg(dd.General),checkNeg(dd.Designated),checkNeg(dd.NonContribution),checkNeg(dd.General + dd.Designated),checkNeg(dd.TotalContribution),FundDetails)
     
         template += '''
             <tr>
@@ -484,9 +632,11 @@ else:
                 <td><h4>{0}</h4></td>
                 <td><h4>{1}</h4></td>
                 <td><h4>{2}</h4></td>
+                <td class="left-border"><h4>{3}</h4></td>
+                <td class="total-cell"><h4>{4}</h4></td>
             </tr>
         </table></br>
-        '''.format("${:,.2f}".format(GrandTotalDetailGen),"${:,.2f}".format(GrandTotalDetailDes),"${:,.2f}".format(GrandTotalDetailGenDes))
+        '''.format(checkNeg(GrandTotalDetailGen),checkNeg(GrandTotalDetailDes),checkNeg(GrandTotalDetailNon),checkNeg(GrandTotalDetailGenDes),checkNeg(GrandDetailTotal))
     
         template += '''</table></br>'''
     
