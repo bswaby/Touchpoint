@@ -55,12 +55,15 @@ if not data:
                 "Financial": {
                     "ExcludedFundIds": "1307",
                     "GeneralFundIds": "1",
+                    "CashBundleIds": "2",
+                    "CheckBundleIds": "1,33",
                     "BundleReportName": "BundleReport3"
                 },
                 "Preferences": {
-                    "ShowPaymentType": "yes",
+                    "ShowDepositTotals": "yes",
                     "ShowFund": "yes",
-                    "ShowBundleSummary": "yes"
+                    "ShowBundleSummary": "yes",
+                    "ShowBundleDetails": "yes"
                 }
             }
         '''
@@ -78,17 +81,21 @@ Subject = str(model.Data.Subject) if model.Data.Subject else str(data.Email.Subj
 #Financial
 ExcludedFundIds = str(model.Data.ExcludedFundIds) if model.Data.ExcludedFundIds else str(data.Financial.ExcludedFundIds)
 GeneralFundIds = str(model.Data.GeneralFundIds) if model.Data.GeneralFundIds else str(data.Financial.GeneralFundIds)
+CashBundleIds = str(model.Data.CashBundleIds) if model.Data.CashBundleIds else str(data.Financial.CashBundleIds)
+CheckBundleIds = str(model.Data.CheckBundleIds) if model.Data.CheckBundleIds else str(data.Financial.CheckBundleIds)
 BundleReportName = str(model.Data.BundleReportName) if model.Data.BundleReportName else str(data.Financial.BundleReportName)
 #FormPreferences
-ShowPaymentType = str(model.Data.ShowPaymentType) if model.Data.ShowPaymentType else str(data.Preferences.ShowPaymentType)
+ShowDepositTotals = str(model.Data.ShowDepositTotals) if model.Data.ShowDepositTotals else str(data.Preferences.ShowDepositTotals)
 ShowFund = str(model.Data.ShowFund) if model.Data.ShowFund else str(data.Preferences.ShowFund)
 ShowBundleSummary = str(model.Data.ShowBundleSummary) if model.Data.ShowBundleSummary else str(data.Preferences.ShowBundleSummary)
-ShowPaymentTypeChecked = 'checked' if ShowPaymentType == "yes" else  '' 
+ShowBundleDetails = str(model.Data.ShowBundleDetails) if model.Data.ShowBundleDetails else str(data.Preferences.ShowBundleDetails)
+ShowDepositTotalsChecked = 'checked' if ShowDepositTotals == "yes" else  '' 
 ShowFundChecked = 'checked' if ShowFund == "yes" else ''
 ShowBundleSummaryChecked = 'checked' if ShowBundleSummary == "yes" else ''
+ShowBundleDetailsChecked = 'checked' if ShowBundleDetails == "yes" else ''
 
 #print 'payment:' + ShowPaymentType + 'fund:' + ShowFund + 'summary:' + ShowBundleSummary
-#print 'payment:' + ShowPaymentTypeChecked + 'fund:' + ShowFundChecked + 'summary:' + ShowBundleSummaryChecked
+#print '<br>payment:' + ShowPaymentTypeChecked + 'fund:' + ShowFundChecked + 'summary:' + ShowBundleSummaryChecked
 
 
 print '''  
@@ -216,12 +223,15 @@ if model.Data.EditParams == 'y':
         "Financial": {
             "ExcludedFundIds": "''' + ExcludedFundIds + '''",
             "GeneralFundIds": "''' + GeneralFundIds + '''",
+            "CashBundleIds": "''' + CashBundleIds + '''",
+            "CheckBundleIds": "''' + CheckBundleIds + '''",
             "BundleReportName": "''' + BundleReportName + '''"
         },
         "Preferences": {
-            "ShowPaymentType": "''' + ShowPaymentType + '''",
+            "ShowDepositTotals": "''' + ShowDepositTotals + '''",
             "ShowFund": "''' + ShowFund + '''",
-            "ShowBundleSummary": "''' + ShowBundleSummary + '''"
+            "ShowBundleSummary": "''' + ShowBundleSummary + '''",
+            "ShowBundleDetails": "''' + ShowBundleDetails + '''"
         }
     }
     '''
@@ -259,7 +269,10 @@ if model.Data.EditParams == 'y':
 else:
     if json != '':
         print '''<h3>Config file does not exist.  You must set it first before script will run.</h2>'''
-
+    #removed params
+    #<input type="hidden" value="no" name='ShowBundleSummary'>
+    #<label for="ExcludedFundIds">Excluded Funds:</label>
+    #<input type="text" id="ExcludedFundIds" name="ExcludedFundIds" value="{4}"><br>
     print '''
         <!-- Link to open the popup -->
         <a href="#popup">Edit Parameters</a>
@@ -270,14 +283,13 @@ else:
             <div class="popup-content">
                 <a href="#">Close</a>
     
-                <form action="" method="get">
+                <form id="editParams" action="" method="get">
                     <input type="hidden" name="EditParams" value="y">
-                    <h4>Parameters</h4>
+                    <h4>Form Preferences</h4>
                     <label for="email">Form Name:</label>
                     <input type="text" id="HeaderName" name="HeaderName" value="{0}"><br>
                     <label>Show/Hide:</label>
                     <div class="checkbox-container">
-                        <input type="hidden" value="no" name='ShowBundleSummary'>
                         <input type="checkbox" id="ShowBundleSummary" name="ShowBundleSummary" value="yes" {9}>
                         <label for="ShowBundleSummary">Bundle Summary</label>
                     </div>
@@ -288,8 +300,12 @@ else:
                     </div>
             
                     <div class="checkbox-container">
-                        <input type="checkbox" id="ShowPaymentType" name="ShowPaymentType" value="yes" {11}>
-                        <label for="ShowPaymentType">Payment Types</label>
+                        <input type="checkbox" id="ShowDepositTotals" name="ShowDepositTotals" value="yes" {11}>
+                        <label for="ShowDepositTotals">Deposit Totals</label>
+                    </div>
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="ShowBundleDetails" name="ShowBundleDetails" value="yes" {12}>
+                        <label for="ShowBundleDetails">Bundle Details</label>
                     </div>
                     <hr>
                     <h4>Email Parameters</h4>
@@ -301,23 +317,65 @@ else:
                     <input type="text" id="Subject" name="Subject" value="{3}"><br>
                     <hr>
                     <h4>Financial Parameters</h4>
-                    <i>seperate funds by a comma.  example: 1,11,12</i></br>
-                    <label for="ExcludedFundIds">Excluded Funds:</label>
-                    <input type="text" id="ExcludedFundIds" name="ExcludedFundIds" value="{4}"><br>
+                    <i>seperate multiple Id's by a comma.  example: 1,11,12</i></br>
                     <label for="GeneralFundIds">General Fund:</label>
                     <input type="text" id="GeneralFundIds" name="GeneralFundIds" value="{5}"><br>
+                    <label for="CashBundleIds">Cash Bundle Ids:</label>
+                    <input type="text" id="CashBundleIds" name="CashBundleIds" value="{13}"><br>
+                    <label for="CheckBundleIds">Check Bundle Ids:</label>
+                    <input type="text" id="CheckBundleIds" name="CheckBundleIds" value="{14}"><br>
                     <label for="BundleReportName">Bundle Report Name:</label>
                     <input type="text" id="Subject" name="BundleReportName" value="{6}"><br>
-                    <i>The bundle you are using can be found under Custom Batch Report in Admin ~ Settings ~ Finance ~ Batches</i><br><hr>
-                    <h4>Form Preferences</h4>
+                    <i>- Bundle report can be found under Custom Batch Report in Admin ~ Settings ~ Finance ~ Batches<br>
+                    - Bundle id's can be found under Admin ~ Advanced ~ Lookup Codes ~ Batch Types</i>
                     </br>
                     <input type="submit" value="Submit">
                     <br><br><i>Last updated by {7} on {8}</i>
                 </form>
             </div>
         </div>
-    '''.format(HeaderName,FromName,FromAddress,Subject,ExcludedFundIds,GeneralFundIds,BundleReportName,LastUpdatedBy,UpdatedLast,ShowBundleSummaryChecked,ShowFundChecked,ShowPaymentTypeChecked)
-    
+    '''.format(HeaderName,FromName,FromAddress,Subject,ExcludedFundIds,GeneralFundIds,BundleReportName,LastUpdatedBy,UpdatedLast,ShowBundleSummaryChecked,ShowFundChecked,ShowDepositTotalsChecked,ShowBundleDetailsChecked,CashBundleIds,CheckBundleIds)
+    print '''  <script>
+          document.getElementById("editParams").onsubmit = function() {
+            var checkbox = document.getElementById("ShowBundleSummary");
+            if (!checkbox.checked) {
+              // If checkbox is unchecked, set its value to 'no' before submitting
+              var input = document.createElement("input");
+              input.type = "hidden";
+              input.name = "ShowBundleSummary";
+              input.value = "no";
+              this.appendChild(input);  // Append the hidden input to the form
+            }
+            var checkbox = document.getElementById("ShowFund");
+            if (!checkbox.checked) {
+              // If checkbox is unchecked, set its value to 'no' before submitting
+              var input = document.createElement("input");
+              input.type = "hidden";
+              input.name = "ShowFund";
+              input.value = "no";
+              this.appendChild(input);  // Append the hidden input to the form
+            }
+            var checkbox = document.getElementById("ShowDepositTotals");
+            if (!checkbox.checked) {
+              // If checkbox is unchecked, set its value to 'no' before submitting
+              var input = document.createElement("input");
+              input.type = "hidden";
+              input.name = "ShowDepositTotals";
+              input.value = "no";
+              this.appendChild(input);  // Append the hidden input to the form
+            }
+            var checkbox = document.getElementById("ShowBundleDetails");
+            if (!checkbox.checked) {
+              // If checkbox is unchecked, set its value to 'no' before submitting
+              var input = document.createElement("input");
+              input.type = "hidden";
+              input.name = "ShowBundleDetails";
+              input.value = "no";
+              this.appendChild(input);  // Append the hidden input to the form
+            }
+          };
+        </script>'''
+        
     model.Header = HeaderName#"Weekly Contribution Totals" #Set to the name you want to call the page
     
     import re
@@ -482,23 +540,25 @@ else:
         Group By Fund
     '''
     
-    SqlPaymentType = '''
-         Select bht.[Description] AS BundleType
-         ,sum(c.ContributionAmount) as Checks 
-         from BundleDetail bd
-         left join Contribution c ON c.ContributionId = bd.ContributionId
-         left join BundleHeader bh ON bd.BundleHeaderId = bh.BundleHeaderId
-         left join lookup.BundleHeaderTypes bht ON bht.Id = bh.BundleHeaderTypeId
-         where bh.DepositDate BETWEEN '{0}' AND '{1}'
-         and c.ImageID <> 0
-         Group By bht.[Description]
+    SqlDepositTotals = '''
+        With DepositSum AS(
+		Select bht.[Description] AS BundleType
+		,CASE WHEN bht.Id IN ({2}) THEN sum(c.ContributionAmount) ELSE 0 END as Checks 
+		,CASE WHEN bht.Id IN ({3}) THEN sum(c.ContributionAmount) ELSE 0 END as Cash 
+        from BundleDetail bd
+        left join Contribution c ON c.ContributionId = bd.ContributionId
+        left join BundleHeader bh ON bd.BundleHeaderId = bh.BundleHeaderId
+        left join lookup.BundleHeaderTypes bht ON bht.Id = bh.BundleHeaderTypeId
+        where bh.DepositDate BETWEEN '{0}' AND '{1}'
+        Group By bht.id, bht.[Description]
+		)
+
+		SELECT BundleType, sum(Checks) AS Checks, Sum(Cash) AS Cash From DepositSum Where Checks <> 0 Or Cash <> 0 Group By BundleType Order by BundleType
     '''
 
     template = ''
     #  background-color: #dddddd;
-
-        
-        
+       
     #not used...but leaving here in case I add back in ability to select to search by contributed or 
     #deposited dates.  also need to consider adding option to spit out non-contribution as those is 
     #currently hidden from the query results... if it is added, need to look at the query as those are 
@@ -515,36 +575,39 @@ else:
             </label>
             </br>
     '''
-    
+
     # set form date fields and table headers for bundle summary
+    ShowFundDetails = ''
+    if ShowBundleDetails == "yes":
+        ShowFundDetails = '''<input type="checkbox" id="ShowDesignatedDetails" name="ShowDesignatedDetails" value="yes" {0}>
+            <label for="ShowDesignatedDetails">Show Funds in Bundle Details</label>'''.format(optionShowDesignatedDetails)
     template += '''
         <form action="" method="GET">
             <label for="sDate">Deposit Start:</label>
             <input type="date" id="sDate" name="sDate" required {0}>
             <label for="eDate">Deposit End:</label>
             <input type="date" id="eDate" name="eDate" required {1}>
-            <input type="checkbox" id="ShowDesignatedDetails" name="ShowDesignatedDetails" value="yes" {2}>
-            <label for="ShowDesignatedDetails">Show Details</label>
+            {2}
             <input type="submit" value="Filter">
         </form>
     
         <h2>Summary</h2>
-    '''.format(optionsDate,optioneDate,optionShowDesignatedDetails)
+    '''.format(optionsDate,optioneDate,ShowFundDetails)
                 
                 
-    #if ShowBundleSummary == "1":
-    template += '''
-        <h3>Bundle</h3>
-        <table id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
-            <tr id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
-                <td><h4>Type</h4></td>
-                <td><h4>General</h4></td>
-                <td><h4>Designated</h4></td>
-                <td><h4>NC</h4></td>
-                <td style="border-left: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Total<br>Contribution</h4></td>
-                <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"><h4>Total</h4></td>
-            </td>
-    '''.format(optionContributed,optionDeposited,optionsDate,optioneDate,optionShowDesignatedDetails)
+    if ShowBundleSummary == "yes":
+        template += '''
+            <h3>Bundle</h3>
+            <table id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
+                <tr id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
+                    <td><h4>Type</h4></td>
+                    <td><h4>General</h4></td>
+                    <td><h4>Designated</h4></td>
+                    <td><h4>NC</h4></td>
+                    <td style="border-left: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Contribution<br>Total</h4></td>
+                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"><h4>Total</h4></td>
+                </td>
+        '''.format(optionContributed,optionDeposited,optionsDate,optioneDate,optionShowDesignatedDetails)
     
     #bundle summary query
     sql = q.QuerySql(sql.format(searchsDate,searcheDate,searchDate,ExcludedFundIds,GeneralFundIds))
@@ -568,213 +631,221 @@ else:
         GrandTotalNon += d.NonContribution
         GrandTotal += d.General + d.Designated + d.NonContribution
         
-        #if ShowBundleSummary == "1":
         #Summary Details
-        template += '''<tr>
-                <td>{0}</td>
-                <td>{1}</td>
-                <td>{2}</td>
-                <td>{3}</td>
-                <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;">{4}</td>
-                <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;">{5}</td>
-                </tr>
-            '''.format(d.HeaderType,checkNeg(d.General),checkNeg(d.Designated),checkNeg(d.NonContribution),checkNeg(d.TotalContribution),checkNeg(d.Total))
-    #if ShowBundleSummary == "1":    
-    template += '''
-            <tr>
-                <td><h4></h4></td>
-                <td style="border-top: 1px solid #000000;"><b>{0}</b></td>
-                <td style="border-top: 1px solid #000000;"><b>{1}</b></td>
-                <td style="border-top: 1px solid #000000;"><b>{2}</b></td>
-                <td style="border-left: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{3}</b></td>
-                <td style="border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
-            </tr>
-        </table>
-        '''.format(checkNeg(GrandTotalGen),checkNeg(GrandTotalDes),checkNeg(GrandTotalNon),checkNeg(GrandTotalGenDes),checkNeg(GrandTotal))
-
-    #Payment Summary    
-    template +=  '''<h3>Payment Type</h3>
-            
-        <table id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 600px;width: 100%;">
-            <tr id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 600px;width: 100%;">
-                <td><h4>Bundle Type</h4></td>
-                <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Checks</h4></td>
-            </td>
-    '''
-    #fund summary query
-    sqlPaymentType = q.QuerySql(SqlPaymentType.format(searchsDate,searcheDate,searchDate,ExcludedFundIds,GeneralFundIds))
-    
-    #loop through bundle summary
-    TotalChecks = 0.00
-    
-    for pt in sqlPaymentType:
-
-        #Column Totals
-        TotalChecks += pt.Checks
-    
-        #Summary Details
-        template += '''
-                <tr>
-                    <td>{0}</td>
-                    <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;">{1}</td>
-                </tr>
-            '''.format(pt.BundleType,checkNeg(pt.Checks))
-    
-    template += '''
-        <tr>
-            <td></td>
-            <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{0}</b></td>
-        </tr></table></br>
-    '''.format(checkNeg(TotalChecks))
-    
-
-
-    #Fund Summary    
-    template +=  '''<h3>Fund</h3>
-        <table id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 600px;width: 100%;">
-            <tr id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 600px;width: 100%;">
-                <td><h4>Fund</h4></td>
-                <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Total</h4></td>
-            </td>
-    '''
-    #fund summary query
-    sqlFunds = q.QuerySql(SqlFunds.format(searchsDate,searcheDate,searchDate,ExcludedFundIds,GeneralFundIds))
-    
-    #loop through bundle summary
-    TotalFund = 0.00
-    
-    for fs in sqlFunds:
-
-        #Column Totals
-        TotalFund += fs.Total
-    
-        #Summary Details
-        template += '''
-                <tr>
-                    <td>{0}</td>
-                    <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;">{1}</td>
-                </tr>
-            '''.format(fs.Fund,checkNeg(fs.Total))
-    
-    template += '''
-        <tr>
-            <td></td>
-            <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{0}</b></td>
-        </tr></table></br>
-    '''.format(checkNeg(TotalFund))
-    
-    template += '''
-        <hr><h2>Bundle Details</h2>
-        '''
-    
-    #set Variables
-    FundId = ''
-    cType = ''
-
-    
-    #loop through bundle type showing batch details for each
-    for d in sql:
-        if d.ContributionTypeId is None:
-            ContributionTypeId = 'is Null'
-        else:
-            ContributionTypeId = '= ' + str(d.ContributionTypeId)
-        
-        #detail data pull
-        sqlDetailsData = q.QuerySql(sqlDetails.format(searchsDate,searcheDate,d.HeaderType,ExcludedFundIds,GeneralFundIds))
-        
-        #set table for each bundle
-        template += '''
-            <table>
-            <tr>
-                <td><h3>{0} &nbsp</h3></td>
-            </tr>'''.format(d.HeaderType,d.GeneralSum,d.DesignatedSum)
-        template += '''</table>'''
-        template += '''<table id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
-            <tr id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
-                <td><h4>Reference</h4></td>
-                <td><h4>Status</h4></td>
-                <td><h4>Deposited</h4></td>
-                <td><h4>General</h4></td>
-                <td><h4>Designated</h4></td>
-                <td><h4>NC</h4></td>
-                <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;"><h4>Total<br>Contribution</h4></td>
-                <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"><h4>Total</h4></td>
-            </td>
-        '''
-        
-        GrandTotalDetailGenDes = 0.00
-        GrandTotalDetailGen = 0.00
-        GrandTotalDetailDes = 0.00  
-        GrandTotalDetailNon = 0.00
-        GrandDetailTotal = 0.00
-        
-        #loop through each batch for the bundle
-        for dd in sqlDetailsData:
-    
-            #Row Totals
-            TotalDetailGenDes = dd.General + dd.Designated
-            #Column Totals
-            GrandTotalDetailGenDes += TotalDetailGenDes 
-            GrandTotalDetailGen += dd.General
-            GrandTotalDetailDes += dd.Designated
-            GrandTotalDetailNon += dd.NonContribution
-            GrandDetailTotal += dd.General + dd.Designated + dd.NonContribution
-            
-            FundDetails = ''
-            if dd.SourceType is None:
-                cType = ''
-                cType = str(dd.ContributionType)
-            else:
-                cType = str(dd.ContributionType) + ' (' + str(dd.SourceType) + ')'
-    
-            if ShowDesignatedDetails == 'yes':
-                #if dd.Designated != 0.00:
-                CombinedFunds = GeneralFundIds + ',' + ExcludedFundIds
-                sqlFundDetailsData = q.QuerySql(sqlFundDetails.format(dd.BundleHeaderId,CombinedFunds))
-                for fd in sqlFundDetailsData:
-                    FundDetails += '''<tr>
-                                        <td style="border-bottom: 1px dashed lightblue;">&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp''' + str(fd.Fund) + '''</td>
-                                        <td style="border-bottom: 1px dashed lightblue;"></td>
-                                        <td style="border-bottom: 1px dashed lightblue;"></td>
-                                        <td style="border-bottom: 1px dashed lightblue;">''' + checkNeg(fd.General) + '''</td>
-                                        <td style="border-bottom: 1px dashed lightblue;">''' + checkNeg(fd.Designated) + '''</td>
-                                        <td style="border-bottom: 1px dashed lightblue;">''' + checkNeg(fd.NonContribution) + '''</td>
-                                        <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;"></td>
-                                        <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"></td>
-                                    </tr>
-                                        '''
-    
-            ReferenceId = '''<a href="/Batches/Detail/''' + str(dd.BundleHeaderId) + '''" target="_blank">''' + dd.ReferenceId + '''</a>&nbsp<a href="/PyScript/''' + BundleReportName + '''?p1=''' + str(dd.BundleHeaderId) + '''" target="_blank"><i class="fa fa-bar-chart" aria-hidden="true"></i></a>'''
-            template += '''
-                <tr>
+        if ShowBundleSummary == "yes":
+            template += '''<tr>
                     <td>{0}</td>
                     <td>{1}</td>
                     <td>{2}</td>
                     <td>{3}</td>
-                    <td>{4}</td>
-                    <td>{5}</td>
-                    <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;">{6}</td>
-                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;">{7}</td>
+                    <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;">{4}</td>
+                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;">{5}</td>
+                    </tr>
+                '''.format(d.HeaderType,checkNeg(d.General),checkNeg(d.Designated),checkNeg(d.NonContribution),checkNeg(d.TotalContribution),checkNeg(d.Total))
+    if ShowBundleSummary == "yes":    
+        template += '''
+                <tr>
+                    <td><h4></h4></td>
+                    <td style="border-top: 1px solid #000000;"><b>{0}</b></td>
+                    <td style="border-top: 1px solid #000000;"><b>{1}</b></td>
+                    <td style="border-top: 1px solid #000000;"><b>{2}</b></td>
+                    <td style="border-left: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{3}</b></td>
+                    <td style="border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
                 </tr>
-                {8}    
-                '''.format(ReferenceId,dd.BundleStatus,dd.DepositDate,checkNeg(dd.General),checkNeg(dd.Designated),checkNeg(dd.NonContribution),checkNeg(dd.General + dd.Designated),checkNeg(dd.TotalContribution),FundDetails)
+            </table>
+            '''.format(checkNeg(GrandTotalGen),checkNeg(GrandTotalDes),checkNeg(GrandTotalNon),checkNeg(GrandTotalGenDes),checkNeg(GrandTotal))
+    #Payment Summary    
+    if ShowDepositTotals == "yes":    
+        template +=  '''<h3>Deposit Totals</h3>
+                
+            <table id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 600px;width: 100%;">
+                <tr id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 600px;width: 100%;">
+                    <td><h4>Bundle Type</h4></td>
+                    <td style="border-left: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Checks</h4></td>
+                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"><h4>Cash</h4></td>
+                </td>
+        '''
+        #Deposit summary query
+        sqlDepositTotals = q.QuerySql(SqlDepositTotals.format(searchsDate,searcheDate,CheckBundleIds,CashBundleIds))
+        
+        #loop through bundle summary
+        TotalChecks = 0.00
+        TotalCash = 0.00
+        
+        for dt in sqlDepositTotals:
+    
+            #Column Totals
+            TotalChecks += dt.Checks
+            TotalCash += dt.Cash
+        
+            #Summary Details
+            template += '''
+                    <tr>
+                        <td>{0}</td>
+                        <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;">{1}</td>
+                        <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;">{2}</td>
+                    </tr>
+                '''.format(dt.BundleType,checkNeg(dt.Checks),checkNeg(dt.Cash))
     
         template += '''
             <tr>
                 <td></td>
-                <td></td>
-                <td></td>
-                <td style="border-top: 1px solid black;"><b>{0}</b></td>
-                <td style="border-top: 1px solid black;"><b>{1}</b></td>
-                <td style="border-top: 1px solid black;"><b>{2}</b></td>
-                <td style="border-left: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{3}</b></td>
-                <td style="border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
-            </tr>
-        </table>
-        '''.format(checkNeg(GrandTotalDetailGen),checkNeg(GrandTotalDetailDes),checkNeg(GrandTotalDetailNon),checkNeg(GrandTotalDetailGenDes),checkNeg(GrandDetailTotal))
+                <td style="border-left: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{0}</b></td>
+                <td style="border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{1}</b></td>
+            </tr></table></br>
+        '''.format(checkNeg(TotalChecks),checkNeg(TotalCash))
     
-        template += '''</table>'''
+    if ShowFund == "yes":
     
+        #Fund Summary    
+        template +=  '''<h3>Fund</h3>
+            <table id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 600px;width: 100%;">
+                <tr id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 600px;width: 100%;">
+                    <td><h4>Fund</h4></td>
+                    <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Total</h4></td>
+                </td>
+        '''
+        #fund summary query
+        sqlFunds = q.QuerySql(SqlFunds.format(searchsDate,searcheDate,searchDate,ExcludedFundIds,GeneralFundIds))
+        
+        #loop through bundle summary
+        TotalFund = 0.00
+        
+        for fs in sqlFunds:
+    
+            #Column Totals
+            TotalFund += fs.Total
+        
+            #Summary Details
+            template += '''
+                    <tr>
+                        <td>{0}</td>
+                        <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;">{1}</td>
+                    </tr>
+                '''.format(fs.Fund,checkNeg(fs.Total))
+        
+        template += '''
+            <tr>
+                <td></td>
+                <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{0}</b></td>
+            </tr></table></br>
+        '''.format(checkNeg(TotalFund))
+        
+        
+    #bundle Details
+    if ShowBundleDetails == "yes":
+        template += '''
+            <hr><h2>Bundle Details</h2>
+            '''
+        
+        #set Variables
+        FundId = ''
+        cType = ''
+    
+        
+        #loop through bundle type showing batch details for each
+        for d in sql:
+            if d.ContributionTypeId is None:
+                ContributionTypeId = 'is Null'
+            else:
+                ContributionTypeId = '= ' + str(d.ContributionTypeId)
+            
+            #detail data pull
+            sqlDetailsData = q.QuerySql(sqlDetails.format(searchsDate,searcheDate,d.HeaderType,ExcludedFundIds,GeneralFundIds))
+            
+            #set table for each bundle
+            template += '''
+                <table>
+                <tr>
+                    <td><h3>{0} &nbsp</h3></td>
+                </tr>'''.format(d.HeaderType,d.GeneralSum,d.DesignatedSum)
+            template += '''</table>'''
+            template += '''<table id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
+                <tr id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
+                    <td><h4>Reference</h4></td>
+                    <td><h4>Status</h4></td>
+                    <td><h4>Deposited</h4></td>
+                    <td><h4>General</h4></td>
+                    <td><h4>Designated</h4></td>
+                    <td><h4>NC</h4></td>
+                    <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;"><h4>Contribution<br>Total</h4></td>
+                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"><h4>Total</h4></td>
+                </td>
+            '''
+            
+            GrandTotalDetailGenDes = 0.00
+            GrandTotalDetailGen = 0.00
+            GrandTotalDetailDes = 0.00  
+            GrandTotalDetailNon = 0.00
+            GrandDetailTotal = 0.00
+            
+            #loop through each batch for the bundle
+            for dd in sqlDetailsData:
+        
+                #Row Totals
+                TotalDetailGenDes = dd.General + dd.Designated
+                #Column Totals
+                GrandTotalDetailGenDes += TotalDetailGenDes 
+                GrandTotalDetailGen += dd.General
+                GrandTotalDetailDes += dd.Designated
+                GrandTotalDetailNon += dd.NonContribution
+                GrandDetailTotal += dd.General + dd.Designated + dd.NonContribution
+                
+                FundDetails = ''
+                if dd.SourceType is None:
+                    cType = ''
+                    cType = str(dd.ContributionType)
+                else:
+                    cType = str(dd.ContributionType) + ' (' + str(dd.SourceType) + ')'
+        
+                if ShowDesignatedDetails == 'yes':
+                    #if dd.Designated != 0.00:
+                    CombinedFunds = GeneralFundIds + ',' + ExcludedFundIds
+                    sqlFundDetailsData = q.QuerySql(sqlFundDetails.format(dd.BundleHeaderId,CombinedFunds))
+                    for fd in sqlFundDetailsData:
+                        FundDetails += '''<tr>
+                                            <td style="border-bottom: 1px dashed lightblue;">&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp''' + str(fd.Fund) + '''</td>
+                                            <td style="border-bottom: 1px dashed lightblue;"></td>
+                                            <td style="border-bottom: 1px dashed lightblue;"></td>
+                                            <td style="border-bottom: 1px dashed lightblue;">''' + checkNeg(fd.General) + '''</td>
+                                            <td style="border-bottom: 1px dashed lightblue;">''' + checkNeg(fd.Designated) + '''</td>
+                                            <td style="border-bottom: 1px dashed lightblue;">''' + checkNeg(fd.NonContribution) + '''</td>
+                                            <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;"></td>
+                                            <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"></td>
+                                        </tr>
+                                            '''
+        
+                ReferenceId = '''<a href="/Batches/Detail/''' + str(dd.BundleHeaderId) + '''" target="_blank">''' + dd.ReferenceId + '''</a>&nbsp<a href="/PyScript/''' + BundleReportName + '''?p1=''' + str(dd.BundleHeaderId) + '''" target="_blank"><i class="fa fa-bar-chart" aria-hidden="true"></i></a>'''
+                template += '''
+                    <tr>
+                        <td>{0}</td>
+                        <td>{1}</td>
+                        <td>{2}</td>
+                        <td>{3}</td>
+                        <td>{4}</td>
+                        <td>{5}</td>
+                        <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;">{6}</td>
+                        <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;">{7}</td>
+                    </tr>
+                    {8}    
+                    '''.format(ReferenceId,dd.BundleStatus,dd.DepositDate,checkNeg(dd.General),checkNeg(dd.Designated),checkNeg(dd.NonContribution),checkNeg(dd.General + dd.Designated),checkNeg(dd.TotalContribution),FundDetails)
+        
+            template += '''
+                <tr>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td style="border-top: 1px solid black;"><b>{0}</b></td>
+                    <td style="border-top: 1px solid black;"><b>{1}</b></td>
+                    <td style="border-top: 1px solid black;"><b>{2}</b></td>
+                    <td style="border-left: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{3}</b></td>
+                    <td style="border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
+                </tr>
+            </table>
+            '''.format(checkNeg(GrandTotalDetailGen),checkNeg(GrandTotalDetailDes),checkNeg(GrandTotalDetailNon),checkNeg(GrandTotalDetailGenDes),checkNeg(GrandDetailTotal))
+        
+            template += '''</table>'''
+        
     NMReport = model.RenderTemplate(template) #render template and save to variable
     
     #send report to self if button is pressed
