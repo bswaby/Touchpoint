@@ -391,19 +391,18 @@ else:
     ShowDesignatedDetails = model.Data.ShowDesignatedDetails
     
     #set form parameters 
-    if DateSearch == 'contributed':
-        optionContributed = 'checked'
-        optionDeposited = ''
-        searchDate = 'bl.DepositDate'
+    if DateSearch == 'ContributionDate':
+        ContributionDateChecked = 'checked'
+        DepositDateChecked = ''
     elif DateSearch == 'deposited':
-        optionContributed = ''
-        optionDeposited = 'checked'
-        searchDate = 'bl.DepositDate'
+        ContributionDateChecked = ''
+        DepositDateChecked = 'checked'
     else:
-        optionContributed = 'checked'
-        optionDeposited = ''
-        searchDate = 'bl.DepositDate'
-        
+        ContributionDateChecked = ''
+        DepositDateChecked = 'checked'
+        DateSearch = 'DepositDate'
+
+       
     if sDate is not None:
         optionsDate = ' value="' + sDate + '"'
         searchsDate = sDate
@@ -433,7 +432,8 @@ else:
         LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
         LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
         LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
-        Where ContributionDate BETWEEN '{0}' AND '{1}'
+        --Where ContributionDate BETWEEN '{0}' AND '{1}'
+        Where {2} BETWEEN '{0}' AND '{1}'
         Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundDescription)
         
         Select HeaderType
@@ -463,7 +463,9 @@ else:
         LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
         LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
         LEFT JOIN lookup.BundleStatusTypes bst ON bst.Id = bl.BundleStatusId
-        Where ContributionDate BETWEEN '{0}' AND '{1}' and bl.HeaderType = '{2}'
+        --Where ContributionDate BETWEEN '{0}' AND '{1}' 
+        Where {5} BETWEEN '{0}' AND '{1}' 
+        and bl.HeaderType = '{2}'
         Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundDescription,bst.[Description],bl.DepositDate)
         
         Select 
@@ -530,7 +532,8 @@ else:
         LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
         LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
         LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
-        Where ContributionDate BETWEEN '{0}' AND '{1}'
+        --Where ContributionDate BETWEEN '{0}' AND '{1}'
+        Where {2} BETWEEN '{0}' AND '{1}'
         Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundDescription,cf.FundDescription)
         
         Select 
@@ -557,24 +560,6 @@ else:
     '''
 
     template = ''
-    #  background-color: #dddddd;
-       
-    #not used...but leaving here in case I add back in ability to select to search by contributed or 
-    #deposited dates.  also need to consider adding option to spit out non-contribution as those is 
-    #currently hidden from the query results... if it is added, need to look at the query as those are 
-    #pulling from an account vs fund and will need to detail that out a little differently
-    datesearch = '''
-            Search On Date:
-            <label>
-              <input type="radio" name="DateSearch" value="contributed" {0}>
-              Contributed
-            </label>h
-            <label>
-              <input type="radio" name="DateSearch" value="deposited" {1}>
-              Deposited
-            </label>
-            </br>
-    '''
 
     # set form date fields and table headers for bundle summary
     ShowFundDetails = ''
@@ -583,6 +568,16 @@ else:
             <label for="ShowDesignatedDetails">Show Funds in Bundle Details</label>'''.format(optionShowDesignatedDetails)
     template += '''
         <form action="" method="GET">
+            Search By:
+            <label>
+              <input type="radio" name="DateSearch" value="DepositDate" {3}>
+              Deposited Date
+            </label>
+            <label>
+              <input type="radio" name="DateSearch" value="ContributionDate" {4}>
+              Contributed Date
+            </label>
+            </br>
             <label for="sDate">Deposit Start:</label>
             <input type="date" id="sDate" name="sDate" required {0}>
             <label for="eDate">Deposit End:</label>
@@ -592,8 +587,7 @@ else:
         </form>
     
         <h2>Summary</h2>
-    '''.format(optionsDate,optioneDate,ShowFundDetails)
-                
+    '''.format(optionsDate,optioneDate,ShowFundDetails,DepositDateChecked,ContributionDateChecked)
                 
     if ShowBundleSummary == "yes":
         template += '''
@@ -607,10 +601,10 @@ else:
                     <td style="border-left: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Contribution<br>Total</h4></td>
                     <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"><h4>Total</h4></td>
                 </td>
-        '''.format(optionContributed,optionDeposited,optionsDate,optioneDate,optionShowDesignatedDetails)
-    
+        '''
+
     #bundle summary query
-    sql = q.QuerySql(sql.format(searchsDate,searcheDate,searchDate,ExcludedFundIds,GeneralFundIds))
+    sql = q.QuerySql(sql.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds))
     
     #set variables for bundle summary
     GrandTotalGenDes = 0.00
@@ -706,7 +700,7 @@ else:
                 </td>
         '''
         #fund summary query
-        sqlFunds = q.QuerySql(SqlFunds.format(searchsDate,searcheDate,searchDate,ExcludedFundIds,GeneralFundIds))
+        sqlFunds = q.QuerySql(SqlFunds.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds))
         
         #loop through bundle summary
         TotalFund = 0.00
@@ -751,7 +745,7 @@ else:
                 ContributionTypeId = '= ' + str(d.ContributionTypeId)
             
             #detail data pull
-            sqlDetailsData = q.QuerySql(sqlDetails.format(searchsDate,searcheDate,d.HeaderType,ExcludedFundIds,GeneralFundIds))
+            sqlDetailsData = q.QuerySql(sqlDetails.format(searchsDate,searcheDate,d.HeaderType,ExcludedFundIds,GeneralFundIds,DateSearch))
             
             #set table for each bundle
             template += '''
@@ -801,7 +795,7 @@ else:
                 if ShowDesignatedDetails == 'yes':
                     #if dd.Designated != 0.00:
                     CombinedFunds = GeneralFundIds + ',' + ExcludedFundIds
-                    sqlFundDetailsData = q.QuerySql(sqlFundDetails.format(dd.BundleHeaderId,CombinedFunds))
+                    sqlFundDetailsData = q.QuerySql(sqlFundDetails.format(dd.BundleHeaderId,CombinedFunds,DateSearch))
                     for fd in sqlFundDetailsData:
                         FundDetails += '''<tr>
                                             <td style="border-bottom: 1px dashed lightblue;">&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp''' + str(fd.Fund) + '''</td>
