@@ -428,7 +428,7 @@ else:
         ,case when cb.FundId in ({4}) THEN sum(cb.ContributionAmount) ELSE 0 END AS General
         ,case when ct.id <> 99 and cb.fundId not in ({4}) THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
         ,case when ct.id = 99 THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
-        FROM [CMS_fbchville].[dbo].[ContributionsBasic] cb
+        FROM [ContributionsBasic] cb
         LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
         LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
         LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
@@ -457,7 +457,7 @@ else:
         ,case when cb.FundId = 1 THEN sum(cb.ContributionAmount) ELSE 0 END AS General
         ,case when ct.id <> 99 and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
         ,case when ct.id = 99 THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
-        FROM [CMS_fbchville].[dbo].[ContributionsBasic] cb
+        FROM [ContributionsBasic] cb
         LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
         LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
         LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
@@ -492,7 +492,7 @@ else:
         ,case when cb.FundId = 1 THEN sum(cb.ContributionAmount) ELSE 0 END AS General
         ,case when ct.id <> 99 and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
         ,case when ct.id = 99 THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
-        FROM [CMS_fbchville].[dbo].[ContributionsBasic] cb
+        FROM [ContributionsBasic] cb
         LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
         LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
         LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
@@ -525,7 +525,7 @@ else:
         ,case when cb.FundId = 1 THEN sum(cb.ContributionAmount) ELSE 0 END AS General
         ,case when ct.id <> 99 and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
         ,case when ct.id = 99 THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
-        FROM [CMS_fbchville].[dbo].[ContributionsBasic] cb
+        FROM [ContributionsBasic] cb
         LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
         LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
         LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
