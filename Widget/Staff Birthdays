@@ -1,0 +1,86 @@
+#This is to show upcoming staff birthdays.  
+#-- Steps --
+#1. Copy this code to a python script and call it something like WidgetStaffBirthdays
+#2. Add the word widget to content keywords
+#3. Update config parameters below
+
+#Add Just add updat with the parameters below and add this python code to show
+
+#######################################################
+#config parameters
+#######################################################
+title = '''Birthday & Wedding Anniversaries'''
+staffOrgs = '852' #involvement ID's of staff.. seperate with comma for multiple 
+daysToLookOut = '30' #set to how many days you want to look out
+
+
+#######################################################
+# start of code
+#######################################################
+
+model.Header = title
+sqlold = '''select p.PeopleId, Name, CONCAT(p.birthMonth, '/', p.BirthDay) AS [Birthday] from [Organizations] o
+inner join OrganizationMembers om ON om.OrganizationId = o.OrganizationId
+inner join People p ON p.PeopleId = om.PeopleId
+where 
+o.OrganizationId IN (''' + staffOrgs + ''')
+AND DATEADD (year, DatePart(year, getdate()) - DatePart(year, p.BDate), p.BDate)
+      between convert(datetime, DateAdd(day,-1,getdate()), 101) 
+              and convert(datetime, DateAdd(day,''' + daysToLookOut + ''', getdate()), 101)
+Order by p.BirthMonth, p.BirthDay'''
+
+sql = '''WITH weddingDate AS (
+select p.PeopleId
+, Name
+,'Wedding' AS [Type]
+,FORMAT(p.WeddingDate,'MM/dd') AS [dDate]
+from [Organizations] o
+inner join OrganizationMembers om ON om.OrganizationId = o.OrganizationId
+inner join People p ON p.PeopleId = om.PeopleId
+where 
+o.OrganizationId IN (''' + staffOrgs + ''')
+AND DATEADD (year, DatePart(year, getdate()) - DatePart(year, p.WeddingDate), p.WeddingDate)
+      between convert(datetime, DateAdd(day,-1,getdate()), 101) 
+              and convert(datetime, DateAdd(day,''' + daysToLookOut + ''', getdate()), 101)
+)
+
+select 
+p.PeopleId
+,Name
+,FORMAT(p.BDate,'MM/dd') AS [dDate]
+,'Birthday' AS [Type]
+from [Organizations] o
+inner join OrganizationMembers om ON om.OrganizationId = o.OrganizationId
+inner join People p ON p.PeopleId = om.PeopleId
+where 
+o.OrganizationId IN (''' + staffOrgs + ''')
+AND DATEADD (year, DatePart(year, getdate()) - DatePart(year, p.BDate), p.BDate)
+      between convert(datetime, DateAdd(day,-1,getdate()), 101) 
+              and convert(datetime, DateAdd(day,''' + daysToLookOut + ''', getdate()), 101)
+
+union all (Select wd.PeopleId, wd.Name, wd.dDate, wd.Type from WeddingDate wd)
+Order by dDate'''
+
+
+#Start of HTML formatting
+print '''
+<style>
+#divformat {
+  background-color: White;
+  border: 1px solid green;
+  padding: 3px;
+  margin: 0px;
+  margin-top: 4px;
+}
+#smallpadding {
+  padding: 3px;
+  margin: 1px;
+}
+</style>
+<div id="divformat"><h3 id="smallpadding">''' + title + '''</h3><hr id="smallpadding">'''
+data = q.QuerySql(sql)
+
+for i in data:
+    print i.dDate + ''' | <a href="/Person2/''' + str(i.PeopleId) + '''#tab-communications">''' + i.Name + '</a> | ' + i.Type + '</br>'
+    
+print '</div>'
