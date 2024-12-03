@@ -1,5 +1,5 @@
 ########################################################
-### Info
+### Info 
 
 #The built-in calendar view is complicated and this is just a basic simple view
 # to allow team members to see a full calendar over-time along with showing what
@@ -7,6 +7,10 @@
 
 #This can be ran from Bluetoolbar menu or directly with ?CurrentOrgId=#### added
 # to the end of the python url. #### should be replaced with the involvement id
+
+###############################
+### Blue toolbar Implementation
+
 
 #To add this to the Bluetoolbar, navigate to open CustomReport under special content 
 # / text and add in the following line.  Make sure to adjust report name to what
@@ -17,6 +21,21 @@
 # note: CustomReport changes can take 24 hrs to show on the site due to how cache 
 #  has implemented on the TP servers
 
+################################
+### Morning Batch Implementation
+
+# Add the following to the morning batch (admin~advanced~special content~python~morningbatch)
+# update [1,15] with the days you want the report sending out
+# update currentOrgId with the orgid of your volunteer involvement
+
+#from datetime import datetime
+#import ast
+#today = datetime.now()
+#if today.day in [1, 15]: #set the day(s) you want to send the report on
+#    model.Data.sendReport = 'y'
+#    model.Data.reportTo = 'Involvement' #options are Self or Involvement  
+#    model.Data.CurrentOrgId = '2832' #send Safety and Security Schedule Out
+#    print(model.CallScript("ScheduleList"))
 
 ########################################################
 ### User Config Area
