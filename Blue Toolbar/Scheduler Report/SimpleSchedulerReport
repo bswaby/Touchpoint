@@ -83,7 +83,7 @@ if model.CurrentOrgId is not None and Data.CurrentOrgId != '':
 
 
 sql = '''
-DECLARE @InvId Int = 2832
+DECLARE @InvId Int = 904 --2832
 DECLARE @days int = 365
 
 ;With
@@ -113,18 +113,20 @@ LEFT JOIN Meetings m on tsm.MeetingId = m.MeetingId
 LEFT JOIN TimeSlotMeetingTeamSubGroupVolunteers tsGrpVol ON 
 	(tsGrpVol.IsActive <> 0 AND tsGrpVol.TimeSlotMeetingTeamId = tsmt.TimeSlotMeetingTeamId AND tsGrpVol.TimeSlotMeetingTeamSubGroupId is NULL)
 		OR (tsGrpVol.IsActive <> 0 AND tsGrpVol.TimeSlotMeetingTeamSubGroupId = tssg.TimeSlotMeetingTeamSubGroupId  AND tsGrpVol.TimeSlotMeetingTeamSubGroupId is not NULL)
-LEFT JOIN MemberTags mt ON mt.Id = tssg.MemberTagId and mt.OrgId = {0} --904 --@InvId
+LEFT JOIN MemberTags mt ON mt.Id = tssg.MemberTagId and mt.OrgId = {0}
 LEFT JOIN People p ON p.PeopleId = tsGrpVol.PeopleId
 WHERE 
 tsm.MeetingDateTime > GETDATE() 
 AND tsm.MeetingDateTime < DATEADD(d, {1} , GETDATE()) --@days
-AND OrganizationId = {0} --@InvId 
+AND OrganizationId = {0}
 )
+
+--Select * from AllServices
 
 ,allpeeps as (
 SELECT 
- a.Name2
-,a.Name
+ STRING_AGG(a.Name2,', ') AS Name2
+--,a.Name
 ,a.ServiceDate
 ,a.ServiceTime
 ,a.ServiceDateTime
@@ -135,7 +137,20 @@ SELECT
 ,a.TeamName
 ,a.Required
 FROM AllServices a
+Group By 
+a.ServiceDate
+,a.ServiceTime
+,a.ServiceDateTime
+--,a.TeamName
+,a.Needed
+,a.TimeSlotMeetingTeamId
+,a.SubGroupTeam
+,a.TeamName
+,a.Required
  )
+
+ --Select * From allpeeps
+
 
 ,ServiceCount as
 (
@@ -147,10 +162,10 @@ FROM AllServices a
 	,TimeSlotMeetingTeamId
 	, SubGroupTeam
 	, TeamName
-	, Name2
-	, Count(name) as serving 
+	--, Name2
+	, Count(Name2) as serving 
 From allpeeps 
-Group By TimeSlotMeetingTeamId,TeamName,subgroupteam, Name2,ServiceDate,ServiceDateTime,ServiceTime,Needed,[Required]  
+Group By TimeSlotMeetingTeamId,TeamName,subgroupteam,ServiceDate,ServiceDateTime,ServiceTime,Needed,[Required]  
 
 )
 
@@ -182,18 +197,19 @@ sc.ServiceDate as 'Date'
 ,ISNULL(SUBSTRING(
 (
 	SELECT ', '
-	+a1.Name AS [text()]
+	+a1.Name2 AS [text()]
 	FROM allpeeps a1
 	WHERE a1.ServiceDateTime = sc.ServiceDateTime
 		AND a1.SubGroupTeam = sc.SubGroupTeam 
-		--AND a1.ServiceDateTime = sc.ServiceDateTime--AND a1.TimeOnly = sc.ServiceTime
+		--AND sc.TimeSlotMeetingTeamId = a1.TimeSlotMeetingTeamId
+		--AND a1.ServiceDateTime = sc.ServiceDateTime --AND a1.TimeOnly = sc.ServiceTime
 	ORDER BY a1.Name2
 	FOR XML PATH ('')), 2, 1000),'--->none<---') Names
 FROM ServiceCount sc
 LEFT JOIN allpeeps a ON a.TeamName = sc.TeamName AND a.ServiceDateTime = sc.ServiceDateTime AND a.SubGroupTeam = sc.SubGroupTeam 
 LEFT JOIN UniqueDates ud ON ud.DateOnly = DATEADD(dd, DATEDIFF(dd, 0, sc.ServiceDate), 0)
 Where sc.SubGroupTeam NOT LIKE 'EMS' AND sc.SubGroupTeam NOT LIKE 'LEO'
-GROUP BY sc.ServiceDateTime,a.TeamName,sc.SubGroupTeam, sc.ServiceDate, sc.Serving, sc.Needed,a.TimeSlotMeetingTeamId,sc.Required,ud.countDate,a.Name2,a.Name--,a.ServiceDateTime
+GROUP BY sc.ServiceDateTime,a.TeamName,sc.SubGroupTeam, sc.ServiceDate, sc.Serving, sc.Needed,a.TimeSlotMeetingTeamId,sc.Required,ud.countDate,a.Name2--,a.ServiceDateTime
 ORDER BY sc.ServiceDate
 
 '''
