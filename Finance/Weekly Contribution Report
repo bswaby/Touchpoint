@@ -538,7 +538,9 @@ else:
         
         Select 
         Fund
-        ,sum(General) + sum(Designated) + sum(NonContribution) AS Total
+        ,sum(General) AS General
+        ,sum(Designated) AS Designated
+        ,sum(NonContribution) AS NonContribution
         From bundlereport
         Group By Fund
     '''
@@ -693,10 +695,14 @@ else:
     
         #Fund Summary    
         template +=  '''<h3>Fund</h3>
-            <table id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 600px;width: 100%;">
-                <tr id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 600px;width: 100%;">
+            <table id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 850px;width: 100%;">
+                <tr id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 850px;width: 100%;">
                     <td><h4>Fund</h4></td>
-                    <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Total</h4></td>
+                    <td><h4>General</h4></td>
+                    <td><h4>Designated</h4></td>
+                    <td><h4>Non-Contribution</h4></td>
+                    <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Contribution<br />Total</h4></td>
+                    <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Grand<br />Total</h4></td>
                 </td>
         '''
         #fund summary query
@@ -704,26 +710,36 @@ else:
         
         #loop through bundle summary
         TotalFund = 0.00
+        GrandTotalFund = 0.00
         
         for fs in sqlFunds:
     
             #Column Totals
-            TotalFund += fs.Total
+            TotalFund += fs.General + fs.Designated
+            GrandTotalFund += fs.General + fs.Designated + fs.NonContribution
         
             #Summary Details
             template += '''
                     <tr>
                         <td>{0}</td>
-                        <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;">{1}</td>
+                        <td>{1}</td>
+                        <td>{2}</td>
+                        <td>{3}</td>
+                        <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;">{4}</td>
+                        <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;">{5}</td>
                     </tr>
-                '''.format(fs.Fund,checkNeg(fs.Total))
+                '''.format(fs.Fund,checkNeg(fs.General),checkNeg(fs.Designated),checkNeg(fs.NonContribution),checkNeg(fs.General + fs.Designated),checkNeg(fs.General + fs.Designated + fs.NonContribution))
         
         template += '''
             <tr>
                 <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
                 <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{0}</b></td>
+                <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{1}</b></td>
             </tr></table></br>
-        '''.format(checkNeg(TotalFund))
+        '''.format(checkNeg(TotalFund),checkNeg(GrandTotalFund))
         
         
     #bundle Details
