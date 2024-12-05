@@ -578,9 +578,9 @@ else:
               Contributed Date
             </label>
             </br>
-            <label for="sDate">Deposit Start:</label>
+            <label for="sDate">Start:</label>
             <input type="date" id="sDate" name="sDate" required {0}>
-            <label for="eDate">Deposit End:</label>
+            <label for="eDate">End:</label>
             <input type="date" id="eDate" name="eDate" required {1}>
             {2}
             <input type="submit" value="Filter">
@@ -599,7 +599,7 @@ else:
                     <td><h4>Designated</h4></td>
                     <td><h4>NC</h4></td>
                     <td style="border-left: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Contribution<br>Total</h4></td>
-                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"><h4>Total</h4></td>
+                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"><h4>Grand<br>Total</h4></td>
                 </td>
         '''
 
@@ -763,7 +763,7 @@ else:
                     <td><h4>Designated</h4></td>
                     <td><h4>NC</h4></td>
                     <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;"><h4>Contribution<br>Total</h4></td>
-                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"><h4>Total</h4></td>
+                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"><h4>Grand<br>Total</h4></td>
                 </td>
             '''
             
@@ -822,7 +822,7 @@ else:
                         <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;">{7}</td>
                     </tr>
                     {8}    
-                    '''.format(ReferenceId,dd.BundleStatus,dd.DepositDate,checkNeg(dd.General),checkNeg(dd.Designated),checkNeg(dd.NonContribution),checkNeg(dd.General + dd.Designated),checkNeg(dd.TotalContribution),FundDetails)
+                    '''.format(ReferenceId,dd.BundleStatus,dd.DepositDate,checkNeg(dd.General),checkNeg(dd.Designated),checkNeg(dd.NonContribution),checkNeg(dd.General + dd.Designated),checkNeg(dd.General + dd.Designated + dd.NonContribution),FundDetails)
         
             template += '''
                 <tr>
