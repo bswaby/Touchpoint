@@ -709,12 +709,18 @@ else:
         sqlFunds = q.QuerySql(SqlFunds.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds))
         
         #loop through bundle summary
+        TotalGeneralFund = 0.00
+        TotalDesignatedFund = 0.00
+        TotalNonContributionFund = 0.00
         TotalFund = 0.00
         GrandTotalFund = 0.00
         
         for fs in sqlFunds:
     
             #Column Totals
+            TotalGeneralFund += fs.General
+            TotalDesignatedFund += fs.Designated
+            TotalNonContributionFund += fs.NonContribution
             TotalFund += fs.General + fs.Designated
             GrandTotalFund += fs.General + fs.Designated + fs.NonContribution
         
@@ -733,13 +739,13 @@ else:
         template += '''
             <tr>
                 <td></td>
-                <td></td>
-                <td></td>
-                <td></td>
-                <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{0}</b></td>
-                <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{1}</b></td>
+                <td style="border-top: 1px solid #000000;"><b>{0}</b></td>
+                <td style="border-top: 1px solid #000000;"><b>{1}</b></td>
+                <td style="border-top: 1px solid #000000;"><b>{2}</b></td>
+                <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{3}</b></td>
+                <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
             </tr></table></br>
-        '''.format(checkNeg(TotalFund),checkNeg(GrandTotalFund))
+        '''.format(checkNeg(TotalGeneralFund),checkNeg(TotalDesignatedFund),checkNeg(TotalNonContributionFund),checkNeg(TotalFund),checkNeg(GrandTotalFund))
         
         
     #bundle Details
