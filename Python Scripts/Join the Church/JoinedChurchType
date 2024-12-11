@@ -1,0 +1,120 @@
+#Role=Edit
+
+import re
+import datetime
+from datetime import datetime
+from types import NoneType
+
+model.Header = "Joined the Church"
+
+sqlBaptism = '''
+Select 
+	Count(*) As [Count],
+	Year(p.BaptismDate) as [Year],
+	bt.Description from People p 
+LEFT JOIN lookup.BaptismType bt on bt.Id = p.BaptismTypeId
+Where year(p.BaptismDate) >= YEAR(GETDATE()) - 9
+Group By bt.Description,year(p.BaptismDate)
+Order by year(p.BaptismDate), bt.Description
+
+'''
+sqlJoined = '''
+Select 
+	Count(*) As [Count],
+	Year(p.JoinDate) as [Year],
+	jt.Description from People p 
+LEFT JOIN lookup.JoinType jt on jt.Id = p.JoinCodeId
+Where year(p.JoinDate) >= YEAR(GETDATE()) - 9
+Group By jt.Description,year(p.JoinDate)
+Order by year(p.JoinDate), jt.Description
+
+'''
+
+sqldata = q.QuerySql(sqlJoined)
+records = ''
+for i in sqldata:
+    if records != '':
+        records += ','
+
+    records += '{'
+    records += '''Count: {0},
+                  Year: {1},
+                  Type: "{2}"
+                    '''.format(i.Count,i.Year,i.Description)
+    records += '}'
+
+
+print '''
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-charts-community/styles/ag-charts.css">
+  <style>
+    .chart-container {
+      height: 500px;
+      width: 100%;
+    }
+  </style>
+
+
+  <title>Joined the Church</title>
+  <div id="myChart" class="chart-container"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/ag-charts-community/dist/ag-charts-community.min.js"></script>
+  <script>
+    // Data provided from the question
+    const rowData = [''' + records + '''
+    ];
+
+    // Transform data to group counts by year and type
+    const groupedData = {};
+    rowData.forEach(({ Year, Type, Count }) => {
+      if (!groupedData[Year]) {
+        groupedData[Year] = { Year };
+      }
+      groupedData[Year][Type] = Count || 0;
+    });
+
+    // Convert grouped data into an array
+    const chartData = Object.values(groupedData);
+
+    // Get all unique types dynamically
+    const uniqueTypes = [...new Set(rowData.map(row => row.Type))];
+
+    // Create the AG-Chart grouped column chart
+    agCharts.AgChart.create({
+      container: document.getElementById('myChart'),
+      data: chartData,
+      title: {
+        text: 'Joined the Church',
+      },
+      series: uniqueTypes.map(type => ({
+        type: 'column',
+        xKey: 'Year',
+        yKey: type,
+        title: type,
+      })),
+      axes: [
+        {
+          type: 'category',
+          position: 'bottom',
+          title: {
+            text: 'Year',
+          },
+        },
+        {
+          type: 'number',
+          position: 'left',
+          title: {
+            text: 'Count',
+          },
+        },
+      ],
+      legend: {
+        position: 'bottom',
+      },
+    });
+  </script>
+
+
+
+'''
