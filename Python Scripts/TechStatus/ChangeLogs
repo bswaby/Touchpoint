@@ -1,0 +1,120 @@
+import re
+from types import NoneType
+
+model.Header = "Change Logs"
+
+sql = '''
+SELECT TOP 3500
+    cl.Created as [Timestamp],
+    CONCAT(COALESCE(u.NickName, u.FirstName), ' ', u.LastName) as [ChangedBy],
+    CONCAT(COALESCE(s.NickName, s.FirstName), ' ', s.LastName) as Subject,
+    s.PeopleId as [PeopleId],
+    cl.Field as [Section],
+    cd.Field as [Field],
+    COALESCE(cl.Before, cd.Before) as [Before],
+    COALESCE(cl.After, cd.After) as [After], --COALESCE(cl.After, cd.After) as [After],
+    cd.Id as [ChangeId]
+FROM ChangeLog cl 
+    LEFT JOIN People u on cl.UserPeopleId = u.PeopleId 
+    LEFT JOIN People s on cl.PeopleId = s.PeopleId 
+    FULL JOIN ChangeDetails cd on cl.Id = cd.Id
+--where cd.Id = 157762
+ORDER BY cd.Id DESC
+'''
+
+sqldata = q.QuerySql(sql)
+
+records = ''
+
+for d in sqldata:
+    before = ''
+    after = ''
+    if d.Before != NoneType:
+        before = re.sub('[^A-Za-z0-9]+', ' ', str(d.Before))
+    if d.After != NoneType:
+        after = re.sub('[^A-Za-z0-9]+', ' ', str(d.After))
+
+    if records != '':
+        records += ','
+        
+    records += '{'
+    records += '''timestamp: "{0}",
+                  changeby: "{1}",
+                  subject: "{2}",
+                  peopleid: "{3}",
+                  section: "{4}",
+                  field: "{5}",
+                  before: "{6}",
+                  after: "{7}",
+                  changeid: "{8}"
+                    '''.format(d.Timestamp, d.ChangedBy, d.Subject, 
+                    d.PeopleId, d.Section, d.Field, before, after, d.ChangeId)
+    records += '}'
+
+print('''
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise/dist/ag-grid-enterprise.js"></script>
+    <div id="history-grid" class="ag-theme-quartz" style="height: 800px"></div>
+
+    <script>
+    
+    // Grid Options: Contains all of the grid configurations
+
+    const gridOptions = {
+        rowData: [
+            ''' + records + '''
+        ],
+        // Column Definitions: Defines & controls grid columns.
+        columnDefs: [
+            { field: "timestamp" },
+            { field: "changeby", enableRowGroup: true },
+            { field: "subject", enableRowGroup: true },
+            { field: "peopleid", enableRowGroup: true, cellRenderer: function(params) {
+                    if(params.data){return '<a href="/Person2/' + params.value + '" target="_blank">'+ params.value+'</a>'}
+                    else{return '';}} },
+            { field: "section" },
+            { field: "field" },
+            { field: "before" },
+            { field: "after" },
+            { field: "changeid", enableRowGroup: true, rowGroup: true, hide: true }
+        ],
+        defaultColDef: {
+            flex: 1,
+            minWidth: 150,
+            filter: 'agMultiColumnFilter',
+            menuTabs: ['filterMenuTab']
+        },
+        groupDefaultExpanded: -1,
+        // possible options: 'never', 'always', 'onlyWhenGrouping'
+        //rowGroupPanelShow: 'always',
+        sideBar: {
+            toolPanels: [
+                {
+                    id: 'columns',
+                    labelDefault: 'Columns',
+                    labelKey: 'columns',
+                    iconKey: 'columns',
+                    toolPanel: 'agColumnsToolPanel',
+                },
+                {
+                    id: 'filters',
+                    labelDefault: 'Filters',
+                    labelKey: 'filters',
+                    iconKey: 'filter',
+                    toolPanel: 'agFiltersToolPanel',
+                }
+            ],
+            //defaultToolPanel: 'columns',
+            defaultToolPanel: "",
+            
+        },
+
+    };
+
+    const myGridElement = document.querySelector('#history-grid');
+    agGrid.createGrid(myGridElement, gridOptions);
+
+</script>
+
+''')
+
+# https://www.ag-grid.com/javascript-data-grid/filtering/
