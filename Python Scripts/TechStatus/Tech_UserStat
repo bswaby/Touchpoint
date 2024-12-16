@@ -1,0 +1,139 @@
+import re
+from types import NoneType
+from datetime import datetime
+
+
+model.Header = "Tech User Stat"
+
+sql = '''
+SELECT 
+    DISTINCT u.Name, 
+    u.Username, 
+    u.CreationDate, 
+    u.LastLoginDate, 
+    u.LastActivityDate, 
+    u.EmailAddress, 
+    u.MFAEnabled, 
+    u.MustChangePassword, 
+	u.IsLockedOut,
+    u.PeopleId,
+	u.UserId
+FROM 
+    ActivityLog al
+INNER JOIN Users u ON (al.UserId = u.UserId) 
+LEFT JOIN UserList ul ON ul.UserId = u.UserId
+ORDER BY u.Name ASC;
+'''
+
+sqldata = q.QuerySql(sql)
+records = ''
+for d in sqldata:
+    if records != '':
+        records += ','
+        
+    records += '{'
+    records += '''Name: "{0}",
+                  UserName: "{1}",
+                  CreationDate: "{2}",
+                  LastLoginDate: "{3}",
+                  LastActivityDate: "{4}",
+                  EmailAddress: "{5}",
+                  MFAEnabled: {6},
+                  MustChangePassword: {7},
+                  IsLockedOut: {8},
+                  PeopleId: "{9}",
+                  UserId: {10}
+                    '''.format(
+                        d.Name,
+                        d.UserName,
+                        datetime.strptime(str(d.CreationDate), '%m/%d/%Y %I:%M:%S %p').strftime('%Y-%m-%dT%H:%M:%S') if d.CreationDate else '',
+                        datetime.strptime(str(d.LastLoginDate), '%m/%d/%Y %I:%M:%S %p').strftime('%Y-%m-%dT%H:%M:%S') if d.LastLoginDate else '',
+                        datetime.strptime(str(d.LastActivityDate), '%m/%d/%Y %I:%M:%S %p').strftime('%Y-%m-%dT%H:%M:%S') if d.LastActivityDate else '',
+                        d.EmailAddress,
+                        'true' if d.MFAEnabled else 'false',  # Ensure proper boolean string
+                        'true' if d.MustChangePassword else 'false',
+                        'true' if d.IsLockedOut else 'false',
+                        d.PeopleId,
+                        d.UserId
+                        )
+    records += '}'
+
+print('''
+    <h3>Select email below to view and resend</h3>
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise/dist/ag-grid-enterprise.js"></script>
+    <div id="history-grid" class="ag-theme-quartz" style="height: 800px"></div>
+
+    <script>
+    
+    // Grid Options: Contains all of the grid configurations
+
+    const gridOptions = {
+        rowData: [
+            ''' + records + '''
+        ],
+        // Column Definitions: Defines & controls grid columns.
+        columnDefs: [
+            { headerName: 'Name', field: "Name", enableRowGroup: true, 
+                cellRenderer: function(params) {
+                    if(params.data){return '<a href="/Person2/' + params.data.PeopleId + '" target="_blank">' + params.data.Name + '</a>'}
+                    else{return '';}
+                }
+            },
+            { headerName: 'Created', field: "CreationDate", sortable: true, filter: 'agDateColumnFilter', 
+                comparator: (date1, date2) => {return new Date(date1) - new Date(date2); }},
+            { headerName: 'Last Login', field: "LastLoginDate", sortable: true, filter: 'agDateColumnFilter',
+                comparator: (date1, date2) => {return new Date(date1) - new Date(date2); }},
+            { headerName: 'Last Activity', field: "LastActivityDate", sortable: true, filter: 'agDateColumnFilter',
+                comparator: (date1, date2) => {return new Date(date1) - new Date(date2); }},
+            { headerName: 'Email', field: "EmailAddress", sortable: true, filter: 'agTextColumnFilter' },
+            { headerName: 'MFA Enabled', field: "MFAEnabled", sortable: true, filter: 'agTextColumnFilter' },
+            { headerName: 'Locked Out', field: "IsLockedOut", sortable: true, filter: 'agTextColumnFilter' },
+        ],
+        defaultColDef: {
+            flex: 1,
+            minWidth: 150,
+            filter: 'agMultiColumnFilter',
+            menuTabs: ['filterMenuTab'],
+            filterParams: {
+                comparator: (filterLocalDateAtMidnight, cellValue) => {
+                    const cellDate = new Date(cellValue);
+                    return cellDate - filterLocalDateAtMidnight;
+                }
+            }
+        },
+        groupDefaultExpanded: -1,
+        // possible options: 'never', 'always', 'onlyWhenGrouping'
+        //rowGroupPanelShow: 'always',
+        sideBar: {
+            toolPanels: [
+                {
+                    id: 'columns',
+                    labelDefault: 'Columns',
+                    labelKey: 'columns',
+                    iconKey: 'columns',
+                    toolPanel: 'agColumnsToolPanel',
+                },
+                {
+                    id: 'filters',
+                    labelDefault: 'Filters',
+                    labelKey: 'filters',
+                    iconKey: 'filter',
+                    toolPanel: 'agFiltersToolPanel',
+                }
+            ],
+            //defaultToolPanel: 'columns',
+            defaultToolPanel: "",
+            
+        },
+
+    };
+
+
+    const myGridElement = document.querySelector('#history-grid');
+    agGrid.createGrid(myGridElement, gridOptions);
+
+</script>
+
+''')
+
+# https://www.ag-grid.com/javascript-data-grid/filtering/
