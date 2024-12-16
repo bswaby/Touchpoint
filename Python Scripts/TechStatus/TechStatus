@@ -69,9 +69,9 @@ template = '''
     }
 </style>
 <h4>Reports</h4>
-<a href="https://myfbch.com/RunScript/Tech_ChangeLogs/" target="_blank">Change Logs</a>
+<a href="/PyScript/Tech_ChangeLogs/" target="_blank">Change Logs</a>
 <br>
-<a href="https://myfbch.com/RunScript/Tech_UserStat/" target="_blank">User Account Info</a>
+<a href="/PyScript//Tech_UserStat/" target="_blank">User Account Info</a>
 <br>
 <h5>Print Count</h5>
 <table width="150px"; border="1" cellpadding="5" style="border:1px solid black; border-collapse:collapse">
