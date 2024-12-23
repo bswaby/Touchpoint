@@ -24,12 +24,29 @@
 from datetime import datetime
 
 #remove negative values
-def checkNeg(value):
-    if value == -0.0:
-        return "-"
-    else:
-        return "${:,.2f}".format(value)
+#def checkNeg(value):
+#    #if value == -0.0:
+#    #    return "-"
+#    #else:
+#    #    return "${:,.2f}".format(value)
+#    return str(value)
 
+def checkNeg(value):
+    # Handle -0.0 explicitly
+    if value == 0.0 and str(value).startswith('-'):
+        return "-"
+    
+    # Handle 0.0 and return "-"
+    if value == 0.0:
+        return "-"
+    
+    # Check if the value is negative
+    if value < 0:
+        # Format negative numbers with parentheses
+        return "(${:,.2f})".format(-value)  # Use -value to make it positive for formatting
+    else:
+        # Format positive numbers normally
+        return "${:,.2f}".format(value)
 
 #config file name
 ConfigFile = 'ConfigFinanceSummaryReport'
