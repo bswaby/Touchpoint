@@ -57,6 +57,7 @@ if not data:
                     "GeneralFundIds": "1",
                     "CashBundleIds": "2",
                     "CheckBundleIds": "1,33",
+                    "NonContributionTypeIds": "99",
                     "BundleReportName": "BundleReport3"
                 },
                 "Preferences": {
@@ -83,6 +84,7 @@ ExcludedFundIds = str(model.Data.ExcludedFundIds) if model.Data.ExcludedFundIds 
 GeneralFundIds = str(model.Data.GeneralFundIds) if model.Data.GeneralFundIds else str(data.Financial.GeneralFundIds)
 CashBundleIds = str(model.Data.CashBundleIds) if model.Data.CashBundleIds else str(data.Financial.CashBundleIds)
 CheckBundleIds = str(model.Data.CheckBundleIds) if model.Data.CheckBundleIds else str(data.Financial.CheckBundleIds)
+NonContributionTypeIds = str(model.Data.NonContributionTypeIds) if model.Data.NonContributionTypeIds else str(data.Financial.NonContributionTypeIds)
 BundleReportName = str(model.Data.BundleReportName) if model.Data.BundleReportName else str(data.Financial.BundleReportName)
 #FormPreferences
 ShowDepositTotals = str(model.Data.ShowDepositTotals) if model.Data.ShowDepositTotals else str(data.Preferences.ShowDepositTotals)
@@ -225,6 +227,7 @@ if model.Data.EditParams == 'y':
             "GeneralFundIds": "''' + GeneralFundIds + '''",
             "CashBundleIds": "''' + CashBundleIds + '''",
             "CheckBundleIds": "''' + CheckBundleIds + '''",
+            "NonContributionTypeIds": "''' + NonContributionTypeIds + '''",
             "BundleReportName": "''' + BundleReportName + '''"
         },
         "Preferences": {
@@ -324,17 +327,34 @@ else:
                     <input type="text" id="CashBundleIds" name="CashBundleIds" value="{13}"><br>
                     <label for="CheckBundleIds">Check Bundle Ids:</label>
                     <input type="text" id="CheckBundleIds" name="CheckBundleIds" value="{14}"><br>
+                    <label for="NonContributionTypeIds">NonContribution Type Id:</label>
+                    <input type="text" id="NonContributionTypeIds" name="NonContributionTypeIds" value="{15}"><br>
                     <label for="BundleReportName">Bundle Report Name:</label>
                     <input type="text" id="Subject" name="BundleReportName" value="{6}"><br>
                     <i>- Bundle report can be found under Custom Batch Report in Admin ~ Settings ~ Finance ~ Batches<br>
-                    - Bundle id's can be found under Admin ~ Advanced ~ Lookup Codes ~ Batch Types</i>
+                     - NonContribution Type ID's and BundleID's can be found under Admin ~ Advanced ~ Lookup Codes </i>
                     </br>
                     <input type="submit" value="Submit">
                     <br><br><i>Last updated by {7} on {8}</i>
                 </form>
             </div>
         </div>
-    '''.format(HeaderName,FromName,FromAddress,Subject,ExcludedFundIds,GeneralFundIds,BundleReportName,LastUpdatedBy,UpdatedLast,ShowBundleSummaryChecked,ShowFundChecked,ShowDepositTotalsChecked,ShowBundleDetailsChecked,CashBundleIds,CheckBundleIds)
+    '''.format(HeaderName,
+                FromName,
+                FromAddress,
+                Subject,
+                ExcludedFundIds,
+                GeneralFundIds,
+                BundleReportName,
+                LastUpdatedBy,
+                UpdatedLast,
+                ShowBundleSummaryChecked,
+                ShowFundChecked,
+                ShowDepositTotalsChecked,
+                ShowBundleDetailsChecked,
+                CashBundleIds,
+                CheckBundleIds,
+                NonContributionTypeIds)
     print '''  <script>
           document.getElementById("editParams").onsubmit = function() {
             var checkbox = document.getElementById("ShowBundleSummary");
@@ -425,8 +445,8 @@ else:
         Select 
         bl.HeaderType
         ,case when cb.FundId in ({4}) THEN sum(cb.ContributionAmount) ELSE 0 END AS General
-        ,case when ct.id <> 99 and cb.fundId not in ({4}) THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
-        ,case when ct.id = 99 THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
+        ,case when ct.id NOT IN ({5}) and cb.fundId not in ({4}) THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
+        ,case when ct.id IN ({5}) THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
         FROM [ContributionsBasic] cb
         LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
         LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
@@ -434,7 +454,7 @@ else:
         LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
         --Where ContributionDate BETWEEN '{0}' AND '{1}'
         Where {2} BETWEEN '{0}' AND '{1}'
-        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundDescription)
+        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId)
         
         Select HeaderType
         ,sum(General) as General
@@ -454,9 +474,9 @@ else:
         ,bst.[Description] AS BundleStatus
         ,FORMAT(bl.DepositDate, 'yyyy-MM-dd') as DepositDate
         ,concat(cb.BundleReferenceId,' (',bd.BundleHeaderId,')') AS ReferenceId
-        ,case when cb.FundId = 1 THEN sum(cb.ContributionAmount) ELSE 0 END AS General
-        ,case when ct.id <> 99 and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
-        ,case when ct.id = 99 THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
+        ,case when cb.FundId IN ({4}) THEN sum(cb.ContributionAmount) ELSE 0 END AS General
+        ,case when ct.id NOT IN ({6}) and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
+        ,case when ct.id IN ({6}) THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
         FROM [ContributionsBasic] cb
         LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
         LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
@@ -466,7 +486,7 @@ else:
         --Where ContributionDate BETWEEN '{0}' AND '{1}' 
         Where {5} BETWEEN '{0}' AND '{1}' 
         and bl.HeaderType = '{2}'
-        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundDescription,bst.[Description],bl.DepositDate)
+        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,bst.[Description],bl.DepositDate)
         
         Select 
         ReferenceId
@@ -487,13 +507,13 @@ else:
         with bundlereport as (
         Select 
         bl.HeaderType
-        ,concat(cf.FundDescription,' (',cb.FundId,')') AS Fund
+        ,concat(cf.FundName,' (',cb.FundId,')') AS Fund
         ,bd.BundleHeaderId
         ,bst.[Description] AS BundleStatus
         ,concat(cb.BundleReferenceId,' (',bd.BundleHeaderId,')') AS ReferenceId
-        ,case when cb.FundId = 1 THEN sum(cb.ContributionAmount) ELSE 0 END AS General
-        ,case when ct.id <> 99 and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
-        ,case when ct.id = 99 THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
+        ,case when cb.FundId IN ({3}) THEN sum(cb.ContributionAmount) ELSE 0 END AS General
+        ,case when ct.id NOT IN ({4}) and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
+        ,case when ct.id IN ({4}) THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
         FROM [ContributionsBasic] cb
         LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
         LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
@@ -501,7 +521,7 @@ else:
         LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
         LEFT JOIN lookup.BundleStatusTypes bst ON bst.Id = bl.BundleStatusId
         Where bd.BundleHeaderId = {0}
-        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundDescription,bst.[Description],cf.FundDescription)
+        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundName,bst.[Description])
         
         Select 
         ReferenceId
@@ -523,10 +543,10 @@ else:
     SqlFunds = '''
         with bundlereport as (
         Select 
-        concat(cf.FundDescription,' (',cb.FundId,')') as Fund
+        concat(cf.FundName,' (',cb.FundId,')') as Fund
         ,case when cb.FundId = 1 THEN sum(cb.ContributionAmount) ELSE 0 END AS General
-        ,case when ct.id <> 99 and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
-        ,case when ct.id = 99 THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
+        ,case when ct.id NOT IN ({5}) and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
+        ,case when ct.id IN ({5}) THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
         FROM [ContributionsBasic] cb
         LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
         LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
@@ -534,7 +554,7 @@ else:
         LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
         --Where ContributionDate BETWEEN '{0}' AND '{1}'
         Where {2} BETWEEN '{0}' AND '{1}'
-        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundDescription,cf.FundDescription)
+        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundName)
         
         Select 
         Fund
@@ -606,7 +626,7 @@ else:
         '''
 
     #bundle summary query
-    sql = q.QuerySql(sql.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds))
+    sql = q.QuerySql(sql.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds,NonContributionTypeIds))
     
     #set variables for bundle summary
     GrandTotalGenDes = 0.00
@@ -706,7 +726,7 @@ else:
                 </td>
         '''
         #fund summary query
-        sqlFunds = q.QuerySql(SqlFunds.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds))
+        sqlFunds = q.QuerySql(SqlFunds.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds,NonContributionTypeIds))
         
         #loop through bundle summary
         TotalGeneralFund = 0.00
@@ -767,7 +787,13 @@ else:
                 ContributionTypeId = '= ' + str(d.ContributionTypeId)
             
             #detail data pull
-            sqlDetailsData = q.QuerySql(sqlDetails.format(searchsDate,searcheDate,d.HeaderType,ExcludedFundIds,GeneralFundIds,DateSearch))
+            sqlDetailsData = q.QuerySql(sqlDetails.format(searchsDate,
+                                                            searcheDate,
+                                                            d.HeaderType,
+                                                            ExcludedFundIds,
+                                                            GeneralFundIds,
+                                                            DateSearch,
+                                                            NonContributionTypeIds))
             
             #set table for each bundle
             template += '''
@@ -817,7 +843,7 @@ else:
                 if ShowDesignatedDetails == 'yes':
                     #if dd.Designated != 0.00:
                     CombinedFunds = GeneralFundIds + ',' + ExcludedFundIds
-                    sqlFundDetailsData = q.QuerySql(sqlFundDetails.format(dd.BundleHeaderId,CombinedFunds,DateSearch))
+                    sqlFundDetailsData = q.QuerySql(sqlFundDetails.format(dd.BundleHeaderId,CombinedFunds,DateSearch,GeneralFundIds,NonContributionTypeIds))
                     for fd in sqlFundDetailsData:
                         FundDetails += '''<tr>
                                             <td style="border-bottom: 1px dashed lightblue;">&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp''' + str(fd.Fund) + '''</td>
