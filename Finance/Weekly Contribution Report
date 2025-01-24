@@ -113,6 +113,7 @@ ShowFundChecked = 'checked' if ShowFund == "yes" else ''
 ShowBundleSummaryChecked = 'checked' if ShowBundleSummary == "yes" else ''
 ShowBundleDetailsChecked = 'checked' if ShowBundleDetails == "yes" else ''
 
+
 #print 'payment:' + ShowPaymentType + 'fund:' + ShowFund + 'summary:' + ShowBundleSummary
 #print '<br>payment:' + ShowPaymentTypeChecked + 'fund:' + ShowFundChecked + 'summary:' + ShowBundleSummaryChecked
 
@@ -426,9 +427,10 @@ else:
     DateSearch = model.Data.DateSearch
     sendReport = model.Data.sendReport
     ShowDesignatedDetails = model.Data.ShowDesignatedDetails
+    HideBundle = model.Data.HideBundle
     
     #set form parameters 
-    if DateSearch == 'ContributionDate':
+    if DateSearch == 'bl.ContributionDate':
         ContributionDateChecked = 'checked'
         DepositDateChecked = ''
     elif DateSearch == 'deposited':
@@ -437,7 +439,7 @@ else:
     else:
         ContributionDateChecked = ''
         DepositDateChecked = 'checked'
-        DateSearch = 'DepositDate'
+        DateSearch = 'bl.DepositDate'
 
        
     if sDate is not None:
@@ -451,6 +453,11 @@ else:
         searcheDate = eDate
     else:
         searcheDate = '2024-11-04'
+
+    if HideBundle == 'yes':
+        optionHideBundle = 'checked'
+    else:
+        optionHideBundle = ''
     
     if ShowDesignatedDetails == 'yes':
         optionShowDesignatedDetails = 'checked'
@@ -458,20 +465,196 @@ else:
         optionShowDesignatedDetails = ''
     
     sql = '''
+    
+        WITH bundlereport AS (
+        SELECT 
+            bl.[status] AS BundleStatus,
+            bl.HeaderType,
+            cs.Description AS ContributionType,
+            CASE 
+                WHEN cb.FundId IN ({4}) THEN SUM(cb.ContributionAmount) 
+                ELSE 0 
+            END AS General,
+            CASE 
+                WHEN ct.id NOT IN ({5}) AND cb.FundId NOT IN ({4}) THEN SUM(cb.ContributionAmount) 
+                ELSE 0 
+            END AS Designated,
+            CASE 
+                WHEN ct.id IN ({5}) THEN SUM(cb.ContributionAmount) 
+                ELSE 0 
+            END AS NonContribution
+        FROM [ContributionsBasic] cb
+        LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
+        LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
+        LEFT JOIN BundleHeader bh ON bh.BundleHeaderId = bl.BundleHeaderId
+        LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
+        LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
+        LEFT JOIN lookup.ContributionSources cs ON cs.Id = bh.SourceId
+        --WHERE bl.DepositDate BETWEEN '2025-01-01' AND '2025-01-12'
+        Where {2} BETWEEN '{0}' AND '{1}'
+        GROUP BY 
+            bl.HeaderType, 
+            cb.BundleReferenceId, 
+            ct.[Description], 
+            ct.Id, 
+            cb.FundId, 
+            bd.BundleHeaderId, 
+            bl.[status], 
+            cs.Description
+    )
+    SELECT 
+        br.BundleStatus,
+        br.HeaderType,
+        COUNT(DISTINCT br.ContributionType) AS ContributionTypeCount,
+        (
+            SELECT STRING_AGG(ContributionType, ',')
+            FROM (
+                SELECT DISTINCT ContributionType
+                FROM bundlereport sub
+                WHERE sub.BundleStatus = br.BundleStatus
+                  AND sub.HeaderType = br.HeaderType
+            ) DistinctTypes
+        ) AS CommaSeparatedList,
+        SUM(br.General) AS General,
+        SUM(br.Designated) AS Designated,
+        SUM(br.NonContribution) AS NonContribution,
+        SUM(br.General) + SUM(br.Designated) AS TotalContribution,
+        SUM(br.General) + SUM(br.Designated) + SUM(br.NonContribution) AS Total
+    FROM bundlereport br
+    GROUP BY br.HeaderType, br.BundleStatus
+    ORDER BY br.HeaderType, br.BundleStatus;
+
+    
+    '''
+    sqlbundledetail = '''
+    WITH bundlereport AS (    
+        SELECT 
+        bl.[status] AS BundleStatus,
+        bl.HeaderType,
+        cs.Description AS ContributionType,
+        CASE 
+            WHEN cb.FundId IN ({4}) THEN SUM(cb.ContributionAmount) 
+            ELSE 0 
+        END AS General,
+        CASE 
+            WHEN ct.id NOT IN ({5}) AND cb.FundId NOT IN ({4}) THEN SUM(cb.ContributionAmount) 
+            ELSE 0 
+        END AS Designated,
+        CASE 
+            WHEN ct.id IN ({5}) THEN SUM(cb.ContributionAmount) 
+            ELSE 0 
+        END AS NonContribution
+    FROM [ContributionsBasic] cb
+    LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
+    LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
+    LEFT JOIN BundleHeader bh ON bh.BundleHeaderId = bl.BundleHeaderId
+    LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
+    LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
+    LEFT JOIN lookup.ContributionSources cs ON cs.Id = bh.SourceId
+    WHERE {2} BETWEEN '{0}' AND '{1}'
+	AND bl.[status] = '{6}'
+	AND bl.HeaderType = '{7}'
+    AND cs.Description = '{8}'
+	GROUP BY 
+        bl.HeaderType, 
+        cb.BundleReferenceId, 
+        ct.[Description], 
+        ct.Id, 
+        cb.FundId, 
+        bd.BundleHeaderId, 
+        bl.[status], 
+        cs.Description
+    )
+    
+    SELECT 
+        br.BundleStatus,
+        br.HeaderType,
+        COUNT(DISTINCT br.ContributionType) AS ContributionTypeCount,
+        (
+            SELECT STRING_AGG(ContributionType, ',')
+            FROM (
+                SELECT DISTINCT ContributionType
+                FROM bundlereport sub
+                WHERE sub.BundleStatus = br.BundleStatus
+                  AND sub.HeaderType = br.HeaderType
+            ) DistinctTypes
+        ) AS CommaSeparatedList,
+        SUM(br.General) AS General,
+        SUM(br.Designated) AS Designated,
+        SUM(br.NonContribution) AS NonContribution,
+        SUM(br.General) + SUM(br.Designated) AS TotalContribution,
+        SUM(br.General) + SUM(br.Designated) + SUM(br.NonContribution) AS Total
+    FROM bundlereport br
+    GROUP BY br.HeaderType, br.BundleStatus
+    ORDER BY br.HeaderType, br.BundleStatus;            
+    '''
+    sqlold1 = '''
         with bundlereport as (
         Select 
-        bl.HeaderType
+        bl.[status] as BundleStatus
+	    ,bl.HeaderType
+	    ,cs.Description AS ContributionType
         ,case when cb.FundId in ({4}) THEN sum(cb.ContributionAmount) ELSE 0 END AS General
         ,case when ct.id NOT IN ({5}) and cb.fundId not in ({4}) THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
         ,case when ct.id IN ({5}) THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
         FROM [ContributionsBasic] cb
-        LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
-        LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
-        LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
-        LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
+            LEFT JOIN 
+                BundleDetail bd ON cb.ContributionId = bd.ContributionId
+            LEFT JOIN 
+                BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
+            LEFT JOIN 
+		        BundleHeader bh ON bh.BundleHeaderId = bl.BundleHeaderId
+            LEFT JOIN 
+                lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
+            LEFT JOIN 
+                ContributionFund cf ON cf.FundId = cb.FundId
+        	LEFT JOIN 
+		        lookup.ContributionSources cs ON cs.Id = bh.SourceId
+
         --Where ContributionDate BETWEEN '{0}' AND '{1}'
         Where {2} BETWEEN '{0}' AND '{1}'
-        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId)
+        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,bl.[status],cs.Description)
+        
+        Select 
+        BundleStatus
+        ,HeaderType
+        ,ContributionType
+        ,sum(General) as General
+        ,sum(Designated) as Designated
+        ,sum(NonContribution) as NonContribution
+        ,sum(General) + sum(Designated)  AS TotalContribution
+        ,sum(General) + sum(Designated) + sum(NonContribution) AS Total
+        From bundlereport
+        Group By HeaderType, BundleStatus,ContributionType
+        Order by HeaderType
+    '''
+    
+    sqlBundle = '''
+        with bundlereport as (
+        Select 
+            bl.HeaderType
+            ,case when cb.FundId in ({4}) THEN sum(cb.ContributionAmount) ELSE 0 END AS General
+            ,case when ct.id NOT IN ({5}) and cb.fundId not in ({4}) THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
+            ,case when ct.id IN ({5}) THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
+        FROM [ContributionsBasic] cb
+            LEFT JOIN 
+                BundleDetail bd ON cb.ContributionId = bd.ContributionId
+            LEFT JOIN 
+                BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
+            LEFT JOIN 
+                lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
+            LEFT JOIN 
+                ContributionFund cf ON cf.FundId = cb.FundId
+            --Where ContributionDate BETWEEN '{0}' AND '{1}'
+        Where {2} BETWEEN '{0}' AND '{1}'
+        Group By 
+            bl.HeaderType
+            ,cb.BundleReferenceId
+            ,ct.[Description]
+            ,ct.Id
+            ,cb.FundId
+            ,bd.BundleHeaderId
+        )
         
         Select HeaderType
         ,sum(General) as General
@@ -560,26 +743,39 @@ else:
     SqlFunds = '''
         with bundlereport as (
         Select 
-        concat(cf.FundName,' (',cb.FundId,')') as Fund
+        bl.[Status] as BundleStatus
+        ,concat(cf.FundName,' (',cb.FundId,')') as Fund
+        --CASE 
+    	--	WHEN bl.status <> 'Closed' 
+    	--	THEN CONCAT(cf.FundName, ' (', cb.FundId, ') <b>-OPEN-</b>') 
+    	--	ELSE CONCAT(cf.FundName, ' (', cb.FundId, ')') 
+        --END AS Fund
         ,case when cb.FundId = 1 THEN sum(cb.ContributionAmount) ELSE 0 END AS General
         ,case when ct.id NOT IN ({5}) and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
         ,case when ct.id IN ({5}) THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
-        FROM [ContributionsBasic] cb
+        FROM [Contribution] cb
         LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
         LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
         LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
         LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
         --Where ContributionDate BETWEEN '{0}' AND '{1}'
         Where {2} BETWEEN '{0}' AND '{1}'
-        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundName)
+        Group By bl.HeaderType,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,cf.FundName,bl.[status])
         
         Select 
-        Fund
+        BundleStatus
+        ,Fund
         ,sum(General) AS General
         ,sum(Designated) AS Designated
         ,sum(NonContribution) AS NonContribution
         From bundlereport
-        Group By Fund
+        Group By Fund,BundleStatus
+        Order by 
+            CASE 
+             WHEN Fund = 'General Fund (1)' THEN 0
+             ELSE 1
+            END, 
+            Fund
     '''
     
     SqlDepositTotals = '''
@@ -602,9 +798,13 @@ else:
 
     # set form date fields and table headers for bundle summary
     ShowFundDetails = ''
+    #if HideBundle == "yes":
+    #    HideBundle = '''<input type="checkbox" id="HideBundle" name="HideBundle" value="yes" {0}>
+    #        <label for="HideBundle">HideBundle</label>'''.format(optionHideBundle)
     if ShowBundleDetails == "yes":
         ShowFundDetails = '''<input type="checkbox" id="ShowDesignatedDetails" name="ShowDesignatedDetails" value="yes" {0}>
             <label for="ShowDesignatedDetails">Show Funds in Bundle Details</label>'''.format(optionShowDesignatedDetails)
+
     template += '''
         <form action="" method="GET">
             Search By:
@@ -621,19 +821,23 @@ else:
             <input type="date" id="sDate" name="sDate" required {0}>
             <label for="eDate">End:</label>
             <input type="date" id="eDate" name="eDate" required {1}>
+            <input type="checkbox" id="HideBundle" name="HideBundle" value="yes" {5}>
+            <label for="HideBundle">Hide Bundle</label>
             {2}
             <input type="submit" value="Filter">
         </form>
     
         <h2>Summary</h2>
-    '''.format(optionsDate,optioneDate,ShowFundDetails,DepositDateChecked,ContributionDateChecked)
+    '''.format(optionsDate,optioneDate,ShowFundDetails,DepositDateChecked,ContributionDateChecked,optionHideBundle)
                 
     if ShowBundleSummary == "yes":
         template += '''
             <h3>Bundle</h3>
             <table id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
                 <tr id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
+                    <td><h4>Status</h4></td>
                     <td><h4>Type</h4></td>
+                    <td><h4>Source</h4></td>
                     <td><h4>General</h4></td>
                     <td><h4>Designated</h4></td>
                     <td><h4>NC</h4></td>
@@ -643,6 +847,7 @@ else:
         '''
 
     #bundle summary query
+    #print (sql.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds,NonContributionTypeIds))
     sql = q.QuerySql(sql.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds,NonContributionTypeIds))
     
     #set variables for bundle summary
@@ -663,21 +868,69 @@ else:
         GrandTotalDes += d.Designated
         GrandTotalNon += d.NonContribution
         GrandTotal += d.General + d.Designated + d.NonContribution
+        if d.BundleStatus == 'Closed':
+            BundleStatus = d.BundleStatus
+        else:
+            BundleStatus = '<b>' + d.BundleStatus + '</b>'
+        
+        #d.CommaSeparatedList is None or 
+        if d.ContributionTypeCount > 1:
+            ContributionType = ''
+        else:
+            ContributionType = d.CommaSeparatedList #d.ContributionType
+        
         
         #Summary Details
         if ShowBundleSummary == "yes":
             template += '''<tr>
-                    <td>{0}</td>
-                    <td>{1}</td>
-                    <td>{2}</td>
-                    <td>{3}</td>
-                    <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;">{4}</td>
-                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;">{5}</td>
+                    <td style="border-top: 1px dashed lightblue;">{0}</td>
+                    <td style="border-top: 1px dashed lightblue;">{1}</td>
+                    <td style="border-top: 1px dashed lightblue;">{2}</td>
+                    <td style="border-top: 1px dashed lightblue;">{3}</td>
+                    <td style="border-top: 1px dashed lightblue;">{4}</td>
+                    <td style="border-top: 1px dashed lightblue;">{5}</td>
+                    <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;">{6}</td>
+                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;">{7}</td>
                     </tr>
-                '''.format(d.HeaderType,checkNeg(d.General),checkNeg(d.Designated),checkNeg(d.NonContribution),checkNeg(d.TotalContribution),checkNeg(d.Total))
+                '''.format(BundleStatus
+                        ,d.HeaderType
+                        ,ContributionType
+                        ,checkNeg(d.General)
+                        ,checkNeg(d.Designated)
+                        ,checkNeg(d.NonContribution)
+                        ,checkNeg(d.TotalContribution)
+                        ,checkNeg(d.Total))
+
+        
+            if d.ContributionTypeCount > 1:
+                # Split the string into a list
+                ContributionTypeitems = d.CommaSeparatedList.split(',')
+                
+                # Iterate through the list
+                for item in ContributionTypeitems:
+                    #print(item)
+                    #print sqlbundledetail.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds,NonContributionTypeIds,BundleStatus,d.HeaderType,item)
+                    rsqlbundledetail = q.QuerySql(sqlbundledetail.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds,NonContributionTypeIds,d.BundleStatus,d.HeaderType,item))
+                    for rbd in rsqlbundledetail:
+                        template += '''<tr>
+                        <td style="position: relative; background: linear-gradient(to right, transparent 49%, lightblue 49%, lightblue 51%, transparent 51%); background-size: 100% 2px;"></td>
+                        <td></td>
+                        <td><i>{0}</i></td>
+                        <td><i>&nbsp&nbsp&nbsp&nbsp{1}</i></td>
+                        <td><i>&nbsp&nbsp&nbsp&nbsp{2}</i></td>
+                        <td><i>&nbsp&nbsp&nbsp&nbsp{3}</i></td>
+                        <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;"></td>
+                        <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"></td>
+                        </tr>'''.format(rbd.CommaSeparatedList,
+                                        checkNeg(rbd.General),
+                                        checkNeg(rbd.Designated),
+                                        checkNeg(rbd.NonContribution))
+                    
     if ShowBundleSummary == "yes":    
         template += '''
                 <tr>
+                    <td><h4></h4></td>
+                    <td><h4></h4></td>
                     <td><h4></h4></td>
                     <td style="border-top: 1px solid #000000;"><b>{0}</b></td>
                     <td style="border-top: 1px solid #000000;"><b>{1}</b></td>
@@ -734,6 +987,7 @@ else:
         template +=  '''<h3>Fund</h3>
             <table id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 850px;width: 100%;">
                 <tr id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 850px;width: 100%;">
+                    <td><h4>Status</h4></td>
                     <td><h4>Fund</h4></td>
                     <td><h4>General</h4></td>
                     <td><h4>Designated</h4></td>
@@ -743,6 +997,7 @@ else:
                 </td>
         '''
         #fund summary query
+        #print (SqlFunds.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds,NonContributionTypeIds))
         sqlFunds = q.QuerySql(SqlFunds.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds,NonContributionTypeIds))
         
         #loop through bundle summary
@@ -760,6 +1015,10 @@ else:
             TotalNonContributionFund += fs.NonContribution
             TotalFund += fs.General + fs.Designated
             GrandTotalFund += fs.General + fs.Designated + fs.NonContribution
+            if fs.BundleStatus == 'Closed':
+                BundleStatus = fs.BundleStatus
+            else:
+                BundleStatus = '<b>' + fs.BundleStatus + '</b>'
         
             #Summary Details
             template += '''
@@ -768,13 +1027,15 @@ else:
                         <td>{1}</td>
                         <td>{2}</td>
                         <td>{3}</td>
-                        <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;">{4}</td>
+                        <td>{4}</td>
                         <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;">{5}</td>
+                        <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;">{6}</td>
                     </tr>
-                '''.format(fs.Fund,checkNeg(fs.General),checkNeg(fs.Designated),checkNeg(fs.NonContribution),checkNeg(fs.General + fs.Designated),checkNeg(fs.General + fs.Designated + fs.NonContribution))
+                '''.format(BundleStatus,fs.Fund,checkNeg(fs.General),checkNeg(fs.Designated),checkNeg(fs.NonContribution),checkNeg(fs.General + fs.Designated),checkNeg(fs.General + fs.Designated + fs.NonContribution))
         
         template += '''
             <tr>
+                <td></td>
                 <td></td>
                 <td style="border-top: 1px solid #000000;"><b>{0}</b></td>
                 <td style="border-top: 1px solid #000000;"><b>{1}</b></td>
@@ -786,7 +1047,7 @@ else:
         
         
     #bundle Details
-    if ShowBundleDetails == "yes":
+    if ShowBundleDetails == "yes" and HideBundle != "yes":
         template += '''
             <hr><h2>Bundle Details</h2>
             '''
@@ -795,9 +1056,9 @@ else:
         FundId = ''
         cType = ''
     
-        
+        sqlBundle = q.QuerySql(sqlBundle.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds,NonContributionTypeIds))
         #loop through bundle type showing batch details for each
-        for d in sql:
+        for d in sqlBundle:
             if d.ContributionTypeId is None:
                 ContributionTypeId = 'is Null'
             else:
@@ -821,8 +1082,8 @@ else:
             template += '''</table>'''
             template += '''<table id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
                 <tr id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
-                    <td><h4>Reference</h4></td>
                     <td><h4>Status</h4></td>
+                    <td><h4>Reference</h4></td>
                     <td><h4>Deposited</h4></td>
                     <td><h4>General</h4></td>
                     <td><h4>Designated</h4></td>
@@ -873,7 +1134,11 @@ else:
                                             <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"></td>
                                         </tr>
                                             '''
-        
+                
+                if dd.BundleStatus != 'Closed':
+                    BundleStatus = '<b>' + dd.BundleStatus + '</b>'
+                else:
+                    BundleStatus = dd.BundleStatus
                 ReferenceId = '''<a href="/Batches/Detail/''' + str(dd.BundleHeaderId) + '''" target="_blank">''' + dd.ReferenceId + '''</a>&nbsp<a href="/PyScript/''' + BundleReportName + '''?p1=''' + str(dd.BundleHeaderId) + '''" target="_blank"><i class="fa fa-bar-chart" aria-hidden="true"></i></a>'''
                 template += '''
                     <tr>
@@ -887,7 +1152,7 @@ else:
                         <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;">{7}</td>
                     </tr>
                     {8}    
-                    '''.format(ReferenceId,dd.BundleStatus,dd.DepositDate,checkNeg(dd.General),checkNeg(dd.Designated),checkNeg(dd.NonContribution),checkNeg(dd.General + dd.Designated),checkNeg(dd.General + dd.Designated + dd.NonContribution),FundDetails)
+                    '''.format(BundleStatus,ReferenceId,dd.DepositDate,checkNeg(dd.General),checkNeg(dd.Designated),checkNeg(dd.NonContribution),checkNeg(dd.General + dd.Designated),checkNeg(dd.General + dd.Designated + dd.NonContribution),FundDetails)
         
             template += '''
                 <tr>
