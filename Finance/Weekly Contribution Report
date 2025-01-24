@@ -822,7 +822,7 @@ else:
             <label for="eDate">End:</label>
             <input type="date" id="eDate" name="eDate" required {1}>
             <input type="checkbox" id="HideBundle" name="HideBundle" value="yes" {5}>
-            <label for="HideBundle">Hide Bundle</label>
+            <label for="HideBundle">Hide Bundle Details</label>
             {2}
             <input type="submit" value="Filter">
         </form>
