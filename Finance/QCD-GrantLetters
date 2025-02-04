@@ -1,0 +1,274 @@
+#####################################################################
+####REPORT INFORMATION
+#####################################################################
+#QCD/Grant letter is a tool for finance to print required letters for
+#each contributor.  This report gives you a date range to choose that
+#will automatically create each letter type.
+#
+#Assumptions
+# 1.) This assumes you have 1 Batch Types for Grants and 1 Batch type
+#     for QCD.
+# 2.) You will used windowed envelopes to send the letters out.
+
+
+#####################################################################
+####USER CONFIG FIELDS
+#####################################################################
+#These are defined variables that are required for the report to run.
+
+#This is setup to use two different Batch types to define the two different letters.
+#you can find these in Admin ~ Advanced ~ Lookup Codes
+GrantBatchTypeId = "38"
+QCDBatchTypeId = "37"
+
+#This is a png graphic to overlay a signature on the report.  This needs to be a direct link to the graphic
+Signature = "https://lirp.cdn-website.com/d472d7ab/dms3rep/multi/opt/John-Doe-Signature-e7c6c71f-1920w.png" #this is the letter signature
+
+#This tool has an option to write the letter as a note on each person.   Because it contains
+#sensitive data, it is set to a defined role id.  This role id can be found in roles under
+#Admin ~ Advanced ~ Lookup Code ~ Roles
+SecureNoteRole = "8" 
+
+#This next section is dedicated to customizing the letter.  It uses HTML coding to define the customization 
+#and print out for a windowed letter.  In addition, there are defined variables below to choose from along
+#with basic html examples to help you customize your letter.
+#
+#use the following variables (example: Hi, my name is {0}.) to inject into your letters
+# {0} - First Name
+# {1} - Last Name
+# {2} - Full Name
+# {3} - Contribution Date
+# {4} - Contribuion Amount
+# {5} - Contribution Description <-- this is where we put our grant fund name for the grant letter
+# {6} - Year of contribution
+# {7} - Signature
+
+#Here are some basic html formatting tips
+# <p>is a paragraph format</p>
+# <strong>bolds the text</strong>
+# <p>you can use <strong>strong</strong> along with other parameters to bold a word or section</p>
+# <p style="text-align: center;">use center style to align text in the middle</p>
+# <i>italizes the text</i>
+# <u>underlines text</u>
+# <br>adds line break for each <br> that you put in
+
+
+#This is the Grant letter.  This one is pretty basic and doesn't require a lot of legal langague for us.
+GrantLetterBody = '''
+<p>Dear {0},</p>
+
+<p>Thank you for the generous contribution of ${4}, that we received on {3}, through your donor advised fund at {5}.  
+Your support of the ministries of First Baptist Church Hendersonville allows us to continue to, “Connect every 
+generation to God, Others and Service.”</p>
+
+<p>Cordially,<br><img src="{7}" alt="Signature" style="max-width: 20%; height: auto;"></p>
+
+<p>Shannon Benefiel<br>Associate Pastor of Operations</p>
+'''
+
+#The QCD letter requires additional legal language to meet IRS law for us.  
+QCDLetterBody = '''
+<p style="text-align: center;"><strong>IMPORTANT TAX DOCUMENTATION
+<br>RE: 2024 IRA Qualified Charitable Distribution (QCD)</strong><p>
+
+<p>Dear {0},</p>
+
+<p>Thank you for your charitable gift in the amount of ${4} from your Individual Retirement Account.  
+We are writing to acknowledge that we received your gift dated {3} directly from your plan trustee/administrator/custodian.  
+Therefore, all or a portion of your gift may qualify as a {6} qualified charitable distribution from your IRA under section 
+408(d)(8) of the Internal Revenue Code and the Protecting Americans from Tax Hikes Act of 2015.</p>
+<p>In that connection, we warrant to you that our organization is qualified as a public charity under section 170(b)(1)(A) 
+of the Internal Revenue Code and that your gift was not transferred to either a donor advised fund or a supporting 
+organization as described in section 509(a)(3).  We further warrant that no goods or services of any monetary value were 
+or will be transferred to you in connection with this gift other than intangible religious benefits.  <strong>Please note:  
+A QCD is not a tax-deductible charitable gift.  A QCD may, however, count towards the annual IRA required minimum 
+distribution (RMD) and not be deemed taxable income.  Please consult with your own professional tax advisor regarding this 
+and all appropriate matters.</strong>  Please retain this letter with your important tax documents and provide a copy to 
+your tax preparer.</p>
+
+<p>Thank you for your generous contribution in support of the ministries of First Baptist Church.  Together, we are sharing 
+the love of the living Christ with a world in need.</p>
+
+<p><br>Cordially,<br><img src="{7}" alt="Signature" style="max-width: 20%; height: auto;"></p>
+
+<p>Bro. Shannon Benefiel</p>
+<p>Associate Pastor of Operations</p>
+'''
+
+
+#######################################################################
+####START OF CODE.  No configuration should be needed beyond this point
+#######################################################################
+#######################################################################
+import datetime
+
+current_date = datetime.date.today().strftime("%B %d, %Y")
+
+sDate = model.Data.sDate
+eDate = model.Data.eDate
+
+model.Header = ''
+
+#set form date to repopulate
+if sDate is not None:
+    optionsDate = ' value="' + sDate + '"'
+
+if eDate is not None:
+    optioneDate = ' value="' + eDate + '"'
+
+
+sqlBundles = '''
+Select BundleHeaderId
+, ContributionDate
+, CASE WHEN bh.BundleHeaderTypeId = {2} THEN 'QCD' 
+	   WHEN bh.BundleHeaderTypeId = {3} THEN 'GRANT'
+	   ELSE 'Not-Defined'
+	   END AS BundleType
+From BundleHeader bh 
+Where BundleHeaderTypeId IN ({2},{3})
+AND ContributionDate Between '{0}' and '{1}'
+'''
+
+sqlBundleHeaders = '''
+select ContributionId from BundleDetail bd
+Where bd.BundleHeaderId = {0}
+'''
+
+sqlContributionDetails = '''
+Select p.PeopleId
+	, p.FirstName
+	, p.LastName
+	, p.Name2
+	, p.Name
+	, p.PrimaryAddress
+	, p.PrimaryAddress2
+	, p.PrimaryCity
+	, p.PrimaryState
+	, p.PrimaryZip
+	, CAST(c.ContributionDate AS DATE) AS ContributionDate
+	, c.ContributionAmount
+	,c.ContributionDesc 
+from Contribution c
+	LEFT JOIN People p ON p.PeopleId = c.PeopleId
+	LEFT JOIN lookup.ContributionType ct ON ct.Id = c.ContributionTypeId
+Where c.ContributionId = {0}
+'''
+headertemplate = ''
+
+headertemplate += '''
+  <style>
+    @media print {
+      img {
+        width: 30% !important;  /* Set explicit width for print */
+        height: auto !important; /* Keep aspect ratio */
+        max-width: none !important; /* Remove any previous max-width */
+      }
+    }
+  </style>
+'''
+headertemplate += '''
+    <form action="" method="GET">
+        <label for="sDate">Start:</label>
+        <input type="date" id="sDate" name="sDate" required {0}>
+        <label for="eDate">End:</label>
+        <input type="date" id="eDate" name="eDate" required {1}>
+        <input type="submit" value="Submit">
+    </form>
+    <body style="font-family: Arial, sans-serif; margin: 40px; width: 800px;">
+    <br><h3>-Financial QCD/Grant Letters-<br><br></h3>
+    <table style="width: 600px; border-collapse: collapse; font-family: Arial, sans-serif; text-align: left;">
+         <tr style="background-color: #f4f4f4; font-weight: bold;">
+            <td style="width: 15%;">Type</td>
+            <td style="width: 35%;">Name</td>
+            <td style="width: 25%;">Contribution Date</td>
+            <td style="width: 25%;">Contribution Amount</td>
+        </tr>
+'''.format(optionsDate,optioneDate)
+
+bodytemplate = ''
+
+rsqlBundles = q.QuerySql(sqlBundles.format(sDate,eDate,QCDBatchTypeId,GrantBatchTypeId))
+#print sqlBundles.format(sDate,eDate,QCDBatchTypeId,GrantBatchTypeId)
+
+for rb in rsqlBundles:
+    #print str(rb.BundleHeaderId) + '<br>'
+    if rb.BundleType == "GRANT" or rb.BundleType == "QCD":
+        rsqlBundleHeaders = q.QuerySql(sqlBundleHeaders.format(rb.BundleHeaderId))
+        for bh in rsqlBundleHeaders:
+            #print str(bh.ContributionId) + '-' + rb.BundleType
+            rsqlContributionDetails = q.QuerySql(sqlContributionDetails.format(bh.ContributionId))
+            for cd in rsqlContributionDetails:
+                #print cd.LastName
+                
+                bodytemplate += '''
+                    <div class="return-address" style="text-align: left; margin-top: 60px; margin-bottom: 20px;">
+                        First Baptist Church Hendersonville<br>
+                        106 Bluegrass Commons Blvd.<br>
+                        Hendersonville, TN 37075
+                    </div>
+                    <div class="date" style="text-align: right; margin-bottom: 20px;">
+                        {5}
+                    </div>
+                    <div class="recipient-address" style="margin-top: 90px; margin-bottom: 20px;">
+                        {0}<br>
+                        {1}<br>
+                        {2}, {3} {4}
+                    </div>
+                    <div class="content" style="margin-top: 90px;">
+                    '''.format(str(cd.FirstName) + ' ' + str(cd.LastName)
+                                ,cd.PrimaryAddress
+                                ,cd.PrimaryCity
+                                ,cd.PrimaryState
+                                ,str(cd.PrimaryZip)
+                                ,str(current_date))
+                
+                ContributionAmount = "{:,.2f}".format(cd.ContributionAmount)
+                cDate = cd.ContributionDate
+                contributionDate = datetime.datetime.strptime(str(cd.ContributionDate), "%m/%d/%Y %I:%M:%S %p")
+                contributionYear = contributionDate.year
+                contributionDate = contributionDate.strftime("%m-%d-%Y")
+                
+                headertemplate += '''
+                            <tr>
+                                <td>{0}</td>
+                                <td>{1}</td>
+                                <td>{2}</td>
+                                <td>{3}</td>
+                            </tr>'''.format(rb.BundleType
+                                            ,str(cd.FirstName) + ' ' + str(cd.LastName)
+                                            ,contributionDate
+                                            ,str(ContributionAmount))
+                
+                if rb.BundleType == "GRANT":
+                    bodytemplate += GrantLetterBody.format(cd.FirstName
+                                                        ,cd.LastName
+                                                        ,str(cd.FirstName) + ' ' + str(cd.LastName)
+                                                        ,contributionDate
+                                                        ,ContributionAmount
+                                                        ,cd.ContributionDesc
+                                                        ,contributionYear
+                                                        ,Signature
+                                                        )
+                if rb.BundleType == "QCD":
+                    bodytemplate += QCDLetterBody.format(cd.FirstName
+                                    ,cd.LastName
+                                    ,str(cd.FirstName) + ' ' + str(cd.LastName)
+                                    ,contributionDate
+                                    ,ContributionAmount
+                                    ,cd.ContributionDesc
+                                    ,contributionYear
+                                    ,Signature
+                                    )
+
+                
+                bodytemplate += '''
+                    </div>
+                
+                <p style="page-break-after: always;">&nbsp;</p>
+                '''
+                
+            
+Report = model.RenderTemplate(headertemplate)
+Report += '''</table><p style="page-break-after: always;">&nbsp;</p>'''
+Report += model.RenderTemplate(bodytemplate)
+print Report
