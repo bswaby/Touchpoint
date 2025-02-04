@@ -669,36 +669,37 @@ else:
     sqlDetails = '''
         with bundlereport as (
         Select 
-        bl.HeaderType
-        ,bd.BundleHeaderId
-        ,bst.[Description] AS BundleStatus
-        ,FORMAT(bl.DepositDate, 'yyyy-MM-dd') as DepositDate
-        ,concat(cb.BundleReferenceId,' (',bd.BundleHeaderId,')') AS ReferenceId
-        ,case when cb.FundId IN ({4}) THEN sum(cb.ContributionAmount) ELSE 0 END AS General
-        ,case when ct.id NOT IN ({6}) and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
-        ,case when ct.id IN ({6}) THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
+             bl.HeaderType
+            ,bd.BundleHeaderId
+            ,bst.[Description] AS BundleStatus
+            ,FORMAT(bl.DepositDate, 'yyyy-MM-dd') as DepositDate
+            ,concat(cb.BundleReferenceId,' (',bd.BundleHeaderId,')') AS ReferenceId
+            ,case when cb.FundId IN ({4}) THEN sum(cb.ContributionAmount) ELSE 0 END AS General
+            ,case when ct.id NOT IN ({6}) and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
+            ,case when ct.id IN ({6}) THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
         FROM [ContributionsBasic] cb
-        LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
-        LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
-        LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
-        LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
-        LEFT JOIN lookup.BundleStatusTypes bst ON bst.Id = bl.BundleStatusId
+            LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
+            LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
+            LEFT JOIN lookup.ContributionType ct ON ct.Id = cb.ContributionTypeId
+            LEFT JOIN ContributionFund cf ON cf.FundId = cb.FundId
+            LEFT JOIN lookup.BundleStatusTypes bst ON bst.Id = bl.BundleStatusId
         --Where ContributionDate BETWEEN '{0}' AND '{1}' 
         Where {5} BETWEEN '{0}' AND '{1}' 
         and bl.HeaderType = '{2}'
-        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,bst.[Description],bl.DepositDate)
+        Group By bl.HeaderType,cb.BundleReferenceId,ct.[Description],ct.Id,cb.FundId,bd.BundleHeaderId,bst.[Description],bl.DepositDate
+        )
         
         Select 
-        ReferenceId
-        ,BundleHeaderId
-        ,HeaderType
-        ,BundleStatus
-        ,DepositDate
-        ,sum(General) as General
-        ,sum(Designated) as Designated
-        ,sum(NonContribution) as NonContribution
-        ,sum(General) + sum(Designated)  AS TotalContribution
-        ,sum(General) + sum(Designated) + sum(NonContribution) AS Total
+             ReferenceId
+            ,BundleHeaderId
+            ,HeaderType
+            ,BundleStatus
+            ,DepositDate
+            ,sum(General) as General
+            ,sum(Designated) as Designated
+            ,sum(NonContribution) as NonContribution
+            ,sum(General) + sum(Designated)  AS TotalContribution
+            ,sum(General) + sum(Designated) + sum(NonContribution) AS Total
         From bundlereport
         Group By HeaderType,ReferenceId,BundleHeaderId,BundleStatus,DepositDate
     '''
@@ -1031,7 +1032,12 @@ else:
                         <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;">{5}</td>
                         <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;">{6}</td>
                     </tr>
-                '''.format(BundleStatus,fs.Fund,checkNeg(fs.General),checkNeg(fs.Designated),checkNeg(fs.NonContribution),checkNeg(fs.General + fs.Designated),checkNeg(fs.General + fs.Designated + fs.NonContribution))
+                '''.format(BundleStatus
+                            ,fs.Fund,checkNeg(fs.General)
+                            ,checkNeg(fs.Designated)
+                            ,checkNeg(fs.NonContribution)
+                            ,checkNeg(fs.General + fs.Designated)
+                            ,checkNeg(fs.General + fs.Designated + fs.NonContribution))
         
         template += '''
             <tr>
@@ -1043,7 +1049,11 @@ else:
                 <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{3}</b></td>
                 <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
             </tr></table></br>
-        '''.format(checkNeg(TotalGeneralFund),checkNeg(TotalDesignatedFund),checkNeg(TotalNonContributionFund),checkNeg(TotalFund),checkNeg(GrandTotalFund))
+        '''.format(checkNeg(TotalGeneralFund)
+                ,checkNeg(TotalDesignatedFund)
+                ,checkNeg(TotalNonContributionFund)
+                ,checkNeg(TotalFund)
+                ,checkNeg(GrandTotalFund))
         
         
     #bundle Details
@@ -1056,7 +1066,12 @@ else:
         FundId = ''
         cType = ''
     
-        sqlBundle = q.QuerySql(sqlBundle.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds,NonContributionTypeIds))
+        sqlBundle = q.QuerySql(sqlBundle.format(searchsDate
+                                                ,searcheDate
+                                                ,DateSearch
+                                                ,ExcludedFundIds
+                                                ,GeneralFundIds
+                                                ,NonContributionTypeIds))
         #loop through bundle type showing batch details for each
         for d in sqlBundle:
             if d.ContributionTypeId is None:
@@ -1065,9 +1080,10 @@ else:
                 ContributionTypeId = '= ' + str(d.ContributionTypeId)
             
             #detail data pull
+            HeaderTypeBundle = d.HeaderType.replace("'", "''") #d.HeaderType,
             sqlDetailsData = q.QuerySql(sqlDetails.format(searchsDate,
                                                             searcheDate,
-                                                            d.HeaderType,
+                                                            HeaderTypeBundle, 
                                                             ExcludedFundIds,
                                                             GeneralFundIds,
                                                             DateSearch,
