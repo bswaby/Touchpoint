@@ -1,7 +1,7 @@
 ##### Batch By Fund
 ##### Add this as a python script to Admin ~ Advanced ~ Special Content
 
-model.Header = 'Fund Search'
+model.Header = 'Fund Batch Search'
 #set form parameters 
 if model.Data.sDate is not None:
     optionsDate = ' value="' + model.Data.sDate + '"'
