@@ -1,0 +1,75 @@
+##### Batch By Fund
+##### Add this as a python script to Admin ~ Advanced ~ Special Content
+
+model.Header = 'Fund Search'
+#set form parameters 
+if model.Data.sDate is not None:
+    optionsDate = ' value="' + model.Data.sDate + '"'
+if model.Data.eDate is not None:
+    optioneDate = ' value="' + model.Data.eDate + '"'
+
+sqlFunds = '''Select FundId, FundName  from ContributionFund Order by FundName'''
+rsqlFunds = q.QuerySql(sqlFunds)
+
+optFundOptions = ''
+
+for f in rsqlFunds:
+    optFundSelected = ' selected' if str(model.Data.optFund) == str(f.FundId) else ''
+
+    optFundOptions += '<option value="{0}"{2}>{1} ({0})</option><br>'.format(f.FundId,f.FundName,optFundSelected)
+
+template = '''
+    <form action="" method="GET">
+        <label for="optFund">Choose a Fund:</label>
+        <select id="optFund" name="optFund">
+            {0}
+        </select>
+        </br>
+        <label for="sDate">Start:</label>
+        <input type="date" id="sDate" name="sDate" required {1}>
+        <label for="eDate">End:</label>
+        <input type="date" id="eDate" name="eDate" required {2}>
+        <input type="submit" value="Filter">
+    </form>
+
+    <h2>Bundles</h2>
+    <table id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
+    <tr id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
+        <td><h4>BundleHeaderId</h4></td>
+        <td><h4>HeaderType</h4></td>
+        <td><h4>BundleStatus</h4></td>
+        <td><h4>Deposit Date</h4></td>
+    </td>
+'''.format(optFundOptions,optionsDate,optioneDate)
+
+
+sqlBatchDetails = '''
+	Select bl.HeaderType
+        ,bd.BundleHeaderId
+        ,bst.[Description] AS BundleStatus
+        ,FORMAT(bl.DepositDate, 'yyyy-MM-dd') as DepositDate
+	From Contribution c
+    	LEFT JOIN BundleDetail bd ON c.ContributionId = bd.ContributionId
+        LEFT JOIN BundleList bl ON bl.BundleHeaderId = bd.BundleHeaderId
+        LEFT JOIN lookup.ContributionType ct ON ct.Id = c.ContributionTypeId
+        LEFT JOIN ContributionFund cf ON cf.FundId = c.FundId
+        LEFT JOIN lookup.BundleStatusTypes bst ON bst.Id = bl.BundleStatusId
+	where c.ContributionDate  BETWEEN '{1}' AND '{2}'  
+	    AND c.fundId = {0}
+	Order By bl.DepositDate
+'''
+
+rsqlBatchDetails = q.QuerySql(sqlBatchDetails.format(str(model.Data.optFund),model.Data.sDate,model.Data.eDate))
+for bd in rsqlBatchDetails:
+    template += '''
+        <tr>
+            <td style="border-top: 1px dashed lightblue;"><a href="/Batches/Detail/{0}" target="_blank">{0}</a></td>
+            <td style="border-top: 1px dashed lightblue;">{1}</td>
+            <td style="border-top: 1px dashed lightblue;">{2}</td>
+            <td style="border-top: 1px dashed lightblue;">{3}</td>
+        </tr>
+    '''.format(str(bd.BundleHeaderId),bd.HeaderType,bd.BundleStatus,bd.DepositDate)
+
+template += '</table>'
+NMReport = model.RenderTemplate(template)
+print(NMReport)
