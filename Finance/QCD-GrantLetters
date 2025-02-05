@@ -24,10 +24,19 @@ QCDBatchTypeId = "37"
 #This is a png graphic to overlay a signature on the report.  This needs to be a direct link to the graphic
 Signature = "https://lirp.cdn-website.com/d472d7ab/dms3rep/multi/opt/John-Doe-Signature-e7c6c71f-1920w.png" #this is the letter signature
 
+
 #This tool has an option to write the letter as a note on each person.   Because it contains
 #sensitive data, it is set to a defined role id.  This role id can be found in roles under
 #Admin ~ Advanced ~ Lookup Code ~ Roles
-SecureNoteRole = "8" 
+
+#Note Parameters:  These are the parameter when writing the Grant/QCD letter to each persons record
+ownerId = model.UserPeopleId #model.UserPeopleId sets it as the current logged in user. You can change 
+#                             this to a specific PeopleId if you want it to be "locked in"
+roleId = 8 #This is who the note is secured to.  For us we only allow finance.  This can be found in 
+#           Admin ~ Advanced ~ Lookup Codes ~ Roles
+keywordIdList = [136] #This the keyword(s) that is maps to.  We have QCD/Grant Letter as a keyword
+#                        To find the KeyworkId run "Select * from Keyword Order by [Description]" in a SQL query
+
 
 #This next section is dedicated to customizing the letter.  It uses HTML coding to define the customization 
 #and print out for a windowed letter.  In addition, there are defined variables below to choose from along
@@ -61,7 +70,7 @@ GrantLetterBody = '''
 Your support of the ministries of First Baptist Church Hendersonville allows us to continue to, “Connect every 
 generation to God, Others and Service.”</p>
 
-<p>Cordially,<br><img src="{7}" alt="Signature" style="max-width: 20%; height: auto;"></p>
+<p>Cordially,<br><img src="{7}" alt="Signature" style="max-width: 40%; height: auto;"></p>
 
 <p>Shannon Benefiel<br>Associate Pastor of Operations</p>
 '''
@@ -69,12 +78,12 @@ generation to God, Others and Service.”</p>
 #The QCD letter requires additional legal language to meet IRS law for us.  
 QCDLetterBody = '''
 <p style="text-align: center;"><strong>IMPORTANT TAX DOCUMENTATION
-<br>RE: 2024 IRA Qualified Charitable Distribution (QCD)</strong><p>
+<br>RE: {6} IRA Qualified Charitable Distribution (QCD)</strong><p>
 
 <p>Dear {0},</p>
 
 <p>Thank you for your charitable gift in the amount of ${4} from your Individual Retirement Account.  
-We are writing to acknowledge that we received your gift dated {3} directly from your plan trustee/administrator/custodian.  
+We are writing to acknowledge that we received your gift on {3} directly from your plan trustee/administrator/custodian.  
 Therefore, all or a portion of your gift may qualify as a {6} qualified charitable distribution from your IRA under section 
 408(d)(8) of the Internal Revenue Code and the Protecting Americans from Tax Hikes Act of 2015.</p>
 <p>In that connection, we warrant to you that our organization is qualified as a public charity under section 170(b)(1)(A) 
@@ -89,7 +98,7 @@ your tax preparer.</p>
 <p>Thank you for your generous contribution in support of the ministries of First Baptist Church.  Together, we are sharing 
 the love of the living Christ with a world in need.</p>
 
-<p><br>Cordially,<br><img src="{7}" alt="Signature" style="max-width: 20%; height: auto;"></p>
+<p><br>Cordially,<br><img src="{7}" alt="Signature" style="max-width: 40%; height: auto;"></p>
 
 <p>Bro. Shannon Benefiel</p>
 <p>Associate Pastor of Operations</p>
@@ -101,13 +110,25 @@ the love of the living Christ with a world in need.</p>
 #######################################################################
 #######################################################################
 import datetime
+import re
+import cgi
 
 current_date = datetime.date.today().strftime("%B %d, %Y")
 
 sDate = model.Data.sDate
 eDate = model.Data.eDate
+addNote = model.Data.addNote
+
 
 model.Header = ''
+
+### not used note properties
+aboutPersonId = 3134 #hardcoded
+isNote = True #Leave set to True
+assigneeId = None #Not Used Yet
+dueDate = '' #not used yet.
+sendEmails = False #Not really needed
+instructions = 'QCD/Grant Letter' #Basic instruction.  Really isn't needed
 
 #set form date to repopulate
 if sDate is not None:
@@ -116,6 +137,9 @@ if sDate is not None:
 if eDate is not None:
     optioneDate = ' value="' + eDate + '"'
 
+addNoteForm = '''<input type="checkbox" id="addNote" name="addNote" value="1"><label for="addNote">Add to Note</label>''' if sDate and eDate else ''
+
+        
 
 sqlBundles = '''
 Select BundleHeaderId
@@ -154,6 +178,7 @@ from Contribution c
 Where c.ContributionId = {0}
 '''
 headertemplate = ''
+totalAmount = 0
 
 headertemplate += '''
   <style>
@@ -166,24 +191,28 @@ headertemplate += '''
     }
   </style>
 '''
+addNoteHeader = '''<td style="width: 25%;">Note Added</td>''' if addNote == '1' else ''
+
 headertemplate += '''
     <form action="" method="GET">
         <label for="sDate">Start:</label>
         <input type="date" id="sDate" name="sDate" required {0}>
         <label for="eDate">End:</label>
         <input type="date" id="eDate" name="eDate" required {1}>
+        {2}
         <input type="submit" value="Submit">
     </form>
     <body style="font-family: Arial, sans-serif; margin: 40px; width: 800px;">
-    <br><h3>-Financial QCD/Grant Letters-<br><br></h3>
+    <br><h2>Financial QCD/Grant Letters<br><br></h2>
     <table style="width: 600px; border-collapse: collapse; font-family: Arial, sans-serif; text-align: left;">
          <tr style="background-color: #f4f4f4; font-weight: bold;">
             <td style="width: 15%;">Type</td>
             <td style="width: 35%;">Name</td>
-            <td style="width: 25%;">Contribution Date</td>
-            <td style="width: 25%;">Contribution Amount</td>
+            <td style="width: 25%;">Contributed</td>
+            <td style="width: 25%;">Amount</td>
+            {3}
         </tr>
-'''.format(optionsDate,optioneDate)
+'''.format(optionsDate,optioneDate,addNoteForm,addNoteHeader)
 
 bodytemplate = ''
 
@@ -199,8 +228,8 @@ for rb in rsqlBundles:
             rsqlContributionDetails = q.QuerySql(sqlContributionDetails.format(bh.ContributionId))
             for cd in rsqlContributionDetails:
                 #print cd.LastName
-                
-                bodytemplate += '''
+
+                noteTemplate = '''
                     <div class="return-address" style="text-align: left; margin-top: 60px; margin-bottom: 20px;">
                         First Baptist Church Hendersonville<br>
                         106 Bluegrass Commons Blvd.<br>
@@ -222,25 +251,30 @@ for rb in rsqlBundles:
                                 ,str(cd.PrimaryZip)
                                 ,str(current_date))
                 
+                totalAmount = totalAmount + cd.ContributionAmount
                 ContributionAmount = "{:,.2f}".format(cd.ContributionAmount)
                 cDate = cd.ContributionDate
                 contributionDate = datetime.datetime.strptime(str(cd.ContributionDate), "%m/%d/%Y %I:%M:%S %p")
                 contributionYear = contributionDate.year
                 contributionDate = contributionDate.strftime("%m-%d-%Y")
                 
+                addNoteDone = '''<td>Yes</td>''' if addNote == '1' else ''
+                
                 headertemplate += '''
                             <tr>
                                 <td>{0}</td>
-                                <td>{1}</td>
+                                <td><a href="/Person2/{5}" target="_blank">{1}</a></td>
                                 <td>{2}</td>
                                 <td>{3}</td>
+                                {4}
                             </tr>'''.format(rb.BundleType
                                             ,str(cd.FirstName) + ' ' + str(cd.LastName)
                                             ,contributionDate
-                                            ,str(ContributionAmount))
+                                            ,str(ContributionAmount)
+                                            ,addNoteDone,cd.PeopleId)
                 
                 if rb.BundleType == "GRANT":
-                    bodytemplate += GrantLetterBody.format(cd.FirstName
+                    noteTemplate += GrantLetterBody.format(cd.FirstName
                                                         ,cd.LastName
                                                         ,str(cd.FirstName) + ' ' + str(cd.LastName)
                                                         ,contributionDate
@@ -250,7 +284,7 @@ for rb in rsqlBundles:
                                                         ,Signature
                                                         )
                 if rb.BundleType == "QCD":
-                    bodytemplate += QCDLetterBody.format(cd.FirstName
+                    noteTemplate += QCDLetterBody.format(cd.FirstName
                                     ,cd.LastName
                                     ,str(cd.FirstName) + ' ' + str(cd.LastName)
                                     ,contributionDate
@@ -261,14 +295,32 @@ for rb in rsqlBundles:
                                     )
 
                 
-                bodytemplate += '''
-                    </div>
-                
-                <p style="page-break-after: always;">&nbsp;</p>
+                noteTemplate += '''</div>'''
+
+                if addNote == '1':
+                    #print (ownerId,aboutPersonId,assigneeId,roleId,isNote,instructions,noteTemplate.replace("\n", ""),None,keywordIdList)
+                    model.CreateTaskNote(ownerId
+                                        ,cd.PeopleId
+                                        ,assigneeId
+                                        ,roleId
+                                        ,isNote
+                                        ,instructions
+                                        ,noteTemplate.replace("\n", "")
+                                        ,None
+                                        ,keywordIdList)
+
+                bodytemplate += noteTemplate
+                bodytemplate += '''<p style="page-break-after: always;">&nbsp;</p>
                 '''
-                
-            
+
+#render and print template
 Report = model.RenderTemplate(headertemplate)
+#add totalAmount to 1st page
+if totalAmount != 0:
+    totalAmount = "{:,.2f}".format(totalAmount)                
+    Report += '<br><h3>Total: $' + str(totalAmount) + '</h3>'
+#page break 1st page
 Report += '''</table><p style="page-break-after: always;">&nbsp;</p>'''
-Report += model.RenderTemplate(bodytemplate)
+#add each letter
+Report += model.RenderTemplate(bodytemplate) if addNote != '1' else ''
 print Report
