@@ -1,7 +1,7 @@
 ##### Batch By Fund
 ##### Add this as a python script to Admin ~ Advanced ~ Special Content
 
-model.Header = 'Fund Batch Search'
+model.Header = 'Fund Search'
 #set form parameters 
 if model.Data.sDate is not None:
     optionsDate = ' value="' + model.Data.sDate + '"'
@@ -59,16 +59,17 @@ sqlBatchDetails = '''
 	Order By bl.DepositDate
 '''
 
-rsqlBatchDetails = q.QuerySql(sqlBatchDetails.format(str(model.Data.optFund),model.Data.sDate,model.Data.eDate))
-for bd in rsqlBatchDetails:
-    template += '''
-        <tr>
-            <td style="border-top: 1px dashed lightblue;"><a href="/Batches/Detail/{0}" target="_blank">{0}</a></td>
-            <td style="border-top: 1px dashed lightblue;">{1}</td>
-            <td style="border-top: 1px dashed lightblue;">{2}</td>
-            <td style="border-top: 1px dashed lightblue;">{3}</td>
-        </tr>
-    '''.format(str(bd.BundleHeaderId),bd.HeaderType,bd.BundleStatus,bd.DepositDate)
+if model.Data.sDate and model.Data.eDate:
+    rsqlBatchDetails = q.QuerySql(sqlBatchDetails.format(str(model.Data.optFund),model.Data.sDate,model.Data.eDate))
+    for bd in rsqlBatchDetails:
+        template += '''
+            <tr>
+                <td style="border-top: 1px dashed lightblue;"><a href="/Batches/Detail/{0}" target="_blank">{0}</a></td>
+                <td style="border-top: 1px dashed lightblue;">{1}</td>
+                <td style="border-top: 1px dashed lightblue;">{2}</td>
+                <td style="border-top: 1px dashed lightblue;">{3}</td>
+            </tr>
+        '''.format(str(bd.BundleHeaderId),bd.HeaderType,bd.BundleStatus,bd.DepositDate)
 
 template += '</table>'
 NMReport = model.RenderTemplate(template)
