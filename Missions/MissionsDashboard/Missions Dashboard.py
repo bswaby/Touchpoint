@@ -11,6 +11,7 @@
 #####################################################################
 ####START OF CODE.  No configuration should be needed beyond this point
 #####################################################################
+import datetime
 
 model.Header = "Missions Dashboard"
 
@@ -91,7 +92,7 @@ if model.Data.OrgView == '' or model.Data.OrgView is None:
                 AND o.OrganizationStatusId = 30), 0) AS TotalMembers  -- Sum of members without duplication
         '''
     
-    sqlActiveMissions = '''
+    sqlActiveMissionsOld = '''
         WITH OrgData AS (
             SELECT  
                 o.OrganizationId,
@@ -147,6 +148,76 @@ if model.Data.OrgView == '' or model.Data.OrgView is None:
             od.RegistrationStatus
         ORDER BY od.OrganizationName,od.RegistrationStatus;
         '''
+        
+    sqlActiveMissions = '''
+        WITH OrgData AS (
+        SELECT  
+            o.OrganizationId,
+            pro.Name AS [Program],
+            pro.Id AS [ProgramId],
+            o.OrganizationName, 
+            o.MemberCount,
+            -- Handle NULL values for AccountingCode and DonationFundId
+            ISNULL(o.RegSettingXML.value('(/Settings/Fees/AccountingCode)[1]', 'INT'), 0) AS AccountingCode,
+            ISNULL(o.RegSettingXML.value('(/Settings/Fees/DonationFundId)[1]', 'INT'), 0) AS DonationFundId,
+            ISNULL(o.RegSettingXML.value('(/Settings/Fees/Fee)[1]', 'FLOAT'), 0) AS Fee,  -- Handle NULL
+            ISNULL(o.RegSettingXML.value('(/Settings/Fees/Deposit)[1]', 'FLOAT'), 0) AS Deposit, -- Handle NULL
+            o.RegStart,
+            o.RegEnd,
+            -- Determine Registration Status
+            CASE 
+                WHEN o.RegStart > GETDATE() AND (o.RegEnd IS NULL OR o.RegEnd > GETDATE()) THEN 'Pending'
+                WHEN o.RegStart IS NULL AND (o.RegEnd IS NULL OR o.RegEnd > GETDATE()) THEN 'Open'
+                WHEN o.RegEnd < GETDATE() THEN 'Closed'
+                ELSE 'Open'  -- Default to Active if no conditions are met
+            END AS RegistrationStatus
+        FROM Organizations o  
+            LEFT JOIN Division d ON d.Id = o.DivisionId  
+            LEFT JOIN Program pro ON pro.Id = d.ProgId  
+        WHERE o.IsMissionTrip = 1  
+            AND OrganizationStatusId = 30  
+            AND OrganizationId Not In (2737,2738)
+        ),
+        MeetingCounts AS (
+            SELECT 
+                OrganizationId,
+                COUNT(CASE WHEN MeetingDate < GETDATE() THEN 1 END) AS PastMeetings,
+                COUNT(CASE WHEN MeetingDate >= GETDATE() THEN 1 END) AS FutureMeetings
+            FROM Meetings
+            GROUP BY OrganizationId
+        )
+        SELECT  
+            od.OrganizationId,
+            od.Program,
+            od.ProgramId,
+            od.OrganizationName, 
+            od.MemberCount,
+            od.AccountingCode,  -- Now guaranteed to be 0 instead of NULL
+            od.DonationFundId,   -- Now guaranteed to be 0 instead of NULL
+            FORMAT(od.Fee, 'C', 'en-US') AS Fee,  -- Formatting after handling NULL
+            FORMAT(od.Deposit, 'C', 'en-US') AS Deposit,
+            FORMAT(ISNULL(SUM(ts.IndDue), 0), 'C', 'en-US') AS Outstanding,  -- Handle NULL before formatting
+            od.RegistrationStatus,
+            COALESCE(mc.PastMeetings, 0) AS PastMeetings,   -- Replace NULL with 0
+            COALESCE(mc.FutureMeetings, 0) AS FutureMeetings  -- Replace NULL with 0
+        FROM OrgData od  
+            LEFT JOIN TransactionSummary ts ON od.OrganizationId = ts.OrganizationId  
+            LEFT JOIN MeetingCounts mc ON od.OrganizationId = mc.OrganizationId  -- Join with the MeetingCounts CTE
+        GROUP BY  
+            od.OrganizationId,
+            od.Program,
+            od.ProgramId,
+            od.OrganizationName,
+            od.MemberCount,
+            od.AccountingCode,
+            od.DonationFundId,
+            od.Fee,
+            od.Deposit,
+            od.RegistrationStatus,
+            mc.PastMeetings,
+            mc.FutureMeetings
+        ORDER BY od.OrganizationName, od.RegistrationStatus;
+    '''
     
     sqlOutstandingPayments = '''
         Select 
@@ -269,6 +340,7 @@ if model.Data.OrgView == '' or model.Data.OrgView is None:
             .box.box-responsive {
                     border: none !important;
             }
+
         </style>
 
         <div class="chart-container">
@@ -357,6 +429,7 @@ if model.Data.OrgView == '' or model.Data.OrgView is None:
                 <tr id="trnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1000px; width: 100%;">
                     <td style="padding: 2px;"><h4>Reg.</h4></td>
                     <td style="padding: 2px;"><h4>Involvement</h4></td>
+                    <td style="padding: 2px;"><h4>Meetings</h4></td>
                     <td style="padding: 2px;"><h4>Going</h4></td>
                     <td style="padding: 2px;"><h4>Outstanding</h4></td>
                 </tr>
@@ -369,10 +442,11 @@ if model.Data.OrgView == '' or model.Data.OrgView is None:
             <tr>
                 <td style="border-top: 1px dashed lightblue; padding: 2px;">{0}</td>
                 <td style="border-top: 1px dashed lightblue; padding: 2px;"><a href="?OrgView={1}">{2}</a></td>
+                <td style="border-top: 1px dashed lightblue; padding: 2px;">{5}/{6}</td>
                 <td style="border-top: 1px dashed lightblue; padding: 2px;">{3}</td>
                 <td style="border-top: 1px dashed lightblue; padding: 2px;">{4}</td>
             </tr>
-            '''.format(str(am.RegistrationStatus),str(am.OrganizationId),am.OrganizationName,str(am.MemberCount),str(am.Outstanding))
+            '''.format(str(am.RegistrationStatus),str(am.OrganizationId),am.OrganizationName,str(am.MemberCount),str(am.Outstanding),am.PastMeetings,am.FutureMeetings)
         
     
     print '''</table><hr>
@@ -392,11 +466,11 @@ if model.Data.OrgView == '' or model.Data.OrgView is None:
         print '''
             <tr>
                 <td style="border-top: 1px dashed lightblue; padding: 2px;">{0}</td>
-                <td style="border-top: 1px dashed lightblue; padding: 2px;">{1}</td>
+                <td style="border-top: 1px dashed lightblue; padding: 2px;"><a href="?OrgView={4}#APeopleId{5}">{1}</a></td>
                 <td style="border-top: 1px dashed lightblue; padding: 2px;">{2}</td>
                 <td style="border-top: 1px dashed lightblue; padding: 2px;">{3}</td>
             </tr>
-            '''.format(op.OrganizationName,op.Name2,str(op.Paid),str(op.Outstanding))
+            '''.format(op.OrganizationName,op.Name2,str(op.Paid),str(op.Outstanding),op.OrganizationId,op.PeopleId)
             
     print '''</table></div>
         <div class="rightcolumna"><p>
@@ -561,9 +635,10 @@ if model.Data.OrgView != '':
             rr.emcontact,
             rr.emphone,
             -- Aggregate transaction data to avoid duplication
-            FORMAT(ISNULL(ts_data.TotalPaid, 0), 'C', 'en-US') AS [Paid],
+            ISNULL(ts_data.TotalPaid, 0) AS [Paid],
             FORMAT(ISNULL(ts_data.TotalCoupons, 0), 'C', 'en-US') AS [Coupons],
-            FORMAT(ISNULL(ts_data.TotalOutstanding, 0), 'C', 'en-US') AS [Outstanding]
+            FORMAT(ISNULL(ts_data.TotalOutstanding, 0), 'C', 'en-US') AS [Outstanding],
+            ISNULL(ts_data.TotalFee, 0) AS [TotalFee]
         FROM Organizations o
         LEFT JOIN OrganizationMembers om ON o.OrganizationId = om.OrganizationId
         LEFT JOIN lookup.MemberType mt ON mt.Id = om.MemberTypeId
@@ -580,16 +655,41 @@ if model.Data.OrgView != '':
                 ts.PeopleId,
                 SUM(ts.TotPaid) AS TotalPaid,
                 SUM(ts.TotCoupon) AS TotalCoupons,
-                SUM(ts.IndDue) AS TotalOutstanding
+                SUM(ts.IndDue) AS TotalOutstanding,
+				SUM(ts.TotalFee) AS TotalFee
             FROM TransactionSummary ts
             WHERE ts.OrganizationId = o.OrganizationId
             AND ts.PeopleId = p.PeopleId  -- Ensuring transactions match the person
+            AND IsLatestTransaction = 1 
             GROUP BY ts.PeopleId
         ) ts_data
         WHERE o.OrganizationId = {0} -- Ensure you're filtering for a specific org
         ORDER BY mt.Description,p.Name2;
 
+    '''
+
+    sqlMeetingCount = '''
+    SELECT 
+        COUNT(CASE WHEN MeetingDate < GETDATE() THEN 1 END) AS PastMeetings,
+        COUNT(CASE WHEN MeetingDate >= GETDATE() THEN 1 END) AS FutureMeetings
+    FROM Meetings
+    WHERE OrganizationId = {0}
     
+    '''
+
+    sqlMeetings = '''
+    
+        Select 
+        	 MeetingDate
+        	,OrganizationId
+        	,NumPresent
+        	,Location
+        	,Description
+        From Meetings 
+        WHERE OrganizationId = {0}
+            AND MeetingDate {1} '{2}'
+        Order by MeetingDate
+        
     '''
 
     print '''<button onclick="history.back()">Go Back</button>
@@ -606,16 +706,69 @@ if model.Data.OrgView != '':
             <strong>Registration End:</strong> {5}<br>
             '''.format(ii.ImageUrl,ii.OrganizationName,ii.RegistrationStatus,str(ii.Outstanding),str(ii.RegStart),str(ii.RegEnd),str(ii.OrganizationId))
     
-    print '''
-            <h3>Meetings</h3>
-            <hr>
+    
+
+    # Get current date and time
+    now = datetime.datetime.now()
+    
+    # Format it as a string in SQL-friendly format
+    sql_datetime = now.strftime('%Y-%m-%d %H:%M:%S')
+    
+    
+    
+
+    
+    rsqlMeetingCount = q.QuerySql(sqlMeetingCount.format(str(model.Data.OrgView)))
+    for mc in rsqlMeetingCount:
+        if mc.PastMeetings == 0 and mc.FutureMeetings == 0:
+            print '<h3>No Meetings Scheduled</h3><hr>'
+        
+        if mc.PastMeetings > 0:
+            print '''<h3>Past Meetings</h3>'''
+            
+            #rsqlMeetings = q.QuerySql(sqlMeetings.format(str(model.Data.OrgView), '<', sql_datetime)
+            #rsqlMeetings = q.QuerySql(sqlMeetings.format(str(model.Data.OrgView),'<',sql_datetime)
+            #for rm in rsqlMeetings:
+            rsqlMeetings = q.QuerySql(sqlMeetings.format(str(model.Data.OrgView), '<', sql_datetime))
+            for rm in rsqlMeetings:  # ✅ This should work now
+                #print str(rm.MeetingDate) + ' - '
+                #print str(rm.NumPresent) + ' - '
+                #print str(rm.Location) + ' - '
+                #print str(rm.Description) + '<br>'
+                print '''<div class="timeline-item">
+                            <div class="timeline-date">📅 {0}</div>
+                            <div class="timeline-content">
+                                <h4>{3}</h4>
+                                <p>⏰ {0}</p>
+                                <p>📍 {2}</p>
+                            </div>
+                        </div>'''.format(rm.MeetingDate,rm.NumPresent,rm.Location,rm.Description)
+            
+        if mc.FutureMeetings > 0:
+            print '''<h3>Upcoming Meetings</h3>'''
+    
+            rsqlMeetings = q.QuerySql(sqlMeetings.format(str(model.Data.OrgView), '>', sql_datetime))
+            for rm in rsqlMeetings:
+                #print str(rm.MeetingDate) + ' - '
+                #print str(rm.NumPresent) + ' - '
+                #print str(rm.Location) + ' - '
+                #print str(rm.Description) + '<br>'
+                print '''<div class="timeline-item">
+                            <div class="timeline-date">📅 {0}</div>
+                            <div class="timeline-content">
+                                <h4>{3}</h4>
+                                <p>⏰ {0}</p>
+                                <p>📍 {2}</p>
+                            </div>
+                        </div>'''.format(rm.MeetingDate,rm.NumPresent,rm.Location,rm.Description)
+    
+    print '''        
             <h3>Team</h3>
             <table id="trnoborder" style="border: 0px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1200px; width: 100%;">
                 <tr id="trnoborder" style="border: 0px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 1200px; width: 100%;">
-                    <td style="padding: 2px;"><h4>Name (Age)</h4></td>
-                    <td style="padding: 2px;"><h4>Info</h4></td>
-                    <td style="padding: 2px;"><h4>CheckList</h4></td>
-                    <td style="padding: 2px;"><h4>Outstanding</h4></td>
+                    <td style="padding: 2px;"><h4></h4></td>
+                    <td style="padding: 2px;"><h4></h4></td>
+                    <td style="padding: 2px;"><h4></h4></td>
                 </tr>
             '''
     orgMemType = ''    
@@ -623,6 +776,76 @@ if model.Data.OrgView != '':
     for im in rsqlInvolvementMembers:
         formatted_homephone = '☎️ ' + model.FmtPhone(im.HomePhone) + '<br>' if im.HomePhone and im.HomePhone != im.CellPhone else ''
         
+
+        # Format the progress text
+        if im.Paid >= im.TotalFee:
+            progress_text = "$%.2f of $%.2f <strong>goal met!</strong>" % (im.Paid, im.TotalFee)
+        else:
+            progress_text = "$%.2f raised of <strong>$%.2f</strong> goal" % (im.Paid, im.TotalFee)
+
+        if im.Paid == 0 and im.TotalFee == 0:
+            progress_percentage = 100.00
+            progress_text = "$%.2f <strong>fees charged!</strong>" % (im.TotalFee)
+        else:
+            progress_percentage = (im.Paid / float(im.TotalFee)) * 100  # Ensure float division
+        
+
+        print '''
+            <style>
+                .progress-container {
+                    width: 100%;
+                    max-width: 225px; /* Adjust width as needed */
+                    background-color: #eee;
+                    border-radius: 10px;
+                    overflow: hidden;
+                }
+        
+                .progress-bar {
+                    width: calc(225 / 1800 * 100%); /* Adjust based on progress */
+                    height: 10px;
+                    background-color: #757575;
+                }
+        
+                .progress-text {
+                    font-weight: bold;
+                    margin-bottom: 5px;
+                }
+                @media print {
+                    .progress-bar {
+                        -webkit-print-color-adjust: exact;
+                        print-color-adjust: exact;
+                    }
+                    .progress-container {
+                        display: block !important; /* Ensure it is visible */
+                    }
+                
+                    .progress-bar {
+                        display: block !important;
+                        background-color: #757575 !important; /* Ensure color is applied */
+                    }
+                }
+                .timeline {
+                    border-left: 4px solid #003366;
+                    padding-left: 20px;
+                }
+                
+                .timeline-item {
+                    margin-bottom: 15px;
+                    position: relative;
+                }
+                
+                .timeline-date {
+                    font-weight: bold;
+                    color: #003366;
+                }
+                
+                .timeline-content {
+                    background: #f8f9fa;
+                    padding: 10px;
+                    border-radius: 5px;
+                }
+            </style>
+        '''
         if orgMemType == '' or orgMemType != im.OrgMemType:
             orgMemType = im.OrgMemType
             print '''<tr style="background-color: #004085; color: white; font-size: 18px; font-weight: bold; text-align: center;">
@@ -634,10 +857,14 @@ if model.Data.OrgView != '':
                     '''.format(im.OrgMemType)
         print '''
             <tr>
-                <td style="border-top: 1px dashed lightblue; padding: 2px;"><a href="/Person2/{11}" target="_blank"><i class="fa fa-info-circle"></i></a>&nbsp{1} ({2})</td>
+                <td style="border-top: 1px dashed lightblue; padding: 2px;"><a href="/Person2/{11}" target="_blank"><i class="fa fa-info-circle"></i></a>&nbsp<span id="APeopleId{11}">{1}</span> ({2})</td>
                 <td style="border-top: 1px dashed lightblue; padding: 2px;">📱 {5}</td>
-                <td style="border-top: 1px dashed lightblue; padding: 2px;">% Checks:</td>
-                <td style="border-top: 1px dashed lightblue; padding: 2px;">Outstanding: {7}</td>
+                
+                <td style="border-top: 1px dashed lightblue; padding: 2px;">
+                    <p class="progress-text">{16}</p>
+
+                    
+                </td>
             </tr>
             <tr>
                 <td><img src="{12}" alt="Need Picture"></td> <!-- Empty cell for alignment -->
@@ -650,13 +877,11 @@ if model.Data.OrgView != '':
                     Emergency Phone: {14}
                 </td>
 
+
                 <td colspan="1" style="padding: 2px; font-size: 14px; color: gray; vertical-align: top;">
-                    Future Check 1:<br>
-                    Future Check 2:<br>
-                </td> 
-                <td colspan="1" style="padding: 2px; font-size: 14px; color: gray; vertical-align: top;">
-                    Coupons: {8}<br>
-                    Paid: {9}
+                    <div class="progress-container">
+                        <div class="progress-bar" style="width: {17:.2f}%;"></div>
+                    </div><br>
                 </td>
             </tr>
 
@@ -668,12 +893,26 @@ if model.Data.OrgView != '':
                         ,model.FmtPhone(im.CellPhone)
                         ,formatted_homephone
                         ,im.Outstanding
-                        ,im.Paid,im.Coupons
+                        ,im.Paid
+                        ,im.Coupons
                         ,im.EmailAddress
                         ,im.PeopleId
                         ,im.Picture
                         ,im.emcontact
-                        ,im.emphone)
+                        ,im.emphone
+                        ,im.OrganizationId
+                        ,progress_text
+                        ,progress_percentage)
+                        
+            #&nbsp<a href="/OnlineReg/{15}/Giving/{11}" target="_blank"><i class="fa fa-cross"></i></a>
+                        
+            #<td style="border-top: 1px dashed lightblue; padding: 2px;">% Checks:</td>        
+            #<td colspan="1" style="padding: 2px; font-size: 14px; color: gray; vertical-align: top;">
+            #    Future Check 1:<br>
+            #    Future Check 2:<br>
+            #</td> 
+                    
+            #support link = https://myfbch.com/OnlineReg/2779/Giving/33467
             
             #                <!-- Contact Row (Indented slightly for readability) -->
             #    <tr>
