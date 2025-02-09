@@ -241,9 +241,9 @@ else:
             <tr>
                 <td>📅 {0}</td>
                 <td>&#128336; {1}</td>
-                <td>📍 <a href="/PyScript/ScheduleList?CurrentOrgId={3}" target="_blank">{2}</a></td>
+                <td>📍 <a href="/PyScript/{4}?CurrentOrgId={3}" target="_blank">{2}</a></td>
             </tr>
-            '''.format(v.DateOnly,v.TimeOnly,v.Team,v.OrganizationId)
+            '''.format(v.DateOnly,v.TimeOnly,v.Team,v.OrganizationId,SchedulerReportPythonScriptName)
         
         if rsqlvVolunteerCount == 1 or rsqlVolunteerCount == rsqlvVolunteerCount:
             print '</table></div></div>'
