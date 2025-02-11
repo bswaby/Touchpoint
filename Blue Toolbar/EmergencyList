@@ -1,0 +1,223 @@
+#####################################################################
+####WIDGET INFORMATION
+#####################################################################
+#This is a list meant to be put in the blue toolbar and used to print
+#out emergency contact list books for trips, camps, etc..
+#
+#Add the script by doing the following
+#1. Open Admin ~ Advanced ~ Special Content ~ Python
+#2. Click Add New and type a name
+#3. Paste in the code and save.
+#4. click on the Text Content Tab and open customreports
+#5. Paste the following line in.  Make sure to update the report name
+#   and associate role you want people to have in order to access 
+#   the report
+#<Report name="EmergencyList" type="PyScript" role="Access" />
+
+#NOTE: customreport items take up to 24hrs to show up correctly
+
+#From here you should be able to run the report from the blue toolbar 
+#button </> and then selecting the report name
+
+#####################################################################
+####USER CONFIG FIELDS
+#####################################################################
+
+EntriesPerPage = 6 #this is the max number of people printed per page
+
+
+#####################################################################
+####START OF CODE.  No configuration should be needed beyond this point
+#####################################################################
+
+### Set Global Variable
+from datetime import datetime
+import sys
+import ast
+import re 
+import json
+from collections import defaultdict
+
+
+model.Header = ''
+
+#####
+#values
+OrgId = model.Data.CurrentOrgId #'1143'
+
+ExtraValueName = OrgId + '_SpecialNote'
+
+
+
+sqlHeaderName = '''Select Top 1 os.Organization, os.Program, os.Division From OrganizationStructure os Where OrgId = {0}'''
+dataHeaderName = q.QuerySql(sqlHeaderName.format(OrgId))
+
+
+for h in dataHeaderName:
+    print '<h2>' + str(h.Organization) + '</h2>'
+
+
+print '''
+    <style>
+    tr {
+      border-bottom: 1px solid #ddd;
+    }
+    @media print {
+        * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+    
+        /* For the p with border-left */
+        p[style*="border-left: 4px solid red;"] {
+            border-left: 4px solid red !important; /* Preserve border-left */
+            padding-left: 8px !important; /* Ensure padding */
+        }
+    
+        /* For the p with background-color: red */
+        p[style*="background-color: red;"] {
+            background-color: red !important; /* Preserve background color */
+            color: white !important; /* Ensure text color is white */
+            padding: 2px 5px !important; /* Preserve padding */
+            display: inline-block !important; /* Ensure display style */
+        }
+    
+        /* For the p with background-color: yellow */
+        p[style*="background-color: yellow;"] {
+            background-color: yellow !important; /* Preserve yellow background */
+            padding: 2px 5px !important; /* Ensure padding */
+            display: inline-block !important; /* Ensure display style */
+        }
+    }
+
+    </style>
+'''
+
+#Get Attenders Assigned to SubGroups
+sql = '''
+    Select distinct p.Name2
+        ,p.PeopleId 
+        ,p.FamilyId
+        ,p.PrimaryAddress
+        ,p.PrimaryCity
+        ,p.PrimaryState
+        ,p.PrimaryZip
+        ,p.CellPhone
+        ,rr.MedicalDescription
+        ,rr.emcontact
+        ,rr.emphone
+        ,pic1.SmallUrl AS [pic]
+    From OrganizationStructure os
+    LEFT JOIN OrganizationMembers om ON om.OrganizationId = os.OrgId
+    LEFT JOIN People p ON p.PeopleId = om.PeopleId
+    LEFT JOIN dbo.OrgMemMemTags omt ON (omt.PeopleId = p.PeopleId) AND (omt.OrgId = os.OrgId)
+    LEFT JOIN dbo.MemberTags mt ON (mt.Id = omt.MemberTagId)
+    LEFT JOIN Picture pic1 ON pic1.PictureId = p.PictureId
+    LEFT JOIN RecReg rr ON rr.PeopleId = p.PeopleId
+    Where
+    OrgStatus = 'Active'
+    AND os.OrgId = {0}
+    
+    Order By p.Name2
+'''
+
+sql2 = '''
+SELECT p.PeopleId FROM dbo.People p JOIN dbo.TagPerson tp ON tp.PeopleId = p.PeopleId AND tp.Id = @BlueToolbarTagId
+'''
+
+sqldata = q.QuerySql(sql.format(OrgId))
+countLoop = 94
+firstPage = EntriesPerPage + countLoop - 1
+personCount = 0
+
+print '''<table>'''
+
+# main table loop
+for d in sqldata:
+    personCount += 1
+    ##Add any special notes about the child.. 
+    #notes are stored in extra values as ProgramId_SpecialNote
+    SpecialNote = model.ExtraValue(d.PeopleId, ExtraValueName) 
+    
+    
+    if SpecialNote.upper() == 'UNKNOWN TYPE: ': #if notes doesn't exist, you get unknown type: returned.  
+        SpecialNote = ''
+
+    #attender info
+    print '''<tr>
+                <td>({3}) <b>{0}</b><br>{1}</td>
+                <td>{2}</br>
+          '''.format(str(d.Name2)
+                    ,model.FmtPhone(d.CellPhone,'c:')
+                    ,SpecialNote
+                    ,personCount)
+    
+    #MedD = d.MedicalDescription            
+    #if (MedD is None) or (MedD.upper() == 'N/A') or ('NONE' in MedD.upper()) or (MedD == ''):
+    #    print '</tr>'
+    #else:
+    #    print '''Allergies:{0}</td></tr>'''.format(str(MedD))
+
+    MedD = d.MedicalDescription
+    
+    # Normalize and check conditions
+    if not MedD or MedD.strip().upper() in ('N/A', 'NONE', 'NONE KNOWN') or MedD.strip() == '':
+        print '</tr>'
+    else:
+        print 'Allergies:{0}</td></tr>'.format(MedD.strip())
+
+
+    print '''<tr>
+                <td>
+                    <img src="{0}" onerror="this.onerror=null; this.src='https://c4265878.ssl.cf2.rackcdn.com/fbchville.2502091552.Hey__I_am_beautiful._Consider_adding_a_photo_-1-.png';" alt="Image">
+                </td>
+                <td>
+                    {1}, {2}, {3}, {4}</br>
+                '''.format(str(d.pic),
+                                 str(d.PrimaryAddress),
+                                 str(d.PrimaryCity),
+                                 str(d.PrimaryState),
+                                 str(d.PrimaryZip))
+     
+    #<p style="color: darkred;">(Emergency Contact) Kyrie Smith - 555-555-4464, Tina Smith 555-555-6628</p>
+
+    #family info
+    if d.emcontact is not None:
+        print '''<p style="background-color: yellow; padding: 2px 5px; display: inline-block;">(Emergency Contact) {0} {1}</p><br>
+               '''.format(str(d.emcontact)
+                         ,model.FmtPhone(d.emphone))
+    else: 
+        print '''<p style="background-color: red; color: white; padding: 2px 5px; display: inline-block;">(Emergency Contact Missing)</p>'''
+
+    #probably a better way to pull this from the main loop above, but this isn't ran much
+    sqlFamily = '''Select p.Name
+                        ,p.CellPhone
+                        ,p.HomePhone
+                        ,p.WorkPhone
+                        ,p.EmailAddress
+                    From People p 
+                    Where FamilyId = {0} 
+                        AND PositionInFamilyId IN (10,20)
+                '''.format(str(d.FamilyId))
+                        
+    sqlFamilyData = q.QuerySql(sqlFamily)
+    
+    print '<p style="border-left: 4px solid red; padding-left: 8px;">'
+    for f in sqlFamilyData:
+        print  '''{0}<i>(Family)</i> <a href= "mailto:{1}">{2}</a></br>
+                 {3} {4} {5}</br>
+                '''.format(f.Name
+                          ,str(f.EmailAddress)
+                          ,str(f.EmailAddress)
+                          ,model.FmtPhone(f.CellPhone,'c:')
+                          ,model.FmtPhone(f.HomePhone,'h:')
+                          ,model.FmtPhone(f.WorkPhone,'w:'))
+    print '</p>'
+    
+    print '</td></tr>'
+    countLoop += 1
+    if countLoop == EntriesPerPage or countLoop == firstPage:
+        print '''</table><p style="page-break-after: always;">&nbsp;</p><table>'''
+        countLoop = 0
+    
+print '</table>'
