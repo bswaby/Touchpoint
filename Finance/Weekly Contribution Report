@@ -74,6 +74,7 @@ if not data:
                     "GeneralFundIds": "1",
                     "CashBundleIds": "2",
                     "CheckBundleIds": "1,33",
+                    "DepositTotalIds: "6.7",
                     "NonContributionTypeIds": "99",
                     "BundleReportName": "BundleReport3"
                 },
@@ -101,6 +102,7 @@ ExcludedFundIds = str(model.Data.ExcludedFundIds) if model.Data.ExcludedFundIds 
 GeneralFundIds = str(model.Data.GeneralFundIds) if model.Data.GeneralFundIds else str(data.Financial.GeneralFundIds)
 CashBundleIds = str(model.Data.CashBundleIds) if model.Data.CashBundleIds else str(data.Financial.CashBundleIds)
 CheckBundleIds = str(model.Data.CheckBundleIds) if model.Data.CheckBundleIds else str(data.Financial.CheckBundleIds)
+DepositTotalIds = str(model.Data.DepositTotalIds) if model.Data.DepositTotalIds else str(data.Financial.DepositTotalIds)
 NonContributionTypeIds = str(model.Data.NonContributionTypeIds) if model.Data.NonContributionTypeIds else str(data.Financial.NonContributionTypeIds)
 BundleReportName = str(model.Data.BundleReportName) if model.Data.BundleReportName else str(data.Financial.BundleReportName)
 #FormPreferences
@@ -245,6 +247,7 @@ if model.Data.EditParams == 'y':
             "GeneralFundIds": "''' + GeneralFundIds + '''",
             "CashBundleIds": "''' + CashBundleIds + '''",
             "CheckBundleIds": "''' + CheckBundleIds + '''",
+            "DepositTotalIds": "''' + DepositTotalIds + '''",
             "NonContributionTypeIds": "''' + NonContributionTypeIds + '''",
             "BundleReportName": "''' + BundleReportName + '''"
         },
@@ -341,10 +344,8 @@ else:
                     <i>seperate multiple Id's by a comma.  example: 1,11,12</i></br>
                     <label for="GeneralFundIds">General Fund:</label>
                     <input type="text" id="GeneralFundIds" name="GeneralFundIds" value="{5}"><br>
-                    <label for="CashBundleIds">Cash Bundle Ids:</label>
-                    <input type="text" id="CashBundleIds" name="CashBundleIds" value="{13}"><br>
-                    <label for="CheckBundleIds">Check Bundle Ids:</label>
-                    <input type="text" id="CheckBundleIds" name="CheckBundleIds" value="{14}"><br>
+                    <label for="DepositTotalIds">Deposit Total Ids:</label>
+                    <input type="text" id="DepositTotalIds" name="DepositTotalIds" value="{16}"><br>
                     <label for="NonContributionTypeIds">NonContribution Type Id:</label>
                     <input type="text" id="NonContributionTypeIds" name="NonContributionTypeIds" value="{15}"><br>
                     <label for="BundleReportName">Bundle Report Name:</label>
@@ -372,7 +373,8 @@ else:
                 ShowBundleDetailsChecked,
                 CashBundleIds,
                 CheckBundleIds,
-                NonContributionTypeIds)
+                NonContributionTypeIds,
+                DepositTotalIds)
     print '''  <script>
           document.getElementById("editParams").onsubmit = function() {
             var checkbox = document.getElementById("ShowBundleSummary");
@@ -779,7 +781,7 @@ else:
             Fund
     '''
     
-    SqlDepositTotals = '''
+    SqlDepositTotalsOld = '''
         With DepositSum AS(
 		Select bht.[Description] AS BundleType
 		,CASE WHEN bht.Id IN ({2}) THEN sum(c.ContributionAmount) ELSE 0 END as Checks 
@@ -793,6 +795,16 @@ else:
 		)
 
 		SELECT BundleType, sum(Checks) AS Checks, Sum(Cash) AS Cash From DepositSum Where Checks <> 0 Or Cash <> 0 Group By BundleType Order by BundleType
+    '''
+    
+    SqlDepositTotals = '''
+        select Sum(bh.BundleTotal) As [Total]
+        	,cs.description as [Source]
+        FROM BundleHeader bh
+        	LEFT JOIN lookup.ContributionSources cs ON cs.Id = bh.SourceId
+        where bh.DepositDate BETWEEN '{0}' AND '{1}'
+         and bh.SourceId in ({2})
+        Group By cs.Description
     '''
 
     template = ''
@@ -841,9 +853,9 @@ else:
                     <td><h4>Source</h4></td>
                     <td><h4>General</h4></td>
                     <td><h4>Designated</h4></td>
-                    <td style="border-left: 1px solid black; border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Contribution<br>Total</h4></td>
-                    <td style="border-left: 1px solid black; border-right: 1px solid black;"><h4>NC</h4></td>
-                    <td style="background-color: lightblue;border-right: 1px solid black; border-left: 1px solid black; print-color-adjust:exact;"><h4>Grand<br>Total</h4></td>
+                    <td style="border-left: 1px dotted black; border-right: 1px dotted black;background-color: #f2f2f2;print-color-adjust:exact;"><h4>Contribution<br>Total</h4></td>
+                    <td><h4>NC</h4></td>
+                    <td style="background-color: lightblue;border-right: 1px solid black; border-left: 1px double black; print-color-adjust:exact;"><h4>Grand<br>Total</h4></td>
                 </td>
         '''
 
@@ -884,23 +896,23 @@ else:
         #Summary Details
         if ShowBundleSummary == "yes":
             template += '''<tr>
-                    <td style="border-top: 1px dashed lightblue;">{0}</td>
-                    <td style="border-top: 1px dashed lightblue;">{1}</td>
-                    <td style="border-top: 1px dashed lightblue;">{2}</td>
-                    <td style="border-top: 1px dashed lightblue;">{3}</td>
-                    <td style="border-top: 1px dashed lightblue;">{4}</td>
-                    <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;">{6}</td>
-                    <td style="border-top: 1px dashed lightblue; border-right: 1px solid black; border-left: 1px solid black;">{5}</td>
-                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;">{7}</td>
-                    </tr>
-                '''.format(BundleStatus
-                        ,d.HeaderType
-                        ,ContributionType
-                        ,checkNeg(d.General)
-                        ,checkNeg(d.Designated)
-                        ,checkNeg(d.NonContribution)
-                        ,checkNeg(d.TotalContribution)
-                        ,checkNeg(d.Total))
+                                <td style="border-top: 1px dashed lightblue;">{0}</td>
+                                <td style="border-top: 1px dashed lightblue;">{1}</td>
+                                <td style="border-top: 1px dashed lightblue;">{2}</td>
+                                <td style="border-top: 1px dashed lightblue;">{3}</td>
+                                <td style="border-top: 1px dashed lightblue;">{4}</td>
+                                <td style="border-left: 1px dotted black; border-right: 1px dotted black; background-color: #f2f2f2; print-color-adjust:exact;">{6}</td>
+                                <td>{5}</td>
+                                <td style="border-left: 1px solid black; border-right: 1px solid black; background-color: lightblue; print-color-adjust:exact;">{7}</td>
+                            </tr>
+                        '''.format(BundleStatus
+                                ,d.HeaderType
+                                ,ContributionType
+                                ,checkNeg(d.General)
+                                ,checkNeg(d.Designated)
+                                ,checkNeg(d.NonContribution)
+                                ,checkNeg(d.TotalContribution)
+                                ,checkNeg(d.Total))
 
         
             if d.ContributionTypeCount > 1:
@@ -914,19 +926,20 @@ else:
                     rsqlbundledetail = q.QuerySql(sqlbundledetail.format(searchsDate,searcheDate,DateSearch,ExcludedFundIds,GeneralFundIds,NonContributionTypeIds,d.BundleStatus,d.HeaderType,item))
                     for rbd in rsqlbundledetail:
                         template += '''<tr>
-                        <td style="position: relative; background: linear-gradient(to right, transparent 49%, lightblue 49%, lightblue 51%, transparent 51%); background-size: 100% 2px;"></td>
-                        <td></td>
-                        <td style="color: gray;"><i>{0}</i></td>
-                        <td style="color: gray;"><i>&nbsp&nbsp&nbsp&nbsp{1}</i></td>
-                        <td style="color: gray;"><i>&nbsp&nbsp&nbsp&nbsp{2}</i></td>
-                        <td style="border-left: 1px solid black; border-right: 1px solid black; background-color: lightblue;print-color-adjust:exact;"></td>
-                        <td style="border-left: 1px solid black; border-right: 1px solid black; color: gray;"><i>&nbsp&nbsp&nbsp&nbsp{3}</i></td>
-                        <td style="background-color: lightblue;border-right: 1px solid black; border-left: 1px solid black; print-color-adjust:exact;"></td>
-                        </tr>'''.format(rbd.CommaSeparatedList,
-                                        checkNeg(rbd.General),
-                                        checkNeg(rbd.Designated),
-                                        checkNeg(rbd.NonContribution))
-                    
+                                            <td style="position: relative; background: linear-gradient(to right, transparent 49%, lightblue 49%, lightblue 51%, transparent 51%); background-size: 100% 2px;"></td>
+                                            <td></td>
+                                            <td style="color: gray;"><i>{0}</i></td>
+                                            <td style="color: gray;"><i>&nbsp&nbsp&nbsp&nbsp{1}</i></td>
+                                            <td style="color: gray;"><i>&nbsp&nbsp&nbsp&nbsp{2}</i></td>
+                                            <td style="border-left: 1px dotted black; border-right: 1px dotted black; background-color: #f2f2f2;;print-color-adjust:exact;"></td>
+                                            <td style="border-left: 1px dotted black; border-right: 1px solid black; color: gray;"><i>&nbsp&nbsp&nbsp&nbsp{3}</i></td>
+                                            <td style="background-color: lightblue;border-right: 1px solid black; border-left: 1px solid black; print-color-adjust:exact;"></td>
+                                        </tr>
+                                    '''.format(rbd.CommaSeparatedList,
+                                               checkNeg(rbd.General),
+                                               checkNeg(rbd.Designated),
+                                               checkNeg(rbd.NonContribution))
+        
     if ShowBundleSummary == "yes":    
         template += '''
                 <tr>
@@ -935,9 +948,9 @@ else:
                     <td><h4></h4></td>
                     <td style="border-top: 1px solid #000000;"><b>{0}</b></td>
                     <td style="border-top: 1px solid #000000;"><b>{1}</b></td>
-                    <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{3}</b></td>
-                    <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid #000000;"><b>{2}</b></td>
-                    <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
+                    <td style="border-left: 1px dotted black;border-right: 1px dotted black;border-top: 1px solid black;background-color: #f2f2f2;;print-color-adjust:exact;"><b>{3}</b></td>
+                    <td style="border-left: 1px dotted black;border-right: 1px solid black;border-top: 1px solid #000000;"><b>{2}</b></td>
+                    <td style="border-left: 1px solid black;border-right: 1px solid black; border-top: 1px solid black; background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
                 </tr>
             </table>
             '''.format(checkNeg(GrandTotalGen),checkNeg(GrandTotalDes),checkNeg(GrandTotalNon),checkNeg(GrandTotalGenDes),checkNeg(GrandTotal))
@@ -948,39 +961,38 @@ else:
             <table id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 600px;width: 100%;">
                 <tr id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 600px;width: 100%;">
                     <td><h4>Bundle Type</h4></td>
-                    <td style="border-left: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Checks</h4></td>
-                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"><h4>Cash</h4></td>
+                    <td style="print-color-adjust:exact;"><h4>Totals</h4></td>
                 </td>
         '''
         #Deposit summary query
-        sqlDepositTotals = q.QuerySql(SqlDepositTotals.format(searchsDate,searcheDate,CheckBundleIds,CashBundleIds))
+        if DepositTotalIds: 
+            sqlDepositTotals = q.QuerySql(SqlDepositTotals.format(searchsDate,searcheDate,DepositTotalIds))
+            
+            #loop through bundle summary
+            TotalSource = 0.00
+            
+            for dt in sqlDepositTotals:
         
-        #loop through bundle summary
-        TotalChecks = 0.00
-        TotalCash = 0.00
-        
-        for dt in sqlDepositTotals:
+                #Column Totals
     
-            #Column Totals
-            TotalChecks += dt.Checks
-            TotalCash += dt.Cash
+                TotalSource += dt.Total
+                
+                #Summary Details
+                template += '''
+                        <tr>
+                            <td>{0}</td>
+                            <td style="print-color-adjust:exact;">{1}</td>
+                        </tr>
+                    '''.format(dt.Source,checkNeg(dt.Total))
         
-            #Summary Details
             template += '''
-                    <tr>
-                        <td>{0}</td>
-                        <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;">{1}</td>
-                        <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;">{2}</td>
-                    </tr>
-                '''.format(dt.BundleType,checkNeg(dt.Checks),checkNeg(dt.Cash))
-    
-        template += '''
-            <tr>
-                <td></td>
-                <td style="border-left: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{0}</b></td>
-                <td style="border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{1}</b></td>
-            </tr></table></br>
-        '''.format(checkNeg(TotalChecks),checkNeg(TotalCash))
+                <tr>
+                    <td></td>
+                    <td style="border-top: 1px solid black; print-color-adjust:exact;"><b>{0}</b></td>
+                </tr></table></br>
+            '''.format(checkNeg(TotalSource))
+        else:
+            template += '''<h3>Deposit Total Id(s) missing.  Open config to resolve</h3>'''
     
     if ShowFund == "yes":
     
@@ -992,9 +1004,9 @@ else:
                     <td><h4>Fund</h4></td>
                     <td><h4>General</h4></td>
                     <td><h4>Designated</h4></td>
-                    <td><h4>Non-Contribution</h4></td>
-                    <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Contribution<br />Total</h4></td>
-                    <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><h4>Grand<br />Total</h4></td>
+                    <td style="border-left: 1px dotted black;border-right: 1px dotted black;background-color: #f2f2f2;;print-color-adjust:exact;"><h4>Contribution<br />Total</h4></td>
+                    <td><h4>NC</h4></td>
+                    <td style="border-left: 1px solid black; border-right: 1px solid black; background-color: lightblue;print-color-adjust:exact;"><h4>Grand<br />Total</h4></td>
                 </td>
         '''
         #fund summary query
@@ -1028,9 +1040,9 @@ else:
                         <td>{1}</td>
                         <td>{2}</td>
                         <td>{3}</td>
+                        <td style="border-left: 1px dotted black;border-right: 1px dotted black;background-color: #f2f2f2;;print-color-adjust:exact;">{5}</td>
                         <td>{4}</td>
-                        <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;">{5}</td>
-                        <td style="border-left: 1px solid black;border-right: 1px solid black;background-color: lightblue;print-color-adjust:exact;">{6}</td>
+                        <td style="border-left: 1px solid black;border-right: 1px solid black; background-color: lightblue;print-color-adjust:exact;">{6}</td>
                     </tr>
                 '''.format(BundleStatus
                             ,fs.Fund,checkNeg(fs.General)
@@ -1045,9 +1057,9 @@ else:
                 <td></td>
                 <td style="border-top: 1px solid #000000;"><b>{0}</b></td>
                 <td style="border-top: 1px solid #000000;"><b>{1}</b></td>
+                <td style="border-left: 1px dotted black;border-right: 1px dotted black;border-top: 1px solid black;background-color: #f2f2f2;;print-color-adjust:exact;"><b>{3}</b></td>
                 <td style="border-top: 1px solid #000000;"><b>{2}</b></td>
-                <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{3}</b></td>
-                <td style="border-left: 1px solid black;border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
+                <td style="border-top: 1px solid #000000; border-left: 1px solid black;border-right: 1px solid black; background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
             </tr></table></br>
         '''.format(checkNeg(TotalGeneralFund)
                 ,checkNeg(TotalDesignatedFund)
@@ -1103,9 +1115,9 @@ else:
                     <td><h4>Deposited</h4></td>
                     <td><h4>General</h4></td>
                     <td><h4>Designated</h4></td>
+                    <td style="border-left: 1px dotted black; border-right: 1px dotted black; background-color: #f2f2f2;;print-color-adjust:exact;"><h4>Contribution<br>Total</h4></td>
                     <td><h4>NC</h4></td>
-                    <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;"><h4>Contribution<br>Total</h4></td>
-                    <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"><h4>Grand<br>Total</h4></td>
+                    <td style="background-color: lightblue; border-left: 1px solid black; border-right: 1px solid black; print-color-adjust:exact;"><h4>Grand<br>Total</h4></td>
                 </td>
             '''
             
@@ -1140,35 +1152,41 @@ else:
                     sqlFundDetailsData = q.QuerySql(sqlFundDetails.format(dd.BundleHeaderId,CombinedFunds,DateSearch,GeneralFundIds,NonContributionTypeIds))
                     for fd in sqlFundDetailsData:
                         FundDetails += '''<tr>
-                                            <td style="border-bottom: 1px dashed lightblue;">&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp''' + str(fd.Fund) + '''</td>
+                                            <td style="border-bottom: 1px dashed lightblue;">&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp{0}</td>
                                             <td style="border-bottom: 1px dashed lightblue;"></td>
                                             <td style="border-bottom: 1px dashed lightblue;"></td>
-                                            <td style="border-bottom: 1px dashed lightblue;">''' + checkNeg(fd.General) + '''</td>
-                                            <td style="border-bottom: 1px dashed lightblue;">''' + checkNeg(fd.Designated) + '''</td>
-                                            <td style="border-bottom: 1px dashed lightblue;">''' + checkNeg(fd.NonContribution) + '''</td>
-                                            <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;"></td>
-                                            <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;"></td>
+                                            <td style="border-bottom: 1px dashed lightblue;">{1}</td>
+                                            <td style="border-bottom: 1px dashed lightblue;">{2}</td>
+                                            <td style="border-left: 1px dotted black; border-right: 1px dotted black; background-color: #f2f2f2;;print-color-adjust:exact;"></td>
+                                            <td>{3}</td>
+                                            <td style="background-color: lightblue; border-left: 1px solid black; border-right: 1px solid black; print-color-adjust:exact;"></td>
                                         </tr>
-                                            '''
+                                            '''.format(str(fd.Fund)
+                                                      ,checkNeg(fd.General)
+                                                      ,checkNeg(fd.Designated)
+                                                      ,checkNeg(fd.NonContribution))
                 
                 if dd.BundleStatus != 'Closed':
                     BundleStatus = '<b>' + dd.BundleStatus + '</b>'
                 else:
                     BundleStatus = dd.BundleStatus
+                
                 ReferenceId = '''<a href="/Batches/Detail/''' + str(dd.BundleHeaderId) + '''" target="_blank">''' + dd.ReferenceId + '''</a>&nbsp<a href="/PyScript/''' + BundleReportName + '''?p1=''' + str(dd.BundleHeaderId) + '''" target="_blank"><i class="fa fa-bar-chart" aria-hidden="true"></i></a>'''
+
                 template += '''
-                    <tr>
-                        <td>{0}</td>
-                        <td>{1}</td>
-                        <td>{2}</td>
-                        <td>{3}</td>
-                        <td>{4}</td>
-                        <td>{5}</td>
-                        <td style="border-left: 1px solid black; background-color: lightblue;print-color-adjust:exact;">{6}</td>
-                        <td style="background-color: lightblue;border-right: 1px solid black;print-color-adjust:exact;">{7}</td>
-                    </tr>
-                    {8}    
-                    '''.format(BundleStatus,ReferenceId,dd.DepositDate,checkNeg(dd.General),checkNeg(dd.Designated),checkNeg(dd.NonContribution),checkNeg(dd.General + dd.Designated),checkNeg(dd.General + dd.Designated + dd.NonContribution),FundDetails)
+                            <tr>
+                                <td>{0}</td>
+                                <td>{1}</td>
+                                <td>{2}</td>
+                                <td>{3}</td>
+                                <td>{4}</td>
+                                <td style="border-left: 1px dotted black; border-right: 1px dotted black; background-color: #f2f2f2; print-color-adjust:exact;">{6}</td>
+                                <td>{5}</td>
+                                <td style="background-color: lightblue; border-right: 1px solid black; border-left: 1px solid black; print-color-adjust:exact;">{7}</td>
+                            </tr>
+                            {8}    
+                            '''.format(BundleStatus,ReferenceId,dd.DepositDate,checkNeg(dd.General),checkNeg(dd.Designated),checkNeg(dd.NonContribution),checkNeg(dd.General + dd.Designated),checkNeg(dd.General + dd.Designated + dd.NonContribution),FundDetails)
+
         
             template += '''
                 <tr>
@@ -1177,12 +1195,16 @@ else:
                     <td></td>
                     <td style="border-top: 1px solid black;"><b>{0}</b></td>
                     <td style="border-top: 1px solid black;"><b>{1}</b></td>
+                    <td style="border-left: 1px dotted black;border-top: 1px solid black;background-color: #f2f2f2;;print-color-adjust:exact;"><b>{3}</b></td>
                     <td style="border-top: 1px solid black;"><b>{2}</b></td>
-                    <td style="border-left: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{3}</b></td>
-                    <td style="border-right: 1px solid black;border-top: 1px solid black;background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
+                    <td style="border-top: 1px solid black; border-left: 1px solid black; border-right: 1px solid black; background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
                 </tr>
             </table>
-            '''.format(checkNeg(GrandTotalDetailGen),checkNeg(GrandTotalDetailDes),checkNeg(GrandTotalDetailNon),checkNeg(GrandTotalDetailGenDes),checkNeg(GrandDetailTotal))
+            '''.format(checkNeg(GrandTotalDetailGen)
+                      ,checkNeg(GrandTotalDetailDes)
+                      ,checkNeg(GrandTotalDetailNon)
+                      ,checkNeg(GrandTotalDetailGenDes)
+                      ,checkNeg(GrandDetailTotal))
         
             template += '''</table>'''
         
