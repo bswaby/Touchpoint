@@ -702,7 +702,7 @@ else:
             ,FORMAT(bl.DepositDate, 'yyyy-MM-dd') as DepositDate
             ,concat(cb.BundleReferenceId,' (',bd.BundleHeaderId,')') AS ReferenceId
             ,case when cb.FundId IN ({4}) THEN sum(cb.ContributionAmount) ELSE 0 END AS General
-            ,case when ct.id NOT IN ({6}) and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
+            ,case when ct.id NOT IN ({6}) and cb.fundId not in ({4})  THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
             ,case when ct.id IN ({6}) THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
         FROM [ContributionsBasic] cb
             LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
@@ -740,7 +740,7 @@ else:
         ,bst.[Description] AS BundleStatus
         ,concat(cb.BundleReferenceId,' (',bd.BundleHeaderId,')') AS ReferenceId
         ,case when cb.FundId IN ({3}) THEN sum(cb.ContributionAmount) ELSE 0 END AS General
-        ,case when ct.id NOT IN ({4}) and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
+        ,case when ct.id NOT IN ({4}) and cb.fundId not in ({3}) THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
         ,case when ct.id IN ({4}) THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
         FROM [ContributionsBasic] cb
         LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
@@ -778,8 +778,8 @@ else:
     	--	THEN CONCAT(cf.FundName, ' (', cb.FundId, ') <b>-OPEN-</b>') 
     	--	ELSE CONCAT(cf.FundName, ' (', cb.FundId, ')') 
         --END AS Fund
-        ,case when cb.FundId = 1 THEN sum(cb.ContributionAmount) ELSE 0 END AS General
-        ,case when ct.id NOT IN ({5}) and cb.fundId <> 1 THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
+        ,case when cb.FundId in ({4})  THEN sum(cb.ContributionAmount) ELSE 0 END AS General
+        ,case when ct.id NOT IN ({5}) and cb.fundId not in ({4})  THEN sum(cb.ContributionAmount) ELSE 0 End as Designated
         ,case when ct.id IN ({5}) THEN sum(cb.ContributionAmount) ELSE 0 End as NonContribution
         FROM [Contribution] cb
         LEFT JOIN BundleDetail bd ON cb.ContributionId = bd.ContributionId
