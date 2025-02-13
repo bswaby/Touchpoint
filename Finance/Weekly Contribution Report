@@ -74,7 +74,7 @@ if not data:
                     "GeneralFundIds": "1",
                     "CashBundleIds": "2",
                     "CheckBundleIds": "1,33",
-                    "DepositTotalIds: "6.7",
+                    "DepositTotalIds": "6,7",
                     "NonContributionTypeIds": "99",
                     "BundleReportName": "BundleReport3"
                 },
@@ -225,6 +225,13 @@ print '''
             @media print {
                 body {-webkit-print-color-adjust: exact;}
             }
+            @media print {
+                td {
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                }
+            }
+
         </style>'''
 
 if model.Data.EditParams == 'y':
@@ -853,9 +860,9 @@ else:
                     <td><h4>Source</h4></td>
                     <td><h4>General</h4></td>
                     <td><h4>Designated</h4></td>
-                    <td style="border-left: 1px dotted black; border-right: 1px dotted black;background-color: #f2f2f2;print-color-adjust:exact;"><h4>Contribution<br>Total</h4></td>
+                    <td style="border-left: 1px dotted black; border-right: 1px dotted black;background-color: #f2f2f2;print-color-adjust: exact; -webkit-print-color-adjust: exact;"><h4>Contribution<br>Total</h4></td>
                     <td><h4>NC</h4></td>
-                    <td style="background-color: lightblue;border-right: 1px solid black; border-left: 1px double black; print-color-adjust:exact;"><h4>Grand<br>Total</h4></td>
+                    <td style="background-color: lightblue;border-right: 1px solid black; border-left: 1px double black; print-color-adjust: exact; -webkit-print-color-adjust: exact;"><h4>Grand<br>Total</h4></td>
                 </td>
         '''
 
