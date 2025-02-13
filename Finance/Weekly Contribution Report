@@ -917,9 +917,9 @@ else:
                                 <td style="border-top: 1px dashed lightblue;">{2}</td>
                                 <td style="border-top: 1px dashed lightblue; border-left: 1px dashed black;">{3}</td>
                                 <td style="border-top: 1px dashed lightblue;">{4}</td>
-                                <td class="subtotal-column" style="border-left: 1px dashed black; border-right: 1px dashed black; background-color: #f2f2f2; print-color-adjust:exact;">{6}</td>
-                                <td>{5}</td>
-                                <td class="total-column" style="border-left: 1px solid black; border-right: 1px solid black; background-color: lightblue; print-color-adjust:exact;">{7}</td>
+                                <td class="subtotal-column" style="border-left: 1px dashed black; border-right: 1px dashed black; border-top: 1px dashed lightblue; background-color: #f2f2f2; print-color-adjust:exact;">{6}</td>
+                                <td style="border-top: 1px dashed lightblue;">{5}</td>
+                                <td class="total-column" style="border-left: 1px solid black; border-right: 1px solid black; background-color: lightblue; border-top: 1px dashed white; print-color-adjust:exact;">{7}</td>
                             </tr>
                         '''.format(BundleStatus
                                 ,d.HeaderType
