@@ -245,7 +245,11 @@ print '''
                 }
             }
 
-
+            @media print {
+                .no-print {
+                    display: none !important;
+                }
+            }
         </style>'''
 
 if model.Data.EditParams == 'y':
@@ -320,7 +324,7 @@ else:
     #<input type="text" id="ExcludedFundIds" name="ExcludedFundIds" value="{4}"><br>
     print '''
         <!-- Link to open the popup -->
-        <a href="#popup">Edit Parameters</a>
+        <a href="#popup" class="no-print">Edit Parameters</a>
         
         <!-- The popup container -->
         <div id="popup" class="popup">
@@ -836,8 +840,8 @@ else:
     #    HideBundle = '''<input type="checkbox" id="HideBundle" name="HideBundle" value="yes" {0}>
     #        <label for="HideBundle">HideBundle</label>'''.format(optionHideBundle)
     if ShowBundleDetails == "yes":
-        ShowFundDetails = '''<input type="checkbox" id="ShowDesignatedDetails" name="ShowDesignatedDetails" value="yes" {0}>
-            <label for="ShowDesignatedDetails">Show Funds in Bundle Details</label>'''.format(optionShowDesignatedDetails)
+        ShowFundDetails = '''<input class="no-print" type="checkbox" id="ShowDesignatedDetails" name="ShowDesignatedDetails" value="yes" {0}>
+            <label for="ShowDesignatedDetails" class="no-print">Show Funds in Bundle Details</label>'''.format(optionShowDesignatedDetails)
 
     template += '''
         <form action="" method="GET">
@@ -855,10 +859,10 @@ else:
             <input type="date" id="sDate" name="sDate" required {0}>
             <label for="eDate">End:</label>
             <input type="date" id="eDate" name="eDate" required {1}>
-            <input type="checkbox" id="HideBundle" name="HideBundle" value="yes" {5}>
-            <label for="HideBundle">Hide Bundle Details</label>
+            <input class="no-print" type="checkbox" id="HideBundle" name="HideBundle" value="yes" {5}>
+            <label for="HideBundle" class="no-print">Hide Bundle Details</label>
             {2}
-            <input type="submit" value="Filter">
+            <input type="submit" class="no-print" value="Filter">
         </form>
     
         <h2>Summary</h2>
@@ -1246,5 +1250,5 @@ else:
         print('<h3>Report Sent to Self</h3>') #Let people know report was sent
     else:
         #show button if sendReport <> y and print to screen the rendered template
-        print '''<a href="?sendReport=y&sDate=''' + sDate + '''&eDate=''' + eDate + '''&ShowDesignatedDetails=''' + ShowDesignatedDetails + '''" target="_blank"><button type="button">Email to Self</button></a><hr>'''
+        print '''<a href="?sendReport=y&sDate=''' + sDate + '''&eDate=''' + eDate + '''&ShowDesignatedDetails=''' + ShowDesignatedDetails + '''" target="_blank"><button type="button" class="no-print">Email to Self</button></a><hr>'''
         print(NMReport)
