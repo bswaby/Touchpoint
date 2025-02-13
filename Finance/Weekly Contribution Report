@@ -1173,9 +1173,8 @@ else:
                     sqlFundDetailsData = q.QuerySql(sqlFundDetails.format(dd.BundleHeaderId,CombinedFunds,DateSearch,GeneralFundIds,NonContributionTypeIds))
                     for fd in sqlFundDetailsData:
                         FundDetails += '''<tr>
-                                            <td class="gray-text" style="color: gray; border-bottom: 1px dashed lightblue;">&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp{0}</td>
-                                            <td class="gray-text" style="color: gray; border-bottom: 1px dashed lightblue;"></td>
-                                            <td class="gray-text" style="color: gray; border-bottom: 1px dashed lightblue;"></td>
+                                            <td class="gray-text" colspan="3" style="color: gray; border-bottom: 1px dashed lightblue;">&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp{0}</td>
+                                            
                                             <td class="gray-text" style="color: gray; border-bottom: 1px dashed lightblue; border-left: 1px dashed #dddddd;">{1}</td>
                                             <td class="gray-text" style="color: gray; border-bottom: 1px dashed lightblue;">{2}</td>
                                             <td class="subtotal-column" style="border-left: 1px dashed #dddddd; border-right: 1px dashed #dddddd; border-bottom: 1px dashed lightblue; background-color: #f2f2f2;;print-color-adjust:exact;"></td>
