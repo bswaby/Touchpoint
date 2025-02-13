@@ -238,8 +238,13 @@ print '''
                     print-color-adjust: exact !important;
                 }
             }
-            
-            
+            @media print {
+                td.gray-text {
+                    color: black !important; /* Keep it black but make it appear gray */
+                    opacity: 0.6 !important; /* Adjust this for lighter or darker gray */
+                }
+            }
+
 
         </style>'''
 
@@ -867,11 +872,11 @@ else:
                     <td><h4>Status</h4></td>
                     <td><h4>Type</h4></td>
                     <td><h4>Source</h4></td>
-                    <td style="border-left: 1px dashed black;"><h4>General</h4></td>
+                    <td style="border-left: 1px dashed #dddddd;"><h4>General</h4></td>
                     <td><h4>Designated</h4></td>
-                    <td class="subtotal-column" style="border-left: 1px dashed black; border-right: 1px dashed black;background-color: #f2f2f2;print-color-adjust: exact; -webkit-print-color-adjust: exact;"><h4>Contribution<br>Total</h4></td>
+                    <td class="subtotal-column" style="border-left: 1px dashed #dddddd; border-right: 1px dashed #dddddd;background-color: #f2f2f2;print-color-adjust: exact; -webkit-print-color-adjust: exact;"><h4>Contribution<br>Total</h4></td>
                     <td><h4>NC</h4></td>
-                    <td class="total-column" style="background-color: lightblue;border-right: 1px solid black; border-left: 1px double black; print-color-adjust: exact; -webkit-print-color-adjust: exact;"><h4>Grand<br>Total</h4></td>
+                    <td class="total-column" style="background-color: lightblue;border-right: 1px solid #dddddd; border-left: 1px double #dddddd; print-color-adjust: exact; -webkit-print-color-adjust: exact;"><h4>Grand<br>Total</h4></td>
                 </td>
         '''
 
@@ -915,11 +920,11 @@ else:
                                 <td style="border-top: 1px dashed lightblue;">{0}</td>
                                 <td style="border-top: 1px dashed lightblue;">{1}</td>
                                 <td style="border-top: 1px dashed lightblue;">{2}</td>
-                                <td style="border-top: 1px dashed lightblue; border-left: 1px dashed black;">{3}</td>
+                                <td style="border-top: 1px dashed lightblue; border-left: 1px dashed #dddddd;">{3}</td>
                                 <td style="border-top: 1px dashed lightblue;">{4}</td>
-                                <td class="subtotal-column" style="border-left: 1px dashed black; border-right: 1px dashed black; border-top: 1px dashed lightblue; background-color: #f2f2f2; print-color-adjust:exact;">{6}</td>
+                                <td class="subtotal-column" style="border-left: 1px dashed #dddddd; border-right: 1px dashed #dddddd; border-top: 1px dashed #dddddd; background-color: #f2f2f2; print-color-adjust:exact;">{6}</td>
                                 <td style="border-top: 1px dashed lightblue;">{5}</td>
-                                <td class="total-column" style="border-left: 1px solid black; border-right: 1px solid black; background-color: lightblue; border-top: 1px dashed white; print-color-adjust:exact;">{7}</td>
+                                <td class="total-column" style="border-left: 1px solid #dddddd; border-right: 1px solid #dddddd; background-color: lightblue; border-top: 1px dashed #dddddd; print-color-adjust:exact;">{7}</td>
                             </tr>
                         '''.format(BundleStatus
                                 ,d.HeaderType
@@ -944,12 +949,12 @@ else:
                         template += '''<tr>
                                             <td style="position: relative; background: linear-gradient(to right, transparent 49%, lightblue 49%, lightblue 51%, transparent 51%); background-size: 100% 2px;"></td>
                                             <td></td>
-                                            <td style="color: gray;"><i>{0}</i></td>
-                                            <td style="color: gray; border-left: 1px dashed black;"><i>&nbsp&nbsp&nbsp&nbsp{1}</i></td>
-                                            <td style="color: gray;"><i>&nbsp&nbsp&nbsp&nbsp{2}</i></td>
-                                            <td class="subtotal-column" style="border-left: 1px dashed black; border-right: 1px dashed black; background-color: #f2f2f2;;print-color-adjust:exact;"></td>
-                                            <td style="border-left: 1px dotted black; border-right: 1px solid black; color: gray;"><i>&nbsp&nbsp&nbsp&nbsp{3}</i></td>
-                                            <td class="total-column" style="background-color: lightblue;border-right: 1px solid black; border-left: 1px solid black; print-color-adjust:exact;"></td>
+                                            <td class="gray-text" style="color: gray;"><i>{0}</i></td>
+                                            <td class="gray-text" style="color: gray; border-left: 1px dashed #dddddd;"><i>&nbsp&nbsp&nbsp&nbsp{1}</i></td>
+                                            <td class="gray-text" style="color: gray;"><i>&nbsp&nbsp&nbsp&nbsp{2}</i></td>
+                                            <td class="subtotal-column" style="border-left: 1px dashed #dddddd; border-right: 1px dashed #dddddd; background-color: #f2f2f2;;print-color-adjust:exact;"></td>
+                                            <td class="gray-text" style="border-left: 1px dotted #dddddd; border-right: 1px solid #dddddd; color: gray;"><i>&nbsp&nbsp&nbsp&nbsp{3}</i></td>
+                                            <td class="total-column" style="background-color: lightblue;border-right: 1px solid #dddddd; border-left: 1px solid #dddddd; print-color-adjust:exact;"></td>
                                         </tr>
                                     '''.format(rbd.CommaSeparatedList,
                                                checkNeg(rbd.General),
@@ -962,11 +967,11 @@ else:
                     <td><h4></h4></td>
                     <td><h4></h4></td>
                     <td><h4></h4></td>
-                    <td style="border-top: 1px solid #000000; border-left: 1px dashed black;"><b>{0}</b></td>
+                    <td style="border-top: 1px solid #000000; border-left: 1px dashed #dddddd;"><b>{0}</b></td>
                     <td style="border-top: 1px solid #000000;"><b>{1}</b></td>
-                    <td style="border-left: 1px dashed black;border-right: 1px dashed black;border-top: 1px solid black;background-color: #f2f2f2;;print-color-adjust:exact;"><b>{3}</b></td>
-                    <td style="border-left: 1px dotted black;border-right: 1px solid black;border-top: 1px solid #000000;"><b>{2}</b></td>
-                    <td class="total-column" style="border-left: 1px solid black;border-right: 1px solid black; border-top: 1px solid black; background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
+                    <td style="border-left: 1px dashed #dddddd;border-right: 1px dashed #dddddd;border-top: 1px solid black;background-color: #f2f2f2;;print-color-adjust:exact;"><b>{3}</b></td>
+                    <td style="border-left: 1px dotted #dddddd;border-right: 1px solid #dddddd;border-top: 1px solid black;"><b>{2}</b></td>
+                    <td class="total-column" style="border-left: 1px solid #dddddd;border-right: 1px solid #dddddd; border-top: 1px solid black; background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
                 </tr>
             </table>
             '''.format(checkNeg(GrandTotalGen),checkNeg(GrandTotalDes),checkNeg(GrandTotalNon),checkNeg(GrandTotalGenDes),checkNeg(GrandTotal))
@@ -1018,11 +1023,11 @@ else:
                 <tr id="trFundnoborder" style="border: 1px solid #dddddd;text-align: left;padding: 10px;font-family: arial, sans-serif;border-collapse: collapse;max-width: 850px;width: 100%;">
                     <td><h4>Status</h4></td>
                     <td><h4>Fund</h4></td>
-                    <td style="border-left: 1px dashed black;"><h4>General</h4></td>
+                    <td style="border-left: 1px dashed #dddddd;"><h4>General</h4></td>
                     <td><h4>Designated</h4></td>
-                    <td class="subtotal-column" style="border-left: 1px dashed black;border-right: 1px dashed black;background-color: #f2f2f2;;print-color-adjust:exact;"><h4>Contribution<br />Total</h4></td>
+                    <td class="subtotal-column" style="border-left: 1px dashed #dddddd;border-right: 1px dashed #dddddd;background-color: #f2f2f2;;print-color-adjust:exact;"><h4>Contribution<br />Total</h4></td>
                     <td><h4>NC</h4></td>
-                    <td class="total-column" style="border-left: 1px solid black; border-right: 1px solid black; background-color: lightblue;print-color-adjust:exact;"><h4>Grand<br />Total</h4></td>
+                    <td class="total-column" style="border-left: 1px solid #dddddd; border-right: 1px solid #dddddd; background-color: lightblue;print-color-adjust:exact;"><h4>Grand<br />Total</h4></td>
                 </td>
         '''
         #fund summary query
@@ -1054,11 +1059,11 @@ else:
                     <tr>
                         <td>{0}</td>
                         <td>{1}</td>
-                        <td style="border-left: 1px dashed black;">{2}</td>
+                        <td style="border-left: 1px dashed #dddddd;">{2}</td>
                         <td>{3}</td>
-                        <td class="subtotal-column" style="border-left: 1px dashed black;border-right: 1px dashed black;background-color: #f2f2f2;;print-color-adjust:exact;">{5}</td>
+                        <td class="subtotal-column" style="border-left: 1px dashed #dddddd;border-right: 1px dashed #dddddd;background-color: #f2f2f2;;print-color-adjust:exact;">{5}</td>
                         <td>{4}</td>
-                        <td class="total-column" style="border-left: 1px solid black;border-right: 1px solid black; background-color: lightblue;print-color-adjust:exact;">{6}</td>
+                        <td class="total-column" style="border-left: 1px solid #dddddd;border-right: 1px solid #dddddd; background-color: lightblue;print-color-adjust:exact;">{6}</td>
                     </tr>
                 '''.format(BundleStatus
                             ,fs.Fund,checkNeg(fs.General)
@@ -1071,11 +1076,11 @@ else:
             <tr>
                 <td></td>
                 <td></td>
-                <td style="border-top: 1px solid #000000; border-left: 1px dashed black;"><b>{0}</b></td>
+                <td style="border-top: 1px solid #000000; border-left: 1px dashed #dddddd;"><b>{0}</b></td>
                 <td style="border-top: 1px solid #000000;"><b>{1}</b></td>
-                <td class="subtotal-column" style="border-left: 1px dotted black;border-right: 1px dotted black;border-top: 1px solid black;background-color: #f2f2f2;;print-color-adjust:exact;"><b>{3}</b></td>
+                <td class="subtotal-column" style="border-left: 1px dotted #dddddd;border-right: 1px dotted #dddddd;border-top: 1px solid black;background-color: #f2f2f2;;print-color-adjust:exact;"><b>{3}</b></td>
                 <td style="border-top: 1px solid #000000;"><b>{2}</b></td>
-                <td class="total-column" style="border-top: 1px solid #000000; border-left: 1px solid black;border-right: 1px solid black; background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
+                <td class="total-column" style="border-top: 1px solid #000000; border-left: 1px solid #dddddd;border-right: 1px solid #dddddd; background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
             </tr></table></br>
         '''.format(checkNeg(TotalGeneralFund)
                 ,checkNeg(TotalDesignatedFund)
@@ -1129,11 +1134,11 @@ else:
                     <td><h4>Status</h4></td>
                     <td><h4>Reference</h4></td>
                     <td><h4>Deposited</h4></td>
-                    <td style="border-left: 1px dashed black;"><h4>General</h4></td>
+                    <td style="border-left: 1px dashed #dddddd;"><h4>General</h4></td>
                     <td><h4>Designated</h4></td>
-                    <td class="subtotal-column" style="border-left: 1px dashed black; border-right: 1px dashed black; background-color: #f2f2f2;;print-color-adjust:exact;"><h4>Contribution<br>Total</h4></td>
+                    <td class="subtotal-column" style="border-left: 1px dashed #dddddd; border-right: 1px dashed #dddddd; background-color: #f2f2f2;;print-color-adjust:exact;"><h4>Contribution<br>Total</h4></td>
                     <td><h4>NC</h4></td>
-                    <td class="total-column" style="background-color: lightblue; border-left: 1px solid black; border-right: 1px solid black; print-color-adjust:exact;"><h4>Grand<br>Total</h4></td>
+                    <td class="total-column" style="background-color: lightblue; border-left: 1px solid #dddddd; border-right: 1px solid #dddddd; print-color-adjust:exact;"><h4>Grand<br>Total</h4></td>
                 </td>
             '''
             
@@ -1168,20 +1173,20 @@ else:
                     sqlFundDetailsData = q.QuerySql(sqlFundDetails.format(dd.BundleHeaderId,CombinedFunds,DateSearch,GeneralFundIds,NonContributionTypeIds))
                     for fd in sqlFundDetailsData:
                         FundDetails += '''<tr>
-                                            <td style="border-bottom: 1px dashed lightblue;">&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp{0}</td>
-                                            <td style="border-bottom: 1px dashed lightblue;"></td>
-                                            <td style="border-bottom: 1px dashed lightblue;"></td>
-                                            <td style="border-bottom: 1px dashed lightblue; border-left: 1px dashed black;">{1}</td>
-                                            <td style="border-bottom: 1px dashed lightblue;">{2}</td>
-                                            <td class="subtotal-column" style="border-left: 1px dashed black; border-right: 1px dashed black; background-color: #f2f2f2;;print-color-adjust:exact;"></td>
-                                            <td>{3}</td>
-                                            <td class="total-column" style="background-color: lightblue; border-left: 1px solid black; border-right: 1px solid black; print-color-adjust:exact;"></td>
+                                            <td class="gray-text" style="color: gray; border-bottom: 1px dashed lightblue;">&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp{0}</td>
+                                            <td class="gray-text" style="color: gray; border-bottom: 1px dashed lightblue;"></td>
+                                            <td class="gray-text" style="color: gray; border-bottom: 1px dashed lightblue;"></td>
+                                            <td class="gray-text" style="color: gray; border-bottom: 1px dashed lightblue; border-left: 1px dashed #dddddd;">{1}</td>
+                                            <td class="gray-text" style="color: gray; border-bottom: 1px dashed lightblue;">{2}</td>
+                                            <td class="subtotal-column" style="border-left: 1px dashed #dddddd; border-right: 1px dashed #dddddd; border-bottom: 1px dashed lightblue; background-color: #f2f2f2;;print-color-adjust:exact;"></td>
+                                            <td class="gray-text" style="color: gray; border-bottom: 1px dashed lightblue;">{3}</td>
+                                            <td class="total-column" style="background-color: lightblue; border-left: 1px solid #dddddd; border-bottom: 1px dashed lightblue; border-right: 1px solid #dddddd; print-color-adjust:exact;"></td>
                                         </tr>
                                             '''.format(str(fd.Fund)
                                                       ,checkNeg(fd.General)
                                                       ,checkNeg(fd.Designated)
                                                       ,checkNeg(fd.NonContribution))
-                
+
                 if dd.BundleStatus != 'Closed':
                     BundleStatus = '<b>' + dd.BundleStatus + '</b>'
                 else:
@@ -1194,11 +1199,11 @@ else:
                                 <td>{0}</td>
                                 <td>{1}</td>
                                 <td>{2}</td>
-                                <td style="border-left: 1px dashed black;">{3}</td>
+                                <td style="border-left: 1px dashed #dddddd;">{3}</td>
                                 <td>{4}</td>
-                                <td class="subtotal-column" style="border-left: 1px dashed black; border-right: 1px dashed black; background-color: #f2f2f2; print-color-adjust:exact;">{6}</td>
+                                <td class="subtotal-column" style="border-left: 1px dashed #dddddd; border-right: 1px dashed #dddddd; background-color: #f2f2f2; print-color-adjust:exact;">{6}</td>
                                 <td>{5}</td>
-                                <td class="total-column" style="background-color: lightblue; border-right: 1px solid black; border-left: 1px solid black; print-color-adjust:exact;">{7}</td>
+                                <td class="total-column" style="background-color: lightblue; border-right: 1px solid #dddddd; border-left: 1px solid #dddddd; border-bottom: 1px dashed lightblue; print-color-adjust:exact;">{7}</td>
                             </tr>
                             {8}    
                             '''.format(BundleStatus,ReferenceId,dd.DepositDate,checkNeg(dd.General),checkNeg(dd.Designated),checkNeg(dd.NonContribution),checkNeg(dd.General + dd.Designated),checkNeg(dd.General + dd.Designated + dd.NonContribution),FundDetails)
@@ -1209,11 +1214,11 @@ else:
                     <td></td>
                     <td></td>
                     <td></td>
-                    <td style="border-top: 1px solid black; border-left: 1px dashed black;"><b>{0}</b></td>
+                    <td style="border-top: 1px solid black; border-left: 1px dashed #dddddd;"><b>{0}</b></td>
                     <td style="border-top: 1px solid black;"><b>{1}</b></td>
-                    <td class="subtotal-column" style="border-left: 1px dashed black; border-right: 1px dashed black; border-top: 1px solid black;background-color: #f2f2f2;;print-color-adjust:exact;"><b>{3}</b></td>
+                    <td class="subtotal-column" style="border-left: 1px dashed #dddddd; border-right: 1px dashed #dddddd; border-top: 1px solid black;background-color: #f2f2f2;;print-color-adjust:exact;"><b>{3}</b></td>
                     <td style="border-top: 1px solid black;"><b>{2}</b></td>
-                    <td class="total-column" style="border-top: 1px solid black; border-left: 1px solid black; border-right: 1px solid black; background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
+                    <td class="total-column" style="border-top: 1px solid black; border-left: 1px solid #dddddd; border-right: 1px solid #dddddd; background-color: lightblue;print-color-adjust:exact;"><b>{4}</b></td>
                 </tr>
             </table>
             '''.format(checkNeg(GrandTotalDetailGen)
