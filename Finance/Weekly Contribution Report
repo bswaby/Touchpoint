@@ -877,7 +877,7 @@ else:
         optionFundSetSort=optionFundSetSort
     )
               
-    print '<h1>' + model.Data.DateSearch + '</h1>'
+    #print '<h1>' + model.Data.DateSearch + '</h1>'
     
     if ShowBundleSummary == "yes":
         template += '''
