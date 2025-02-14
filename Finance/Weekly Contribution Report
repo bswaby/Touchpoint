@@ -455,60 +455,62 @@ else:
     import locale
     from types import NoneType
     import datetime
-    data = model.Data  # Shorten access
-    sDate, eDate = data.sDate, data.eDate
-    DateSearch, sendReport = data.DateSearch, data.sendReport
-    ShowDesignatedDetails, HideBundle = data.ShowDesignatedDetails, data.HideBundle
-    FundSort = data.FundSort
-    
-    # Set form parameters using dictionary lookup (Python 2 compatible)
-    date_options = {
-        'bl.ContributionDate': ('checked', ''),
-        'deposited': ('', 'checked')
-    }
-    ContributionDateChecked, DepositDateChecked = date_options.get(DateSearch, ('', 'checked'))
-    
-    # Default to 'bl.DepositDate' if DateSearch is unrecognized
-    if DateSearch not in date_options:
-        DateSearch = 'bl.DepositDate'
-    
-    # Set date parameters using ternary-like expressions (Python 2 doesn't have the `if-else` one-liner in f-strings)
-    # Get today's date
-    today = datetime.date.today()
-    
-    # Calculate previous Monday
-    days_since_monday = today.weekday()  # Monday is 0, Sunday is 6
-    previous_monday = today - datetime.timedelta(days=days_since_monday + 7 if days_since_monday < 7 else days_since_monday)
-    
-    # Calculate past Sunday (before the previous Monday)
-    past_sunday = previous_monday + datetime.timedelta(days=6)
-    
-    # Get URL Variables
-    data = model.Data
-    sDate, eDate = data.sDate, data.eDate
-    
-    # Set default dates to previous Monday and past Sunday if not provided
-    searchsDate = sDate if sDate is not None else previous_monday.strftime('%Y-%m-%d')
-    searcheDate = eDate if eDate is not None else past_sunday.strftime('%Y-%m-%d')  
 
-    #searchsDate = sDate if sDate is not None else '2024-10-29'
-    #searcheDate = eDate if eDate is not None else '2024-11-04'
+
+    #Get URL Variables
+    sDate = model.Data.sDate
+    eDate = model.Data.eDate
+    #DateSearch = model.Data.DateSearch
+    sendReport = model.Data.sendReport
+    ShowDesignatedDetails = model.Data.ShowDesignatedDetails
+    HideBundle = model.Data.HideBundle
+    FundSort = model.Data.FundSort
+
     
-    optionsDate = ' value="{}"'.format(sDate) if sDate is not None else ''
-    optioneDate = ' value="{}"'.format(eDate) if eDate is not None else ''
+    #set form parameters 
+    if model.Data.DateSearch == 'ContributionDate':
+        ContributionDateChecked = 'checked'
+        DepositDateChecked = ''
+        DateSearch = 'cb.ContributionDate '
+    elif model.Data.DateSearch == 'DepositDate':
+        ContributionDateChecked = ''
+        DepositDateChecked = 'checked'
+        DateSearch = 'bl.DepositDate '
+    else:
+        ContributionDateChecked = ''
+        DepositDateChecked = 'checked'
+        DateSearch = 'bl.DepositDate '
+
+       
+    if sDate is not None:
+        optionsDate = ' value="' + sDate + '"'
+        searchsDate = sDate
+    else:
+        searchsDate = '2024-10-29'
     
-    # Use ternary-style expressions for checkbox values
-    optionHideBundle = 'checked' if HideBundle == 'yes' else ''
-    optionShowDesignatedDetails = 'checked' if ShowDesignatedDetails == 'yes' else ''
+    if eDate is not None:
+        optioneDate = ' value="' + eDate + '"'
+        searcheDate = eDate
+    else:
+        searcheDate = '2024-11-04'
+
+    if HideBundle == 'yes':
+        optionHideBundle = 'checked'
+    else:
+        optionHideBundle = ''
     
+    if ShowDesignatedDetails == 'yes':
+        optionShowDesignatedDetails = 'checked'
+    else:
+        optionShowDesignatedDetails = ''
+
     # Use dictionary for FundSort selection (Python 2 compatible)
     fund_options = {
         'Fund': ('checked', ''),
         'FundSetSort': ('', 'checked')
     }
     optionFundSort, optionFundSetSort = fund_options.get(FundSort, ('', 'checked'))
-
-
+        
     
     sql = '''
     
@@ -875,7 +877,7 @@ else:
         optionFundSetSort=optionFundSetSort
     )
               
-    print '<h1>' + ContributionDateChecked + '</h1>'
+    print '<h1>' + model.Data.DateSearch + '</h1>'
     
     if ShowBundleSummary == "yes":
         template += '''
