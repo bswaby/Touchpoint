@@ -24,6 +24,8 @@
 #####################################################################
 
 EntriesPerPage = 6 #this is the max number of people printed per page
+#EnableMedicalCondition = 1 #Enable showing medical condition
+#EnableMedicationDispensement = 1
 
 
 #####################################################################
@@ -47,14 +49,20 @@ OrgId = model.Data.CurrentOrgId #'1143'
 
 ExtraValueName = OrgId + '_SpecialNote'
 
+#this is used to help with first page loop.  if org name exist, it will reduce the first page by 1 count
+countLoop = 94 
+firstPage = EntriesPerPage + countLoop 
 
+#if CurrentOrgId exist then print header
 
-sqlHeaderName = '''Select Top 1 os.Organization, os.Program, os.Division From OrganizationStructure os Where OrgId = {0}'''
-dataHeaderName = q.QuerySql(sqlHeaderName.format(OrgId))
+if OrgId:
+    sqlHeaderName = '''Select Top 1 os.Organization, os.Program, os.Division From OrganizationStructure os Where OrgId = {0}'''
+    dataHeaderName = q.QuerySql(sqlHeaderName.format(OrgId))
+    firstPage = firstPage - 1
 
-
-for h in dataHeaderName:
-    print '<h2>' + str(h.Organization) + '</h2>'
+    for h in dataHeaderName:
+        print '<h2>' + str(h.Organization) + '</h2>'
+        
 
 
 print '''
@@ -93,51 +101,78 @@ print '''
     </style>
 '''
 
-#Get Attenders Assigned to SubGroups
 sql = '''
-    Select distinct p.Name2
-        ,p.PeopleId 
-        ,p.FamilyId
-        ,p.PrimaryAddress
-        ,p.PrimaryCity
-        ,p.PrimaryState
-        ,p.PrimaryZip
-        ,p.CellPhone
-        ,rr.MedicalDescription
-        ,rr.emcontact
-        ,rr.emphone
-        ,pic1.SmallUrl AS [pic]
-    From OrganizationStructure os
-    LEFT JOIN OrganizationMembers om ON om.OrganizationId = os.OrgId
-    LEFT JOIN People p ON p.PeopleId = om.PeopleId
-    LEFT JOIN dbo.OrgMemMemTags omt ON (omt.PeopleId = p.PeopleId) AND (omt.OrgId = os.OrgId)
-    LEFT JOIN dbo.MemberTags mt ON (mt.Id = omt.MemberTagId)
+SELECT DISTINCT 
+    p.Name2,
+    p.PeopleId, 
+    p.FamilyId,
+    p.PrimaryAddress,
+    p.PrimaryCity,
+    p.PrimaryState,
+    p.PrimaryZip,
+    p.CellPhone,
+    rr.MedicalDescription,
+    rr.emcontact,
+    rr.emphone,
+    pic1.SmallUrl AS [pic],
+    pe.Data AS MedicalCondition
+FROM People p
+    LEFT JOIN dbo.OrgMemMemTags omt ON omt.PeopleId = p.PeopleId --AND omt.OrgId = os.OrgId
+    LEFT JOIN dbo.MemberTags mt ON mt.Id = omt.MemberTagId
     LEFT JOIN Picture pic1 ON pic1.PictureId = p.PictureId
     LEFT JOIN RecReg rr ON rr.PeopleId = p.PeopleId
-    Where
-    OrgStatus = 'Active'
-    AND os.OrgId = {0}
-    
-    Order By p.Name2
+    LEFT JOIN PeopleExtra pe ON pe.PeopleId = p.PeopleId AND pe.Field = 'MedicalCondition' 
+WHERE 
+    p.PeopleId IN (SELECT p.PeopleId 
+                       FROM dbo.People p 
+                       JOIN dbo.TagPerson tp ON tp.PeopleId = p.PeopleId 
+                       WHERE tp.Id = @BlueToolbarTagId)
+ORDER BY p.Name2;
 '''
 
+sqlOrgMemType = '''
+SELECT mt.Description AS OrgMemType 
+FROM OrganizationMembers om
+LEFT JOIN lookup.MemberType mt ON mt.Id = om.MemberTypeId
+WHERE om.PeopleId = {0} AND om.OrganizationId = {1}
+'''
+
+#this is to satisfy the bluetool bar.
 sql2 = '''
 SELECT p.PeopleId FROM dbo.People p JOIN dbo.TagPerson tp ON tp.PeopleId = p.PeopleId AND tp.Id = @BlueToolbarTagId
 '''
+#sqldata1 = q.QuerySql(sql2)
+#for sd in sqldata1:
+#    print str(sd.PeopleId) + ', '
 
-sqldata = q.QuerySql(sql.format(OrgId))
-countLoop = 94
-firstPage = EntriesPerPage + countLoop - 1
+sqldata = q.QuerySql(sql)
 personCount = 0
+OrgMemDescription = ''
 
 print '''<table>'''
 
 # main table loop
 for d in sqldata:
+    
+    #if ran from Org, then get person description to display org member type
+    OrgMemDescription = ''
+    if OrgId:
+        rsqlOrgMemType = q.QuerySql(sqlOrgMemType.format(d.PeopleId,OrgId))
+        for rom in rsqlOrgMemType:
+            OrgMemDescription = rom.OrgMemType
+            OrgMemDescription = (OrgMemDescription + '<br>' if OrgMemDescription and OrgMemDescription != 'Member' else '')
+
+    
+    
+            
+    SpecialNote = '' if not d.MedicalCondition or d.MedicalCondition.upper() == 'UNKNOWN TYPE: ' else d.MedicalCondition + '<br>'
+
+
+
     personCount += 1
     ##Add any special notes about the child.. 
     #notes are stored in extra values as ProgramId_SpecialNote
-    SpecialNote = model.ExtraValue(d.PeopleId, ExtraValueName) 
+    #SpecialNote = model.ExtraValue(d.PeopleId, ExtraValueName) 
     
     
     if SpecialNote.upper() == 'UNKNOWN TYPE: ': #if notes doesn't exist, you get unknown type: returned.  
@@ -145,13 +180,14 @@ for d in sqldata:
 
     #attender info
     print '''<tr>
-                <td>({3}) <b>{0}</b><br>{1}</td>
-                <td>{2}</br>
-          '''.format(str(d.Name2)
-                    ,model.FmtPhone(d.CellPhone,'c:')
-                    ,SpecialNote
-                    ,personCount)
-    
+                <td>({3}) <b>{0}</b><br>{4}</td>
+                <td>{2}
+          '''.format(str(d.Name2), 
+                     model.FmtPhone(d.CellPhone, 'c:'), 
+                     SpecialNote, 
+                     personCount, 
+                     OrgMemDescription)
+        
     #MedD = d.MedicalDescription            
     #if (MedD is None) or (MedD.upper() == 'N/A') or ('NONE' in MedD.upper()) or (MedD == ''):
     #    print '</tr>'
