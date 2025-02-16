@@ -24,8 +24,13 @@
 #####################################################################
 
 EntriesPerPage = 6 #this is the max number of people printed per page
-#EnableMedicalCondition = 1 #Enable showing medical condition
-#EnableMedicationDispensement = 1
+
+#These will pull adhoc values and put them on each person. For example,
+#we use MedicalCondition adhoc list certain issues such as seizers.
+AdHocValues = """
+                'MedicalCondition',
+                'Some other adhoc vlaue from a new form question.'
+              """  
 
 
 #####################################################################
@@ -121,7 +126,7 @@ FROM People p
     LEFT JOIN dbo.MemberTags mt ON mt.Id = omt.MemberTagId
     LEFT JOIN Picture pic1 ON pic1.PictureId = p.PictureId
     LEFT JOIN RecReg rr ON rr.PeopleId = p.PeopleId
-    LEFT JOIN PeopleExtra pe ON pe.PeopleId = p.PeopleId AND pe.Field = 'MedicalCondition' 
+    LEFT JOIN PeopleExtra pe ON pe.PeopleId = p.PeopleId AND pe.Field IN ({0})
 WHERE 
     p.PeopleId IN (SELECT p.PeopleId 
                        FROM dbo.People p 
@@ -145,7 +150,7 @@ SELECT p.PeopleId FROM dbo.People p JOIN dbo.TagPerson tp ON tp.PeopleId = p.Peo
 #for sd in sqldata1:
 #    print str(sd.PeopleId) + ', '
 
-sqldata = q.QuerySql(sql)
+sqldata = q.QuerySql(sql.format(AdHocValues))
 personCount = 0
 OrgMemDescription = ''
 
@@ -160,14 +165,9 @@ for d in sqldata:
         rsqlOrgMemType = q.QuerySql(sqlOrgMemType.format(d.PeopleId,OrgId))
         for rom in rsqlOrgMemType:
             OrgMemDescription = rom.OrgMemType
-            OrgMemDescription = (OrgMemDescription + '<br>' if OrgMemDescription and OrgMemDescription != 'Member' else '')
+            OrgMemDescription = ('<span style="color: rgba(0, 0, 255, 0.8); font-weight: bold;">' + OrgMemDescription + '</span><br>' if OrgMemDescription and OrgMemDescription != 'Member' else '')
 
-    
-    
-            
     SpecialNote = '' if not d.MedicalCondition or d.MedicalCondition.upper() == 'UNKNOWN TYPE: ' else d.MedicalCondition + '<br>'
-
-
 
     personCount += 1
     ##Add any special notes about the child.. 
