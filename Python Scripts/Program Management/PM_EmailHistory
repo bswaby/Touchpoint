@@ -1,0 +1,134 @@
+import re
+from types import NoneType
+
+model.Header = "Email History Report"
+
+sqlold = '''
+    SELECT Top 300
+            p.Name 
+            ,eq.Subject
+            ,eq.Body
+            ,p.PeopleId 
+            ,eq.Sent 
+            ,eq.FromName 
+            ,eq.Id AS [messageId]
+            ,CONCAT('/PyScript/PM_EmailPreview?messageId=', eq.Id, '&PeopleId=',p.PeopleId) as [url]
+        FROM 
+            dbo.EmailQueueTo eqt
+        INNER JOIN dbo.EmailQueue eq ON (eqt.Id = eq.Id) 
+        INNER JOIN dbo.People p ON (eqt.PeopleId = p.PeopleId)
+        Where eqt.PeopleId = {0} 
+        Order by eq.Sent Desc
+'''
+
+sql = '''
+SELECT Top 300
+            p.Name 
+            ,eq.Subject
+            ,eq.Body
+            ,p.PeopleId 
+            ,eq.Sent 
+            ,eq.FromName 
+            ,eq.Id AS [messageId]
+            ,CONCAT('/PyScript/PM_EmailPreview?messageId=', eq.Id, '&PeopleId=',p.PeopleId) as [url]
+            ,Count(er.Id) AS [Opened]
+        FROM 
+            dbo.EmailQueueTo eqt
+        INNER JOIN dbo.EmailQueue eq ON (eqt.Id = eq.Id) 
+        INNER JOIN dbo.People p ON (eqt.PeopleId = p.PeopleId)
+        LEFT JOIN EmailResponses er ON er.PeopleId = p.PeopleId AND eq.Id = er.EmailQueueId
+        Where eqt.PeopleId = {0}
+        Group By 
+            p.Name 
+            ,eq.Subject
+            ,eq.Body
+            ,p.PeopleId 
+            ,eq.Sent 
+            ,eq.FromName 
+            ,eq.Id
+            ,CONCAT('/PyScript/PM_EmailPreview?messageId=', eq.Id, '&PeopleId=',p.PeopleId) 
+        Order by eq.Sent Desc
+'''
+
+pid = model.Data.payerId
+#pid = '3134'
+
+print '<button onclick="history.go(-1)">Go Back</button>'
+sqldata = q.QuerySql(sql.format(pid))
+records = ''
+for d in sqldata:
+    if records != '':
+        records += ','
+        
+    records += '{'
+    records += '''sent: "{0}",
+                  fromname: "{1}",
+                  subject: "{2}",
+                  previewmessage: "{3}",
+                  opened: "{4}"
+                    '''.format(str(d.Sent), d.FromName, d.Subject, d.url, d.Opened)
+    records += '}'
+
+print('''
+    <h3>Select email below to view and resend</h3>
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise/dist/ag-grid-enterprise.js"></script>
+    <div id="history-grid" class="ag-theme-quartz" style="height: 800px"></div>
+
+    <script>
+    
+    // Grid Options: Contains all of the grid configurations
+
+    const gridOptions = {
+        rowData: [
+            ''' + records + '''
+        ],
+        // Column Definitions: Defines & controls grid columns.
+        columnDefs: [
+            { field: "sent" },
+            { headerName: 'From', field: "fromname", enableRowGroup: true },
+            { headerName: 'Subject', field: "previewmessage", enableRowGroup: true, cellRenderer: function(params) {
+                    if(params.data){return '<a href="' + params.value + '">' + params.data.subject + '</a>'}
+                    else{return '';}} },
+            { headerName: 'Opened', field: "opened" },
+        ],
+        defaultColDef: {
+            flex: 1,
+            minWidth: 150,
+            filter: 'agMultiColumnFilter',
+            menuTabs: ['filterMenuTab']
+        },
+        groupDefaultExpanded: -1,
+        // possible options: 'never', 'always', 'onlyWhenGrouping'
+        //rowGroupPanelShow: 'always',
+        sideBar: {
+            toolPanels: [
+                {
+                    id: 'columns',
+                    labelDefault: 'Columns',
+                    labelKey: 'columns',
+                    iconKey: 'columns',
+                    toolPanel: 'agColumnsToolPanel',
+                },
+                {
+                    id: 'filters',
+                    labelDefault: 'Filters',
+                    labelKey: 'filters',
+                    iconKey: 'filter',
+                    toolPanel: 'agFiltersToolPanel',
+                }
+            ],
+            //defaultToolPanel: 'columns',
+            defaultToolPanel: "",
+            
+        },
+
+    };
+
+    const myGridElement = document.querySelector('#history-grid');
+    agGrid.createGrid(myGridElement, gridOptions);
+
+</script>
+
+''')
+
+# https://www.ag-grid.com/javascript-data-grid/filtering/
