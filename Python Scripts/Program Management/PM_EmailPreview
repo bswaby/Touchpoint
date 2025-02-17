@@ -1,0 +1,37 @@
+model.Header = "Email Preview / Copy Send"
+
+#PM_EmailPreview provides an email preview and method to send a copy to the original person or ability to print the page
+#
+#This expects the messageId paramenter in the url and then builds a preview. 
+#if the user decide, they can either print the page or click send copy
+
+#Open todo items:
+# need to set reply from original person. right now it's hard coded from Ben Swaby
+
+# what calls PM_EmailPreview?
+
+sql = '''
+    Select eq.Subject
+        ,eq.Body
+        ,eq.Sent
+        ,eq.FromName
+        ,eq.Id AS [messageId]
+        ,eqt.PeopleId
+        ,eq.QueuedBy
+        ,eq.FromAddr
+    from EmailQueue eq
+    left join dbo.EmailQueueTo eqt on (eqt.id = eq.id and eqt.PeopleId = {1})
+    where eq.Id = {0}
+'''
+emailTitle = ""
+emailBody = ""
+
+for a in q.QuerySql(sql.format(str(model.Data.messageId),str(model.Data.PeopleId))):
+    if model.Data.sendCopy == "yes":
+        print '<h2>Email Copy Sent</h2><br /><button onclick="history.go(-2)">Go Back</button>'
+        emailTitle = 'Email Copy - ' + a.Subject
+        emailBody = '<H2>Email Copy - Originally Sent on <i>' + str(a.Sent) + '</i></H2><br />' + a.Body 
+        model.Email(int(a.PeopleId), a.QueuedBy, a.FromAddr, a.FromName, emailTitle, emailBody)
+    else:
+        print '<H3>Originally Sent On: {0} | <a href="/PyScript/PM_EmailPreview?messageId={1}&PeopleId={2}&sendCopy=yes">Send Copy</a> <button onclick="history.go(-1)">Go Back</button></H3><hr>'.format(str(a.Sent),str(a.messageId),str(model.Data.PeopleId))
+        print a.Body
