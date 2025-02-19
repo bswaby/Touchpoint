@@ -1,0 +1,186 @@
+#####################################################################
+####FORTIS REPORT INFORMATION
+#####################################################################
+#Fortis report is a tool for finance to help backcharge ministry for
+#finance fees.  This is currently looking at just CC and EFI charges
+#as that's all we are running through it right now
+#
+#Note:
+#  Fee's are not 100% accurate yet!.. working on trying to figure out
+#  if Fortis is possibly rounding as it's 1% off actual.
+
+#####################################################################
+####USER CONFIG FIELDS
+#####################################################################
+#These are defined variables that are required for the report to run.
+
+model.Header = 'Fortis Fees' #Page Name
+
+#ACH Charge
+ACHPercent = 0.05 #Use numeric.  0.05 = 5%
+ACHPerTransaction = 0.50
+
+#CC Charge
+CCPercent = 0.05  #Use numeric.  0.05 = 5%
+CCPerTransaction = 0.50 
+
+#AMEX Charges
+#not defined yet... can't seem to find transaction card type in the DB
+
+#######################################################################
+####START OF CODE.  No configuration should be needed beyond this point
+#######################################################################
+#######################################################################
+import datetime
+
+current_date = datetime.date.today().strftime("%B %d, %Y")
+sDate = model.Data.sDate
+eDate = model.Data.eDate
+
+ACHPaymentType = 'B' #This most likely won't need to change
+CCPaymentType = 'C' #This most likely won't need to change.
+
+#update currency
+def format_currency(amount, show_dollar=True, use_comma=True):
+    # If amount is a string, remove "$" and "," before converting to float
+    if isinstance(amount, str):
+        amount = re.sub(r'[^\d.-]', '', amount)  # Remove non-numeric characters except "." and "-"
+    
+    amount = float(amount)  # Convert to float
+
+    # Return "-" for zero values
+    if amount == 0.00:
+        return "-"
+
+    # Determine decimal places
+    if amount % 1 != 0 or (1 <= amount < 10):
+        formatted = "%.2f" % amount  # Show cents
+    else:
+        formatted = "%.0f" % amount  # No cents for whole numbers ($10+)
+
+    # Add thousands separators manually if needed
+    if use_comma:
+        parts = formatted.split(".")  # Split whole number and decimal parts
+        parts[0] = "{:,}".format(int(parts[0]))  # Add commas to the whole number part
+        formatted = ".".join(parts)  # Reassemble
+
+    return ("$" + formatted) if show_dollar else formatted
+
+
+sql = '''
+WITH ExtractedData AS (
+    SELECT 
+        pro.Name AS Program,
+        o.OrganizationId,
+        o.RegSettingXML.value('(/Settings/Fees/AccountingCode)[1]', 'NVARCHAR(50)') AS AccountingCode, -- Extract AccountingCode
+        t.amt AS Amount,
+        CASE 
+            WHEN t.PaymentType = '{7}' 
+            THEN CEILING(((t.amt * {5}) + {6}) * 100) / 100
+            ELSE 0 
+        END AS CCFees,
+        CASE 
+            WHEN t.PaymentType = '{4}' 
+            THEN CEILING(((t.amt * {2}) + {3}) * 100) / 100
+            ELSE 0 
+        END AS ACHFees
+    FROM [Transaction] t 
+    LEFT JOIN Organizations o ON o.OrganizationId = t.OrgId
+    LEFT JOIN Division d ON d.Id = o.DivisionId
+    LEFT JOIN Program pro ON pro.Id = d.ProgId
+    WHERE 
+        t.settled BETWEEN '{0}' AND '{1} 23:59:59.999'
+        AND t.TransactionId IS NOT NULL
+        AND t.AuthCode IS NOT NULL
+        AND t.voided IS NULL
+)
+SELECT 
+    ed.Program,
+    CONCAT(ac.Description, ' (', ac.Code, ')') AS AccountingCode,
+    SUM(ed.Amount) AS Amount,
+    SUM(ed.CCFees) AS CCFees,
+    SUM(ed.ACHFees) AS ACHFees
+FROM ExtractedData ed
+LEFT JOIN lookup.AccountCode ac ON ac.Id = ed.AccountingCode
+GROUP BY ed.Program, ac.Code, ac.Description
+ORDER BY ed.Program;
+'''
+
+if sDate is not None:
+    optionsDate = ' value="' + sDate + '"'
+
+if eDate is not None:
+    optioneDate = ' value="' + eDate + '"'
+
+
+headerTemplate = '''
+    <form action="" method="GET">
+        <label for="sDate">Start:</label>
+        <input type="date" id="sDate" name="sDate" required {0}>
+        <label for="eDate">End:</label>
+        <input type="date" id="eDate" name="eDate" required {1}>
+        <input type="submit" value="Submit">
+    </form>
+    <br>
+    <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; text-align: left;">
+         <tr style="background-color: #f4f4f4; font-weight: bold;">
+            <td>Program</td>
+            <td>Accounting Code</td>
+            <td>Amount</td>
+            <td>CC Fees</td>
+            <td>EFI Fees</td>
+            <td>Total Fees</td>
+        </tr>
+'''.format(optionsDate,optioneDate)
+
+rsql = q.QuerySql(sql.format(sDate,eDate,ACHPercent,ACHPerTransaction,ACHPaymentType,CCPercent,CCPerTransaction,CCPaymentType))
+
+bodyTemplate = '' 
+TotalFortis = 0
+TotalFortisCC = 0
+TotalFortisACH = 0
+TotalFortisFees = 0
+
+for f in rsql:
+    #ColumnTotal
+    totalFees = f.CCFees + f.ACHFees
+
+    #Grand Total
+    TotalFortis += f.Amount
+    TotalFortisCC += f.CCFees
+    TotalFortisACH += f.ACHFees
+    TotalFortisFees += totalFees
+    
+    bodyTemplate += '''
+        <tr>
+            <td>{0}</td>
+            <td>{1}</td>
+            <td>{2}</td>
+            <td>{3}</td>
+            <td>{4}</td>
+            <td>{5}</td>
+        </tr>
+    '''.format(f.Program,
+               f.AccountingCode,
+               format_currency(f.Amount),
+               format_currency(f.CCFees),
+               format_currency(f.ACHFees),
+               format_currency(totalFees))
+               
+bodyTemplate += '''
+        <tr>
+            <td></td>
+            <td></td>
+            <td><strong>{0}</strong></td>
+            <td><strong>{1}</strong></td>
+            <td><strong>{2}</strong></td>
+            <td><strong>{3}</strong></td>
+        </tr>
+        </table>'''.format(format_currency(TotalFortis),
+                           format_currency(TotalFortisCC),
+                           format_currency(TotalFortisACH),
+                           format_currency(TotalFortisFees))
+
+Report = model.RenderTemplate(headerTemplate)
+Report += model.RenderTemplate(bodyTemplate)
+print Report
