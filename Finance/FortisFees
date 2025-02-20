@@ -77,8 +77,12 @@ WITH ExtractedData AS (
     SELECT 
         pro.Name AS Program,
         o.OrganizationId,
-        o.RegSettingXML.value('(/Settings/Fees/AccountingCode)[1]', 'NVARCHAR(50)') AS AccountingCode, -- Extract AccountingCode
-        t.amt AS Amount,
+        --o.RegSettingXML.value('(/Settings/Fees/AccountingCode)[1]', 'NVARCHAR(50)') AS AccountingCode, -- Extract AccountingCode
+        CASE 
+            WHEN o.RegAccountCodeId IS NOT NULL THEN CAST(o.RegAccountCodeId AS NVARCHAR(50))
+            ELSE o.RegSettingXML.value('(/Settings/Fees/AccountingCode)[1]', 'NVARCHAR(50)')
+        END AS AccountingCode, -- Check for RegAccountCodeId first
+	t.amt AS Amount,
         CASE 
             WHEN t.PaymentType = '{7}' and f.AccountType <> 'amex'
             THEN CEILING(((t.amt * {5}) + {6}) * 100) / 100
