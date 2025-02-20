@@ -2,12 +2,14 @@
 ####FORTIS REPORT INFORMATION
 #####################################################################
 #Fortis report is a tool for finance to help backcharge ministry for
-#finance fees.  This is currently looking at just CC and EFI charges
-#as that's all we are running through it right now
+#finance fees.  I have code added for amex, but don't have any examples
+#to test... so, that may or may not be 100%
 #
 #Note:
-#  Fee's are not 100% accurate yet!.. working on trying to figure out
-#  if Fortis is possibly rounding as it's 1% off actual.
+#  Total received seems to be accurate!... but fees are not quite 100%
+#  I think there are some fees like cc changes that are not something I 
+#  can calculate based on the data I have access to in TP
+
 
 #####################################################################
 ####USER CONFIG FIELDS
@@ -18,20 +20,23 @@ model.Header = 'Fortis Fees' #Page Name
 
 #ACH Charge
 ACHPercent = 0.05 #Use numeric.  0.05 = 5%
-ACHPerTransaction = 0.50
+ACHPerTransaction = 0.50 
 
 #CC Charge
-CCPercent = 0.05  #Use numeric.  0.05 = 5%
+CCPercent = 0.05 #Use numeric.  0.05 = 5%
 CCPerTransaction = 0.50 
 
 #AMEX Charges
-#not defined yet... can't seem to find transaction card type in the DB
+AmexPercent = 0.05 #Use numeric.  0.05 = 5%
+AmexPerTransaction = 0.50 
 
 #######################################################################
 ####START OF CODE.  No configuration should be needed beyond this point
 #######################################################################
 #######################################################################
 import datetime
+from decimal import Decimal
+
 
 current_date = datetime.date.today().strftime("%B %d, %Y")
 sDate = model.Data.sDate
@@ -39,6 +44,7 @@ eDate = model.Data.eDate
 
 ACHPaymentType = 'B' #This most likely won't need to change
 CCPaymentType = 'C' #This most likely won't need to change.
+AmexPaymentType = 'C' #This most likely won't need to change.
 
 #update currency
 def format_currency(amount, show_dollar=True, use_comma=True):
@@ -67,7 +73,7 @@ def format_currency(amount, show_dollar=True, use_comma=True):
     return ("$" + formatted) if show_dollar else formatted
 
 
-sql = '''
+sqlold = '''
 WITH ExtractedData AS (
     SELECT 
         pro.Name AS Program,
@@ -80,6 +86,50 @@ WITH ExtractedData AS (
             ELSE 0 
         END AS CCFees,
         CASE 
+            WHEN t.PaymentType = '{10}' 
+            THEN CEILING(((t.amt * {8}) + {9}) * 100) / 100
+            ELSE 0 
+        END AS ACHFees
+    FROM [Transaction] t 
+    LEFT JOIN Organizations o ON o.OrganizationId = t.OrgId
+    LEFT JOIN Division d ON d.Id = o.DivisionId
+    LEFT JOIN Program pro ON pro.Id = d.ProgId
+    WHERE 
+        t.settled BETWEEN '{0}' AND '{1} 23:59:59.999'
+        AND t.TransactionId IS NOT NULL
+        AND t.AuthCode IS NOT NULL
+        AND t.voided IS NULL
+)
+SELECT 
+    ed.Program,
+    CONCAT(ac.Description, ' (', ac.Code, ')') AS AccountingCode,
+    SUM(ed.Amount) AS Amount,
+    SUM(ed.CCFees) AS CCFees,
+    SUM(ed.ACHFees) AS ACHFees
+FROM ExtractedData ed
+LEFT JOIN lookup.AccountCode ac ON ac.Id = ed.AccountingCode
+GROUP BY ed.Program, ac.Code, ac.Description
+ORDER BY ed.Program;
+'''
+
+sql = '''
+WITH ExtractedData AS (
+    SELECT 
+        pro.Name AS Program,
+        o.OrganizationId,
+        o.RegSettingXML.value('(/Settings/Fees/AccountingCode)[1]', 'NVARCHAR(50)') AS AccountingCode, -- Extract AccountingCode
+        t.amt AS Amount,
+        CASE 
+            WHEN t.PaymentType = '{7}' and f.AccountType <> 'amex'
+            THEN CEILING(((t.amt * {5}) + {6}) * 100) / 100
+            ELSE 0 
+        END AS CCFees,
+        CASE 
+            WHEN t.PaymentType = '{10}' and f.AccountType = 'amex'
+            THEN CEILING(((t.amt * {8}) + {9}) * 100) / 100
+            ELSE 0 
+        END AS AmexFees,
+        CASE 
             WHEN t.PaymentType = '{4}' 
             THEN CEILING(((t.amt * {2}) + {3}) * 100) / 100
             ELSE 0 
@@ -88,6 +138,7 @@ WITH ExtractedData AS (
     LEFT JOIN Organizations o ON o.OrganizationId = t.OrgId
     LEFT JOIN Division d ON d.Id = o.DivisionId
     LEFT JOIN Program pro ON pro.Id = d.ProgId
+	LEFT JOIN [FortisWebhookTransactions] f on f.FortisWebHookTransactionId = t.TransactionId
     WHERE 
         t.settled BETWEEN '{0}' AND '{1} 23:59:59.999'
         AND t.TransactionId IS NOT NULL
@@ -128,28 +179,47 @@ headerTemplate = '''
             <td>Accounting Code</td>
             <td>Amount</td>
             <td>CC Fees</td>
-            <td>EFI Fees</td>
+            <td>Amex Fees</td>
+            <td>ACH Fees</td>
             <td>Total Fees</td>
         </tr>
 '''.format(optionsDate,optioneDate)
 
-rsql = q.QuerySql(sql.format(sDate,eDate,ACHPercent,ACHPerTransaction,ACHPaymentType,CCPercent,CCPerTransaction,CCPaymentType))
+rsql = q.QuerySql(sql.format(sDate,
+                             eDate,
+                             ACHPercent,
+                             ACHPerTransaction,
+                             ACHPaymentType,
+                             CCPercent,
+                             CCPerTransaction,
+                             CCPaymentType,
+                             AmexPercent,
+                             AmexPerTransaction,
+                             AmexPaymentType))
 
 bodyTemplate = '' 
 TotalFortis = 0
 TotalFortisCC = 0
+TotalFortisAmex = 0
 TotalFortisACH = 0
 TotalFortisFees = 0
 
-for f in rsql:
+#for f in rsql:
     #ColumnTotal
-    totalFees = f.CCFees + f.ACHFees
+#    totalFees = f.CCFees + f.ACHFees + f.AmexFees
+
+for f in rsql:
+    # Column Total
+    totalFees = (f.CCFees if f.CCFees is not None else Decimal(0)) + \
+                (f.ACHFees if f.ACHFees is not None else Decimal(0)) + \
+                (f.AmexFees if f.AmexFees is not None else Decimal(0))  
 
     #Grand Total
-    TotalFortis += f.Amount
-    TotalFortisCC += f.CCFees
-    TotalFortisACH += f.ACHFees
-    TotalFortisFees += totalFees
+    TotalFortis += f.Amount or 0
+    TotalFortisCC += f.CCFees or 0
+    TotalFortisAmex += f.AmexFees or 0
+    TotalFortisACH += f.ACHFees or 0
+    TotalFortisFees += totalFees or 0
     
     bodyTemplate += '''
         <tr>
@@ -159,27 +229,33 @@ for f in rsql:
             <td>{3}</td>
             <td>{4}</td>
             <td>{5}</td>
+            <td>{6}</td>
         </tr>
-    '''.format(f.Program,
-               f.AccountingCode,
-               format_currency(f.Amount),
-               format_currency(f.CCFees),
-               format_currency(f.ACHFees),
-               format_currency(totalFees))
+    '''.format(f.Program if f.Program is not None else "",
+               f.AccountingCode if f.AccountingCode is not None else "",
+               format_currency(f.Amount if f.Amount is not None else 0),
+               format_currency(f.CCFees if f.CCFees is not None else 0),
+               format_currency(f.AmexFees if f.AmexFees is not None else 0),
+               format_currency(f.ACHFees if f.ACHFees is not None else 0),
+               format_currency(totalFees if totalFees is not None else 0))
                
+
 bodyTemplate += '''
-        <tr>
-            <td></td>
-            <td></td>
-            <td><strong>{0}</strong></td>
-            <td><strong>{1}</strong></td>
-            <td><strong>{2}</strong></td>
-            <td><strong>{3}</strong></td>
-        </tr>
-        </table>'''.format(format_currency(TotalFortis),
-                           format_currency(TotalFortisCC),
-                           format_currency(TotalFortisACH),
-                           format_currency(TotalFortisFees))
+    <tr>
+        <td></td>
+        <td></td>
+        <td><strong>{0}</strong></td>
+        <td><strong>{1}</strong></td>
+        <td><strong>{2}</strong></td>
+        <td><strong>{3}</strong></td>
+        <td><strong>{4}</strong></td>
+    </tr>
+    </table>'''.format(format_currency(TotalFortis),
+                       format_currency(TotalFortisCC),
+                       format_currency(TotalFortisAmex),
+                       format_currency(TotalFortisACH),
+                       format_currency(TotalFortisFees))
+
 
 Report = model.RenderTemplate(headerTemplate)
 Report += model.RenderTemplate(bodyTemplate)
