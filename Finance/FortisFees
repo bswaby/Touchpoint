@@ -9,6 +9,14 @@
 #  Couple of things that affect that are CC update feature fees and 
 #  reversals that do not make it back to TP.  
 
+#Installation:
+#  Installation is easy, but it does require rights to Special Content.
+#  1. Copy all this code
+#  2. In TP, go to Admin~Advanced~Special Content~Python Scripts Tab
+#  3. Select New Python Script File, Name the File, and click submit
+#  4. Paste in the code and run
+#  5. Add to menu if needed
+
 
 #####################################################################
 ####USER CONFIG FIELDS
