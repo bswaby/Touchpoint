@@ -52,28 +52,43 @@ ORDER BY TotalCount DESC;
 '''
 
 sqlOrgStat = '''
-SELECT *
-FROM (
-    SELECT 
-        eqt.OrgId,
-		pro.Name AS Program,
-        o.OrganizationName,
-        COALESCE(fe.Fail, 'Sent') AS Status,  
-        COUNT(*) AS TotalCount
-    FROM EmailQueueTo eqt
-    LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId  
-    LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
-	LEFT JOIN Division d ON d.Id = o.DivisionId
-    LEFT JOIN Program pro ON pro.Id = d.ProgId
-    WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2}
-    GROUP BY COALESCE(fe.Fail, 'Sent'), eqt.OrgId, o.OrganizationName, pro.Name
-) SourceTable
-PIVOT (
-    SUM(TotalCount) 
-    FOR Status IN ([Sent], [Invalid Address], [Mailbox Unavailable], [Technical], 
-                   [bouncedaddress], [spamreport], [spamreporting], [Unclassified], [Reputation])
-) PivotTable
-ORDER BY Program, OrganizationName;
+    DECLARE @DynamicColumns NVARCHAR(MAX);
+    DECLARE @SQLQuery NVARCHAR(MAX);
+    
+    -- Step 1: Retrieve unique fe.Fail values dynamically
+    SELECT @DynamicColumns = STRING_AGG(QUOTENAME(Fail), ', ')
+    FROM (SELECT DISTINCT Fail FROM FailedEmails WHERE Fail IS NOT NULL) AS Failures;
+    
+    -- Ensure @DynamicColumns is not NULL
+    IF @DynamicColumns IS NULL 
+        SET @DynamicColumns = '[Sent]';
+    
+    -- Step 2: Construct the Dynamic SQL Query
+    SET @SQLQuery = '
+    SELECT *
+    FROM (
+        SELECT 
+            eqt.OrgId,
+            pro.Name AS Program,
+            o.OrganizationName,
+            COALESCE(fe.Fail, ''Sent'') AS Status,  
+            COUNT(*) AS TotalCount
+        FROM EmailQueueTo eqt
+        LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId  
+        LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
+        LEFT JOIN Division d ON d.Id = o.DivisionId
+        LEFT JOIN Program pro ON pro.Id = d.ProgId
+        WHERE eqt.Sent BETWEEN ''{0} 00:00:00'' AND ''{1} 23:59:59.999'' {2}
+        GROUP BY COALESCE(fe.Fail, ''Sent''), eqt.OrgId, o.OrganizationName, pro.Name
+    ) SourceTable
+    PIVOT (
+        SUM(TotalCount) 
+        FOR Status IN (' + @DynamicColumns + ')
+    ) PivotTable
+    ORDER BY Program, OrganizationName;';
+    
+    -- Step 3: Execute the Dynamic SQL
+    EXEC(@SQLQuery);
 '''
 
 sqlUserFailedStat = '''
