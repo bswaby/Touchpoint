@@ -72,46 +72,6 @@ def format_currency(amount, show_dollar=True, use_comma=True):
 
     return ("$" + formatted) if show_dollar else formatted
 
-
-sqlold = '''
-WITH ExtractedData AS (
-    SELECT 
-        pro.Name AS Program,
-        o.OrganizationId,
-        o.RegSettingXML.value('(/Settings/Fees/AccountingCode)[1]', 'NVARCHAR(50)') AS AccountingCode, -- Extract AccountingCode
-        t.amt AS Amount,
-        CASE 
-            WHEN t.PaymentType = '{7}' 
-            THEN CEILING(((t.amt * {5}) + {6}) * 100) / 100
-            ELSE 0 
-        END AS CCFees,
-        CASE 
-            WHEN t.PaymentType = '{10}' 
-            THEN CEILING(((t.amt * {8}) + {9}) * 100) / 100
-            ELSE 0 
-        END AS ACHFees
-    FROM [Transaction] t 
-    LEFT JOIN Organizations o ON o.OrganizationId = t.OrgId
-    LEFT JOIN Division d ON d.Id = o.DivisionId
-    LEFT JOIN Program pro ON pro.Id = d.ProgId
-    WHERE 
-        t.settled BETWEEN '{0}' AND '{1} 23:59:59.999'
-        AND t.TransactionId IS NOT NULL
-        AND t.AuthCode IS NOT NULL
-        AND t.voided IS NULL
-)
-SELECT 
-    ed.Program,
-    CONCAT(ac.Description, ' (', ac.Code, ')') AS AccountingCode,
-    SUM(ed.Amount) AS Amount,
-    SUM(ed.CCFees) AS CCFees,
-    SUM(ed.ACHFees) AS ACHFees
-FROM ExtractedData ed
-LEFT JOIN lookup.AccountCode ac ON ac.Id = ed.AccountingCode
-GROUP BY ed.Program, ac.Code, ac.Description
-ORDER BY ed.Program;
-'''
-
 sql = '''
 WITH ExtractedData AS (
     SELECT 
@@ -150,6 +110,7 @@ SELECT
     CONCAT(ac.Description, ' (', ac.Code, ')') AS AccountingCode,
     SUM(ed.Amount) AS Amount,
     SUM(ed.CCFees) AS CCFees,
+    SUM(ed.AmexFees) AS AmexFees,
     SUM(ed.ACHFees) AS ACHFees
 FROM ExtractedData ed
 LEFT JOIN lookup.AccountCode ac ON ac.Id = ed.AccountingCode
