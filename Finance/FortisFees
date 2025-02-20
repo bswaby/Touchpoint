@@ -85,17 +85,17 @@ WITH ExtractedData AS (
 	t.amt AS Amount,
         CASE 
             WHEN t.PaymentType = '{7}' and f.AccountType <> 'amex'
-            THEN CEILING(((t.amt * {5}) + {6}) * 100) / 100
+            THEN CEILING(((t.amt * {5}) + {6} + 0.00001) * 100) / 100
             ELSE 0 
         END AS CCFees,
         CASE 
             WHEN t.PaymentType = '{10}' and f.AccountType = 'amex'
-            THEN CEILING(((t.amt * {8}) + {9}) * 100) / 100
+            THEN CEILING(((t.amt * {8}) + {9} + 0.00001) * 100) / 100
             ELSE 0 
         END AS AmexFees,
         CASE 
             WHEN t.PaymentType = '{4}' 
-            THEN CEILING(((t.amt * {2}) + {3}) * 100) / 100
+            THEN CEILING(((t.amt * {2}) + {3} + 0.00001) * 100) / 100
             ELSE 0 
         END AS ACHFees
     FROM [Transaction] t 
