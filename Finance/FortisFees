@@ -2,13 +2,12 @@
 ####FORTIS REPORT INFORMATION
 #####################################################################
 #Fortis report is a tool for finance to help backcharge ministry for
-#finance fees.  I have code added for amex, but don't have any examples
-#to test... so, that may or may not be 100%
+#finance fees. 
 #
 #Note:
 #  Total received seems to be accurate!... but fees are not quite 100%
-#  I think there are some fees like cc changes that are not something I 
-#  can calculate based on the data I have access to in TP
+#  Couple of things that affect that are CC update feature fees and 
+#  reversals that do not make it back to TP.  
 
 
 #####################################################################
