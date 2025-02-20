@@ -1,0 +1,138 @@
+#####################################################################
+####TECH EMAIL REPORT INFORMATION
+#####################################################################
+#This will show the email success/failures from an overview perspective
+#
+
+#Installation:
+#  Installation is easy, but it does require rights to Special Content.
+#  1. Copy all this code
+#  2. In TP, go to Admin~Advanced~Special Content~Python Scripts Tab
+#  3. Select New Python Script File, Name the File, and click submit
+#  4. Paste in the code and run
+#  5. Add to menu if needed
+
+
+#####################################################################
+####USER CONFIG FIELDS
+#####################################################################
+#These are defined variables that are required for the report to run.
+
+model.Header = 'Tech Email Stats' #Page Name
+
+#######################################################################
+####START OF CODE.  No configuration should be needed beyond this point
+#######################################################################
+#######################################################################
+import datetime
+from decimal import Decimal
+
+current_date = datetime.date.today().strftime("%B %d, %Y")
+sDate = model.Data.sDate
+eDate = model.Data.eDate
+
+
+
+sql = '''
+SELECT 
+    COALESCE(fe.Fail, 'Sent') AS Status,  
+    COUNT(*) AS TotalCount
+FROM EmailQueueTo eqt
+LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id aND fe.PeopleId = eqt.PeopleId  -- Adjust join column if needed
+WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+GROUP BY COALESCE(fe.Fail, 'Sent')
+ORDER BY TotalCount DESC;
+'''
+
+sqlOrgStat = '''
+SELECT *
+FROM (
+    SELECT 
+        eqt.OrgId,
+        o.OrganizationName,
+        COALESCE(fe.Fail, 'Sent') AS Status,  
+        COUNT(*) AS TotalCount
+    FROM EmailQueueTo eqt
+    LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId  
+    LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
+    WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+    GROUP BY COALESCE(fe.Fail, 'Sent'), eqt.OrgId, o.OrganizationName
+) SourceTable
+PIVOT (
+    SUM(TotalCount) 
+    FOR Status IN ([Sent], [Invalid Address], [Mailbox Unavailable], [Technical], 
+                   [bouncedaddress], [spamreport], [spamreporting], [Unclassified], [Reputation])
+) PivotTable
+ORDER BY OrganizationName;
+'''
+
+sqlUserFailedStat = '''
+SELECT 
+	eqt.PeopleId,
+	p.Name,
+    fe.Fail AS Status,  
+    COUNT(*) AS TotalCount
+FROM EmailQueueTo eqt
+LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id aND fe.PeopleId = eqt.PeopleId  -- Adjust join column if needed
+LEFT JOIN People p ON p.PeopleId = eqt.PeopleId
+WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+AND fe.Fail is not null
+GROUP BY fe.Fail, eqt.PeopleId, p.Name
+ORDER BY TotalCount DESC;
+'''
+
+if sDate is not None:
+    optionsDate = ' value="' + sDate + '"'
+
+if eDate is not None:
+    optioneDate = ' value="' + eDate + '"'
+
+
+headerTemplate = '''
+    <form action="" method="GET">
+        <label for="sDate">Start:</label>
+        <input type="date" id="sDate" name="sDate" required {0}>
+        <label for="eDate">End:</label>
+        <input type="date" id="eDate" name="eDate" required {1}>
+        <input type="submit" value="Submit">
+    </form>
+    <h2>Total Stats</h2>
+    <table style="width: 400px; border-collapse: collapse; font-family: Arial, sans-serif; text-align: left;">
+         <tr style="background-color: #f4f4f4; font-weight: bold;">
+            <td>Status</td>
+            <td>Totals</td>
+        </tr>
+'''.format(optionsDate,optioneDate)
+
+rsql = q.QuerySql(sql.format(sDate,eDate))
+
+TotalEmails = 0
+bodyTemplate = ''
+
+for f in rsql:
+
+
+    #Grand Total
+    TotalEmails += f.Amount or 0
+
+    bodyTemplate += '''
+        <tr>
+            <td>{0}</td>
+            <td>{1}</td>
+        </tr>
+    '''.format(f.Status if f.Status is not None else "",
+               f.TotalCount if f.TotalCount is not None else 0)
+
+bodyTemplate += '''
+    <tr>
+        <td></td>
+        <td><strong>{0}</strong></td>
+    </tr>
+    </table>'''.format(TotalEmails)
+    
+bodyTemplate += '<h2>Org Email Stats</h2>' + model.SqlGrid(sqlOrgStat.format(sDate,eDate))
+bodyTemplate += '<h2>Failed User Stats</h2>' + model.SqlGrid(sqlUserFailedStat.format(sDate,eDate))
+
+Report = model.RenderTemplate(headerTemplate)
+Report += model.RenderTemplate(bodyTemplate)
+print Report
