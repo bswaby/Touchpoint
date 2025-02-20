@@ -32,6 +32,13 @@ sDate = model.Data.sDate
 eDate = model.Data.eDate
 
 
+if model.Data.HideSuccess == 'yes':
+    optionHideSuccess = 'checked'
+    sqlHideSuccess = ' AND fe.Fail IS NOT NULL '
+else:
+    optionHideSuccess = ''
+    sqlHideSuccess = ''
+
 
 sql = '''
 SELECT 
@@ -39,7 +46,7 @@ SELECT
     COUNT(*) AS TotalCount
 FROM EmailQueueTo eqt
 LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id aND fe.PeopleId = eqt.PeopleId  -- Adjust join column if needed
-WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2}
 GROUP BY COALESCE(fe.Fail, 'Sent')
 ORDER BY TotalCount DESC;
 '''
@@ -49,21 +56,24 @@ SELECT *
 FROM (
     SELECT 
         eqt.OrgId,
+		pro.Name AS Program,
         o.OrganizationName,
         COALESCE(fe.Fail, 'Sent') AS Status,  
         COUNT(*) AS TotalCount
     FROM EmailQueueTo eqt
     LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId  
     LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
-    WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
-    GROUP BY COALESCE(fe.Fail, 'Sent'), eqt.OrgId, o.OrganizationName
+	LEFT JOIN Division d ON d.Id = o.DivisionId
+    LEFT JOIN Program pro ON pro.Id = d.ProgId
+    WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2}
+    GROUP BY COALESCE(fe.Fail, 'Sent'), eqt.OrgId, o.OrganizationName, pro.Name
 ) SourceTable
 PIVOT (
     SUM(TotalCount) 
     FOR Status IN ([Sent], [Invalid Address], [Mailbox Unavailable], [Technical], 
                    [bouncedaddress], [spamreport], [spamreporting], [Unclassified], [Reputation])
 ) PivotTable
-ORDER BY OrganizationName;
+ORDER BY Program, OrganizationName;
 '''
 
 sqlUserFailedStat = '''
@@ -75,8 +85,7 @@ SELECT
 FROM EmailQueueTo eqt
 LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id aND fe.PeopleId = eqt.PeopleId  -- Adjust join column if needed
 LEFT JOIN People p ON p.PeopleId = eqt.PeopleId
-WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
-AND fe.Fail is not null
+WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2}
 GROUP BY fe.Fail, eqt.PeopleId, p.Name
 ORDER BY TotalCount DESC;
 '''
@@ -95,6 +104,10 @@ headerTemplate = '''
         <label for="eDate">End:</label>
         <input type="date" id="eDate" name="eDate" required {1}>
         <input type="submit" value="Submit">
+        <p style="margin: 0; padding: 0;">
+            <input type="checkbox" id="HideSuccess" name="HideSuccess" value="yes" {2}>
+            <label for="HideSuccess" class="no-print">Hide Successfully Sent</label>
+        </p>
     </form>
     <h2>Total Stats</h2>
     <table style="width: 400px; border-collapse: collapse; font-family: Arial, sans-serif; text-align: left;">
@@ -102,9 +115,9 @@ headerTemplate = '''
             <td>Status</td>
             <td>Totals</td>
         </tr>
-'''.format(optionsDate,optioneDate)
+'''.format(optionsDate,optioneDate,optionHideSuccess)
 
-rsql = q.QuerySql(sql.format(sDate,eDate))
+rsql = q.QuerySql(sql.format(sDate,eDate,sqlHideSuccess))
 
 TotalEmails = 0
 bodyTemplate = ''
@@ -130,8 +143,8 @@ bodyTemplate += '''
     </tr>
     </table>'''.format(TotalEmails)
     
-bodyTemplate += '<h2>Org Email Stats</h2>' + model.SqlGrid(sqlOrgStat.format(sDate,eDate))
-bodyTemplate += '<h2>Failed User Stats</h2>' + model.SqlGrid(sqlUserFailedStat.format(sDate,eDate))
+bodyTemplate += '<h2>Org Email Stats</h2>' + model.SqlGrid(sqlOrgStat.format(sDate,eDate,sqlHideSuccess))
+bodyTemplate += '<h2>Failed User Stats</h2>' + model.SqlGrid(sqlUserFailedStat.format(sDate,eDate,sqlHideSuccess))
 
 Report = model.RenderTemplate(headerTemplate)
 Report += model.RenderTemplate(bodyTemplate)
