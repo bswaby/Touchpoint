@@ -141,7 +141,7 @@ for f in rsql:
 
 
     #Grand Total
-    TotalEmails += f.Amount or 0
+    TotalEmails += f.TotalCount or 0
 
     bodyTemplate += '''
         <tr>
