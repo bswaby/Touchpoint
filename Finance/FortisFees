@@ -14,7 +14,7 @@
 #  1. Copy all this code
 #  2. In TP, go to Admin~Advanced~Special Content~Python Scripts Tab
 #  3. Select New Python Script File, Name the File, and click submit
-#  4. Paste in the code and run
+#  4. Paste in the code, edit the charge variables below, and run
 #  5. Add to menu if needed
 
 
