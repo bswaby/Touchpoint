@@ -24,6 +24,7 @@ model.Header = 'Tech Email Stats' #Page Name
 ####START OF CODE.  No configuration should be needed beyond this point
 #######################################################################
 #######################################################################
+from datetime import datetime  # Import datetime at the beginning of the function
 import datetime
 from decimal import Decimal
 
@@ -40,6 +41,153 @@ else:
     sqlHideSuccess = ''
 
 
+def generate_html_table(data, expanded_list=None, match_column=None, title=None, hide_columns=None, url_columns=None, 
+                        bold_columns=None, column_order=None, divider_after_column=None, sum_columns=None, 
+                        date_columns=None, column_widths=None, table_width="100%", remove_borders=False,
+                        header_padding="5px", content_padding="5px", header_font_size="14px", content_font_size="12px", 
+                        header_bg_color="#f4f4f4", slanted_headers=None, slant_angle=45):  
+    
+    if not data:
+        return "<p>No data available.</p>"
+    
+    hide_columns = hide_columns or []
+    url_columns = url_columns or {}
+    bold_columns = bold_columns or []
+    column_order = column_order or []
+    sum_columns = sum_columns or []
+    date_columns = date_columns or []
+    column_widths = column_widths or {}
+    slanted_headers = slanted_headers or []
+    
+    html = ""
+    html += """
+        <style>
+            th.rotate {
+              height: 140px;
+              white-space: nowrap;
+              position: relative;
+            }
+            
+            th.rotate > div {
+              transform: translate(15px, 35px) rotate(315deg); /* Adjust vertical position */
+              width: 100%;
+              position: absolute;
+              top: 50%;
+              left: 0;
+            }
+            
+            th.rotate > div > span {
+              border-bottom: 1px solid #ccc;
+              padding: 5px 10px;
+            }
+        </style>
+        """
+    
+    if title:
+        html += "<h2>{}</h2>\n".format(title)
+    
+    headers = data[0].keys()
+    
+    if column_order:
+        headers = [h for h in column_order if h in headers] + [h for h in headers if h not in column_order]
+    
+    table_style = "width: {}; border-collapse: collapse;".format(table_width)
+    if remove_borders:
+        table_style += " border: none;"
+    
+    html += '<table style="{}">\n'.format(table_style)
+    
+    html += "    <tr>\n"
+
+    # Loop through headers and apply the slanted effect to specific ones
+    for h in headers:
+        if h not in hide_columns:
+            # Default styling for non-slanted headers
+            th_style = "text-align: center; vertical-align: bottom; white-space: nowrap;"
+            th_style += " padding: {}; font-size: {}; background-color: {};".format(header_padding, header_font_size, header_bg_color)
+            
+            # Remove border and background color if header is slanted
+            if h in slanted_headers:
+                th_style = "text-align: center; vertical-align: bottom; white-space: nowrap; padding: {}; font-size: {};".format(header_padding, header_font_size)
+            
+            if not remove_borders and h not in slanted_headers:
+                th_style += " border: 1px solid #ddd;"
+            
+            if h in column_widths:
+                th_style += " width: {};".format(column_widths[h])
+    
+            # Apply slant to the th element using class "rotate" for slanted effect
+            if h in slanted_headers:
+                html += "<th class='rotate' style='{}'><div><span>{}</span></div></th>\n".format(th_style, h)
+            else:
+                html += "<th style='{}'>{}</th>\n".format(th_style, h)
+
+
+    html += "    </tr>\n"
+    
+    for row in data:
+        html += "    <tr style='background-color: #ffffff;'>\n"
+        for h in headers:
+            if h not in hide_columns:
+                cell_value = row.get(h, "")
+                if cell_value is None:
+                    cell_value = ""
+                if h in date_columns and isinstance(cell_value, basestring):
+                    try:
+                        from datetime import datetime
+                        parsed_date = datetime.strptime(cell_value, '%m/%d/%Y %I:%M:%S %p')
+                        cell_value = parsed_date.strftime('%Y-%m-%d')
+                    except ValueError:
+                        pass  
+                if h in bold_columns:
+                    cell_value = "<b>{}</b>".format(cell_value)
+                if h in url_columns and cell_value:
+                    url_format = url_columns[h]
+                    url_value = url_format.format(**row)
+                    cell_value = '<a href="{}" target="_blank" style="color: #1e90ff; text-decoration: none;">{}</a>'.format(url_value, cell_value)
+                td_style = "text-align: left; padding: {}; font-size: {};".format(content_padding, content_font_size)
+                if h in column_widths:
+                    td_style += " width: {};".format(column_widths[h])
+                if not remove_borders:
+                    td_style += " border: 1px solid #ddd;"
+                html += "<td style='{}'>{}</td>\n".format(td_style, cell_value)
+        html += "    </tr>\n"
+        
+        if expanded_list and match_column:
+            for expanded_row in expanded_list:
+                if expanded_row.get(match_column) == row.get(match_column):
+                    html += "    <tr style='background-color: #f4f4f4;'>\n"
+                    expanded_headers = expanded_row.keys()
+                    for h in expanded_headers:
+                        if h not in hide_columns:
+                            html += "<th style='text-align: left; padding: {}; font-size: {}; background-color: {}; border: 1px solid #ddd;'>{}</th>\n".format(header_padding, header_font_size, header_bg_color, h)
+                    html += "    </tr>\n"
+                    html += "    <tr style='background-color: #ffffff;'>\n"
+                    for h in expanded_headers:
+                        if h not in hide_columns:
+                            cell_value = expanded_row.get(h, "")
+                            if cell_value is None:
+                                cell_value = ""
+                            if h in date_columns and isinstance(cell_value, basestring):
+                                try:
+                                    parsed_date = datetime.strptime(cell_value, '%m/%d/%Y %I:%M:%S %p')
+                                    cell_value = parsed_date.strftime('%Y-%m-%d')
+                                except ValueError:
+                                    pass
+                            if h in bold_columns:
+                                cell_value = "<b>{}</b>".format(cell_value)
+                            if h in url_columns and cell_value:
+                                url_value = url_columns[h].format(**expanded_row)
+                                cell_value = '<a href="{}" target="_blank" style="color: #1e90ff; text-decoration: none;">{}</a>'.format(url_value, cell_value)
+                            html += "<td style='text-align: left; padding: {}; font-size: {}; border: 1px solid #ddd;'>{}</td>\n".format(content_padding, content_font_size, cell_value)
+                    html += "    </tr>\n"
+    
+    html += "</table>\n"
+    return html
+
+
+
+
 sql = '''
 SELECT 
     COALESCE(fe.Fail, 'Sent') AS Status,  
@@ -50,8 +198,51 @@ WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2}
 GROUP BY COALESCE(fe.Fail, 'Sent')
 ORDER BY TotalCount DESC;
 '''
-
 sqlOrgStat = '''
+   DECLARE @DynamicColumns NVARCHAR(MAX);
+    DECLARE @SQLQuery NVARCHAR(MAX);
+    
+    -- Step 1: Retrieve unique fe.Fail values dynamically
+    SELECT @DynamicColumns = STRING_AGG(QUOTENAME(Fail), ', ')
+    FROM (SELECT DISTINCT Fail FROM FailedEmails WHERE Fail IS NOT NULL) AS Failures;
+    
+    -- Ensure @DynamicColumns is not NULL
+    IF @DynamicColumns IS NULL 
+        SET @DynamicColumns = '[Sent]';
+    
+    -- Step 2: Construct the Dynamic SQL Query
+    SET @SQLQuery = '
+    SELECT *
+    FROM (
+        SELECT 
+            eqt.OrgId,
+			eqt.id,
+            pro.Name AS Program,
+			eq.Subject,
+			CAST(eqt.Sent AS DATE) AS SentDate,
+            o.OrganizationName,
+            COALESCE(fe.Fail, ''Sent'') AS Status,  
+            COUNT(*) AS TotalCount
+        FROM EmailQueueTo eqt
+        LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId  
+		LEFT JOIN EmailQueue eq ON eq.Id = eqt.Id
+        LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
+        LEFT JOIN Division d ON d.Id = o.DivisionId
+        LEFT JOIN Program pro ON pro.Id = d.ProgId
+        WHERE eqt.Sent BETWEEN ''{0} 00:00:00'' AND ''{1} 23:59:59.999'' {2}
+        GROUP BY COALESCE(fe.Fail, ''Sent''), eqt.OrgId, o.OrganizationName, pro.Name,eq.Subject,CAST(eqt.Sent AS DATE),eqt.id
+    ) SourceTable
+    PIVOT (
+        SUM(TotalCount) 
+        FOR Status IN (' + @DynamicColumns + ')
+    ) PivotTable
+    ORDER BY Program, OrganizationName;';
+    
+    -- Step 3: Execute the Dynamic SQL
+    EXEC(@SQLQuery);
+
+'''
+sqlOrgStatold = '''
     DECLARE @DynamicColumns NVARCHAR(MAX);
     DECLARE @SQLQuery NVARCHAR(MAX);
     
@@ -91,6 +282,17 @@ sqlOrgStat = '''
     EXEC(@SQLQuery);
 '''
 
+sqlOrgDetails = '''
+SELECT eqt.id, eq.Subject, CAST(eqt.Sent AS DATE) AS SentDate, eqt.OrgId
+FROM EmailQueueTo eqt
+LEFT JOIN EmailQueue eq ON eq.Id = eqt.Id
+LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id aND fe.PeopleId = eqt.PeopleId
+WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2}
+GROUP BY eqt.id, eq.Subject, CAST(eqt.Sent AS DATE), eqt.OrgId
+ORDER BY OrgId, SentDate;
+'''
+
+
 sqlUserFailedStat = '''
 SELECT 
 	eqt.PeopleId,
@@ -124,12 +326,6 @@ headerTemplate = '''
             <label for="HideSuccess" class="no-print">Hide Successfully Sent</label>
         </p>
     </form>
-    <h2>Total Stats</h2>
-    <table style="width: 400px; border-collapse: collapse; font-family: Arial, sans-serif; text-align: left;">
-         <tr style="background-color: #f4f4f4; font-weight: bold;">
-            <td>Status</td>
-            <td>Totals</td>
-        </tr>
 '''.format(optionsDate,optioneDate,optionHideSuccess)
 
 rsql = q.QuerySql(sql.format(sDate,eDate,sqlHideSuccess))
@@ -137,29 +333,165 @@ rsql = q.QuerySql(sql.format(sDate,eDate,sqlHideSuccess))
 TotalEmails = 0
 bodyTemplate = ''
 
-for f in rsql:
+
+####### Total Stats #######
+
+# Extract relevant attributes (ignoring anything that starts with "_")
+data_list = [{attr: getattr(row, attr) for attr in dir(row) if not attr.startswith("_")} for row in rsql]
+
+title = "Total Stats"  # Set the title for the table
+column_order = ['Status']  # Set the order of columns
+sum_columns = ['Totals']  # Columns to sum
+table_width = 'auto' #options: px, %, and auto
+remove_borders=True #removes column borders
+bold_columns = ['']  # 'OrganizationName' Bold the OrganizationName column
+
+#
+hide_columns = []  # Hide the OrgId column
+url_columns = {
+     # Make OrganizationName a clickable link using OrgId #Example: 'OrganizationName': '/Org/{OrgId}'
+}
+divider_after_column = ''  # Add subtle divider line
+date_columns=[''] #Remove time 
+column_widths = {
+    'a123': '20%',
+    'b123': '150px',
+    'c123': 'auto',
+    'd123': '100px',
+    # Add more columns as needed
+}
+
+header_padding="8px 12px"  # Padding for both header and content
+content_padding="5px 10px"  # Padding for content rows
+header_font_size="14px"     # Font size for header
+content_font_size="12px"    # Font size for content
+header_bg_color="#f0f0f0"  # Background color for header
+slanted_headers=["Column1", "Column3"],  # These headers will be slanted
+slant_angle=30  # Adjust the tilt angle (default 45
+
+####advanced sub columns
+#expanded_list=expanded_list 
+#match_column="OrgId"
+
+# Generate the HTML table with dynamic hiding, URL formatting, bold columns, column order, subtle divider, and summed columns
+bodyTemplate += generate_html_table(data_list, 
+                                  title=title, 
+                                  hide_columns=hide_columns, 
+                                  url_columns=url_columns, 
+                                  bold_columns=bold_columns, 
+                                  column_order=column_order,
+                                  divider_after_column=divider_after_column, 
+                                  sum_columns=sum_columns,
+                                  date_columns=date_columns,
+                                  remove_borders=remove_borders,
+                                  table_width=table_width,
+                                  column_widths=column_widths,
+                                  header_padding=header_padding,
+                                  content_padding=content_padding,
+                                  header_font_size=header_font_size,
+                                  content_font_size=content_font_size,
+                                  header_bg_color=header_bg_color
+                                  )
+
+####### Involvement Stats #######
+rsqlOrgStat = q.QuerySql(sqlOrgStat.format(sDate,eDate,sqlHideSuccess))
+#rsqlOrgDetails = q.QuerySql(sqlOrgDetails.format(sDate,eDate,sqlHideSuccess))
+
+# Extract relevant attributes (ignoring anything that starts with "_")
+data_list = [{attr: getattr(row, attr) for attr in dir(row) if not attr.startswith("_")} for row in rsqlOrgStat]
+
+hide_columns = ['OrgId','id']  # Hide the OrgId column
+url_columns = {
+    'OrganizationName': '/Org/{OrgId}', 'Subject': '/Manage/Emails/Details/{id}' # Make OrganizationName a clickable link using OrgId
+}
+bold_columns = ['Program']  # 'OrganizationName' Bold the OrganizationName column
+column_order = ['Program', 'OrganizationName','Subject','SentDate']  # Set the order of columns
+divider_after_column = 'OrganizationName'  # Add subtle divider line after OrganizationName
+title = "Involvement Stats"  # Set the title for the table
+date_columns=['SentDate']
+sum_columns = ['Technical','Invalid Address','bouncedaddress','spamreport','Unclassified','Mailbox Unavailable','Reputation','Content','invalid','spamreporting']  # Columns to sum, e.g., 'Program' will be summed below
+#expanded_list=expanded_list, 
+#match_column="OrgId"
+column_widths = {
+    'OrgId': '20%',
+    'Program': '150px',
+    'SentDate': 'auto',
+    'TotalCount': '100px',
+    # Add more columns as needed
+}
+table_width = 'auto'
+remove_borders=False
+
+header_padding="8px 12px"  # Padding for both header and content
+content_padding="5px 10px"  # Padding for content rows
+header_font_size="14px"     # Font size for header
+content_font_size="12px"    # Font size for content
+header_bg_color="#FFFFFF"  # Background color for header
+slanted_headers=['Technical','Invalid Address','bouncedaddress','spamreport','Unclassified','Mailbox Unavailable','Reputation','Content','invalid','spamreporting']  # These headers will be slanted
+slant_angle=45  # Adjust the tilt angle (default 45
+
+# Generate the HTML table with dynamic hiding, URL formatting, bold columns, column order, subtle divider, and summed columns
+html_output = generate_html_table(data_list, 
+                                  title=title, 
+                                  hide_columns=hide_columns, 
+                                  url_columns=url_columns, 
+                                  bold_columns=bold_columns, 
+                                  column_order=column_order,
+                                  divider_after_column=divider_after_column, 
+                                  sum_columns=sum_columns,
+                                  date_columns=date_columns,
+                                  remove_borders=remove_borders,
+                                  table_width=table_width,
+                                  header_padding=header_padding,
+                                  content_padding=content_padding,
+                                  header_font_size=header_font_size,
+                                  content_font_size=content_font_size,
+                                  header_bg_color=header_bg_color,
+                                  slanted_headers=slanted_headers,
+                                  slant_angle=slant_angle
+                                  )
 
 
-    #Grand Total
-    TotalEmails += f.TotalCount or 0
+#html_output = generate_html_table(data_list)
+#print(html_output)  # For debugging
+bodyTemplate += html_output
 
-    bodyTemplate += '''
-        <tr>
-            <td>{0}</td>
-            <td>{1}</td>
-        </tr>
-    '''.format(f.Status if f.Status is not None else "",
-               f.TotalCount if f.TotalCount is not None else 0)
 
-bodyTemplate += '''
-    <tr>
-        <td></td>
-        <td><strong>{0}</strong></td>
-    </tr>
-    </table>'''.format(TotalEmails)
-    
-bodyTemplate += '<h2>Org Email Stats</h2>' + model.SqlGrid(sqlOrgStat.format(sDate,eDate,sqlHideSuccess))
-bodyTemplate += '<h2>Failed User Stats</h2>' + model.SqlGrid(sqlUserFailedStat.format(sDate,eDate,sqlHideSuccess))
+
+###### User Failed Stats  ######
+rsqlUserFailedStat = q.QuerySql(sqlUserFailedStat.format(sDate,eDate,sqlHideSuccess))
+
+# Extract relevant attributes (ignoring anything that starts with "_")
+data_list = [{attr: getattr(row, attr) for attr in dir(row) if not attr.startswith("_")} for row in rsqlUserFailedStat]
+
+title = "User Stats"  # Set the title for the table
+url_columns = {
+    'Name': '/Person2/{PeopleId}' # Make OrganizationName a clickable link using OrgId
+}
+hide_columns = ['PeopleId']
+column_order = ['Name', 'TotalCount']  # Set the order of columns
+table_width = 'auto'  # or use '1000px' or 'auto'
+remove_borders=True
+
+header_padding="6px 10px"  # Padding for both header and content
+content_padding="3px 8px"  # Padding for content rows
+header_font_size="14px"     # Font size for header
+content_font_size="12px"    # Font size for content
+header_bg_color="#f0f0f0"  # Background color for header
+
+bodyTemplate += generate_html_table(data_list, 
+                                    title=title,
+                                    hide_columns=hide_columns, 
+                                    url_columns=url_columns, 
+                                    column_order=column_order,
+                                    table_width=table_width,
+                                    remove_borders=remove_borders,
+                                    header_padding=header_padding,
+                                    content_padding=content_padding,
+                                    header_font_size=header_font_size,
+                                    content_font_size=content_font_size,
+                                    header_bg_color=header_bg_color)
+
 
 Report = model.RenderTemplate(headerTemplate)
 Report += model.RenderTemplate(bodyTemplate)
