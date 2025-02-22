@@ -159,8 +159,11 @@ def generate_html_table(data, expanded_list=None, match_column=None, title=None,
                     cell_value = ""
                 if h in bold_columns:
                     cell_value = "<b>{}</b>".format(cell_value)
-                if h in url_columns and cell_value:
-                    url_format = url_columns[h]
+                original_h = next((orig for orig, renamed in header_rename.items() if renamed == h), h)
+                if original_h in url_columns and cell_value:
+                    url_format = url_columns[original_h]
+                    #if h in url_columns and cell_value:
+                    #url_format = url_columns[h]
                     url_value = url_format.format(**row)
                     cell_value = '<a href="{}" target="_blank" style="color: #1e90ff; text-decoration: none;">{}</a>'.format(url_value, cell_value)
                 
