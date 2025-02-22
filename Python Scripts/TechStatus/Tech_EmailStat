@@ -64,6 +64,8 @@ def generate_html_table(data, expanded_list=None, match_column=None, title=None,
     header_rename = header_rename or {}
     column_alignment = column_alignment or {}
     
+    from datetime import datetime
+    
     html = ""
     html += """
         <style>
@@ -146,24 +148,20 @@ def generate_html_table(data, expanded_list=None, match_column=None, title=None,
                 if h in header_rename:
                     h = header_rename[h]  # Rename the header
                 
-                # If the value is a date and it's in the date_columns, parse the date
-                if h in date_columns and isinstance(cell_value, str):
-                    parsed_date = model.ParseDate(cell_value)  # Parse the date string
-                    if parsed_date:  # If the parsing was successful
-                        # Format the date to only include the date portion (yyyy-mm-dd)
-                        cell_value = parsed_date.strftime("%Y-%m-%d")
-                    else:
-                        cell_value = ""  # If parsing fails, leave it empty
-                
+                for column in date_columns:
+                    if h == column:
+                        if cell_value:
+                            cell_value = str(cell_value)  # Ensure it's a string
+                            cell_value = cell_value.split(" ")[0]  # Take only the date part
+                        else:
+                            cell_value = ""  # Handle None values
+
                 if cell_value is None:
                     cell_value = ""
                 if h in bold_columns:
                     cell_value = "<b>{}</b>".format(cell_value)
-                original_h = next((orig for orig, renamed in header_rename.items() if renamed == h), h)
-                if original_h in url_columns and cell_value:
-                    url_format = url_columns[original_h]
-                    #if h in url_columns and cell_value:
-                    #url_format = url_columns[h]
+                if h in url_columns and cell_value:
+                    url_format = url_columns[h]
                     url_value = url_format.format(**row)
                     cell_value = '<a href="{}" target="_blank" style="color: #1e90ff; text-decoration: none;">{}</a>'.format(url_value, cell_value)
                 
@@ -260,47 +258,8 @@ sqlOrgStat = '''
     
     -- Step 3: Execute the Dynamic SQL
     EXEC(@SQLQuery);
+'''
 
-'''
-sqlOrgStatold = '''
-    DECLARE @DynamicColumns NVARCHAR(MAX);
-    DECLARE @SQLQuery NVARCHAR(MAX);
-    
-    -- Step 1: Retrieve unique fe.Fail values dynamically
-    SELECT @DynamicColumns = STRING_AGG(QUOTENAME(Fail), ', ')
-    FROM (SELECT DISTINCT Fail FROM FailedEmails WHERE Fail IS NOT NULL) AS Failures;
-    
-    -- Ensure @DynamicColumns is not NULL
-    IF @DynamicColumns IS NULL 
-        SET @DynamicColumns = '[Sent]';
-    
-    -- Step 2: Construct the Dynamic SQL Query
-    SET @SQLQuery = '
-    SELECT *
-    FROM (
-        SELECT 
-            eqt.OrgId,
-            pro.Name AS Program,
-            o.OrganizationName,
-            COALESCE(fe.Fail, ''Sent'') AS Status,  
-            COUNT(*) AS TotalCount
-        FROM EmailQueueTo eqt
-        LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId  
-        LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
-        LEFT JOIN Division d ON d.Id = o.DivisionId
-        LEFT JOIN Program pro ON pro.Id = d.ProgId
-        WHERE eqt.Sent BETWEEN ''{0} 00:00:00'' AND ''{1} 23:59:59.999'' {2}
-        GROUP BY COALESCE(fe.Fail, ''Sent''), eqt.OrgId, o.OrganizationName, pro.Name
-    ) SourceTable
-    PIVOT (
-        SUM(TotalCount) 
-        FOR Status IN (' + @DynamicColumns + ')
-    ) PivotTable
-    ORDER BY Program, OrganizationName;';
-    
-    -- Step 3: Execute the Dynamic SQL
-    EXEC(@SQLQuery);
-'''
 
 sqlOrgDetails = '''
 SELECT eqt.id, eq.Subject, CAST(eqt.Sent AS DATE) AS SentDate, eqt.OrgId
@@ -443,6 +402,7 @@ bodyTemplate += generate_html_table(
 rsqlOrgStat = q.QuerySql(sqlOrgStat.format(sDate,eDate,sqlHideSuccess))
 #rsqlOrgDetails = q.QuerySql(sqlOrgDetails.format(sDate,eDate,sqlHideSuccess))
 
+
 # Extract relevant attributes (ignoring anything that starts with "_")
 data_list = [{attr: getattr(row, attr) for attr in dir(row) if not attr.startswith("_")} for row in rsqlOrgStat]
 
@@ -461,7 +421,7 @@ column_settings = {
 
 formatting = {
     "bold_columns": ['Program'],
-    "date_columns": ['SentDate'], #Removes the time
+    "date_columns": ['Sent'], #Removes the time
     "sum_columns": ['Technical', 'Invalid Address', 'bouncedaddress', 'spamreport', 
                     'Unclassified', 'Mailbox Unavailable', 'Reputation', 'Content', 
                     'invalid', 'spamreporting'],
@@ -476,13 +436,14 @@ column_widths = {
 }
 
 url_columns = {
-    'OrganizationName': '/Org/{OrgId}',
-    'Subject': '/Manage/Emails/Details/{id}',
+    'Involvement': '/Org/{OrgId}',
+    'Email Subject': '/Manage/Emails/Details/{id}',
 }
 
 header_rename = {
     "OrganizationName": "Involvement",
     "Subject": "Email Subject",
+    "SentDate": "Sent",
 }
 
 header_style = {
