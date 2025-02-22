@@ -35,17 +35,19 @@ eDate = model.Data.eDate
 
 if model.Data.HideSuccess == 'yes':
     optionHideSuccess = 'checked'
-    sqlHideSuccess = ' AND fe.Fail IS NOT NULL '
+    sqlHideSuccess = ''
 else:
     optionHideSuccess = ''
-    sqlHideSuccess = ''
+    sqlHideSuccess = ' AND fe.Fail IS NOT NULL '
 
+from datetime import datetime
 
 def generate_html_table(data, expanded_list=None, match_column=None, title=None, hide_columns=None, url_columns=None, 
                         bold_columns=None, column_order=None, divider_after_column=None, sum_columns=None, 
                         date_columns=None, column_widths=None, table_width="100%", remove_borders=False,
-                        header_padding="5px", content_padding="5px", header_font_size="14px", content_font_size="12px", 
-                        header_bg_color="#f4f4f4", slanted_headers=None, slant_angle=45):  
+                        remove_header_borders=False, header_padding="5px", content_padding="5px", header_font_size="14px", 
+                        content_font_size="12px", header_bg_color="#f4f4f4", slanted_headers=None, slant_angle=45, 
+                        row_colors=None, header_rename=None, column_alignment=None):  
     
     if not data:
         return "<p>No data available.</p>"
@@ -58,6 +60,9 @@ def generate_html_table(data, expanded_list=None, match_column=None, title=None,
     date_columns = date_columns or []
     column_widths = column_widths or {}
     slanted_headers = slanted_headers or []
+    row_colors = row_colors or ["#ffffff", "#f9f9f9"]
+    header_rename = header_rename or {}
+    column_alignment = column_alignment or {}
     
     html = ""
     html += """
@@ -69,7 +74,7 @@ def generate_html_table(data, expanded_list=None, match_column=None, title=None,
             }
             
             th.rotate > div {
-              transform: translate(15px, 35px) rotate(315deg); /* Adjust vertical position */
+              transform: translate(15px, 35px) rotate(315deg); 
               width: 100%;
               position: absolute;
               top: 50%;
@@ -98,54 +103,69 @@ def generate_html_table(data, expanded_list=None, match_column=None, title=None,
     html += '<table style="{}">\n'.format(table_style)
     
     html += "    <tr>\n"
-
-    # Loop through headers and apply the slanted effect to specific ones
+    
     for h in headers:
         if h not in hide_columns:
-            # Default styling for non-slanted headers
-            th_style = "text-align: center; vertical-align: bottom; white-space: nowrap;"
+            th_style = "text-align: {}; vertical-align: bottom; white-space: nowrap;"
+            th_style = th_style.format(column_alignment.get(h, "center"))  # Align header as per column_alignment
             th_style += " padding: {}; font-size: {}; background-color: {};".format(header_padding, header_font_size, header_bg_color)
             
-            # Remove border and background color if header is slanted
             if h in slanted_headers:
-                th_style = "text-align: center; vertical-align: bottom; white-space: nowrap; padding: {}; font-size: {};".format(header_padding, header_font_size)
+                th_style = "text-align: {}; vertical-align: bottom; white-space: nowrap; padding: {}; font-size: {};".format(column_alignment.get(h, "center"), header_padding, header_font_size)
             
-            if not remove_borders and h not in slanted_headers:
+            header_display_name = header_rename.get(h, h)
+            
+            if remove_header_borders and h not in slanted_headers:
+                th_style += " border: none;"
+            elif not remove_borders and h not in slanted_headers:
                 th_style += " border: 1px solid #ddd;"
             
             if h in column_widths:
                 th_style += " width: {};".format(column_widths[h])
     
-            # Apply slant to the th element using class "rotate" for slanted effect
             if h in slanted_headers:
-                html += "<th class='rotate' style='{}'><div><span>{}</span></div></th>\n".format(th_style, h)
+                html += "<th class='rotate' style='{}'><div><span>{}</span></div></th>\n".format(th_style, header_display_name)
             else:
-                html += "<th style='{}'>{}</th>\n".format(th_style, h)
-
+                html += "<th style='{}'>{}</th>\n".format(th_style, header_display_name)
 
     html += "    </tr>\n"
     
-    for row in data:
-        html += "    <tr style='background-color: #ffffff;'>\n"
+    expanded_rows = {}
+    if expanded_list:
+        expanded_rows = {row[match_column]: row for row in expanded_list}
+    
+    for idx, row in enumerate(data):
+        row_color = row_colors[idx % len(row_colors)]  # Alternate row colors
+        
+        html += "    <tr style='background-color: {};'>\n".format(row_color)
         for h in headers:
             if h not in hide_columns:
                 cell_value = row.get(h, "")
+                
+                # Apply header renaming to date_columns
+                if h in header_rename:
+                    h = header_rename[h]  # Rename the header
+                
+                # If the value is a date and it's in the date_columns, parse the date
+                if h in date_columns and isinstance(cell_value, str):
+                    parsed_date = model.ParseDate(cell_value)  # Parse the date string
+                    if parsed_date:  # If the parsing was successful
+                        # Format the date to only include the date portion (yyyy-mm-dd)
+                        cell_value = parsed_date.strftime("%Y-%m-%d")
+                    else:
+                        cell_value = ""  # If parsing fails, leave it empty
+                
                 if cell_value is None:
                     cell_value = ""
-                if h in date_columns and isinstance(cell_value, basestring):
-                    try:
-                        from datetime import datetime
-                        parsed_date = datetime.strptime(cell_value, '%m/%d/%Y %I:%M:%S %p')
-                        cell_value = parsed_date.strftime('%Y-%m-%d')
-                    except ValueError:
-                        pass  
                 if h in bold_columns:
                     cell_value = "<b>{}</b>".format(cell_value)
                 if h in url_columns and cell_value:
                     url_format = url_columns[h]
                     url_value = url_format.format(**row)
                     cell_value = '<a href="{}" target="_blank" style="color: #1e90ff; text-decoration: none;">{}</a>'.format(url_value, cell_value)
-                td_style = "text-align: left; padding: {}; font-size: {};".format(content_padding, content_font_size)
+                
+                alignment = column_alignment.get(h, "left")
+                td_style = "text-align: {}; padding: {}; font-size: {};".format(alignment, content_padding, content_font_size)
                 if h in column_widths:
                     td_style += " width: {};".format(column_widths[h])
                 if not remove_borders:
@@ -153,34 +173,31 @@ def generate_html_table(data, expanded_list=None, match_column=None, title=None,
                 html += "<td style='{}'>{}</td>\n".format(td_style, cell_value)
         html += "    </tr>\n"
         
-        if expanded_list and match_column:
-            for expanded_row in expanded_list:
-                if expanded_row.get(match_column) == row.get(match_column):
-                    html += "    <tr style='background-color: #f4f4f4;'>\n"
-                    expanded_headers = expanded_row.keys()
-                    for h in expanded_headers:
-                        if h not in hide_columns:
-                            html += "<th style='text-align: left; padding: {}; font-size: {}; background-color: {}; border: 1px solid #ddd;'>{}</th>\n".format(header_padding, header_font_size, header_bg_color, h)
-                    html += "    </tr>\n"
-                    html += "    <tr style='background-color: #ffffff;'>\n"
-                    for h in expanded_headers:
-                        if h not in hide_columns:
-                            cell_value = expanded_row.get(h, "")
-                            if cell_value is None:
-                                cell_value = ""
-                            if h in date_columns and isinstance(cell_value, basestring):
-                                try:
-                                    parsed_date = datetime.strptime(cell_value, '%m/%d/%Y %I:%M:%S %p')
-                                    cell_value = parsed_date.strftime('%Y-%m-%d')
-                                except ValueError:
-                                    pass
-                            if h in bold_columns:
-                                cell_value = "<b>{}</b>".format(cell_value)
-                            if h in url_columns and cell_value:
-                                url_value = url_columns[h].format(**expanded_row)
-                                cell_value = '<a href="{}" target="_blank" style="color: #1e90ff; text-decoration: none;">{}</a>'.format(url_value, cell_value)
-                            html += "<td style='text-align: left; padding: {}; font-size: {}; border: 1px solid #ddd;'>{}</td>\n".format(content_padding, content_font_size, cell_value)
-                    html += "    </tr>\n"
+        if expanded_list and row[match_column] in expanded_rows:
+            expanded_row = expanded_rows[row[match_column]]
+            html += "    <tr style='background-color: #e0e0e0;'>\n"
+            for h in headers:
+                if h not in hide_columns:
+                    cell_value = expanded_row.get(h, "")
+                    td_style = "padding-left: 20px; text-align: {}; font-size: {};".format(column_alignment.get(h, "left"), content_font_size)
+                    html += "<td style='{}'>{}</td>\n".format(td_style, cell_value)
+            html += "    </tr>\n"
+        
+    if sum_columns:
+        sums = {col: 0 for col in sum_columns}
+        for row in data:
+            for col in sum_columns:
+                if isinstance(row.get(col), (int, float)):
+                    sums[col] += row[col]
+
+        html += "    <tr>\n"
+        for h in headers:
+            if h not in hide_columns:
+                if h in sum_columns:
+                    html += "<td style='padding: 3px 4px; text-align: left; font-weight: bold; border: none;'>{}</td>\n".format(sums[h])
+                else:
+                    html += "<td style='padding: 3px 4px; text-align: left; border: none;'>&nbsp;</td>\n"
+        html += "    </tr>\n"
     
     html += "</table>\n"
     return html
@@ -323,7 +340,7 @@ headerTemplate = '''
         <input type="submit" value="Submit">
         <p style="margin: 0; padding: 0;">
             <input type="checkbox" id="HideSuccess" name="HideSuccess" value="yes" {2}>
-            <label for="HideSuccess" class="no-print">Hide Successfully Sent</label>
+            <label for="HideSuccess" class="no-print">Show Successfully Sent</label>
         </p>
     </form>
 '''.format(optionsDate,optioneDate,optionHideSuccess)
@@ -339,59 +356,85 @@ bodyTemplate = ''
 # Extract relevant attributes (ignoring anything that starts with "_")
 data_list = [{attr: getattr(row, attr) for attr in dir(row) if not attr.startswith("_")} for row in rsql]
 
-title = "Total Stats"  # Set the title for the table
-column_order = ['Status']  # Set the order of columns
-sum_columns = ['Totals']  # Columns to sum
-table_width = 'auto' #options: px, %, and auto
-remove_borders=True #removes column borders
-bold_columns = ['']  # 'OrganizationName' Bold the OrganizationName column
-
-#
-hide_columns = []  # Hide the OrgId column
-url_columns = {
-     # Make OrganizationName a clickable link using OrgId #Example: 'OrganizationName': '/Org/{OrgId}'
-}
-divider_after_column = ''  # Add subtle divider line
-date_columns=[''] #Remove time 
-column_widths = {
-    'a123': '20%',
-    'b123': '150px',
-    'c123': 'auto',
-    'd123': '100px',
-    # Add more columns as needed
-}
-
-header_padding="8px 12px"  # Padding for both header and content
-content_padding="5px 10px"  # Padding for content rows
-header_font_size="14px"     # Font size for header
-content_font_size="12px"    # Font size for content
-header_bg_color="#f0f0f0"  # Background color for header
-slanted_headers=["Column1", "Column3"],  # These headers will be slanted
-slant_angle=30  # Adjust the tilt angle (default 45
 
 ####advanced sub columns
 #expanded_list=expanded_list 
 #match_column="OrgId"
 
-# Generate the HTML table with dynamic hiding, URL formatting, bold columns, column order, subtle divider, and summed columns
-bodyTemplate += generate_html_table(data_list, 
-                                  title=title, 
-                                  hide_columns=hide_columns, 
-                                  url_columns=url_columns, 
-                                  bold_columns=bold_columns, 
-                                  column_order=column_order,
-                                  divider_after_column=divider_after_column, 
-                                  sum_columns=sum_columns,
-                                  date_columns=date_columns,
-                                  remove_borders=remove_borders,
-                                  table_width=table_width,
-                                  column_widths=column_widths,
-                                  header_padding=header_padding,
-                                  content_padding=content_padding,
-                                  header_font_size=header_font_size,
-                                  content_font_size=content_font_size,
-                                  header_bg_color=header_bg_color
-                                  )
+# Define all dictionaries separately
+table_config = {
+    "title": "Total Stats",
+    "table_width": "auto", #'auto'  # or use '1000px' or 'auto'
+    "remove_borders": True,
+}
+
+column_settings = {
+    "hide_columns": ['PeopleId'],
+    "column_order": ['Status'],
+    "divider_after_column": "", #Adds a vertical line the table to seperate
+}
+
+formatting = {
+    "bold_columns": [''], 
+    "date_columns": [''],  #supposed to set to date only w/o time, but needs work
+    "sum_columns": ['TotalCount'],
+    "row_colors": ["#f9f9f9", "#ffffff"],  # Alternating row colors
+}
+
+column_widths = {
+    'some column': '20%',
+}
+
+url_columns = {
+    '': '', #add's url link to columns. Example: 'Name': '/Person2/{PeopleId}'  Typically using in conjuction with hide_columns
+}
+
+header_rename = {
+    "TotalCount": "Total",
+}
+
+header_style = {
+    "header_padding": "6px 10px",
+    "header_font_size": "14px",
+    "header_bg_color": "#f0f0f0",
+    "remove_header_borders": True,
+}
+
+content_style = {
+    "content_padding": "3px 8px",
+    "content_font_size": "12px",
+}
+
+column_alignment = {
+    "Name": "left", 
+    "Status": "left", 
+}
+
+slanted_headers_config = {
+    "slanted_headers": [''], #kinda works, but not aligning 100%.  Still some css work to do
+    "slant_angle": 45, #not working
+}
+
+
+# Merge all settings into a single dictionary
+merged_settings = {}
+merged_settings.update(table_config)
+merged_settings.update(column_settings)
+merged_settings.update(formatting)
+merged_settings.update(header_style)
+merged_settings.update(content_style)
+merged_settings.update(slanted_headers_config)
+merged_settings.update({"header_rename": header_rename})  
+merged_settings.update({"column_alignment": column_alignment}) 
+
+# Now pass everything at once (Python 2 allows only ONE **kwargs)
+bodyTemplate += generate_html_table(
+    data_list, 
+    column_widths=column_widths, 
+    url_columns=url_columns, 
+    **merged_settings
+)
+
 
 ####### Involvement Stats #######
 rsqlOrgStat = q.QuerySql(sqlOrgStat.format(sDate,eDate,sqlHideSuccess))
@@ -400,61 +443,89 @@ rsqlOrgStat = q.QuerySql(sqlOrgStat.format(sDate,eDate,sqlHideSuccess))
 # Extract relevant attributes (ignoring anything that starts with "_")
 data_list = [{attr: getattr(row, attr) for attr in dir(row) if not attr.startswith("_")} for row in rsqlOrgStat]
 
-hide_columns = ['OrgId','id']  # Hide the OrgId column
-url_columns = {
-    'OrganizationName': '/Org/{OrgId}', 'Subject': '/Manage/Emails/Details/{id}' # Make OrganizationName a clickable link using OrgId
+# Define all dictionaries separately
+table_config = {
+    "title": "Involvement Stats",
+    "table_width": "auto",
+    "remove_borders": False,
 }
-bold_columns = ['Program']  # 'OrganizationName' Bold the OrganizationName column
-column_order = ['Program', 'OrganizationName','Subject','SentDate']  # Set the order of columns
-divider_after_column = 'OrganizationName'  # Add subtle divider line after OrganizationName
-title = "Involvement Stats"  # Set the title for the table
-date_columns=['SentDate']
-sum_columns = ['Technical','Invalid Address','bouncedaddress','spamreport','Unclassified','Mailbox Unavailable','Reputation','Content','invalid','spamreporting']  # Columns to sum, e.g., 'Program' will be summed below
-#expanded_list=expanded_list, 
-#match_column="OrgId"
+
+column_settings = {
+    "hide_columns": ['OrgId', 'id'],
+    "column_order": ['Program', 'OrganizationName', 'Subject', 'SentDate'],
+    "divider_after_column": "OrganizationName",
+}
+
+formatting = {
+    "bold_columns": ['Program'],
+    "date_columns": ['SentDate'], #Removes the time
+    "sum_columns": ['Technical', 'Invalid Address', 'bouncedaddress', 'spamreport', 
+                    'Unclassified', 'Mailbox Unavailable', 'Reputation', 'Content', 
+                    'invalid', 'spamreporting'],
+    "row_colors": ["#f9f9f9", "#ffffff"],  # Alternating row colors
+}
+
 column_widths = {
     'OrgId': '20%',
     'Program': '150px',
     'SentDate': 'auto',
     'TotalCount': '100px',
-    # Add more columns as needed
 }
-table_width = 'auto'
-remove_borders=False
 
-header_padding="8px 12px"  # Padding for both header and content
-content_padding="5px 10px"  # Padding for content rows
-header_font_size="14px"     # Font size for header
-content_font_size="12px"    # Font size for content
-header_bg_color="#FFFFFF"  # Background color for header
-slanted_headers=['Technical','Invalid Address','bouncedaddress','spamreport','Unclassified','Mailbox Unavailable','Reputation','Content','invalid','spamreporting']  # These headers will be slanted
-slant_angle=45  # Adjust the tilt angle (default 45
+url_columns = {
+    'OrganizationName': '/Org/{OrgId}',
+    'Subject': '/Manage/Emails/Details/{id}',
+}
 
-# Generate the HTML table with dynamic hiding, URL formatting, bold columns, column order, subtle divider, and summed columns
-html_output = generate_html_table(data_list, 
-                                  title=title, 
-                                  hide_columns=hide_columns, 
-                                  url_columns=url_columns, 
-                                  bold_columns=bold_columns, 
-                                  column_order=column_order,
-                                  divider_after_column=divider_after_column, 
-                                  sum_columns=sum_columns,
-                                  date_columns=date_columns,
-                                  remove_borders=remove_borders,
-                                  table_width=table_width,
-                                  header_padding=header_padding,
-                                  content_padding=content_padding,
-                                  header_font_size=header_font_size,
-                                  content_font_size=content_font_size,
-                                  header_bg_color=header_bg_color,
-                                  slanted_headers=slanted_headers,
-                                  slant_angle=slant_angle
-                                  )
+header_rename = {
+    "OrganizationName": "Involvement",
+    "Subject": "Email Subject",
+}
 
+header_style = {
+    "header_padding": "8px 12px",
+    "header_font_size": "14px",
+    "header_bg_color": "#FFFFFF",
+    "remove_header_borders": True,
+}
 
-#html_output = generate_html_table(data_list)
-#print(html_output)  # For debugging
-bodyTemplate += html_output
+content_style = {
+    "content_padding": "5px 10px",
+    "content_font_size": "12px",
+}
+
+column_alignment = {
+    "Program": "left", 
+    "OrganizationName": "left", 
+    "Subject": "left", 
+    "SentDate": "left", 
+}
+
+slanted_headers_config = {
+    "slanted_headers": ['Technical', 'Invalid Address', 'bouncedaddress', 'spamreport', 
+                        'Unclassified', 'Mailbox Unavailable', 'Reputation', 'Content', 
+                        'invalid', 'spamreporting'],
+    "slant_angle": 45,
+}
+
+# Merge all settings into a single dictionary
+merged_settings = {}
+merged_settings.update(table_config)
+merged_settings.update(column_settings)
+merged_settings.update(formatting)
+merged_settings.update(header_style)
+merged_settings.update(content_style)
+merged_settings.update(slanted_headers_config)
+merged_settings.update({"header_rename": header_rename})  
+merged_settings.update({"column_alignment": column_alignment}) 
+
+# Now pass everything at once (Python 2 allows only ONE **kwargs)
+bodyTemplate += generate_html_table(
+    data_list, 
+    column_widths=column_widths, 
+    url_columns=url_columns, 
+    **merged_settings
+)
 
 
 
@@ -464,33 +535,81 @@ rsqlUserFailedStat = q.QuerySql(sqlUserFailedStat.format(sDate,eDate,sqlHideSucc
 # Extract relevant attributes (ignoring anything that starts with "_")
 data_list = [{attr: getattr(row, attr) for attr in dir(row) if not attr.startswith("_")} for row in rsqlUserFailedStat]
 
-title = "User Stats"  # Set the title for the table
-url_columns = {
-    'Name': '/Person2/{PeopleId}' # Make OrganizationName a clickable link using OrgId
+# Define all dictionaries separately
+table_config = {
+    "title": "User Stats",
+    "table_width": "auto",  # or use '1000px' or 'auto'
+    "remove_borders": True,
 }
-hide_columns = ['PeopleId']
-column_order = ['Name', 'TotalCount']  # Set the order of columns
-table_width = 'auto'  # or use '1000px' or 'auto'
-remove_borders=True
 
-header_padding="6px 10px"  # Padding for both header and content
-content_padding="3px 8px"  # Padding for content rows
-header_font_size="14px"     # Font size for header
-content_font_size="12px"    # Font size for content
-header_bg_color="#f0f0f0"  # Background color for header
+column_settings = {
+    "hide_columns": ['PeopleId'],
+    "column_order": ['Name', 'TotalCount'],
+    "divider_after_column": "",  # Adds a vertical line the table to separate
+}
 
-bodyTemplate += generate_html_table(data_list, 
-                                    title=title,
-                                    hide_columns=hide_columns, 
-                                    url_columns=url_columns, 
-                                    column_order=column_order,
-                                    table_width=table_width,
-                                    remove_borders=remove_borders,
-                                    header_padding=header_padding,
-                                    content_padding=content_padding,
-                                    header_font_size=header_font_size,
-                                    content_font_size=content_font_size,
-                                    header_bg_color=header_bg_color)
+formatting = {
+    "bold_columns": [''],
+    "date_columns": [''],  # Supposed to set to date only w/o time, but needs work
+    "sum_columns": ['Total Count'],
+    "row_colors": ["#f9f9f9", "#ffffff"],  # Alternating row colors
+}
+
+column_widths = {
+    'some column': '20%',
+}
+
+url_columns = {
+    'Name': '/Person2/{PeopleId}',  # Adds url link to columns, typically used in conjunction with hide_columns
+}
+
+header_rename = {
+    "Organization": "Involvement",
+}
+
+header_style = {
+    "header_padding": "6px 10px",
+    "header_font_size": "14px",
+    "header_bg_color": "#f0f0f0",
+    "remove_header_borders": True,
+}
+
+content_style = {
+    "content_padding": "3px 8px",
+    "content_font_size": "12px",
+}
+
+column_alignment = {
+    "Name": "left", 
+    "Status": "left", 
+}
+
+slanted_headers_config = {
+    "slanted_headers": [''],  # Kinda works, but not aligning 100%. Still needs some CSS work
+    "slant_angle": 45,  # Not working yet
+}
+
+
+
+# Merge all settings into a single dictionary
+merged_settings = {}
+merged_settings.update(table_config)
+merged_settings.update(column_settings)
+merged_settings.update(formatting)
+merged_settings.update(header_style)
+merged_settings.update(content_style)
+merged_settings.update(slanted_headers_config)
+merged_settings.update({"header_rename": header_rename})  
+merged_settings.update({"column_alignment": column_alignment}) 
+
+
+# Now pass everything at once (Python 2 allows only ONE **kwargs)
+bodyTemplate += generate_html_table(
+    data_list, 
+    column_widths=column_widths, 
+    url_columns=url_columns, 
+    **merged_settings
+)
 
 
 Report = model.RenderTemplate(headerTemplate)
