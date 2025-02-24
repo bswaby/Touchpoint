@@ -3,91 +3,198 @@
 #Update fiscal month to your need.  If you want calendar year set to 0.  If you want August as your start month, count backwards..
 #so in the case of an August fiscal year, you would put in 5.
 
-model.Header = 'Contribution By Age Bin'
+model.Header = 'Contribution By Age Bin with Distinct Givers'
 
 fiscalmonth = '3'
+NonContribution = '99'  #this should be the default to exclude non-contributions
+GeneralFundId = '1' #add comma seperated funds if you want to limit.  For example, we only want to show our general fund
 
-sqlgifts = '''
+sqlgifts = """
 SELECT  
-  DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate))) AS [UniqueContributorsbyYear],
-  Sum(CASE WHEN p.Age >= 0 AND p.Age < 10 THEN c.ContributionAmount END) AS [ca],
-  Sum(CASE WHEN p.Age >= 10 AND p.Age < 20 THEN c.ContributionAmount END) AS [cb],
-  Sum(CASE WHEN p.Age >= 20 AND p.Age < 30 THEN c.ContributionAmount END) AS [cc],
-  Sum(CASE WHEN p.Age >= 30 AND p.Age < 40 THEN c.ContributionAmount END) AS [cd],
-  Sum(CASE WHEN p.Age >= 40 AND p.Age < 50 THEN c.ContributionAmount END) AS [ce],
-  Sum(CASE WHEN p.Age >= 50 AND p.Age < 60 THEN c.ContributionAmount END) AS [cf],
-  Sum(CASE WHEN p.Age >= 60 AND p.Age < 70 THEN c.ContributionAmount END) AS [cg],
-  Sum(CASE WHEN p.Age >= 70 AND p.Age < 80 THEN c.ContributionAmount END) AS [ch],
-  Sum(CASE WHEN p.Age >= 80 AND p.Age < 90 THEN c.ContributionAmount END) AS [ci],
-  Sum(CASE WHEN p.Age >= 90 THEN c.ContributionAmount END) AS [cj],
-  Sum(c.ContributionAmount) AS [ck],
-  Count(Distinct CASE WHEN p.Age >= 0 AND p.Age < 10 THEN p.PeopleID END) AS [pa],
-  Count(Distinct CASE WHEN p.Age >= 10 AND p.Age < 20 THEN p.PeopleID END) AS [pb],
-  Count(Distinct CASE WHEN p.Age >= 20 AND p.Age < 30 THEN p.PeopleID END) AS [pc],
-  Count(Distinct CASE WHEN p.Age >= 30 AND p.Age < 40 THEN p.PeopleID END) AS [pd],
-  Count(Distinct CASE WHEN p.Age >= 40 AND p.Age < 50 THEN p.PeopleID END) AS [pe],
-  Count(Distinct CASE WHEN p.Age >= 50 AND p.Age < 60 THEN p.PeopleID END) AS [pf],
-  Count(Distinct CASE WHEN p.Age >= 60 AND p.Age < 70 THEN p.PeopleID END) AS [pg],
-  Count(Distinct CASE WHEN p.Age >= 70 AND p.Age < 80 THEN p.PeopleID END) AS [ph],
-  Count(Distinct CASE WHEN p.Age >= 80 AND p.Age < 90 THEN p.PeopleID END) AS [pi],
-  Count(Distinct CASE WHEN p.Age >= 90 THEN p.PeopleID END) AS [pj],
-  Count(Distinct p.PeopleID) AS [pk]
-FROM Contribution c
-INNER JOIN
-  People p
-ON c.PeopleID =  p.PeopleID
-WHERE DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate))) >= (DATEPART(Year,getdate())-10)
- Group By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate)))
- Order By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate)))
-'''
+  DATEPART(Year, DATEADD(month, {0}, c.ContributionDate)) AS [UniqueContributorsbyYear],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 0 AND 9 THEN c.ContributionAmount END) AS [ca],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 10 AND 19 THEN c.ContributionAmount END) AS [cb],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 20 AND 29 THEN c.ContributionAmount END) AS [cc],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 30 AND 39 THEN c.ContributionAmount END) AS [cd],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 40 AND 49 THEN c.ContributionAmount END) AS [ce],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 50 AND 59 THEN c.ContributionAmount END) AS [cf],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 60 AND 69 THEN c.ContributionAmount END) AS [cg],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 70 AND 79 THEN c.ContributionAmount END) AS [ch],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 80 AND 89 THEN c.ContributionAmount END) AS [ci],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       >= 90 THEN c.ContributionAmount END) AS [cj],
 
-sqlgiftstotal = '''
+    SUM(c.ContributionAmount) AS [ck],
+
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 0 AND 9 THEN p.PeopleID END) AS [pa],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 10 AND 19 THEN p.PeopleID END) AS [pb],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 20 AND 29 THEN p.PeopleID END) AS [pc],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 30 AND 39 THEN p.PeopleID END) AS [pd],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 40 AND 49 THEN p.PeopleID END) AS [pe],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 50 AND 59 THEN p.PeopleID END) AS [pf],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 60 AND 69 THEN p.PeopleID END) AS [pg],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 70 AND 79 THEN p.PeopleID END) AS [ph],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 80 AND 89 THEN p.PeopleID END) AS [pi],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         >= 90 THEN p.PeopleID END) AS [pj],
+
+  COUNT(DISTINCT p.PeopleID) AS [pk]
+
+FROM Contribution c
+INNER JOIN People p ON c.PeopleID = p.PeopleID
+WHERE DATEPART(Year, DATEADD(month, {0}, c.ContributionDate)) >= (DATEPART(Year, GETDATE()) - 10)
+    {1}
+    AND c.ContributionTypeId <> {2}
+GROUP BY DATEPART(Year, DATEADD(month, {0}, c.ContributionDate))
+ORDER BY DATEPART(Year, DATEADD(month, {0}, c.ContributionDate));
+"""
+
+sqlgiftstotal = """
 SELECT  
-  Sum(CASE WHEN p.Age >= 0 AND p.Age < 10 THEN c.ContributionAmount END) AS [cl],
-  Sum(CASE WHEN p.Age >= 10 AND p.Age < 20 THEN c.ContributionAmount END) AS [cm],
-  Sum(CASE WHEN p.Age >= 20 AND p.Age < 30 THEN c.ContributionAmount END) AS [cn],
-  Sum(CASE WHEN p.Age >= 30 AND p.Age < 40 THEN c.ContributionAmount END) AS [co],
-  Sum(CASE WHEN p.Age >= 40 AND p.Age < 50 THEN c.ContributionAmount END) AS [cp],
-  Sum(CASE WHEN p.Age >= 50 AND p.Age < 60 THEN c.ContributionAmount END) AS [cq],
-  Sum(CASE WHEN p.Age >= 60 AND p.Age < 70 THEN c.ContributionAmount END) AS [cr],
-  Sum(CASE WHEN p.Age >= 70 AND p.Age < 80 THEN c.ContributionAmount END) AS [cs],
-  Sum(CASE WHEN p.Age >= 80 AND p.Age < 90 THEN c.ContributionAmount END) AS [ct],
-  Sum(CASE WHEN p.Age >= 90 THEN c.ContributionAmount END) AS [cu],
-  Count(Distinct CASE WHEN p.Age >= 0 AND p.Age < 10 THEN p.PeopleID END) AS [pl],
-  Count(Distinct CASE WHEN p.Age >= 10 AND p.Age < 20 THEN p.PeopleID END) AS [pm],
-  Count(Distinct CASE WHEN p.Age >= 20 AND p.Age < 30 THEN p.PeopleID END) AS [pn],
-  Count(Distinct CASE WHEN p.Age >= 30 AND p.Age < 40 THEN p.PeopleID END) AS [po],
-  Count(Distinct CASE WHEN p.Age >= 40 AND p.Age < 50 THEN p.PeopleID END) AS [pp],
-  Count(Distinct CASE WHEN p.Age >= 50 AND p.Age < 60 THEN p.PeopleID END) AS [pq],
-  Count(Distinct CASE WHEN p.Age >= 60 AND p.Age < 70 THEN p.PeopleID END) AS [pr],
-  Count(Distinct CASE WHEN p.Age >= 70 AND p.Age < 80 THEN p.PeopleID END) AS [ps],
-  Count(Distinct CASE WHEN p.Age >= 80 AND p.Age < 90 THEN p.PeopleID END) AS [pt],
-  Count(Distinct CASE WHEN p.Age >= 90 THEN p.PeopleID END) AS [pu]
-FROM Contribution c
-INNER JOIN
-  People p
-ON c.PeopleID =  p.PeopleID
---WHERE DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(Year(c.ContributionDate))) >= (DATEPART(Year,getdate())-10)
--- Group By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(Year(c.ContributionDate)))
--- Order By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(Year(c.ContributionDate)))
-'''
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 0 AND 9 THEN c.ContributionAmount END) AS [cl],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 10 AND 19 THEN c.ContributionAmount END) AS [cm],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 20 AND 29 THEN c.ContributionAmount END) AS [cn],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 30 AND 39 THEN c.ContributionAmount END) AS [co],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 40 AND 49 THEN c.ContributionAmount END) AS [cp],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 50 AND 59 THEN c.ContributionAmount END) AS [cq],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 60 AND 69 THEN c.ContributionAmount END) AS [cr],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 70 AND 79 THEN c.ContributionAmount END) AS [cs],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       BETWEEN 80 AND 89 THEN c.ContributionAmount END) AS [ct],
+    SUM(CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+       - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                           DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+       >= 90 THEN c.ContributionAmount END) AS [cu],
 
-sqlContributionNumbers = '''
-Select
-  DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate) AS [UniqueContributorsbyYear],
-  Sum(c.ContributionAmount) AS [Contributed],
-  Round(Sum(c.ContributionAmount)/Count(Distinct c.ContributionID),2) AS [AverageGift],
-  Count(c.ContributionID) AS [Contributions], 
-  Count(Distinct c.PeopleID) AS [UniqueGivers],
-  Count(c.ContributionID)/Count(Distinct c.PeopleID) AS [AvgNumofGifts]
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) < 10 
+        THEN p.PeopleID END) AS [pl],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 10 AND 19 THEN p.PeopleID END) AS [pm],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 20 AND 29 THEN p.PeopleID END) AS [pn],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 30 AND 39 THEN p.PeopleID END) AS [po],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 40 AND 49 THEN p.PeopleID END) AS [pp],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 50 AND 59 THEN p.PeopleID END) AS [pq],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 60 AND 69 THEN p.PeopleID END) AS [pr],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 70 AND 79 THEN p.PeopleID END) AS [ps],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         BETWEEN 80 AND 89 THEN p.PeopleID END) AS [pt],
+    COUNT(DISTINCT CASE WHEN (DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate) 
+         - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay), c.ContributionDate), 
+                             DATEFROMPARTS(p.BirthYear, p.BirthMonth, p.BirthDay)) > c.ContributionDate THEN 1 ELSE 0 END) 
+         >= 90 THEN p.PeopleID END) AS [pu]
 FROM Contribution c
-INNER JOIN
-  People p
-ON c.PeopleID =  p.PeopleID
-WHERE DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate))) >= (DATEPART(Year,getdate())-10)
- Group By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate)))
- Order By DATEPART(Year,DATEADD(month,''' + fiscalmonth + ''',(c.ContributionDate)))
-'''
+INNER JOIN People p ON c.PeopleID = p.PeopleID
+Where c.ContributionTypeId <> {1}
+ {0}
+"""
 
 template = '''
 <style>
@@ -160,7 +267,12 @@ template = '''
 <br>
 
 '''
-Data.gifts = q.QuerySql(sqlgifts)
-Data.giftstotal = q.QuerySql(sqlgiftstotal)
-#Data.contributionnumbers = q.QuerySql(sqlContributionNumbers)
+
+if GeneralFundId:
+    GeneralFundId = """AND c.FundId IN ({0})""".format(GeneralFundId)
+else:
+    GeneralFundId = ''
+    
+Data.gifts = q.QuerySql(sqlgifts.format(fiscalmonth,GeneralFundId,NonContribution))
+Data.giftstotal = q.QuerySql(sqlgiftstotal.format(GeneralFundId,NonContribution))
 print model.RenderTemplate(template)
