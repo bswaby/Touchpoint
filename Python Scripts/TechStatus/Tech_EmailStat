@@ -212,7 +212,10 @@ SELECT
     COUNT(*) AS TotalCount
 FROM EmailQueueTo eqt
 LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id aND fe.PeopleId = eqt.PeopleId  -- Adjust join column if needed
-WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2}
+LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
+LEFT JOIN Division d ON d.Id = o.DivisionId
+LEFT JOIN Program pro ON pro.Id = d.ProgId
+WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2} {3}
 GROUP BY COALESCE(fe.Fail, 'Sent')
 ORDER BY TotalCount DESC;
 '''
@@ -247,7 +250,7 @@ sqlOrgStat = '''
         LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
         LEFT JOIN Division d ON d.Id = o.DivisionId
         LEFT JOIN Program pro ON pro.Id = d.ProgId
-        WHERE eqt.Sent BETWEEN ''{0} 00:00:00'' AND ''{1} 23:59:59.999'' {2}
+        WHERE eqt.Sent BETWEEN ''{0} 00:00:00'' AND ''{1} 23:59:59.999'' {2} {3}
         GROUP BY COALESCE(fe.Fail, ''Sent''), eqt.OrgId, o.OrganizationName, pro.Name,eq.Subject,CAST(eqt.Sent AS DATE),eqt.id
     ) SourceTable
     PIVOT (
@@ -280,11 +283,17 @@ SELECT
     COUNT(*) AS TotalCount
 FROM EmailQueueTo eqt
 LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id aND fe.PeopleId = eqt.PeopleId  -- Adjust join column if needed
+LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
+LEFT JOIN Division d ON d.Id = o.DivisionId
+LEFT JOIN Program pro ON pro.Id = d.ProgId
 LEFT JOIN People p ON p.PeopleId = eqt.PeopleId
-WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2}
+WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2} {3}
 GROUP BY fe.Fail, eqt.PeopleId, p.Name
 ORDER BY TotalCount DESC;
 '''
+
+sqlPrograms = """select Id, Name AS ProgramName From Program Order by Name"""
+
 
 if sDate is not None:
     optionsDate = ' value="' + sDate + '"'
@@ -293,21 +302,42 @@ if eDate is not None:
     optioneDate = ' value="' + eDate + '"'
 
 
+frmProgramOption = """
+    <label for="program" id="program">Program:</label>
+    <select name="program" id="program">
+        <option value="999999">All</option>
+    """
+
+rsqlPrograms = q.QuerySql(sqlPrograms)
+
+
+for sp in rsqlPrograms:
+    if model.Data.program == sp.ProgramName:
+        frmProgramOption +=  """<option value="{0}" selected="selected">{1}</option>""".format(sp.Id, sp.ProgramName)
+    else:
+        frmProgramOption +=  """<option value="{0}">{1}</option>""".format(sp.Id, sp.ProgramName)
+
+frmProgramOption += """</select>"""
+
+filterProgram = '' if model.Data.program == str(999999) else ' AND pro.Id = {}'.format(model.Data.program) if model.Data.program else ''
+print filterProgram
+
 headerTemplate = '''
     <form action="" method="GET">
         <label for="sDate">Start:</label>
         <input type="date" id="sDate" name="sDate" required {0}>
         <label for="eDate">End:</label>
         <input type="date" id="eDate" name="eDate" required {1}>
+        {3}
         <input type="submit" value="Submit">
         <p style="margin: 0; padding: 0;">
             <input type="checkbox" id="HideSuccess" name="HideSuccess" value="yes" {2}>
             <label for="HideSuccess" class="no-print">Show Successfully Sent</label>
         </p>
     </form>
-'''.format(optionsDate,optioneDate,optionHideSuccess)
+'''.format(optionsDate,optioneDate,optionHideSuccess,frmProgramOption)
 
-rsql = q.QuerySql(sql.format(sDate,eDate,sqlHideSuccess))
+rsql = q.QuerySql(sql.format(sDate,eDate,sqlHideSuccess,filterProgram))
 
 TotalEmails = 0
 bodyTemplate = ''
@@ -399,7 +429,7 @@ bodyTemplate += generate_html_table(
 
 
 ####### Involvement Stats #######
-rsqlOrgStat = q.QuerySql(sqlOrgStat.format(sDate,eDate,sqlHideSuccess))
+rsqlOrgStat = q.QuerySql(sqlOrgStat.format(sDate,eDate,sqlHideSuccess,filterProgram))
 #rsqlOrgDetails = q.QuerySql(sqlOrgDetails.format(sDate,eDate,sqlHideSuccess))
 
 
@@ -494,7 +524,7 @@ bodyTemplate += generate_html_table(
 
 
 ###### User Failed Stats  ######
-rsqlUserFailedStat = q.QuerySql(sqlUserFailedStat.format(sDate,eDate,sqlHideSuccess))
+rsqlUserFailedStat = q.QuerySql(sqlUserFailedStat.format(sDate,eDate,sqlHideSuccess,filterProgram))
 
 # Extract relevant attributes (ignoring anything that starts with "_")
 data_list = [{attr: getattr(row, attr) for attr in dir(row) if not attr.startswith("_")} for row in rsqlUserFailedStat]
