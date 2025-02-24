@@ -311,8 +311,9 @@ frmProgramOption = """
 rsqlPrograms = q.QuerySql(sqlPrograms)
 
 
+
 for sp in rsqlPrograms:
-    if model.Data.program == sp.ProgramName:
+    if str(model.Data.program) == str(sp.Id):
         frmProgramOption +=  """<option value="{0}" selected="selected">{1}</option>""".format(sp.Id, sp.ProgramName)
     else:
         frmProgramOption +=  """<option value="{0}">{1}</option>""".format(sp.Id, sp.ProgramName)
@@ -320,7 +321,7 @@ for sp in rsqlPrograms:
 frmProgramOption += """</select>"""
 
 filterProgram = '' if model.Data.program == str(999999) else ' AND pro.Id = {}'.format(model.Data.program) if model.Data.program else ''
-print filterProgram
+
 
 headerTemplate = '''
     <form action="" method="GET">
