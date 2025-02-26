@@ -280,7 +280,11 @@ SELECT
 	eqt.PeopleId,
 	p.Name,
     fe.Fail AS Status,  
-    COUNT(*) AS TotalCount
+    COUNT(*) AS TotalCount,
+    p.SendEmailAddress1,
+	p.EmailAddress,
+	p.SendEmailAddress2,
+	p.EmailAddress2
 FROM EmailQueueTo eqt
 LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id aND fe.PeopleId = eqt.PeopleId  -- Adjust join column if needed
 LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
@@ -288,7 +292,7 @@ LEFT JOIN Division d ON d.Id = o.DivisionId
 LEFT JOIN Program pro ON pro.Id = d.ProgId
 LEFT JOIN People p ON p.PeopleId = eqt.PeopleId
 WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2} {3}
-GROUP BY fe.Fail, eqt.PeopleId, p.Name
+GROUP BY fe.Fail, eqt.PeopleId, p.Name,	p.EmailAddress,p.EmailAddress2,p.SendEmailAddress1,p.SendEmailAddress2
 ORDER BY TotalCount DESC;
 '''
 
@@ -333,7 +337,7 @@ headerTemplate = '''
         <input type="submit" value="Submit">
         <p style="margin: 0; padding: 0;">
             <input type="checkbox" id="HideSuccess" name="HideSuccess" value="yes" {2}>
-            <label for="HideSuccess" class="no-print">Show Successfully Sent</label>
+            <label for="HideSuccess" class="no-print">Show Successfully Sent <i>(This is slow)</i></label>
         </p>
     </form>
 '''.format(optionsDate,optioneDate,optionHideSuccess,frmProgramOption)
@@ -539,7 +543,7 @@ table_config = {
 
 column_settings = {
     "hide_columns": ['PeopleId'],
-    "column_order": ['Name', 'TotalCount'],
+    "column_order": ['Name', 'TotalCount','Status'],
     "divider_after_column": "",  # Adds a vertical line the table to separate
 }
 
