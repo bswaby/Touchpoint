@@ -215,10 +215,13 @@ LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id aND fe.PeopleId = eqt.PeopleId  -- A
 LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
 LEFT JOIN Division d ON d.Id = o.DivisionId
 LEFT JOIN Program pro ON pro.Id = d.ProgId
-WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2} {3}
+WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2} {3} {4}
 GROUP BY COALESCE(fe.Fail, 'Sent')
 ORDER BY TotalCount DESC;
 '''
+
+
+
 sqlOrgStat = '''
    DECLARE @DynamicColumns NVARCHAR(MAX);
     DECLARE @SQLQuery NVARCHAR(MAX);
@@ -250,7 +253,7 @@ sqlOrgStat = '''
         LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
         LEFT JOIN Division d ON d.Id = o.DivisionId
         LEFT JOIN Program pro ON pro.Id = d.ProgId
-        WHERE eqt.Sent BETWEEN ''{0} 00:00:00'' AND ''{1} 23:59:59.999'' {2} {3}
+        WHERE eqt.Sent BETWEEN ''{0} 00:00:00'' AND ''{1} 23:59:59.999'' {2} {3} {4}
         GROUP BY COALESCE(fe.Fail, ''Sent''), eqt.OrgId, o.OrganizationName, pro.Name,eq.Subject,CAST(eqt.Sent AS DATE),eqt.id
     ) SourceTable
     PIVOT (
@@ -291,13 +294,13 @@ LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
 LEFT JOIN Division d ON d.Id = o.DivisionId
 LEFT JOIN Program pro ON pro.Id = d.ProgId
 LEFT JOIN People p ON p.PeopleId = eqt.PeopleId
-WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2} {3}
+WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2} {3} {4}
 GROUP BY fe.Fail, eqt.PeopleId, p.Name,	p.EmailAddress,p.EmailAddress2,p.SendEmailAddress1,p.SendEmailAddress2
 ORDER BY TotalCount DESC;
 '''
 
 sqlPrograms = """select Id, Name AS ProgramName From Program Order by Name"""
-
+sqlFailClassifications = """select distinct fe.Fail from FailedEmails fe Order by fe.Fail"""
 
 if sDate is not None:
     optionsDate = ' value="' + sDate + '"'
@@ -314,8 +317,6 @@ frmProgramOption = """
 
 rsqlPrograms = q.QuerySql(sqlPrograms)
 
-
-
 for sp in rsqlPrograms:
     if str(model.Data.program) == str(sp.Id):
         frmProgramOption +=  """<option value="{0}" selected="selected">{1}</option>""".format(sp.Id, sp.ProgramName)
@@ -324,25 +325,49 @@ for sp in rsqlPrograms:
 
 frmProgramOption += """</select>"""
 
-filterProgram = '' if model.Data.program == str(999999) else ' AND pro.Id = {}'.format(model.Data.program) if model.Data.program else ''
+frmFailClassificationsOption = """
+    <label for="failclassification" id="program">Failure Type:</label>
+    <select name="failclassification" id="failclassification">
+        <option value="999999">All</option>
+    """
 
+rsqlFailClassifications = q.QuerySql(sqlFailClassifications)
+
+for sp in rsqlFailClassifications:
+    if str(model.Data.failclassification) == str(sp.Fail):
+        frmFailClassificationsOption +=  """<option value="{0}" selected="selected">{0}</option>""".format(sp.Fail)
+    else:
+        frmFailClassificationsOption +=  """<option value="{0}">{0}</option>""".format(sp.Fail)
+
+frmFailClassificationsOption += """</select>"""
+
+
+filterProgram = '' if model.Data.program == str(999999) else ' AND pro.Id = {}'.format(model.Data.program) if model.Data.program else ''
+filterFailClassfication = '' if model.Data.failclassification == str(999999) else """ AND fe.Fail = '{}'""".format(model.Data.failclassification) if model.Data.failclassification else ''
+filterFailClassficationOrgStat = '' if model.Data.failclassification == str(999999) else """ AND fe.Fail = ''{}''""".format(model.Data.failclassification) if model.Data.failclassification else ''
+
+        
+#<p style="margin: 0; padding: 0;">
 
 headerTemplate = '''
+    <div class="container" style="display: flex; justify-content: flex-end;">
+        <a href="https://www.twilio.com/docs/sendgrid/ui/analytics-and-reporting/bounce-and-block-classifications" target="_blank">Failure Classification Documentation</a>
+    </div>
     <form action="" method="GET">
+        {4} {3}<br>
         <label for="sDate">Start:</label>
         <input type="date" id="sDate" name="sDate" required {0}>
         <label for="eDate">End:</label>
         <input type="date" id="eDate" name="eDate" required {1}>
-        {3}
+        <input type="checkbox" id="HideSuccess" name="HideSuccess" value="yes" {2}>
+        <label for="HideSuccess" class="no-print">Show Successfully Sent <i>(This is slow)</i></label>        </p>
         <input type="submit" value="Submit">
-        <p style="margin: 0; padding: 0;">
-            <input type="checkbox" id="HideSuccess" name="HideSuccess" value="yes" {2}>
-            <label for="HideSuccess" class="no-print">Show Successfully Sent <i>(This is slow)</i></label>
-        </p>
     </form>
-'''.format(optionsDate,optioneDate,optionHideSuccess,frmProgramOption)
+'''.format(optionsDate,optioneDate,optionHideSuccess,frmProgramOption,frmFailClassificationsOption)
 
-rsql = q.QuerySql(sql.format(sDate,eDate,sqlHideSuccess,filterProgram))
+
+
+rsql = q.QuerySql(sql.format(sDate,eDate,sqlHideSuccess,filterProgram,filterFailClassfication))
 
 TotalEmails = 0
 bodyTemplate = ''
@@ -434,7 +459,7 @@ bodyTemplate += generate_html_table(
 
 
 ####### Involvement Stats #######
-rsqlOrgStat = q.QuerySql(sqlOrgStat.format(sDate,eDate,sqlHideSuccess,filterProgram))
+rsqlOrgStat = q.QuerySql(sqlOrgStat.format(sDate,eDate,sqlHideSuccess,filterProgram,filterFailClassficationOrgStat))
 #rsqlOrgDetails = q.QuerySql(sqlOrgDetails.format(sDate,eDate,sqlHideSuccess))
 
 
@@ -529,7 +554,7 @@ bodyTemplate += generate_html_table(
 
 
 ###### User Failed Stats  ######
-rsqlUserFailedStat = q.QuerySql(sqlUserFailedStat.format(sDate,eDate,sqlHideSuccess,filterProgram))
+rsqlUserFailedStat = q.QuerySql(sqlUserFailedStat.format(sDate,eDate,sqlHideSuccess,filterProgram,filterFailClassfication))
 
 # Extract relevant attributes (ignoring anything that starts with "_")
 data_list = [{attr: getattr(row, attr) for attr in dir(row) if not attr.startswith("_")} for row in rsqlUserFailedStat]
