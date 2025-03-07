@@ -1,0 +1,249 @@
+#Role=Admin
+
+import re
+import datetime
+from datetime import datetime
+from types import NoneType
+
+model.Header = "Child Attending and Parents Not (last 90 days)"
+
+sql = '''
+WITH childAttending AS (
+--children attending
+SELECT DISTINCT p.PeopleId, p.FamilyId,os.Division
+FROM dbo.People AS p
+LEFT JOIN Attend a ON a.PeopleId = p.PeopleId
+INNER JOIN OrganizationStructure os ON os.OrgId = a.OrganizationId
+WHERE (EXISTS(
+    SELECT NULL AS EMPTY
+    FROM dbo.Families AS t1, dbo.People AS t2
+    WHERE (t2.PositionInFamilyId = 10) AND (p.PositionInFamilyId >= 30) AND (t1.FamilyId = p.FamilyId) AND (t2.FamilyId = t1.FamilyId)
+    )) AND (NOT (p.IsDeceased = 1)) AND (NOT (p.ArchivedFlag = 1))
+AND a.MeetingDate >= DATEADD(d, -90, GETDATE())
+AND a.AttendanceFlag = 1
+AND os.ProgId = 1128
+),
+
+
+parentAttending AS(
+Select 
+ Distinct p.PeopleId, p.FamilyId, p.PositionInFamilyId
+
+From People p
+INNER JOIN childAttending ca ON ca.FamilyId = p.FamilyId
+LEFT JOIN Attend a ON a.PeopleId = p.PeopleId
+Where 
+a.MeetingDate >= DATEADD(d, -90, GETDATE())
+AND a.AttendanceFlag = 1
+),
+
+parentList AS (Select Distinct p.PeopleId
+,p.FamilyId
+,p.Name
+,p.Age
+,p.PictureId
+,p.PositionInFamilyId
+,pic1.ThumbUrl AS [pic]
+FROM People p
+INNER JOIN childAttending ca ON ca.FamilyId = p.FamilyId
+LEFT JOIN Picture pic1 ON pic1.PictureId = p.PictureId
+WHERE p.PeopleId NOT IN (Select PeopleId FROM parentAttending)
+AND p.PositionInFamilyId IN (10,20)),
+
+lastContact AS (
+SELECT 
+	 TKN1.AboutPersonId as TaskNotePID1
+	,DATEDIFF(day,MAX(TKN1.CreatedDate),GETDATE()) AS [LastNote]
+From tasknote TKN1
+LEFT JOIN parentList pl ON TKN1.AboutPersonId = pl.PeopleId
+Group By TKN1.AboutPersonId
+)
+
+Select  p.PeopleId
+,p.FamilyId
+,p.Name
+,p.Age
+,pic1.ThumbUrl AS [pic]
+,lc.LastNote
+,STRING_AGG(caDiv.Division, ', ') AS [Division]
+FROM parentList p
+--INNER JOIN childAttending ca ON ca.FamilyId = p.FamilyId
+LEFT JOIN Picture pic1 ON pic1.PictureId = p.PictureId
+LEFT JOIN lastContact lc ON lc.TaskNotePID1 = p.PeopleId
+LEFT JOIN  (Select Distinct Division, FamilyId From childAttending) caDiv ON caDiv.FamilyId = p.FamilyId
+WHERE 
+ p.PeopleId NOT IN (Select PeopleId FROM parentAttending)
+AND p.PositionInFamilyId IN (10,20)
+Group By p.PeopleId
+,p.FamilyId
+,p.Name
+,p.Age
+,pic1.ThumbUrl 
+,lc.LastNote
+ORDER BY p.FamilyId, p.Name
+'''
+sqlold = '''WITH childAttending AS (
+--children attending
+SELECT DISTINCT p.PeopleId, p.FamilyId
+FROM dbo.People AS p
+LEFT JOIN Attend a ON a.PeopleId = p.PeopleId
+INNER JOIN OrganizationStructure os ON os.OrgId = a.OrganizationId
+WHERE (EXISTS(
+    SELECT NULL AS EMPTY
+    FROM dbo.Families AS t1, dbo.People AS t2
+    WHERE (t2.PositionInFamilyId = 10) AND (p.PositionInFamilyId >= 30) AND (t1.FamilyId = p.FamilyId) AND (t2.FamilyId = t1.FamilyId)
+    )) AND (NOT (p.IsDeceased = 1)) AND (NOT (p.ArchivedFlag = 1))
+AND a.MeetingDate >= DATEADD(d, -90, GETDATE())
+AND a.AttendanceFlag = 1
+AND os.ProgId = 1128
+),
+
+
+parentAttending AS(
+Select 
+ Distinct p.PeopleId, p.FamilyId, p.PositionInFamilyId
+
+From People p
+INNER JOIN childAttending ca ON ca.FamilyId = p.FamilyId
+LEFT JOIN Attend a ON a.PeopleId = p.PeopleId
+Where 
+a.MeetingDate >= DATEADD(d, -90, GETDATE())
+AND a.AttendanceFlag = 1
+--AND p.PeopleId = 22482
+
+),
+
+parentList AS (Select Distinct p.PeopleId
+,p.FamilyId
+,p.Name
+,p.Age
+,p.PictureId
+,p.PositionInFamilyId
+,pic1.ThumbUrl AS [pic]
+FROM People p
+INNER JOIN childAttending ca ON ca.FamilyId = p.FamilyId
+LEFT JOIN Picture pic1 ON pic1.PictureId = p.PictureId
+WHERE p.PeopleId NOT IN (Select PeopleId FROM parentAttending)
+AND p.PositionInFamilyId IN (10,20)),
+
+lastContact AS (
+SELECT 
+	 TKN1.AboutPersonId as TaskNotePID1
+	,DATEDIFF(day,MAX(TKN1.CreatedDate),GETDATE()) AS [LastNote]
+From tasknote TKN1
+LEFT JOIN parentList pl ON TKN1.AboutPersonId = pl.PeopleId
+Group By TKN1.AboutPersonId
+)
+
+Select Distinct p.PeopleId
+,p.FamilyId
+,p.Name
+,p.Age
+,pic1.ThumbUrl AS [pic]
+,lc.LastNote
+FROM parentList p
+INNER JOIN childAttending ca ON ca.FamilyId = p.FamilyId
+LEFT JOIN Picture pic1 ON pic1.PictureId = p.PictureId
+LEFT JOIN lastContact lc ON lc.TaskNotePID1 = p.PeopleId
+WHERE p.PeopleId NOT IN (Select PeopleId FROM parentAttending)
+AND p.PositionInFamilyId IN (10,20)
+ORDER BY p.FamilyId, p.Name'''
+
+
+
+sqldata = q.QuerySql(sql)
+records = ''
+for i in sqldata:
+    if records != '':
+        records += ','
+        
+    records += '{'
+    records += '''peopleid: {0},
+                  familyid: {1},
+                  name: "{2}",
+                  age: {3},
+                  img: "{4}",
+                  lastnote: "{5}",
+                  division: "{6}"
+                    '''.format(i.PeopleId, i.FamilyId,i.Name,i.Age if i.Age else 999,i.pic,i.LastNote if i.LastNote else "",i.Division)
+    records += '}'
+
+print('''
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise/dist/ag-grid-enterprise.js"></script>
+    <hr><i>These are parents that are "not" attending a connect group, but their children have attended a connect group in the last 90 days.</br></br>Note: Some are on here due to no attendance being collected. This is something that needs to be addressed.</i><hr>
+    <div id="history-grid" class="ag-theme-quartz" style="height: 800px"></div>
+
+    <script>
+
+    // Grid Options: Contains all of the grid configurations
+    var numberSort = (num1, num2) => {
+        return num1 - num2;
+      };
+    const gridOptions = {
+        rowData: [
+            ''' + records + '''
+        ],
+        // Column Definitions: Defines & controls grid columns.
+        columnDefs: [
+            { headerName: 'FamilyId', field: "familyid", aggFunc: "count", enableRowGroup: true, cellDataType: 'number', comparator: numberSort, filter: 'agNumberColumnFilter' },
+            { headerName: 'img', field: "img", enableRowGroup: true, cellRenderer: function(params) {
+                    if(params.data){return '<img src="' + params.value + '" alt="" width="50">'}
+                    else{return '';}} },
+            { field: "name", enableRowGroup: true, cellRenderer: function(params) {
+                    if(params.data){return '<a href=/Person2/' + params.data.peopleid + ' target="_blank">' + params.value + '</a>'}
+                    else{return '';}} },
+            { headerName: 'Age', field: "age", enableRowGroup: true, cellDataType: 'number', comparator: numberSort, filter: 'agNumberColumnFilter' },
+            { headerName: 'Last Contact (Days Ago)', field: "lastnote", enableRowGroup: true},
+            { headerName: 'Child(ren) Attending', field: "division", enableRowGroup: true }
+        ],
+        defaultColDef: {
+            flex: 1,
+            minWidth: 150,
+            filter: 'agMultiColumnFilter',
+            menuTabs: ['filterMenuTab'],
+            wrapText: true,     
+            autoHeight: true,
+            wrapHeaderText: true,
+            autoHeaderHeight: true
+        },
+        groupDefaultExpanded: -1,
+        // possible options: 'never', 'always', 'onlyWhenGrouping'
+        //rowGroupPanelShow: 'always',
+        enableRangeSelection: true,
+        grandTotalRow: 'top',
+        autoSizeStrategy: {
+            type: "fitCellContents",
+        },
+        sideBar: {
+            toolPanels: [
+                {
+                    id: 'columns',
+                    labelDefault: 'Columns',
+                    labelKey: 'columns',
+                    iconKey: 'columns',
+                    toolPanel: 'agColumnsToolPanel',
+                },
+                {
+                    id: 'filters',
+                    labelDefault: 'Filters',
+                    labelKey: 'filters',
+                    iconKey: 'filter',
+                    toolPanel: 'agFiltersToolPanel',
+                }
+            ],
+            //defaultToolPanel: 'columns',
+            defaultToolPanel: "",
+            
+        },
+
+
+    };
+
+    const myGridElement = document.querySelector('#history-grid');
+    agGrid.createGrid(myGridElement, gridOptions);
+
+</script>
+
+''')
+
+# https://www.ag-grid.com/javascript-data-grid/filtering/
