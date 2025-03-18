@@ -1,7 +1,7 @@
 SELECT 
     CASE 
-        WHEN GROUPING(pro.Name) = 1 THEN 'Total'
-        ELSE pro.Name 
+        WHEN GROUPING(os.Program) = 1 THEN 'Total'
+        ELSE os.Program 
     END AS Name,
     SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -0, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [CurrentMonth],
     SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -1, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [LastMonth],
@@ -17,11 +17,9 @@ SELECT
     SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -11, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [11MonthsAgo],
     SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -12, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [12MonthsAgo]
 FROM EmailQueueTo eqt
-LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
-LEFT JOIN Division d ON d.Id = o.DivisionId
-LEFT JOIN Program pro ON pro.Id = d.ProgId
+LEFT JOIN OrganizationStructure os ON os.OrgId = eqt.OrgId
 WHERE eqt.Sent >= DATEADD(year, -2, GETDATE())
-GROUP BY ROLLUP (pro.Name)
+GROUP BY ROLLUP (os.Program)
 ORDER BY 
-    CASE WHEN GROUPING(pro.Name) = 1 THEN 1 ELSE 0 END, 
-    pro.Name;
+    CASE WHEN GROUPING(os.Program) = 1 THEN 1 ELSE 0 END, 
+    os.Program;
