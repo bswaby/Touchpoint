@@ -1,0 +1,280 @@
+#####################################################################
+####EMAIL MoM REPORT INFORMATION
+#####################################################################
+#This will show the email MoM 
+#
+
+#Installation:
+#  Installation is easy, but it does require rights to Special Content.
+#  1. Copy all this code
+#  2. In TP, go to Admin~Advanced~Special Content~Python Scripts Tab
+#  3. Select New Python Script File, Name the File, and click submit
+#  4. Paste in the code and run
+#  5. Add to menu if needed
+
+#####################################################################
+####USER CONFIG FIELDS
+#####################################################################
+#These are defined variables that are required for the report to run.
+
+model.Header = "Email MoM Stats"
+
+#######################################################################
+####START OF CODE.  No configuration should be needed beyond this point
+#######################################################################
+#######################################################################
+
+import json
+
+
+def generate_ag_grid_html(data, hide_columns=None, url_columns=None, bold_columns=None, column_order=None, 
+                          date_columns=None, header_rename=None, column_alignment=None, title=None, 
+                          height=500, header_font_size="14px", content_font_size="12px"):
+    if not data:
+        return "<p>No data available.</p>"  # If no data, return a simple message
+    
+    hide_columns = hide_columns or []
+    url_columns = url_columns or {}
+    bold_columns = bold_columns or []
+    column_order = column_order or []
+    date_columns = date_columns or []
+    header_rename = header_rename or {}
+    column_alignment = column_alignment or {}
+    title = title or ''
+
+    # Get headers from data
+    headers = list(data[0].keys())
+
+    # Only add OrgId if it's needed for URL generation
+    needs_orgid = any("{OrgId}" in v for v in url_columns.values())
+    if needs_orgid and "OrgId" not in headers:
+        headers.append("OrgId")
+
+    # Reorder columns based on column_order
+    if column_order:
+        headers = [h for h in column_order if h in headers] + [h for h in headers if h not in column_order]
+
+    # Create ag-Grid column definitions
+    column_defs = []
+    for h in headers:
+        if h not in hide_columns:
+            col_def = {
+                "headerName": header_rename.get(h, h),
+                "field": h,
+                "cellStyle": {"textAlign": column_alignment.get(h, "left")},
+                "cellRenderer": "customUrlRenderer" if h in url_columns else None,  # Apply custom URL renderer
+            }
+            column_defs.append(col_def)
+
+    # Process row data
+    row_data = []
+    for row in data:
+        row_dict = {}
+
+        # Ensure OrgId is always included, even if missing in the row
+        row_dict["OrgId"] = row.get("OrgId", "")
+
+        for h in headers:
+            if h in hide_columns:
+                continue  # Skip hidden columns in visible data
+
+            cell_value = row.get(h, "")
+
+            # Format dates
+            if h in date_columns and cell_value:
+                cell_value = str(cell_value).split(" ")[0]
+
+            # Apply bold formatting
+            if h in bold_columns:
+                cell_value = "<b>{}</b>".format(cell_value)
+
+            if h in url_columns and cell_value:
+                url_format = url_columns[h]
+            
+                # Ensure OrgId and id exist before formatting
+                formatted_url = url_format
+                if "{OrgId}" in url_format and "OrgId" in row:
+                    formatted_url = formatted_url.replace("{OrgId}", str(row.get("OrgId", "")))
+                else:
+                    formatted_url = formatted_url.replace("{OrgId}", "")  # Avoid KeyError
+            
+                if "{id}" in url_format and "id" in row:
+                    formatted_url = formatted_url.replace("{id}", str(row.get("id", "")))
+                else:
+                    formatted_url = formatted_url.replace("{id}", "")
+            
+                cell_value = '<a href="{}" target="_blank">{}</a>'.format(formatted_url, cell_value)
+
+
+
+            row_dict[h] = cell_value
+
+        row_data.append(row_dict)
+
+    # Convert data to JSON format for ag-Grid
+    grid_json = json.dumps({"columnDefs": column_defs, "rowData": row_data}, indent=2)
+    url_columns_json = json.dumps(url_columns)  # Serialize the URL columns
+
+
+    html = """
+    <title>{0}</title>
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@26.0.0/dist/ag-grid-community.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@26.0.0/dist/ag-grid-enterprise.min.js"></script>  <!-- For Excel Export -->
+    <style>
+        #myGrid {{
+            height: {1}px;
+            width: 100%;
+        }}
+        .ag-header-cell-label {{
+            font-size: {2};  
+        }}
+        .ag-cell {{
+            font-size: {3};  
+        }}
+    </style>
+    
+    <h2>{4}</h2>
+    <div id="myGrid" class="ag-theme-alpine"></div>
+    
+    <script>
+        var url_columns = {6};  // Injecting the url_columns dictionary as JavaScript object
+        var gridData = {5};  // Inject grid JSON directly
+        
+        function customUrlRenderer(params) {{
+            if (!params.data) return params.value;
+        
+            var orgId = params.data.OrgId || "";  // Ensure OrgId is valid
+            var rowId = params.data.id || "";     // Ensure id is valid
+            var urlPattern = url_columns[params.column.getColId()];
+        
+            if (urlPattern) {{
+                var url = urlPattern.replace("{{{{OrgId}}}}", orgId).replace("{{{{id}}}}", rowId);
+                return params.value ? '<a href="' + url + '" target="_blank">' + params.value + '</a>' : "";
+            }}
+            
+            return params.value;
+        }}
+    
+        document.addEventListener("DOMContentLoaded", function() {{
+            var gridDiv = document.querySelector("#myGrid");
+            if (typeof agGrid !== 'undefined' && agGrid.Grid) {{
+                new agGrid.Grid(gridDiv, {{
+                    columnDefs: gridData.columnDefs,
+                    rowData: gridData.rowData,
+                    defaultColDef: {{
+                        flex: 1,
+                        minWidth: 10,
+                        filter: 'agMultiColumnFilter',
+                        sortable: true,
+                        filter: true,
+                        resizable: true,
+                        menuTabs: ['filterMenuTab'],
+                        wrapText: true, 
+                        autoHeight: true,
+                        wrapHeaderText: true,
+                        autoHeaderHeight: true
+                    }},
+                    groupDefaultExpanded: -1,
+                    enableRangeSelection: true,
+                    enableExcelExport: true,  // Enable Excel Export
+                    sideBar: {{
+                        toolPanels: [
+                            {{
+                                id: 'columns',
+                                labelDefault: 'Columns',
+                                labelKey: 'columns',
+                                iconKey: 'columns',
+                                toolPanel: 'agColumnsToolPanel'
+                            }},
+                            {{
+                                id: 'filters',
+                                labelDefault: 'Filters',
+                                labelKey: 'filters',
+                                iconKey: 'filter',
+                                toolPanel: 'agFiltersToolPanel'
+                            }}
+                        ],
+                        defaultToolPanel: ""  // You can change this to 'columns' if you want to show the columns panel by default
+                    }},
+                    excelStyles: [  // Customize Excel export styles if needed
+                        {{
+                            header: {{
+                                font: {{
+                                    bold: true,
+                                    size: 14
+                                }},
+                                alignment: {{
+                                    horizontal: "center"
+                                }}
+                            }},
+                            cell: {{
+                                font: {{
+                                    size: 12
+                                }}
+                            }}
+                        }}
+                    ]
+                }});
+            }} else {{
+                console.error("agGrid is not loaded or not accessible.");
+            }}
+        }});
+    </script>
+    """.format(title, height, header_font_size, content_font_size, title, grid_json, url_columns_json)
+
+
+    return html
+    
+
+sql = '''
+    SELECT 
+        eq.FromAddr AS Email,
+    	SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -0, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [CurrentMonth],
+        SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -1, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [LastMonth],
+        SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -2, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [2MonthsAgo],
+        SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -3, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [3MonthsAgo],
+        SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -4, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [4MonthsAgo],
+        SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -5, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [5MonthsAgo],
+        SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -6, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [6MonthsAgo],
+        SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -7, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [7MonthsAgo],
+        SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -8, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [8MonthsAgo],
+        SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -9, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [9MonthsAgo],
+        SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -10, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [10MonthsAgo],
+        SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -11, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [11MonthsAgo],
+        SUM(CASE WHEN FORMAT(eqt.Sent, 'yyyy-MM') = FORMAT(DATEADD(month, -12, GETDATE()), 'yyyy-MM') THEN 1 ELSE 0 END) AS [12MonthsAgo]
+    FROM EmailQueueTo eqt
+    INNER JOIN EmailQueue eq ON eq.Id = eqt.Id
+    WHERE eqt.Sent >= DATEADD(year, -2, GETDATE())
+    GROUP BY eq.FromAddr
+    ORDER BY 
+        CurrentMonth Desc
+    '''
+
+
+####### Involvement Stats #######
+rsql = q.QuerySql(sql)
+#rsqlOrgDetails = q.QuerySql(sqlOrgDetails.format(sDate,eDate,sqlHideSuccess))
+
+
+# Extract relevant attributes (ignoring anything that starts with "_")
+data_list = [{attr: getattr(row, attr) for attr in dir(row) if not attr.startswith("_")} for row in rsql]
+#print data_list
+
+data = data_list
+#title="MoM Email Stats by Person"
+hide_columns = [] #"OrgId","id"
+url_columns = {"": "",}
+bold_columns = [""]
+date_columns = [""]
+header_rename = {"": ""}
+column_alignment = {"": ""}
+column_order = ['Email','CurrentMonth','LastMonth','2MonthsAgo','3MonthsAgo','4MonthsAgo','5MonthsAgo','6MonthsAgo','7MonthsAgo','8MonthsAgo','9MonthsAgo','10MonthsAgo','11MonthsAgo','12MonthsAgo']
+header_font_size = "12px"
+content_font_size = "12px"
+
+
+html_output = generate_ag_grid_html(data, hide_columns, url_columns, bold_columns, column_order, 
+                                    date_columns, header_rename, column_alignment, header_font_size=header_font_size, 
+                                    content_font_size=content_font_size)
+                                    
+print html_output
