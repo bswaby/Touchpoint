@@ -27,20 +27,25 @@ model.Header = "Email MoM Stats"
 import json
 
 
-def generate_ag_grid_html(data, hide_columns=None, url_columns=None, bold_columns=None, column_order=None, 
+#def generate_ag_grid_html(data, hide_columns=None, url_columns=None, bold_columns=None, column_order=None, 
+#                          date_columns=None, header_rename=None, column_alignment=None, title=None, 
+#                          height=500, header_font_size="14px", content_font_size="12px", sum_columns=None):
+def generate_ag_grid_html(data, hide_columns=None, url_columns=None, bold_columns=None, sum_columns=None, column_order=None, 
                           date_columns=None, header_rename=None, column_alignment=None, title=None, 
-                          height=500, header_font_size="14px", content_font_size="12px"):
+                          height=500, header_font_size="14px", content_font_size="12px", min_width=100, column_min_widths=None):
     if not data:
-        return "<p>No data available.</p>"  # If no data, return a simple message
+        return "<p>No data available.</p>"
     
     hide_columns = hide_columns or []
     url_columns = url_columns or {}
     bold_columns = bold_columns or []
+    sum_columns = sum_columns or []
     column_order = column_order or []
     date_columns = date_columns or []
     header_rename = header_rename or {}
     column_alignment = column_alignment or {}
     title = title or ''
+    column_min_widths = column_min_widths or {}
 
     # Get headers from data
     headers = list(data[0].keys())
@@ -62,74 +67,58 @@ def generate_ag_grid_html(data, hide_columns=None, url_columns=None, bold_column
                 "headerName": header_rename.get(h, h),
                 "field": h,
                 "cellStyle": {"textAlign": column_alignment.get(h, "left")},
-                "cellRenderer": "customUrlRenderer" if h in url_columns else None,  # Apply custom URL renderer
+                "cellRenderer": "customUrlRenderer" if h in url_columns else None,
+                "minWidth": column_min_widths.get(h, min_width),  # Set per-column or default minWidth
             }
+            # Add sum aggregation if specified
+            if sum_columns and h in sum_columns:
+                col_def["aggFunc"] = "sum"
             column_defs.append(col_def)
 
     # Process row data
     row_data = []
     for row in data:
         row_dict = {}
-
-        # Ensure OrgId is always included, even if missing in the row
         row_dict["OrgId"] = row.get("OrgId", "")
 
         for h in headers:
             if h in hide_columns:
-                continue  # Skip hidden columns in visible data
+                continue
 
             cell_value = row.get(h, "")
 
-            # Format dates
             if h in date_columns and cell_value:
                 cell_value = str(cell_value).split(" ")[0]
 
-            # Apply bold formatting
             if h in bold_columns:
                 cell_value = "<b>{}</b>".format(cell_value)
 
             if h in url_columns and cell_value:
-                url_format = url_columns[h]
-            
-                # Ensure OrgId and id exist before formatting
-                formatted_url = url_format
-                if "{OrgId}" in url_format and "OrgId" in row:
-                    formatted_url = formatted_url.replace("{OrgId}", str(row.get("OrgId", "")))
-                else:
-                    formatted_url = formatted_url.replace("{OrgId}", "")  # Avoid KeyError
-            
-                if "{id}" in url_format and "id" in row:
-                    formatted_url = formatted_url.replace("{id}", str(row.get("id", "")))
-                else:
-                    formatted_url = formatted_url.replace("{id}", "")
-            
+                formatted_url = url_columns[h].replace("{OrgId}", str(row.get("OrgId", ""))).replace("{id}", str(row.get("id", "")))
                 cell_value = '<a href="{}" target="_blank">{}</a>'.format(formatted_url, cell_value)
-
-
 
             row_dict[h] = cell_value
 
         row_data.append(row_dict)
 
-    # Convert data to JSON format for ag-Grid
+    # Convert to JSON
     grid_json = json.dumps({"columnDefs": column_defs, "rowData": row_data}, indent=2)
-    url_columns_json = json.dumps(url_columns)  # Serialize the URL columns
-
+    url_columns_json = json.dumps(url_columns)
 
     html = """
     <title>{0}</title>
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@26.0.0/dist/ag-grid-community.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@26.0.0/dist/ag-grid-enterprise.min.js"></script>  <!-- For Excel Export -->
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@26.0.0/dist/ag-grid-enterprise.min.js"></script>
     <style>
         #myGrid {{
             height: {1}px;
             width: 100%;
         }}
         .ag-header-cell-label {{
-            font-size: {2};  
+            font-size: {2};
         }}
         .ag-cell {{
-            font-size: {3};  
+            font-size: {3};
         }}
     </style>
     
@@ -137,93 +126,50 @@ def generate_ag_grid_html(data, hide_columns=None, url_columns=None, bold_column
     <div id="myGrid" class="ag-theme-alpine"></div>
     
     <script>
-        var url_columns = {6};  // Injecting the url_columns dictionary as JavaScript object
-        var gridData = {5};  // Inject grid JSON directly
-        
+        var gridData = {5};
+        var url_columns = {6};
+
         function customUrlRenderer(params) {{
             if (!params.data) return params.value;
-        
-            var orgId = params.data.OrgId || "";  // Ensure OrgId is valid
-            var rowId = params.data.id || "";     // Ensure id is valid
+            var orgId = params.data.OrgId || "";
+            var rowId = params.data.id || "";
             var urlPattern = url_columns[params.column.getColId()];
-        
             if (urlPattern) {{
                 var url = urlPattern.replace("{{{{OrgId}}}}", orgId).replace("{{{{id}}}}", rowId);
                 return params.value ? '<a href="' + url + '" target="_blank">' + params.value + '</a>' : "";
             }}
-            
             return params.value;
         }}
-    
+
         document.addEventListener("DOMContentLoaded", function() {{
             var gridDiv = document.querySelector("#myGrid");
-            if (typeof agGrid !== 'undefined' && agGrid.Grid) {{
-                new agGrid.Grid(gridDiv, {{
-                    columnDefs: gridData.columnDefs,
-                    rowData: gridData.rowData,
-                    defaultColDef: {{
-                        flex: 1,
-                        minWidth: 10,
-                        filter: 'agMultiColumnFilter',
-                        sortable: true,
-                        filter: true,
-                        resizable: true,
-                        menuTabs: ['filterMenuTab'],
-                        wrapText: true, 
-                        autoHeight: true,
-                        wrapHeaderText: true,
-                        autoHeaderHeight: true
-                    }},
-                    groupDefaultExpanded: -1,
-                    enableRangeSelection: true,
-                    enableExcelExport: true,  // Enable Excel Export
-                    sideBar: {{
-                        toolPanels: [
-                            {{
-                                id: 'columns',
-                                labelDefault: 'Columns',
-                                labelKey: 'columns',
-                                iconKey: 'columns',
-                                toolPanel: 'agColumnsToolPanel'
-                            }},
-                            {{
-                                id: 'filters',
-                                labelDefault: 'Filters',
-                                labelKey: 'filters',
-                                iconKey: 'filter',
-                                toolPanel: 'agFiltersToolPanel'
-                            }}
-                        ],
-                        defaultToolPanel: ""  // You can change this to 'columns' if you want to show the columns panel by default
-                    }},
-                    excelStyles: [  // Customize Excel export styles if needed
-                        {{
-                            header: {{
-                                font: {{
-                                    bold: true,
-                                    size: 14
-                                }},
-                                alignment: {{
-                                    horizontal: "center"
-                                }}
-                            }},
-                            cell: {{
-                                font: {{
-                                    size: 12
-                                }}
-                            }}
-                        }}
-                    ]
-                }});
-            }} else {{
-                console.error("agGrid is not loaded or not accessible.");
-            }}
+            new agGrid.Grid(gridDiv, {{
+                columnDefs: gridData.columnDefs,
+                rowData: gridData.rowData,
+                defaultColDef: {{
+                    flex: 1,
+                    minWidth: {7},
+                    filter: 'agMultiColumnFilter',
+                    sortable: true,
+                    filter: true,
+                    resizable: true,
+                    wrapText: true,
+                    autoHeight: true,
+                    wrapHeaderText: true,
+                    autoHeaderHeight: true
+                }},
+                grandTotalRow: "bottom",
+                groupIncludeFooter: true,
+                groupIncludeTotalFooter: true,
+                enableRangeSelection: true,
+                enableExcelExport: true
+            }});
         }});
     </script>
-    """.format(title, height, header_font_size, content_font_size, title, grid_json, url_columns_json)
-
+    """.format(title, height, header_font_size, content_font_size, title, grid_json, url_columns_json, min_width)
 
     return html
+
     
 
 sql = '''
@@ -265,16 +211,32 @@ data = data_list
 hide_columns = [] #"OrgId","id"
 url_columns = {"": "",}
 bold_columns = [""]
+sum_columns = ['CurrentMonth', 'LastMonth','2MonthsAgo','3MonthsAgo','4MonthsAgo','5MonthsAgo','6MonthsAgo','7MonthsAgo','8MonthsAgo','9MonthsAgo','10MonthsAgo','11MonthsAgo','12MonthsAgo'] 
 date_columns = [""]
 header_rename = {"": ""}
 column_alignment = {"": ""}
 column_order = ['Email','CurrentMonth','LastMonth','2MonthsAgo','3MonthsAgo','4MonthsAgo','5MonthsAgo','6MonthsAgo','7MonthsAgo','8MonthsAgo','9MonthsAgo','10MonthsAgo','11MonthsAgo','12MonthsAgo']
 header_font_size = "12px"
 content_font_size = "12px"
+min_width=75
+column_min_widths = {"Email": 200}
+
+html_output = generate_ag_grid_html(
+    data, 
+    hide_columns, 
+    url_columns, 
+    bold_columns, 
+    sum_columns=sum_columns,
+    column_order=column_order, 
+    date_columns=date_columns,
+    header_rename=header_rename, 
+    column_alignment=column_alignment,
+    header_font_size=header_font_size, 
+    content_font_size=content_font_size,
+    min_width=min_width, 
+    column_min_widths=column_min_widths)
 
 
-html_output = generate_ag_grid_html(data, hide_columns, url_columns, bold_columns, column_order, 
-                                    date_columns, header_rename, column_alignment, header_font_size=header_font_size, 
-                                    content_font_size=content_font_size)
+
                                     
 print html_output
