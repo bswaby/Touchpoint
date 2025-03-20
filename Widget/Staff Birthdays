@@ -11,6 +11,7 @@
 title = '''Birthday & Wedding Anniversaries'''
 staffOrgs = '852' #involvement ID's of staff.. seperate with comma for multiple 
 daysToLookOut = '30' #set to how many days you want to look out
+savedQuery = 'Dashboard_Birthday-Wedding' #Name of saved query
 
 
 #######################################################
@@ -18,68 +19,61 @@ daysToLookOut = '30' #set to how many days you want to look out
 #######################################################
 
 model.Header = title
-sqlold = '''select p.PeopleId, Name, CONCAT(p.birthMonth, '/', p.BirthDay) AS [Birthday] from [Organizations] o
-inner join OrganizationMembers om ON om.OrganizationId = o.OrganizationId
-inner join People p ON p.PeopleId = om.PeopleId
-where 
-o.OrganizationId IN (''' + staffOrgs + ''')
-AND DATEADD (year, DatePart(year, getdate()) - DatePart(year, p.BDate), p.BDate)
-      between convert(datetime, DateAdd(day,-1,getdate()), 101) 
-              and convert(datetime, DateAdd(day,''' + daysToLookOut + ''', getdate()), 101)
-Order by p.BirthMonth, p.BirthDay'''
 
 sql = '''WITH weddingDate AS (
-select p.PeopleId
-, Name
-,'Wedding' AS [Type]
-,FORMAT(p.WeddingDate,'MM/dd') AS [dDate]
-from [Organizations] o
-inner join OrganizationMembers om ON om.OrganizationId = o.OrganizationId
-inner join People p ON p.PeopleId = om.PeopleId
-where 
-o.OrganizationId IN (''' + staffOrgs + ''')
-AND DATEADD (year, DatePart(year, getdate()) - DatePart(year, p.WeddingDate), p.WeddingDate)
-      between convert(datetime, DateAdd(day,-1,getdate()), 101) 
-              and convert(datetime, DateAdd(day,''' + daysToLookOut + ''', getdate()), 101)
+    SELECT DISTINCT 
+        p.PeopleId,
+        Name,
+        'Wedding' AS [Type],
+        FORMAT(p.WeddingDate,'MM/dd') AS [dDate]
+    FROM People p
+    WHERE p.PeopleId IN ({0})
+        AND DATEADD (year, DatePart(year, getdate()) - DatePart(year, p.WeddingDate), p.WeddingDate)
+        between convert(datetime, DateAdd(day,-1,getdate()), 101) and convert(datetime, DateAdd(day,{1}, getdate()), 101)
 )
 
-select 
-p.PeopleId
-,Name
-,FORMAT(p.BDate,'MM/dd') AS [dDate]
-,'Birthday' AS [Type]
-from [Organizations] o
-inner join OrganizationMembers om ON om.OrganizationId = o.OrganizationId
-inner join People p ON p.PeopleId = om.PeopleId
-where 
-o.OrganizationId IN (''' + staffOrgs + ''')
-AND DATEADD (year, DatePart(year, getdate()) - DatePart(year, p.BDate), p.BDate)
-      between convert(datetime, DateAdd(day,-1,getdate()), 101) 
-              and convert(datetime, DateAdd(day,''' + daysToLookOut + ''', getdate()), 101)
+SELECT DISTINCT 
+    p.PeopleId,
+    Name,
+    FORMAT(p.BDate,'MM/dd') AS [dDate],
+    'Birthday' AS [Type]
+FROM People p
+WHERE p.PeopleId IN ({0})
+    AND DATEADD (year, DatePart(year, getdate()) - DatePart(year, p.BDate), p.BDate)
+      between convert(datetime, DateAdd(day,-1,getdate()), 101) and convert(datetime, DateAdd(day,{1}, getdate()), 101)
 
-union all (Select wd.PeopleId, wd.Name, wd.dDate, wd.Type from WeddingDate wd)
-Order by dDate'''
+UNION ALL (Select wd.PeopleId, wd.Name, wd.dDate, wd.Type from WeddingDate wd)
+ORDER BY dDate'''
 
 
 #Start of HTML formatting
 print '''
-<style>
-#divformat {
-  background-color: White;
-  border: 1px solid green;
-  padding: 3px;
-  margin: 0px;
-  margin-top: 4px;
-}
-#smallpadding {
-  padding: 3px;
-  margin: 1px;
-}
-</style>
-<div id="divformat"><h3 id="smallpadding">''' + title + '''</h3><hr id="smallpadding">'''
-data = q.QuerySql(sql)
+    <style>
+    #divformat {
+      background-color: White;
+      border: 1px solid green;
+      padding: 3px;
+      margin: 0px;
+      margin-top: 4px;
+    }
+    #smallpadding {
+      padding: 3px;
+      margin: 1px;
+    }
+    </style>
+    <div id="divformat"><h3 id="smallpadding">''' + title + '''</h3><hr id="smallpadding">'''
+    
+people = ''
+for p in q.QueryList(savedQuery, "PeopleId"):
+    if people:
+        people += ',' + str(p.PeopleId)
+    else:
+        people += str(p.PeopleId)
+    
+data = q.QuerySql(sql.format(people,daysToLookOut))
 
 for i in data:
     print i.dDate + ''' | <a href="/Person2/''' + str(i.PeopleId) + '''#tab-communications">''' + i.Name + '</a> | ' + i.Type + '</br>'
-    
+ 
+#print sql.format(people,daysToLookOut)
 print '</div>'
