@@ -27,7 +27,7 @@ WITH weddingDate AS (
     SELECT DISTINCT 
         p.PeopleId,
         Name,
-        'Wedding' AS [Type],
+        'Wedding'  + ' (' + CAST(DATEDIFF(year, p.WeddingDate, GETDATE()) AS VARCHAR) + ')' AS [Type],
         FORMAT(p.WeddingDate, 'MM/dd') AS [dDate],
         p.WeddingDate AS bDate
     FROM People p
