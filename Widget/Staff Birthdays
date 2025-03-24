@@ -1,124 +1,143 @@
-#This is to show upcoming staff birthdays.  
-#-- Steps --
-#1. Copy this code to a python script (Admin ~ Advanced ~ Special Content ~ Python Scripts) and call it something like WidgetStaffBirthdays and make sure to add the word widget to the content keywords by the script name
-#2. Update config parameters below
-#3. Add as a home page widget (Admin ~ Advanced ~ Homepage Widget) by selecting the script, adding name, and setting permissions that can see it
-
+# Staff Anniversaries Widget Script
 
 #######################################################
-#config parameters
+# Configuration Parameters
 #######################################################
-title = '''Staff Anniversaries'''
-daysToLookOut = '30' #set to how many days you want to look out
-savedQuery = 'Dashboard_Birthday-Wedding' #Name of saved query
-extraValueField = 'WorkAnniversary' #add extra value field name if you want to pull in another date
-extraValueFieldFriendlyName = 'Work Anniversary' # just a fiedly name of extra value
-
-## Legacy.. no longer active. staffOrgs = '852' #involvement ID's of staff.. seperate with comma for multiple 
+title = 'Staff Anniversaries'
+daysToLookOut = '30'  # Number of days to look ahead
+savedQuery = 'Dashboard_Birthday-Wedding'  # Name of saved query
+extraValueField = 'WorkAnniversary'  # Extra value field name
+extraValueFieldFriendlyName = 'Work'  # Friendly name for extra value
 
 #######################################################
-# start of code
+# Main Script with Improved Error Handling
 #######################################################
 
-model.Header = title
+def main():
+    # Set the header
+    model.Header = title
+    
+    # Error handling for saved query
+    try:
+        # Check if saved query exists
+        query_list = q.QueryList(savedQuery)
+        
+        # Verify query is not empty
+        if not query_list:
+            print 'Error: Saved query "%s" is empty or does not exist.' % savedQuery
+            return
+        
+        # Collect PeopleIds
+        people = ''
+        for p in query_list:
+            if people:
+                people += ',' + str(p.PeopleId)
+            else:
+                people += str(p.PeopleId)
+        
+        # Prepare and execute SQL query
+        sql = '''
+        WITH weddingDate AS (
+            SELECT DISTINCT 
+                p.PeopleId,
+                Name,
+                'Wedding'  + ' (' + CAST(DATEDIFF(year, p.WeddingDate, GETDATE()) AS VARCHAR) + ')' AS [Type],
+                FORMAT(p.WeddingDate, 'MM/dd') AS [dDate],
+                p.WeddingDate AS bDate
+            FROM People p
+            WHERE p.PeopleId IN ({0}) 
+            AND DATEADD(year, DATEPART(year, GETDATE()) - DATEPART(year, p.WeddingDate), p.WeddingDate) 
+                BETWEEN CONVERT(datetime, DATEADD(day, -1, GETDATE()), 101) 
+                AND CONVERT(datetime, DATEADD(day, {1}, GETDATE()), 101)
+        ),
+        bDay AS (
+            SELECT DISTINCT
+                p.PeopleId,
+                Name,
+                FORMAT(p.BDate, 'MM/dd') AS [dDate],
+                'Birthday' AS [Type],
+                p.BDate AS bDate
+            FROM People p
+            WHERE p.PeopleId IN ({0})
+            AND DATEADD(year, DATEPART(year, GETDATE()) - DATEPART(year, p.BDate), p.BDate) 
+                BETWEEN CONVERT(datetime, DATEADD(day, -1, GETDATE()), 101) 
+                AND CONVERT(datetime, DATEADD(day, {1}, GETDATE()), 101)
+        )
 
-sql = '''
-WITH weddingDate AS (
-    SELECT DISTINCT 
-        p.PeopleId,
-        Name,
-        'Wedding'  + ' (' + CAST(DATEDIFF(year, p.WeddingDate, GETDATE()) AS VARCHAR) + ')' AS [Type],
-        FORMAT(p.WeddingDate, 'MM/dd') AS [dDate],
-        p.WeddingDate AS bDate
-    FROM People p
-    WHERE p.PeopleId IN ({0}) 
-    AND DATEADD(year, DATEPART(year, GETDATE()) - DATEPART(year, p.WeddingDate), p.WeddingDate) 
-        BETWEEN CONVERT(datetime, DATEADD(day, -1, GETDATE()), 101) 
-        AND CONVERT(datetime, DATEADD(day, {1}, GETDATE()), 101)
-),
-bDay AS (
-    SELECT DISTINCT
-        p.PeopleId,
-        Name,
-        FORMAT(p.BDate, 'MM/dd') AS [dDate],
-        'Birthday' AS [Type],
-        p.BDate AS bDate
-    FROM People p
-    WHERE p.PeopleId IN ({0})
-    AND DATEADD(year, DATEPART(year, GETDATE()) - DATEPART(year, p.BDate), p.BDate) 
-        BETWEEN CONVERT(datetime, DATEADD(day, -1, GETDATE()), 101) 
-        AND CONVERT(datetime, DATEADD(day, {1}, GETDATE()), 101)
-)
+        SELECT * FROM (
+            SELECT DISTINCT
+                p.PeopleId,
+                Name,
+                FORMAT(pe.DateValue, 'MM/dd') AS [dDate],
+                '{3}' + ' (' + CAST(DATEDIFF(year, pe.DateValue, GETDATE()) AS VARCHAR) + ')' AS [Type],
+                pe.DateValue AS bDate
+            FROM People p
+            INNER JOIN PeopleExtra pe ON pe.PeopleId = p.PeopleId AND pe.Field = '{2}'
+            WHERE p.PeopleId IN ({0})
+            AND DATEADD(year, DATEPART(year, GETDATE()) - DATEPART(year, pe.DateValue), pe.DateValue) 
+                BETWEEN CONVERT(datetime, DATEADD(day, -1, GETDATE()), 101)
+                AND CONVERT(datetime, DATEADD(day, {1}, GETDATE()), 101)
+            
+            UNION ALL
+            
+            SELECT
+                wd.PeopleId,
+                wd.Name,
+                wd.dDate,
+                wd.Type,
+                wd.bDate
+            FROM WeddingDate wd
+            
+            UNION ALL
+            
+            SELECT
+                bd.PeopleId,
+                bd.Name,
+                bd.dDate,
+                bd.Type,
+                bd.bDate
+            FROM bDay bd
+        ) AS CombinedResults
+        ORDER BY MONTH(bDate), DAY(bDate)
+        '''
 
-SELECT * FROM (
-    SELECT DISTINCT
-        p.PeopleId,
-        Name,
-        FORMAT(pe.DateValue, 'MM/dd') AS [dDate],
-        '{3}' + ' (' + CAST(DATEDIFF(year, pe.DateValue, GETDATE()) AS VARCHAR) + ')' AS [Type],
-        pe.DateValue AS bDate
-    FROM People p
-    INNER JOIN PeopleExtra pe ON pe.PeopleId = p.PeopleId AND pe.Field = '{2}'
-    WHERE p.PeopleId IN ({0})
-    AND DATEADD(year, DATEPART(year, GETDATE()) - DATEPART(year, pe.DateValue), pe.DateValue) 
-        BETWEEN CONVERT(datetime, DATEADD(day, -1, GETDATE()), 101)
-        AND CONVERT(datetime, DATEADD(day, {1}, GETDATE()), 101)
-    
-    UNION ALL
-    
-    SELECT
-        wd.PeopleId,
-        wd.Name,
-        wd.dDate,
-        wd.Type,
-        wd.bDate
-    FROM WeddingDate wd
-    
-    UNION ALL
-    
-    SELECT
-        bd.PeopleId,
-        bd.Name,
-        bd.dDate,
-        bd.Type,
-        bd.bDate
-    FROM bDay bd
-) AS CombinedResults
-ORDER BY MONTH(bDate), DAY(bDate)
-'''
+        # Start HTML formatting
+        print '''
+        <style>
+        #divformat {
+          background-color: White;
+          border: 1px solid green;
+          padding: 3px;
+          margin: 0px;
+          margin-top: 4px;
+        }
+        #smallpadding {
+          padding: 3px;
+          margin: 1px;
+        }
+        </style>
+        <div id="divformat"><h3 id="smallpadding">''' + title + '''</h3><hr id="smallpadding">'''
+        
+        # Execute SQL query
+        try:
+            data = q.QuerySql(sql.format(people, daysToLookOut, extraValueField, extraValueFieldFriendlyName))
+            
+            # Check if any results were returned
+            if not data:
+                print 'No upcoming anniversaries or birthdays found.'
+            else:
+                # Print results
+                for i in data:
+                    print i.dDate + ''' | <a href="/Person2/''' + str(i.PeopleId) + '''#tab-communications">''' + i.Name + '</a> | ' + i.Type + '</br>'
+        
+        except Exception as sql_error:
+            print 'Error executing SQL query: %s' % str(sql_error)
+        
+        print '</div>'
 
+    except Exception as query_error:
+        # Catch any errors with query retrieval
+        print 'Error retrieving saved query "%s": %s' % (savedQuery, str(query_error))
 
-#Start of HTML formatting
-print '''
-    <style>
-    #divformat {
-      background-color: White;
-      border: 1px solid green;
-      padding: 3px;
-      margin: 0px;
-      margin-top: 4px;
-    }
-    #smallpadding {
-      padding: 3px;
-      margin: 1px;
-    }
-    </style>
-    <div id="divformat"><h3 id="smallpadding">''' + title + '''</h3><hr id="smallpadding">'''
-    
-#--------------------------
-#Add people from savedQuery
-#--------------------------
-people = ''
-for p in q.QueryList(savedQuery, "PeopleId"):
-    if people:
-        people += ',' + str(p.PeopleId)
-    else:
-        people += str(p.PeopleId)
-    
-data = q.QuerySql(sql.format(people,daysToLookOut,extraValueField,extraValueFieldFriendlyName))
-
-for i in data:
-    print i.dDate + ''' | <a href="/Person2/''' + str(i.PeopleId) + '''#tab-communications">''' + i.Name + '</a> | ' + i.Type + '</br>'
- 
-#print sql.format(people,daysToLookOut)
-print '</div>'
+# Call the main function
+main()
