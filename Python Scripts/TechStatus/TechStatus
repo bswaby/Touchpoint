@@ -12,13 +12,11 @@
 #--------------------------------------------------------------------
 ####USER CONFIG FIELDS
 #--------------------------------------------------------------------
-model.Header = 'TechStatus Dashboard'
+model.Header = ''
 
 #--------------------------------------------------------------------
 ####START OF CODE.  No configuration should be needed beyond this point
 #--------------------------------------------------------------------
-
-
 
 # Print job statistics by hour
 sqlKioskPrints = '''
@@ -772,24 +770,26 @@ template = '''
                         <span>Last 72hr Login Failures</span>
                     </div>
                     <div class="card-body">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Failed Times</th>
-                                    <th>Failure Type</th>
-                                    <th>Last Failed Attempt</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {{#each failedloginstat}}
-                                <tr>
-                                    <td><span class="badge badge-danger">{{FailedLogins}}</span></td>
-                                    <td>{{Activity}}</td>
-                                    <td>{{LastFailedAttempt}}</td>
-                                </tr>
-                                {{/each}}
-                            </tbody>
-                        </table>
+                        <div class="scroll-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Failed Times</th>
+                                        <th>Failure Type</th>
+                                        <th>Last Failed Attempt</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{#each failedloginstat}}
+                                    <tr>
+                                        <td><span class="badge badge-danger">{{FailedLogins}}</span></td>
+                                        <td>{{Activity}}</td>
+                                        <td>{{LastFailedAttempt}}</td>
+                                    </tr>
+                                    {{/each}}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
                 
