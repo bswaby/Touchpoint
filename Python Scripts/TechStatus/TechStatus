@@ -1,209 +1,1240 @@
-model.Header = 'TechStatus'
-
-sqlkioskprints = '''
-Select DATEPART(HOUR, Stamp) AS [Hour], Count(*) AS [TotalPrints] from PrintJob group by DATEPART(HOUR, Stamp);
-'''
-sqlprintsinqueue = '''
-Select Id, Stamp from PrintJob where Id <> ''
-'''
-
-sqlfailedloginstat = '''
-Select 
-    Count(Activity) AS [FailedLogins],
-    Activity,
-    Max(ActivityDate) AS [LastFailedAttempt]
-from dbo.activitylog 
-Where 
-    (Activity Like '%Failed password%' 
-        OR Activity Like '%Invalid log%'
-        OR Activity Like '%ForgotPassword%')
-    AND CAST(ActivityDate as Date) >= CAST(DATEADD(DAY, -3, CONVERT(DATE, GETDATE())) AS Date) --CAST(GETDATE() as Date)
-Group By Activity
-Order by Max(ActivityDate) Desc;
-'''
-
-sqlfailedlogins = '''
-Select 
-	Top 200 * 
-From 
-	dbo.activitylog 
-Where 
-	Activity Like '%ForgotPassword%'
-	OR Activity Like '%failed password%'
-	OR Activity Like '%Invalid log%'
-Order by activitydate Desc
-	---OR Activity Like '%OnlineReg Login%'
-'''
-
-sqllogins = '''
-Select 
-	Top 50 * 
-From 
-	dbo.activitylog 
-Where 
-	Activity Like '%logged in%'
-Order by activitydate Desc
-'''
-
-sqlscript = '''
-Select 
-	Top 5 * 
-From 
-	dbo.activitylog 
-Where 
-	Activity Like '%script%'
-Order by activitydate Desc
-'''
-
-    
-template = '''
-<style>
-    div.scroll {
-        bckground-color: #fed9ff;
-        width: 850px;
-        height: 450px;
-        overflow-x: hidden;
-        overflow-y: auto;
-        text-align: center;
-        padding: 5px;
-    }
-</style>
-<h4>Reports</h4>
-<a href="/PyScript/Tech_ChangeLogs/" target="_blank">Change Logs</a>
-<br>
-<a href="/PyScript//Tech_UserStat/" target="_blank">User Account Info</a>
-<br>
-<h5>Print Count</h5>
-<table width="150px"; border="1" cellpadding="5" style="border:1px solid black; border-collapse:collapse">
-    <tbody>
-    <tr style="{{Bold}}">
-        <td  border: 2px solid #000; vertical-align:top;><h6>Hour</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>Total Prints</h6></td>
-    </tr>
-    {{#each kioskprints}}
-    <tr style="{{Bold}}">
-        <td  border: 2px solid #000; vertical-align:top;>{{Hour}}</td>
-        <td  border: 2px solid #000; vertical-align:top;>{{TotalPrints}}</td>
-    </tr>
-    {{/each}}
-    </tbody>
-</table>
-<h5>Stuck Print Jobs @ TP</h5>
-<table width="400px"; border="1" cellpadding="5" style="border:1px solid black; border-collapse:collapse">
-    <tbody>
-    {{#each printsinqueue}}
-    <tr style="{{Bold}}">
-        <td  border: 2px solid #000; vertical-align:top;>{{Id}}</td>
-        <td  border: 2px solid #000; vertical-align:top;>{{Stamp}}</td>
-    </tr>
-    {{/each}}
-    </tbody>
-</table>
-<h5>Failed Logins</h5>
-<h6>--Last 72hr Login Failures--</h6>
-<table width="500px"; border="1" cellpadding="5" style="border:1px solid black; border-collapse:collapse">
-    <tbody>
-    <tr style="{{Bold}}">
-        <td border: 2px solid #000; vertical-align:top;>Failed Times</td>
-        <td border: 2px solid #000; vertical-align:top;>Failure</td>
-        <td width="160px"; border: 2px solid #000; vertical-align:top;>Last Failed Attempt</td>
-    </tr>
-    {{#each failedloginstat}}
-    <tr style="{{Bold}}">
-        <td border: 2px solid #000; vertical-align:top;>{{FailedLogins}}</td>
-        <td border: 2px solid #000; vertical-align:top;>{{Activity}}</td>
-        <td width="160px"; border: 2px solid #000; vertical-align:top;>{{LastFailedAttempt}}</td>
-    </tr>
-    {{/each}}
-    </tbody>
-</table>
-<br>
-<h6>--Last 200 failed attempt logs--</h6>
-<div class="scroll">
-<table width="800px"; height="500px"; border="1" cellpadding="5" style="border:1px solid black; border-collapse:collapse">
-    <tbody>
-    <tr style="{{Bold}}">
-        <td width="160px"; border: 2px solid #000; vertical-align:top;><h6>Date</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>User Id</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>Activity</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>People Id</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>Involvement</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>Ip Address</h6></td>
-    </tr>
-    {{#each failedlogins}}
-    <tr style="{{Bold}}">
-        <td width="160px"; border: 2px solid #000; vertical-align:top;>{{ActivityDate}}</td>
-        <td  border: 2px solid #000; vertical-align:top;>{{UserId}}</td>
-        <td  border: 2px solid #000; vertical-align:top;>{{Activity}}</td>
-        <td  border: 2px solid #000; vertical-align:top;><a href="https://myfbch.com/Person2/{{PeopleId}}" target="_blank">{{PeopleId}}</a></td>
-        <td  border: 2px solid #000; vertical-align:top;><a href="https://myfbch.com/Org/{{OrgId}}" target="_blank">{{OrgId}}</a></td>
-        <td  border: 2px solid #000; vertical-align:top;><a href="https://mxtoolbox.com/SuperTool.aspx?action=ptr%3a{{ClientIp}}&run=toolpage" target="_blank">{{ClientIp}}</a></td>
-    </tr>
-    {{/each}}
-    </tbody>
-</table>
-</div
-<h5>Last 50 Logins</h5>
-<div class="scroll">
-<table width="600px"; border="1" cellpadding="5" style="border:1px solid black; border-collapse:collapse">
-    <tbody>
-    <tr style="{{Bold}}">
-        <td width="160px"; border: 2px solid #000; vertical-align:top;><h6>Date</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>User Id</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>Activity</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>People Id</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>Involvement</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>Ip Address</h6></td>
-    </tr>
-    {{#each logins}}
-    <tr style="{{Bold}}">
-        <td border: 2px solid #000; vertical-align:top;>{{ActivityDate}}</td>
-        <td  border: 2px solid #000; vertical-align:top;>{{UserId}}</td>
-        <td  border: 2px solid #000; vertical-align:top;>{{Activity}}</td>
-        <td  border: 2px solid #000; vertical-align:top;><a href="https://myfbch.com/Person2/{{PeopleId}}" target="_blank">{{PeopleId}}</a></td>
-        <td  border: 2px solid #000; vertical-align:top;><a href="https://myfbch.com/Org/{{OrgId}}" target="_blank">{{OrgId}}</a></td>
-        <td  border: 2px solid #000; vertical-align:top;><a href="https://mxtoolbox.com/SuperTool.aspx?action=ptr%3a{{ClientIp}}&run=toolpage" target="_blank">{{ClientIp}}</a></td>
-    </tr>
-    {{/each}}
-    </tbody>
-</table>
-</div>
-
-<h5>Script Status</h5>
-<table width="800px"; border="1" cellpadding="5" style="border:1px solid black; border-collapse:collapse">
-    <tbody>
-    <tr style="{{Bold}}">
-        <td width="160px"; border: 2px solid #000; vertical-align:top;><h6>Date</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>User Id</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>Activity</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>People Id</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>Involvement</h6></td>
-        <td  border: 2px solid #000; vertical-align:top;><h6>Ip Address</h6></td>
-    </tr>
-    {{#each script}}
-    <tr style="{{Bold}}">
-        <td  border: 2px solid #000; vertical-align:top;>{{ActivityDate}}</td>
-        <td  border: 2px solid #000; vertical-align:top;>{{UserId}}</td>
-        <td  border: 2px solid #000; vertical-align:top;>{{Activity}}</td>
-        <td  border: 2px solid #000; vertical-align:top;><a href="https://myfbch.com/Person2/{{PeopleId}}" target="_blank">{{PeopleId}}</a></td>
-        <td  border: 2px solid #000; vertical-align:top;><a href="https://myfbch.com/Org/{{OrgId}}" target="_blank">{{OrgId}}</a></td>
-        <td  border: 2px solid #000; vertical-align:top;><a href="https://mxtoolbox.com/SuperTool.aspx?action=ptr%3a{{ClientIp}}&run=toolpage" target="_blank">{{ClientIp}}</a></td>
-    </tr>
-    {{/each}}
-    </tbody>
-</table>
-'''
-
-
-Data.kioskprints = q.QuerySql(sqlkioskprints)
-Data.printsinqueue = q.QuerySql(sqlprintsinqueue)
-Data.failedloginstat = q.QuerySql(sqlfailedloginstat)
-Data.failedlogins = q.QuerySql(sqlfailedlogins)
-Data.logins = q.QuerySql(sqllogins)
-Data.script = q.QuerySql(sqlscript)
-SReport = model.RenderTemplate(template)
-print(SReport)
-
+#--------------------------------------------------------------------
+####REPORT INFORMATION####
+#--------------------------------------------------------------------
+#Tool to help aide troubleshooting basic issues
 #
-#NMReport = model.RenderTemplate(template)
-#print(NMReport)
+#Add all this code to a single Python Script
+#1. Navigate to Admin ~ Advanced ~ Special Content ~ Python Scripts
+#2. Select New Python Script File and Name the File
+#3. Paste in all this code and Run
+#Optional: Add to navigation menu
+
+#--------------------------------------------------------------------
+####USER CONFIG FIELDS
+#--------------------------------------------------------------------
+model.Header = 'TechStatus Dashboard'
+
+#--------------------------------------------------------------------
+####START OF CODE.  No configuration should be needed beyond this point
+#--------------------------------------------------------------------
+
+
+
+# Print job statistics by hour
+sqlKioskPrints = '''
+SELECT DATEPART(HOUR, Stamp) AS [Hour], 
+       COUNT(*) AS [TotalPrints] 
+FROM PrintJob 
+GROUP BY DATEPART(HOUR, Stamp)
+ORDER BY [Hour];
+'''
+
+# Print jobs still in queue
+sqlPrintsInQueue = '''
+SELECT Id, Stamp 
+FROM PrintJob 
+WHERE Id <> ''
+'''
+
+# Failed login statistics from the last 72 hours
+sqlFailedLoginStats = '''
+SELECT 
+    COUNT(Activity) AS [FailedLogins],
+    Activity,
+    MAX(ActivityDate) AS [LastFailedAttempt]
+FROM dbo.ActivityLog 
+WHERE 
+    (Activity LIKE '%Failed password%' 
+        OR Activity LIKE '%Invalid log%'
+        OR Activity LIKE '%ForgotPassword%')
+    AND CAST(ActivityDate AS Date) >= CAST(DATEADD(DAY, -3, CONVERT(DATE, GETDATE())) AS Date)
+GROUP BY Activity
+ORDER BY MAX(ActivityDate) DESC;
+'''
+
+# Last 200 failed login attempts
+sqlFailedLogins = '''
+SELECT 
+    TOP 200
+    ActivityDate,
+    UserId,
+    Activity,
+    PeopleId,
+    OrgId,
+    ClientIp
+FROM 
+    dbo.ActivityLog 
+WHERE 
+    Activity LIKE '%ForgotPassword%'
+    OR Activity LIKE '%failed password%'
+    OR Activity LIKE '%Invalid log%'
+ORDER BY ActivityDate DESC
+'''
+
+# Last 50 successful logins
+sqlLogins = '''
+SELECT 
+    TOP 50
+    ActivityDate,
+    UserId,
+    Activity,
+    PeopleId,
+    OrgId,
+    ClientIp
+FROM 
+    dbo.ActivityLog 
+WHERE 
+    Activity LIKE '%logged in%'
+ORDER BY ActivityDate DESC
+'''
+
+# Last 5 script executions
+sqlScriptActivity = '''
+SELECT 
+    TOP 5
+    ActivityDate,
+    UserId,
+    Activity,
+    PeopleId,
+    OrgId,
+    ClientIp
+FROM 
+    dbo.ActivityLog 
+WHERE 
+    Activity LIKE '%script%'
+ORDER BY ActivityDate DESC
+'''
+
+# User accounts query - Only execute if requested
+sqlUserAccounts = '''
+SELECT 
+    DISTINCT u.Name, 
+    u.Username, 
+    u.CreationDate, 
+    u.LastLoginDate, 
+    u.LastActivityDate, 
+    u.EmailAddress, 
+    u.MFAEnabled, 
+    u.MustChangePassword, 
+    u.IsLockedOut,
+    u.PeopleId,
+    u.UserId
+FROM 
+    ActivityLog al
+INNER JOIN Users u ON (al.UserId = u.UserId) 
+LEFT JOIN UserList ul ON ul.UserId = u.UserId
+ORDER BY u.Name ASC;
+'''
+
+# Execute queries for data that's always needed
+Data.kioskprints = q.QuerySql(sqlKioskPrints)
+Data.printsinqueue = q.QuerySql(sqlPrintsInQueue)
+Data.failedloginstat = q.QuerySql(sqlFailedLoginStats)
+Data.failedlogins = q.QuerySql(sqlFailedLogins)
+Data.logins = q.QuerySql(sqlLogins)
+Data.script = q.QuerySql(sqlScriptActivity)
+
+# Check if user account data was requested
+loadUserAccounts = model.Data.loadUsers == "true"
+
+# Only execute user account query if requested
+if loadUserAccounts:
+    Data.useraccounts = q.QuerySql(sqlUserAccounts)
+else:
+    Data.useraccounts = [] # Empty placeholder for template
+
+# ===========================================
+# HTML Template with Modern Design
+# ===========================================
+template = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TechStatus Dashboard</title>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <!-- AG Grid for User Accounts -->
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise/dist/ag-grid-enterprise.js"></script>
+    <style>
+        :root {
+            --primary: #3498db;
+            --primary-dark: #2980b9;
+            --secondary: #2c3e50;
+            --success: #27ae60;
+            --danger: #e74c3c;
+            --warning: #f39c12;
+            --light: #f8f9fa;
+            --dark: #343a40;
+            --gray: #6c757d;
+            --gray-light: #e9ecef;
+            --border-radius: 8px;
+            --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            --transition: all 0.3s ease;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Roboto', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f7fa;
+            padding: 20px;
+        }
+        
+        .dashboard {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            background-color: white;
+            padding: 15px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+        }
+        
+        .dashboard-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--secondary);
+        }
+        
+        .dashboard-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 8px 15px;
+            border: none;
+            border-radius: var(--border-radius);
+            background-color: var(--primary);
+            color: white;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .btn:hover {
+            background-color: var(--primary-dark);
+        }
+        
+        .btn-outline {
+            background-color: transparent;
+            border: 1px solid var(--primary);
+            color: var(--primary);
+        }
+        
+        .btn-outline:hover {
+            background-color: var(--primary);
+            color: white;
+        }
+        
+        .btn-refresh {
+            background-color: var(--secondary);
+        }
+        
+        .btn-refresh:hover {
+            background-color: #1a252f;
+        }
+        
+        .card {
+            background-color: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        
+        .card-header {
+            padding: 15px;
+            background-color: var(--secondary);
+            color: white;
+            font-weight: 500;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .card-header h2 {
+            font-size: 18px;
+            margin: 0;
+        }
+        
+        .card-body {
+            padding: 15px;
+        }
+        
+        .tab-container {
+            margin-bottom: 20px;
+        }
+        
+        .tabs {
+            display: flex;
+            list-style: none;
+            border-bottom: 1px solid var(--gray-light);
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .tab {
+            padding: 10px 15px;
+            cursor: pointer;
+            font-weight: 500;
+            color: var(--gray);
+            border-bottom: 3px solid transparent;
+            transition: var(--transition);
+        }
+        
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .data-table th,
+        .data-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--gray-light);
+        }
+        
+        .data-table th {
+            background-color: var(--light);
+            font-weight: 500;
+            color: var(--secondary);
+        }
+        
+        .data-table tbody tr:hover {
+            background-color: rgba(0, 0, 0, 0.02);
+        }
+        
+        .data-table a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+        
+        .data-table a:hover {
+            text-decoration: underline;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 50px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .badge-success {
+            background-color: #d4edda;
+            color: #28a745;
+        }
+        
+        .badge-danger {
+            background-color: #f8d7da;
+            color: #dc3545;
+        }
+        
+        .badge-warning {
+            background-color: #fff3cd;
+            color: #ffc107;
+        }
+        
+        .scroll-container {
+            max-height: 500px;
+            overflow-y: auto;
+            border: 1px solid var(--gray-light);
+            border-radius: var(--border-radius);
+        }
+        
+        .chart-container {
+            height: 300px;
+            margin-bottom: 20px;
+        }
+        
+        /* Loading indicator */
+        .loading-indicator {
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: var(--primary);
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .dashboard-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            
+            .dashboard-actions {
+                width: 100%;
+                justify-content: flex-start;
+            }
+            
+            .data-table th,
+            .data-table td {
+                padding: 8px 10px;
+            }
+        }
+        
+        /* Dark mode toggle */
+        .theme-switch {
+            position: relative;
+            width: 60px;
+            height: 30px;
+            background-color: var(--gray-light);
+            border-radius: 30px;
+            cursor: pointer;
+        }
+        
+        .theme-switch:before {
+            content: '';
+            position: absolute;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            top: 2.5px;
+            left: 2.5px;
+            background-color: white;
+            transition: var(--transition);
+        }
+        
+        .theme-switch.dark:before {
+            transform: translateX(30px);
+        }
+        
+        .dark-mode {
+            background-color: #1a1a1a;
+            color: #f5f5f5;
+        }
+        
+        .dark-mode .card,
+        .dark-mode .dashboard-header {
+            background-color: #2d2d2d;
+            color: #f5f5f5;
+        }
+        
+        .dark-mode .card-header {
+            background-color: #444;
+        }
+        
+        .dark-mode .data-table th {
+            background-color: #333;
+            color: #f5f5f5;
+        }
+        
+        .dark-mode .data-table td {
+            border-bottom-color: #444;
+        }
+        
+        .dark-mode .data-table tbody tr:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+        
+        /* Expanded view styles */
+        .expand-button {
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        .expandable-content {
+            max-height: 300px;
+            overflow-y: auto;
+            transition: max-height 0.3s ease;
+        }
+        
+        .expandable-content.expanded {
+            max-height: 800px;
+        }
+        
+        /* AG Grid styling */
+        .ag-theme-quartz {
+            height: 600px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        
+        /* User accounts loading container */
+        #user-accounts-loading {
+            text-align: center;
+            padding: 60px 20px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+        }
+        
+        #user-accounts-loading p {
+            margin-bottom: 20px;
+            font-size: 16px;
+            color: #555;
+        }
+        
+        #load-users-btn {
+            padding: 12px 25px;
+            font-size: 16px;
+            background-color: var(--primary);
+        }
+        
+        #load-users-btn:hover {
+            background-color: var(--primary-dark);
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="dashboard-header">
+            <h1 class="dashboard-title">
+                <i class="fas fa-server"></i> TechStatus Dashboard
+            </h1>
+            <div class="dashboard-actions">
+                <button class="btn btn-refresh" onclick="window.location.reload()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+                <a href="https://myfbch.com/RunScript/Tech_ChangeLogs/" target="_blank" class="btn">
+                    <i class="fas fa-history"></i> Change Logs
+                </a>
+                <div class="theme-switch" id="themeSwitch"></div>
+            </div>
+        </div>
+        
+        <div class="tab-container">
+            <ul class="tabs">
+                <li class="tab active" data-tab="overview">Overview</li>
+                <li class="tab" data-tab="prints">Print Jobs</li>
+                <li class="tab" data-tab="login">Login Activity</li>
+                <li class="tab" data-tab="scripts">Script Activity</li>
+                <li class="tab" data-tab="users">User Accounts</li>
+            </ul>
+            
+            <!-- Overview Tab -->
+            <div id="overview" class="tab-content active">
+                <div class="grid">
+                    <!-- Print Stats -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-print"></i> Print Statistics</h2>
+                            <button class="expand-button" data-target="print-stats-content">
+                                <i class="fas fa-expand-alt"></i>
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="expandable-content" id="print-stats-content">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Hour</th>
+                                            <th>Total Prints</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {{#each kioskprints}}
+                                        <tr>
+                                            <td>{{Hour}}:00</td>
+                                            <td>{{TotalPrints}}</td>
+                                        </tr>
+                                        {{/each}}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Failed Login Summary -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-exclamation-triangle"></i> Login Failures (72hr)</h2>
+                            <button class="expand-button" data-target="login-failures-content">
+                                <i class="fas fa-expand-alt"></i>
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="expandable-content" id="login-failures-content">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Count</th>
+                                            <th>Type</th>
+                                            <th>Last Attempt</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {{#each failedloginstat}}
+                                        <tr>
+                                            <td><span class="badge badge-danger">{{FailedLogins}}</span></td>
+                                            <td>{{Activity}}</td>
+                                            <td>{{LastFailedAttempt}}</td>
+                                        </tr>
+                                        {{/each}}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Queue Status -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-tasks"></i> Print Queue</h2>
+                            <button class="expand-button" data-target="print-queue-content">
+                                <i class="fas fa-expand-alt"></i>
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="expandable-content" id="print-queue-content">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Job ID</th>
+                                            <th>Timestamp</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {{#each printsinqueue}}
+                                        <tr>
+                                            <td>{{Id}}</td>
+                                            <td>{{Stamp}}</td>
+                                        </tr>
+                                        {{/each}}
+                                        {{#unless printsinqueue}}
+                                        <tr>
+                                            <td colspan="2" style="text-align: center;">No print jobs in queue</td>
+                                        </tr>
+                                        {{/unless}}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Recent Scripts -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-code"></i> Recent Scripts</h2>
+                            <button class="expand-button" data-target="recent-scripts-content">
+                                <i class="fas fa-expand-alt"></i>
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="expandable-content" id="recent-scripts-content">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th>
+                                            <th>Script</th>
+                                            <th>User</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {{#each script}}
+                                        <tr>
+                                            <td>{{ActivityDate}}</td>
+                                            <td>{{Activity}}</td>
+                                            <td>
+                                                {{#if PeopleId}}
+                                                <a href="https://myfbch.com/Person2/{{PeopleId}}" target="_blank">{{UserId}}</a>
+                                                {{else}}
+                                                {{UserId}}
+                                                {{/if}}
+                                            </td>
+                                        </tr>
+                                        {{/each}}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Print Jobs Tab -->
+            <div id="prints" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-print"></i> Print Job Statistics</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container" id="printChart">
+                            <!-- Chart will be inserted here by JavaScript -->
+                        </div>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Hour</th>
+                                    <th>Total Prints</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{#each kioskprints}}
+                                <tr>
+                                    <td>{{Hour}}:00</td>
+                                    <td>{{TotalPrints}}</td>
+                                </tr>
+                                {{/each}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-tasks"></i> Stuck Print Jobs @ TP</h2>
+                    </div>
+                    <div class="card-body">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Job ID</th>
+                                    <th>Timestamp</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{#each printsinqueue}}
+                                <tr>
+                                    <td>{{Id}}</td>
+                                    <td>{{Stamp}}</td>
+                                    <td><span class="badge badge-warning">Pending</span></td>
+                                </tr>
+                                {{/each}}
+                                {{#unless printsinqueue}}
+                                <tr>
+                                    <td colspan="3" style="text-align: center;">No print jobs in queue</td>
+                                </tr>
+                                {{/unless}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Login Activity Tab -->
+            <div id="login" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-exclamation-triangle"></i> Failed Logins</h2>
+                        <span>Last 72hr Login Failures</span>
+                    </div>
+                    <div class="card-body">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Failed Times</th>
+                                    <th>Failure Type</th>
+                                    <th>Last Failed Attempt</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{#each failedloginstat}}
+                                <tr>
+                                    <td><span class="badge badge-danger">{{FailedLogins}}</span></td>
+                                    <td>{{Activity}}</td>
+                                    <td>{{LastFailedAttempt}}</td>
+                                </tr>
+                                {{/each}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-history"></i> Last 200 Failed Login Attempts</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="scroll-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>User ID</th>
+                                        <th>Activity</th>
+                                        <th>People ID</th>
+                                        <th>IP Address</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{#each failedlogins}}
+                                    <tr>
+                                        <td>{{ActivityDate}}</td>
+                                        <td>{{UserId}}</td>
+                                        <td>{{Activity}}</td>
+                                        <td>
+                                            {{#if PeopleId}}
+                                            <a href="https://myfbch.com/Person2/{{PeopleId}}" target="_blank">{{PeopleId}}</a>
+                                            {{else}}
+                                            -
+                                            {{/if}}
+                                        </td>
+                                        <td>
+                                            <a href="https://mxtoolbox.com/SuperTool.aspx?action=ptr%3a{{ClientIp}}&run=toolpage" target="_blank">
+                                                {{ClientIp}}
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {{/each}}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-sign-in-alt"></i> Last 50 Successful Logins</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="scroll-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>User ID</th>
+                                        <th>Activity</th>
+                                        <th>People ID</th>
+                                        <th>IP Address</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{#each logins}}
+                                    <tr>
+                                        <td>{{ActivityDate}}</td>
+                                        <td>{{UserId}}</td>
+                                        <td>{{Activity}}</td>
+                                        <td>
+                                            {{#if PeopleId}}
+                                            <a href="https://myfbch.com/Person2/{{PeopleId}}" target="_blank">{{PeopleId}}</a>
+                                            {{else}}
+                                            -
+                                            {{/if}}
+                                        </td>
+                                        <td>
+                                            <a href="https://mxtoolbox.com/SuperTool.aspx?action=ptr%3a{{ClientIp}}&run=toolpage" target="_blank">
+                                                {{ClientIp}}
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {{/each}}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Script Activity Tab -->
+            <div id="scripts" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-code"></i> Script Status</h2>
+                    </div>
+                    <div class="card-body">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>User ID</th>
+                                    <th>Activity</th>
+                                    <th>People ID</th>
+                                    <th>IP Address</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{#each script}}
+                                <tr>
+                                    <td>{{ActivityDate}}</td>
+                                    <td>{{UserId}}</td>
+                                    <td>{{Activity}}</td>
+                                    <td>
+                                        {{#if PeopleId}}
+                                        <a href="https://myfbch.com/Person2/{{PeopleId}}" target="_blank">{{PeopleId}}</a>
+                                        {{else}}
+                                        -
+                                        {{/if}}
+                                    </td>
+                                    <td>
+                                        <a href="https://mxtoolbox.com/SuperTool.aspx?action=ptr%3a{{ClientIp}}&run=toolpage" target="_blank">
+                                            {{ClientIp}}
+                                        </a>
+                                    </td>
+                                </tr>
+                                {{/each}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- User Accounts Tab -->
+            <div id="users" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-users"></i> User Accounts</h2>
+                    </div>
+                    <div class="card-body">
+                        {{#if loadUserAccounts}}
+                            <div id="user-accounts-grid" class="ag-theme-quartz"></div>
+                        {{else}}
+                            <div id="user-accounts-loading">
+                                <div class="loading-spinner"></div>
+                                <p>User accounts data isn't loaded yet to speed up this dashboard.</p>
+                                <a href="?loadUsers=true#users" id="load-users-btn" class="btn">
+                                    <i class="fas fa-users"></i> Load User Accounts Data
+                                </a>
+                            </div>
+                        {{/if}}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Load Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script>
+        // User Accounts data
+        {{#if loadUserAccounts}}
+        const userAccountsData = [
+            {{#each useraccounts}}
+            {
+                Name: "{{Name}}",
+                UserName: "{{UserName}}",
+                CreationDate: "{{CreationDate}}",
+                LastLoginDate: "{{LastLoginDate}}",
+                LastActivityDate: "{{LastActivityDate}}",
+                EmailAddress: "{{EmailAddress}}",
+                MFAEnabled: {{#if MFAEnabled}}true{{else}}false{{/if}},
+                MustChangePassword: {{#if MustChangePassword}}true{{else}}false{{/if}},
+                IsLockedOut: {{#if IsLockedOut}}true{{else}}false{{/if}},
+                PeopleId: "{{PeopleId}}",
+                UserId: {{UserId}}
+            },
+            {{/each}}
+        ];
+        {{else}}
+        const userAccountsData = []; // Empty if not loaded yet
+        {{/if}}
+        
+        // Initialize User Accounts Grid
+        function initUserAccountsGrid() {
+            const gridOptions = {
+                rowData: userAccountsData,
+                columnDefs: [
+                    { 
+                        headerName: 'Name', 
+                        field: "Name", 
+                        enableRowGroup: true,
+                        cellRenderer: function(params) {
+                            if(params.data) {
+                                return '<a href="/Person2/' + params.data.PeopleId + '" target="_blank">' + params.data.Name + '</a>';
+                            } else {
+                                return '';
+                            }
+                        }
+                    },
+                    { 
+                        headerName: 'Created', 
+                        field: "CreationDate", 
+                        sortable: true, 
+                        filter: 'agDateColumnFilter', 
+                        comparator: (date1, date2) => {
+                            return new Date(date1) - new Date(date2); 
+                        }
+                    },
+                    { 
+                        headerName: 'Last Login', 
+                        field: "LastLoginDate", 
+                        sortable: true, 
+                        filter: 'agDateColumnFilter',
+                        comparator: (date1, date2) => {
+                            return new Date(date1) - new Date(date2); 
+                        }
+                    },
+                    { 
+                        headerName: 'Last Activity', 
+                        field: "LastActivityDate", 
+                        sortable: true, 
+                        filter: 'agDateColumnFilter',
+                        comparator: (date1, date2) => {
+                            return new Date(date1) - new Date(date2); 
+                        }
+                    },
+                    { 
+                        headerName: 'Email', 
+                        field: "EmailAddress", 
+                        sortable: true, 
+                        filter: 'agTextColumnFilter' 
+                    },
+                    { 
+                        headerName: 'MFA Enabled', 
+                        field: "MFAEnabled", 
+                        sortable: true, 
+                        filter: 'agTextColumnFilter' 
+                    },
+                    { 
+                        headerName: 'Locked Out', 
+                        field: "IsLockedOut", 
+                        sortable: true, 
+                        filter: 'agTextColumnFilter' 
+                    }
+                ],
+                defaultColDef: {
+                    flex: 1,
+                    minWidth: 150,
+                    filter: 'agMultiColumnFilter',
+                    menuTabs: ['filterMenuTab'],
+                    filterParams: {
+                        comparator: (filterLocalDateAtMidnight, cellValue) => {
+                            const cellDate = new Date(cellValue);
+                            return cellDate - filterLocalDateAtMidnight;
+                        }
+                    }
+                },
+                groupDefaultExpanded: -1,
+                sideBar: {
+                    toolPanels: [
+                        {
+                            id: 'columns',
+                            labelDefault: 'Columns',
+                            labelKey: 'columns',
+                            iconKey: 'columns',
+                            toolPanel: 'agColumnsToolPanel',
+                        },
+                        {
+                            id: 'filters',
+                            labelDefault: 'Filters',
+                            labelKey: 'filters',
+                            iconKey: 'filter',
+                            toolPanel: 'agFiltersToolPanel',
+                        }
+                    ],
+                    defaultToolPanel: "",
+                }
+            };
+            
+            const gridElement = document.getElementById('user-accounts-grid');
+            if (gridElement) {
+                agGrid.createGrid(gridElement, gridOptions);
+            }
+        }
+        
+        // Tab switching
+        document.addEventListener('DOMContentLoaded', function() {
+            const tabs = document.querySelectorAll('.tab');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
+            // Check if hash is set to #users
+            if (window.location.hash === '#users') {
+                // Activate the users tab
+                tabs.forEach(t => t.classList.remove('active'));
+                tabContents.forEach(content => content.classList.remove('active'));
+                
+                document.querySelector('.tab[data-tab="users"]').classList.add('active');
+                document.getElementById('users').classList.add('active');
+                
+                // Initialize grid if data is loaded
+                {{#if loadUserAccounts}}
+                setTimeout(() => {
+                    initUserAccountsGrid();
+                }, 100);
+                {{/if}}
+            }
+            
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const target = tab.dataset.tab;
+                    
+                    // Hide all tabs and show the selected one
+                    tabs.forEach(t => t.classList.remove('active'));
+                    tabContents.forEach(content => content.classList.remove('active'));
+                    
+                    tab.classList.add('active');
+                    document.getElementById(target).classList.add('active');
+                    
+                    // Initialize charts and grids when tab becomes visible
+                    if (target === 'prints') {
+                        initPrintChart();
+                    } else if (target === 'users') {
+                        {{#if loadUserAccounts}}
+                        setTimeout(() => {
+                            initUserAccountsGrid();
+                        }, 100);
+                        {{/if}}
+                    }
+                });
+            });
+            
+            // Handle expand buttons for overview sections
+            const expandButtons = document.querySelectorAll('.expand-button');
+            expandButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const targetId = button.getAttribute('data-target');
+                    const targetElement = document.getElementById(targetId);
+                    if (targetElement) {
+                        targetElement.classList.toggle('expanded');
+                        
+                        // Change the icon based on state
+                        const icon = button.querySelector('i');
+                        if (targetElement.classList.contains('expanded')) {
+                            icon.classList.replace('fa-expand-alt', 'fa-compress-alt');
+                        } else {
+                            icon.classList.replace('fa-compress-alt', 'fa-expand-alt');
+                        }
+                    }
+                });
+            });
+            
+            // Initialize print chart for the overview tab
+            initPrintChart();
+            
+            // Dark mode toggle
+            const themeSwitch = document.getElementById('themeSwitch');
+            
+            themeSwitch.addEventListener('click', () => {
+                document.body.classList.toggle('dark-mode');
+                themeSwitch.classList.toggle('dark');
+                
+                // Save preference
+                const isDarkMode = document.body.classList.contains('dark-mode');
+                localStorage.setItem('darkMode', isDarkMode ? 'true' : 'false');
+            });
+            
+            // Check saved preference
+            if (localStorage.getItem('darkMode') === 'true') {
+                document.body.classList.add('dark-mode');
+                themeSwitch.classList.add('dark');
+            }
+        });
+        
+        // Initialize Print Chart
+        function initPrintChart() {
+            const printChartEl = document.getElementById('printChart');
+            if (!printChartEl) return;
+            
+            // Get data from the table
+            const hours = [];
+            const counts = [];
+            
+            const table = document.querySelector('#prints .data-table');
+            const rows = table.querySelectorAll('tbody tr');
+            
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 2) {
+                    const hour = cells[0].textContent.split(':')[0];
+                    const count = parseInt(cells[1].textContent);
+                    
+                    if (!isNaN(count)) {
+                        hours.push(hour + ':00');
+                        counts.push(count);
+                    }
+                }
+            });
+            
+            // Create the chart
+            const ctx = document.createElement('canvas');
+            printChartEl.innerHTML = '';
+            printChartEl.appendChild(ctx);
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: hours,
+                    datasets: [{
+                        label: 'Print Jobs',
+                        data: counts,
+                        backgroundColor: 'rgba(52, 152, 219, 0.7)',
+                        borderColor: 'rgba(52, 152, 219, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        title: {
+                            display: true,
+                            text: 'Print Jobs by Hour'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
+'''
+
+# Pass the loadUserAccounts flag to the template
+Data.loadUserAccounts = loadUserAccounts
+
+# Render the template with our data
+dashboardReport = model.RenderTemplate(template)
+print(dashboardReport)
