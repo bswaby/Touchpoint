@@ -947,287 +947,315 @@ template = '''
     
     <!-- Load Chart.js for visualizations -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-    <script>
-        // User Accounts data
-        {{#if loadUserAccounts}}
-        const userAccountsData = [
-            {{#each useraccounts}}
-            {
-                Name: "{{Name}}",
-                UserName: "{{UserName}}",
-                CreationDate: "{{CreationDate}}",
-                LastLoginDate: "{{LastLoginDate}}",
-                LastActivityDate: "{{LastActivityDate}}",
-                EmailAddress: "{{EmailAddress}}",
-                MFAEnabled: {{#if MFAEnabled}}true{{else}}false{{/if}},
-                MustChangePassword: {{#if MustChangePassword}}true{{else}}false{{/if}},
-                IsLockedOut: {{#if IsLockedOut}}true{{else}}false{{/if}},
-                PeopleId: "{{PeopleId}}",
-                UserId: {{UserId}}
-            },
-            {{/each}}
-        ];
-        {{else}}
-        const userAccountsData = []; // Empty if not loaded yet
-        {{/if}}
-        
-        // Initialize User Accounts Grid
-        function initUserAccountsGrid() {
-            const gridOptions = {
-                rowData: userAccountsData,
-                columnDefs: [
-                    { 
-                        headerName: 'Name', 
-                        field: "Name", 
-                        enableRowGroup: true,
-                        cellRenderer: function(params) {
-                            if(params.data) {
-                                return '<a href="/Person2/' + params.data.PeopleId + '" target="_blank">' + params.data.Name + '</a>';
-                            } else {
-                                return '';
-                            }
-                        }
-                    },
-                    { 
-                        headerName: 'Created', 
-                        field: "CreationDate", 
-                        sortable: true, 
-                        filter: 'agDateColumnFilter', 
-                        comparator: (date1, date2) => {
-                            return new Date(date1) - new Date(date2); 
-                        }
-                    },
-                    { 
-                        headerName: 'Last Login', 
-                        field: "LastLoginDate", 
-                        sortable: true, 
-                        filter: 'agDateColumnFilter',
-                        comparator: (date1, date2) => {
-                            return new Date(date1) - new Date(date2); 
-                        }
-                    },
-                    { 
-                        headerName: 'Last Activity', 
-                        field: "LastActivityDate", 
-                        sortable: true, 
-                        filter: 'agDateColumnFilter',
-                        comparator: (date1, date2) => {
-                            return new Date(date1) - new Date(date2); 
-                        }
-                    },
-                    { 
-                        headerName: 'Email', 
-                        field: "EmailAddress", 
-                        sortable: true, 
-                        filter: 'agTextColumnFilter' 
-                    },
-                    { 
-                        headerName: 'MFA Enabled', 
-                        field: "MFAEnabled", 
-                        sortable: true, 
-                        filter: 'agTextColumnFilter' 
-                    },
-                    { 
-                        headerName: 'Locked Out', 
-                        field: "IsLockedOut", 
-                        sortable: true, 
-                        filter: 'agTextColumnFilter' 
-                    }
-                ],
-                defaultColDef: {
-                    flex: 1,
-                    minWidth: 150,
-                    filter: 'agMultiColumnFilter',
-                    menuTabs: ['filterMenuTab'],
-                    filterParams: {
-                        comparator: (filterLocalDateAtMidnight, cellValue) => {
-                            const cellDate = new Date(cellValue);
-                            return cellDate - filterLocalDateAtMidnight;
+<script>
+    // User Accounts data
+    {{#if loadUserAccounts}}
+    const userAccountsData = [
+        {{#each useraccounts}}
+        {
+            Name: "{{Name}}",
+            UserName: "{{UserName}}",
+            CreationDate: "{{CreationDate}}",
+            LastLoginDate: "{{LastLoginDate}}",
+            LastActivityDate: "{{LastActivityDate}}",
+            EmailAddress: "{{EmailAddress}}",
+            MFAEnabled: {{#if MFAEnabled}}true{{else}}false{{/if}},
+            MustChangePassword: {{#if MustChangePassword}}true{{else}}false{{/if}},
+            IsLockedOut: {{#if IsLockedOut}}true{{else}}false{{/if}},
+            PeopleId: "{{PeopleId}}",
+            UserId: {{UserId}}
+        },
+        {{/each}}
+    ];
+    {{else}}
+    const userAccountsData = []; // Empty if not loaded yet
+    {{/if}}
+    
+    // Initialize User Accounts Grid
+    function initUserAccountsGrid() {
+        const gridOptions = {
+            rowData: userAccountsData,
+            columnDefs: [
+                { 
+                    headerName: 'Name', 
+                    field: "Name", 
+                    enableRowGroup: true,
+                    cellRenderer: function(params) {
+                        if(params.data) {
+                            return '<a href="/Person2/' + params.data.PeopleId + '" target="_blank">' + params.data.Name + '</a>';
+                        } else {
+                            return '';
                         }
                     }
                 },
-                groupDefaultExpanded: -1,
-                sideBar: {
-                    toolPanels: [
-                        {
-                            id: 'columns',
-                            labelDefault: 'Columns',
-                            labelKey: 'columns',
-                            iconKey: 'columns',
-                            toolPanel: 'agColumnsToolPanel',
-                        },
-                        {
-                            id: 'filters',
-                            labelDefault: 'Filters',
-                            labelKey: 'filters',
-                            iconKey: 'filter',
-                            toolPanel: 'agFiltersToolPanel',
-                        }
-                    ],
-                    defaultToolPanel: "",
+                { 
+                    headerName: 'Created', 
+                    field: "CreationDate", 
+                    sortable: true, 
+                    filter: 'agDateColumnFilter', 
+                    comparator: (date1, date2) => {
+                        return new Date(date1) - new Date(date2); 
+                    }
+                },
+                { 
+                    headerName: 'Last Login', 
+                    field: "LastLoginDate", 
+                    sortable: true, 
+                    filter: 'agDateColumnFilter',
+                    comparator: (date1, date2) => {
+                        return new Date(date1) - new Date(date2); 
+                    }
+                },
+                { 
+                    headerName: 'Last Activity', 
+                    field: "LastActivityDate", 
+                    sortable: true, 
+                    filter: 'agDateColumnFilter',
+                    comparator: (date1, date2) => {
+                        return new Date(date1) - new Date(date2); 
+                    }
+                },
+                { 
+                    headerName: 'Email', 
+                    field: "EmailAddress", 
+                    sortable: true, 
+                    filter: 'agTextColumnFilter' 
+                },
+                { 
+                    headerName: 'MFA Enabled', 
+                    field: "MFAEnabled", 
+                    sortable: true, 
+                    filter: 'agTextColumnFilter' 
+                },
+                { 
+                    headerName: 'Locked Out', 
+                    field: "IsLockedOut", 
+                    sortable: true, 
+                    filter: 'agTextColumnFilter' 
                 }
-            };
+            ],
+            defaultColDef: {
+                flex: 1,
+                minWidth: 150,
+                filter: 'agMultiColumnFilter',
+                menuTabs: ['filterMenuTab'],
+                filterParams: {
+                    comparator: (filterLocalDateAtMidnight, cellValue) => {
+                        const cellDate = new Date(cellValue);
+                        return cellDate - filterLocalDateAtMidnight;
+                    }
+                }
+            },
+            groupDefaultExpanded: -1,
+            sideBar: {
+                toolPanels: [
+                    {
+                        id: 'columns',
+                        labelDefault: 'Columns',
+                        labelKey: 'columns',
+                        iconKey: 'columns',
+                        toolPanel: 'agColumnsToolPanel',
+                    },
+                    {
+                        id: 'filters',
+                        labelDefault: 'Filters',
+                        labelKey: 'filters',
+                        iconKey: 'filter',
+                        toolPanel: 'agFiltersToolPanel',
+                    }
+                ],
+                defaultToolPanel: "",
+            }
+        };
+        
+        const gridElement = document.getElementById('user-accounts-grid');
+        if (gridElement) {
+            agGrid.createGrid(gridElement, gridOptions);
+        }
+    }
+    
+    // Tab switching
+    document.addEventListener('DOMContentLoaded', function() {
+        const tabs = document.querySelectorAll('.tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+        
+        // Function to activate a specific tab
+        function activateTab(tabName) {
+            tabs.forEach(t => t.classList.remove('active'));
+            tabContents.forEach(content => content.classList.remove('active'));
             
-            const gridElement = document.getElementById('user-accounts-grid');
-            if (gridElement) {
-                agGrid.createGrid(gridElement, gridOptions);
+            // Find the tab element and activate it
+            const tabElement = document.querySelector(`.tab[data-tab="${tabName}"]`);
+            if (tabElement) {
+                tabElement.classList.add('active');
+                
+                // Find the content element and activate it
+                const contentElement = document.getElementById(tabName);
+                if (contentElement) {
+                    contentElement.classList.add('active');
+                }
+                
+                // Save the active tab to localStorage
+                localStorage.setItem('activeTab', tabName);
+                
+                // Initialize charts and grids when tab becomes visible
+                if (tabName === 'prints') {
+                    initPrintChart();
+                } else if (tabName === 'users') {
+                    {{#if loadUserAccounts}}
+                    setTimeout(() => {
+                        initUserAccountsGrid();
+                    }, 100);
+                    {{/if}}
+                }
             }
         }
         
-        // Tab switching
-        document.addEventListener('DOMContentLoaded', function() {
-            const tabs = document.querySelectorAll('.tab');
-            const tabContents = document.querySelectorAll('.tab-content');
-            
-            // Check if hash is set to #users
-            if (window.location.hash === '#users') {
-                // Activate the users tab
-                tabs.forEach(t => t.classList.remove('active'));
-                tabContents.forEach(content => content.classList.remove('active'));
-                
-                document.querySelector('.tab[data-tab="users"]').classList.add('active');
-                document.getElementById('users').classList.add('active');
-                
-                // Initialize grid if data is loaded
-                {{#if loadUserAccounts}}
-                setTimeout(() => {
-                    initUserAccountsGrid();
-                }, 100);
-                {{/if}}
+        // Check URL hash first, then localStorage, default to "overview"
+        let currentTab = 'overview';
+        
+        // Get tab from hash (without the # symbol)
+        const hashTab = window.location.hash.substring(1);
+        if (hashTab && document.querySelector(`.tab[data-tab="${hashTab}"]`)) {
+            currentTab = hashTab;
+        } 
+        // If no hash or invalid hash, check localStorage
+        else {
+            const savedTab = localStorage.getItem('activeTab');
+            if (savedTab && document.querySelector(`.tab[data-tab="${savedTab}"]`)) {
+                currentTab = savedTab;
             }
-            
-            tabs.forEach(tab => {
-                tab.addEventListener('click', () => {
-                    const target = tab.dataset.tab;
-                    
-                    // Hide all tabs and show the selected one
-                    tabs.forEach(t => t.classList.remove('active'));
-                    tabContents.forEach(content => content.classList.remove('active'));
-                    
-                    tab.classList.add('active');
-                    document.getElementById(target).classList.add('active');
-                    
-                    // Initialize charts and grids when tab becomes visible
-                    if (target === 'prints') {
-                        initPrintChart();
-                    } else if (target === 'users') {
-                        {{#if loadUserAccounts}}
-                        setTimeout(() => {
-                            initUserAccountsGrid();
-                        }, 100);
-                        {{/if}}
-                    }
-                });
-            });
-            
-            // Handle expand buttons for overview sections
-            const expandButtons = document.querySelectorAll('.expand-button');
-            expandButtons.forEach(button => {
-                button.addEventListener('click', () => {
-                    const targetId = button.getAttribute('data-target');
-                    const targetElement = document.getElementById(targetId);
-                    if (targetElement) {
-                        targetElement.classList.toggle('expanded');
-                        
-                        // Change the icon based on state
-                        const icon = button.querySelector('i');
-                        if (targetElement.classList.contains('expanded')) {
-                            icon.classList.replace('fa-expand-alt', 'fa-compress-alt');
-                        } else {
-                            icon.classList.replace('fa-compress-alt', 'fa-expand-alt');
-                        }
-                    }
-                });
-            });
-            
-            // Initialize print chart for the overview tab
-            initPrintChart();
-            
-            // Dark mode toggle
-            const themeSwitch = document.getElementById('themeSwitch');
-            
-            themeSwitch.addEventListener('click', () => {
-                document.body.classList.toggle('dark-mode');
-                themeSwitch.classList.toggle('dark');
+        }
+        
+        // Activate the determined tab
+        activateTab(currentTab);
+        
+        // Add click event listeners to tabs
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const targetTab = tab.dataset.tab;
+                activateTab(targetTab);
                 
-                // Save preference
-                const isDarkMode = document.body.classList.contains('dark-mode');
-                localStorage.setItem('darkMode', isDarkMode ? 'true' : 'false');
+                // Update URL hash
+                window.location.hash = targetTab;
             });
+        });
+        
+        // Modify the refresh button to maintain the current tab
+        const refreshBtn = document.querySelector('.btn-refresh');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                // The hash and localStorage will be preserved on reload
+                window.location.reload();
+            });
+        }
+        
+        // Handle expand buttons for overview sections
+        const expandButtons = document.querySelectorAll('.expand-button');
+        expandButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const targetId = button.getAttribute('data-target');
+                const targetElement = document.getElementById(targetId);
+                if (targetElement) {
+                    targetElement.classList.toggle('expanded');
+                    
+                    // Change the icon based on state
+                    const icon = button.querySelector('i');
+                    if (targetElement.classList.contains('expanded')) {
+                        icon.classList.replace('fa-expand-alt', 'fa-compress-alt');
+                    } else {
+                        icon.classList.replace('fa-compress-alt', 'fa-expand-alt');
+                    }
+                }
+            });
+        });
+        
+        // Dark mode toggle
+        const themeSwitch = document.getElementById('themeSwitch');
+        
+        themeSwitch.addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            themeSwitch.classList.toggle('dark');
             
-            // Check saved preference
-            if (localStorage.getItem('darkMode') === 'true') {
-                document.body.classList.add('dark-mode');
-                themeSwitch.classList.add('dark');
+            // Save preference
+            const isDarkMode = document.body.classList.contains('dark-mode');
+            localStorage.setItem('darkMode', isDarkMode ? 'true' : 'false');
+        });
+        
+        // Check saved preference
+        if (localStorage.getItem('darkMode') === 'true') {
+            document.body.classList.add('dark-mode');
+            themeSwitch.classList.add('dark');
+        }
+    });
+    
+    // Initialize Print Chart
+    function initPrintChart() {
+        const printChartEl = document.getElementById('printChart');
+        if (!printChartEl) return;
+        
+        // Get data from the table
+        const hours = [];
+        const counts = [];
+        
+        const table = document.querySelector('#prints .data-table');
+        const rows = table.querySelectorAll('tbody tr');
+        
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 2) {
+                const hour = cells[0].textContent.split(':')[0];
+                const count = parseInt(cells[1].textContent);
+                
+                if (!isNaN(count)) {
+                    hours.push(hour + ':00');
+                    counts.push(count);
+                }
             }
         });
         
-        // Initialize Print Chart
-        function initPrintChart() {
-            const printChartEl = document.getElementById('printChart');
-            if (!printChartEl) return;
-            
-            // Get data from the table
-            const hours = [];
-            const counts = [];
-            
-            const table = document.querySelector('#prints .data-table');
-            const rows = table.querySelectorAll('tbody tr');
-            
-            rows.forEach(row => {
-                const cells = row.querySelectorAll('td');
-                if (cells.length >= 2) {
-                    const hour = cells[0].textContent.split(':')[0];
-                    const count = parseInt(cells[1].textContent);
-                    
-                    if (!isNaN(count)) {
-                        hours.push(hour + ':00');
-                        counts.push(count);
-                    }
-                }
-            });
-            
-            // Create the chart
-            const ctx = document.createElement('canvas');
-            printChartEl.innerHTML = '';
-            printChartEl.appendChild(ctx);
-            
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: hours,
-                    datasets: [{
-                        label: 'Print Jobs',
-                        data: counts,
-                        backgroundColor: 'rgba(52, 152, 219, 0.7)',
-                        borderColor: 'rgba(52, 152, 219, 1)',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: false
-                        },
-                        title: {
-                            display: true,
-                            text: 'Print Jobs by Hour'
-                        }
+        // Create the chart
+        const ctx = document.createElement('canvas');
+        printChartEl.innerHTML = '';
+        printChartEl.appendChild(ctx);
+        
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: hours,
+                datasets: [{
+                    label: 'Print Jobs',
+                    data: counts,
+                    backgroundColor: 'rgba(52, 152, 219, 0.7)',
+                    borderColor: 'rgba(52, 152, 219, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
                     },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: {
-                                precision: 0
-                            }
+                    title: {
+                        display: true,
+                        text: 'Print Jobs by Hour'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            precision: 0
                         }
                     }
                 }
-            });
-        }
-    </script>
+            }
+        });
+    }
+</script>
 </body>
 </html>
 '''
