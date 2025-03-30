@@ -1,0 +1,344 @@
+#This is to show upcoming staff birthdays.  
+#-- Steps --
+#1. Copy this code to a python script (Admin ~ Advanced ~ Special Content ~ Python Scripts) 
+#   and call it something like WidgetStaffBirthdays and make sure to add the word widget to 
+#   the content keywords by the script name
+#2. Update config parameters below
+#3. Add as a home page widget (Admin ~ Advanced ~ Homepage Widget) by selecting the script, 
+#   adding name, and setting permissions that can see it
+
+
+#------------------------------------------------------
+#config parameters
+#------------------------------------------------------
+title = '''Staff Anniversaries'''
+daysToLookOut = '30' #set to how many days you want to look out
+savedQuery = 'Dashboard_Birthday-Wedding' #Name of saved query
+extraValueField = 'WorkAnniversary' #add extra value field name if you want to pull in another date
+extraValueFieldFriendlyName = 'Work' # just a friendly name of extra value
+
+# System email will only be used if user email can't be retrieved
+system_fromEmail = 'system@yourchurch.org' 
+system_fromName = 'Church Family'
+
+#------------------------------------------------------
+# start of code
+#------------------------------------------------------
+
+model.Header = title
+
+# Get logged-in user's name and email
+userInfo = q.QuerySqlTop1("SELECT p.Name, p.EmailAddress FROM People p WHERE p.PeopleId = {}".format(model.UserPeopleId))
+fromName = userInfo.Name if userInfo and hasattr(userInfo, 'Name') else system_fromName
+fromEmail = userInfo.EmailAddress if userInfo and hasattr(userInfo, 'EmailAddress') else system_fromEmail
+
+sql = '''
+WITH weddingDate AS (
+    SELECT DISTINCT 
+        p.PeopleId,
+        Name,
+        'Wedding'  + ' (' + CAST(DATEDIFF(year, p.WeddingDate, GETDATE()) AS VARCHAR) + ')' AS [Type],
+        FORMAT(p.WeddingDate, 'MM/dd') AS [dDate],
+        p.WeddingDate AS bDate,
+        p.EmailAddress AS Email,
+        DATEDIFF(year, p.WeddingDate, GETDATE()) AS YearsCount
+    FROM People p
+    WHERE p.PeopleId IN ({0}) 
+    AND DATEADD(year, DATEPART(year, GETDATE()) - DATEPART(year, p.WeddingDate), p.WeddingDate) 
+        BETWEEN CONVERT(datetime, DATEADD(day, -1, GETDATE()), 101) 
+        AND CONVERT(datetime, DATEADD(day, {1}, GETDATE()), 101)
+),
+bDay AS (
+    SELECT DISTINCT
+        p.PeopleId,
+        Name,
+        FORMAT(p.BDate, 'MM/dd') AS [dDate],
+        'Birthday' AS [Type],
+        p.BDate AS bDate,
+        p.EmailAddress AS Email,
+        0 AS YearsCount
+    FROM People p
+    WHERE p.PeopleId IN ({0})
+    AND DATEADD(year, DATEPART(year, GETDATE()) - DATEPART(year, p.BDate), p.BDate) 
+        BETWEEN CONVERT(datetime, DATEADD(day, -1, GETDATE()), 101) 
+        AND CONVERT(datetime, DATEADD(day, {1}, GETDATE()), 101)
+)
+
+SELECT * FROM (
+    SELECT DISTINCT
+        p.PeopleId,
+        Name,
+        FORMAT(pe.DateValue, 'MM/dd') AS [dDate],
+        '{3}' + ' (' + CAST(DATEDIFF(year, pe.DateValue, GETDATE()) AS VARCHAR) + ')' AS [Type],
+        pe.DateValue AS bDate,
+        p.EmailAddress AS Email,
+        DATEDIFF(year, pe.DateValue, GETDATE()) AS YearsCount
+    FROM People p
+    INNER JOIN PeopleExtra pe ON pe.PeopleId = p.PeopleId AND pe.Field = '{2}'
+    WHERE p.PeopleId IN ({0})
+    AND DATEADD(year, DATEPART(year, GETDATE()) - DATEPART(year, pe.DateValue), pe.DateValue) 
+        BETWEEN CONVERT(datetime, DATEADD(day, -1, GETDATE()), 101)
+        AND CONVERT(datetime, DATEADD(day, {1}, GETDATE()), 101)
+    
+    UNION ALL
+    
+    SELECT
+        wd.PeopleId,
+        wd.Name,
+        wd.dDate,
+        wd.Type,
+        wd.bDate,
+        wd.Email,
+        wd.YearsCount
+    FROM WeddingDate wd
+    
+    UNION ALL
+    
+    SELECT
+        bd.PeopleId,
+        bd.Name,
+        bd.dDate,
+        bd.Type,
+        bd.bDate,
+        bd.Email,
+        bd.YearsCount
+    FROM bDay bd
+) AS CombinedResults
+ORDER BY MONTH(bDate), DAY(bDate)
+'''
+
+# Print HTML header and script sections directly without complex formatting
+print '''
+<script>
+    function sendEmail(pid, celebrationType, personName, yearsCount) {
+        // Helper function to get the correct form submission URL
+        function getPyScriptAddress() {
+            let path = window.location.pathname;
+            return path.replace("/PyScript/", "/PyScriptForm/");
+        }
+        
+        const currentYear = new Date().getFullYear();
+        let subject = "";
+        let emailBody = "";
+        
+        if (celebrationType.includes("Birthday")) {
+            subject = "Happy Birthday " + personName + "!";
+            emailBody = "Happy Birthday " + personName + "!\\n\\n";
+            emailBody += "Wishing you a wonderful birthday celebration!\\n\\n";
+        } else if (celebrationType.includes("Wedding")) {
+            // Extract years from the type string
+            let years = yearsCount;
+            subject = "Happy " + years + (years === 1 ? " Year" : " Years") + " Wedding Anniversary " + personName + "!";
+            emailBody = "Congratulations on " + years + (years === 1 ? " year" : " years") + " of marriage, " + personName + "!\\n\\n";
+            emailBody += "May your love continue to grow stronger with each passing year.\\n\\n";
+        } else if (celebrationType.includes("Work")) {
+            // Extract years from the type string
+            let years = yearsCount;
+            subject = "Happy " + years + (years === 1 ? " Year" : " Years") + " Work Anniversary " + personName + "!";
+            emailBody = "Congratulations on " + years + (years === 1 ? " year" : " years") + " with us, " + personName + "!\\n\\n";
+            emailBody += "Thank you for your dedication and all your contributions.\\n\\n";
+        }
+'''
+
+# Add sender name to email body properly formatted with escaped newlines
+print "        emailBody += \"Best wishes,\\n" + fromName + "\";"
+
+print '''        
+        Swal.fire({
+            title: "Send Celebration Email",
+            html: `
+                <div style="text-align: left; margin-bottom: 15px;">
+                    <strong>To:</strong> ${personName}<br>
+                    <strong>Subject:</strong> ${subject}
+                </div>
+                <textarea id="swal-input1" class="swal2-textarea" style="height: 200px;">${emailBody.replace(/\\n/g, "\\n")}</textarea>
+            `,
+            showCancelButton: true,
+            confirmButtonText: 'Send Email',
+            confirmButtonColor: '#4CAF50',
+            cancelButtonColor: '#d33',
+            showLoaderOnConfirm: true,
+            preConfirm: () => {
+                const message = document.getElementById('swal-input1').value;
+                let postData = {
+                    email_pid: pid,
+                    email_subject: subject,
+                    email_message: message,
+'''
+
+# Add sender info variables
+print "                    email_from: \"" + fromEmail + "\","
+print "                    email_fromname: \"" + fromName + "\""
+
+print '''                };
+                
+                let formBody = [];
+                for (const property in postData) {
+                    formBody.push(encodeURIComponent(property) + "=" + encodeURIComponent(postData[property]));
+                }
+                    
+                return fetch(getPyScriptAddress() + "?a=email", {
+                    method: 'POST',
+                    body: formBody.join("&"),
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+                    }
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(response.statusText)
+                    }
+                    return response.blob()
+                })
+                .catch(error => {
+                    Swal.showValidationMessage(
+                        `Request failed: ${error}`
+                    )
+                })
+            },
+            allowOutsideClick: () => !Swal.isLoading()
+        }).then((result) => {
+            if (result.isConfirmed) {
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Email Sent!',
+                    text: 'Your celebration email has been sent successfully.',
+                    confirmButtonColor: '#4CAF50',
+                    timer: 2000,
+                    timerProgressBar: true
+                })
+            }
+        })
+    }
+</script>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
+
+<style>
+#divformat {
+  background-color: White;
+  border: 1px solid #4CAF50;
+  border-radius: 5px;
+  padding: 3px;
+  margin: 0px;
+  margin-top: 4px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+#smallpadding {
+  padding: 3px;
+  margin: 1px;
+}
+.email-button {
+  color: #4CAF50;
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-size: 16px;
+  transition: all 0.3s;
+  margin-left: 8px;
+}
+.email-button:hover {
+  color: #45a049;
+  transform: scale(1.2);
+}
+.anniversary-row {
+  padding: 2px 10px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  align-items: center;
+  transition: background-color 0.2s;
+}
+.anniversary-row:hover {
+  background-color: #f9f9f9;
+}
+.anniversary-date {
+  font-weight: bold;
+  margin-right: 8px;
+  min-width: 45px;
+}
+.anniversary-name {
+  flex-grow: 1;
+}
+.anniversary-type {
+  margin: 0 10px;
+  color: #666;
+  min-width: 100px;
+  text-align: right;
+}
+.swal2-popup {
+  width: 35em !important;
+  font-size: 16px !important;
+}
+.swal2-textarea {
+  height: 10em !important;
+  font-size: 14px !important;
+}
+</style>
+
+<div id="divformat"><h3 id="smallpadding">'''
+
+# Print title
+print title
+
+print '''</h3><hr id="smallpadding">'''
+
+# Handle POST request for sending emails
+if model.HttpMethod == 'post' and model.Data.a == "email":  
+    print " "  # Print a blank line first - IMPORTANT!
+
+    try:
+        # Get data from request
+        LoggedInUser = model.UserPeopleId
+        pid = int(model.Data.email_pid)
+        subject = model.Data.email_subject
+        message = model.Data.email_message
+        from_email = model.Data.email_from
+        from_name = model.Data.email_fromname
+        
+        # Log the data we're processing
+        print "Sending email: User=%s, PID=%s, Subject=%s" % (LoggedInUser, pid, subject)
+        
+        # Send the email
+        model.Email(pid, LoggedInUser, from_email, from_name, subject, message)
+        
+        # Success! Note: we must return SOMETHING or the request will 404
+        print "Email sent successfully"
+    except Exception as e:
+        # Log any error and return something
+        print "Error sending email: " + str(e)
+        print " "
+
+#--------------------------
+#Add people from savedQuery
+#--------------------------
+people = ''
+for p in q.QueryList(savedQuery, "PeopleId"):
+    if people:
+        people += ',' + str(p.PeopleId)
+    else:
+        people += str(p.PeopleId)
+    
+data = q.QuerySql(sql.format(people,daysToLookOut,extraValueField,extraValueFieldFriendlyName))
+
+if not data:
+    print "<p style='text-align:center; padding:10px;'>No upcoming anniversaries for the next %s days</p>" % daysToLookOut
+else:
+    for i in data:
+        # Using the envelope icon (✉️) and improved styling
+        # We'll also pass the years count for more contextual emails
+        email_button = '<button class="email-button" title="Send celebration email" onclick="sendEmail(%s, \'%s\', \'%s\', %s)">✉️</button>' % (
+            i.PeopleId, 
+            i.Type.replace("'", "\\'"), 
+            i.Name.replace("'", "\\'"),
+            i.YearsCount
+        )
+        
+        print '<div class="anniversary-row">'
+        print '<span class="anniversary-date">' + i.dDate + '</span>'
+        print '<span class="anniversary-name"><a href="/Person2/' + str(i.PeopleId) + '#tab-communications">' + i.Name + '</a></span>'
+        print '<span class="anniversary-type">' + i.Type + '</span>'
+        print email_button
+        print '</div>'
+ 
+print '</div>'
