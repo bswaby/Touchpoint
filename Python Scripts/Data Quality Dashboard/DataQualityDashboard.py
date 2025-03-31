@@ -27,8 +27,9 @@ sqlDataQuality = '''
 WITH DataQualityMetrics AS (
     SELECT 
         CASE 
-            WHEN p.ArchivedFlag = 1 THEN 'Archived'
-            WHEN p.IsDeceased = 1 THEN 'Deceased'
+            WHEN p.IsDeceased = 1 AND p.ArchivedFlag = 1 THEN 'Deceased and Archived'
+            WHEN p.IsDeceased = 1 THEN 'Deceased (Not Archived)'
+            WHEN p.ArchivedFlag = 1 THEN 'Archived (Not Deceased)'
             ELSE 'Active'
         END AS RecordStatus,
         
