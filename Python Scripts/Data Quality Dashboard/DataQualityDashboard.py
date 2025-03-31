@@ -303,10 +303,11 @@ html_template = '''
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             line-height: 1.6;
             color: #333;
-            max-width: 1300px;
+            max-width: 100%; /* Changed from 1300px */
             margin: 0 auto;
             padding: 20px;
             overflow-x: hidden; /* Prevent horizontal scrolling */
+            box-sizing: border-box; /* Add this to include padding in width calculation */
         }
         
         h1, h2, h3, h4 {
@@ -346,6 +347,12 @@ html_template = '''
             flex-wrap: wrap;
             gap: 20px;
             margin-bottom: 30px;
+        }
+
+        .container-fluid {
+            padding-left: 0;
+            padding-right: 0;
+            overflow-x: hidden;
         }
         
         .metric-card {
@@ -404,6 +411,12 @@ html_template = '''
             margin-bottom: 30px;
         }
         
+        /* Fix for the chart containers */
+        .chart-container, .chart-row, .chart-card {
+            max-width: 100%;
+            box-sizing: border-box;
+        }        
+
         .chart-card {
             background-color: #fff;
             border-radius: 8px;
@@ -454,6 +467,7 @@ html_template = '''
         
         table {
             width: 100%;
+            max-width: 100%;
             border-collapse: collapse;
             table-layout: fixed; /* Fixed layout for better performance */
         }
