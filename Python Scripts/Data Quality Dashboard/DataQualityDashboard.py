@@ -200,6 +200,8 @@ SELECT * FROM (
              CAST(SUM(MissingMemberStatus) * 100.0 / COUNT(*) AS DECIMAL(5,1))) / 6
         ) AS DataCompletenessScore
     FROM DataQualityMetrics
+    --WHERE ArchivedFlag = 0 -- Only include non-archived records in age breakdown
+    WHERE RecordStatus = 'Active'
     GROUP BY AgeRange
 ) AS combined_results
 ORDER BY 
@@ -848,7 +850,7 @@ html_template = '''
         
         <!-- Data quality by age group table - with scrolling -->
         <div class="table-container">
-            <h3>Data Quality Statistics by Age Group</h3>
+            <h3>Data Quality Statistics by Age Group (Excludes Archive)</h3>
             <table id="age-table">
                 <thead>
                     <tr>
