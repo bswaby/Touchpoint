@@ -275,9 +275,9 @@ SELECT TOP 5000
     COALESCE(p.PrimaryCity, p.CityName, '') AS City,
     COALESCE(p.PrimaryState, p.StateCode, '') AS State,
     COALESCE(p.PrimaryZip, p.ZipCode, '') AS Zip,
-    COALESCE(p.CellPhone, '') AS CellPhone,
-    COALESCE(p.HomePhone, '') AS HomePhone,
-    COALESCE(p.EmailAddress, '') AS Email,
+    CASE WHEN p.Age >= 13 THEN COALESCE(p.CellPhone, '') END AS CellPhone,
+    CASE WHEN p.Age >= 13 THEN COALESCE(p.HomePhone, '') END AS HomePhone,
+    CASE WHEN p.Age >= 13 THEN COALESCE(p.EmailAddress, '') END AS Email,
     
     -- Missing Data Flags
     CASE WHEN p.GenderId = 0 THEN 1 ELSE 0 END AS MissingGender,
@@ -288,11 +288,15 @@ SELECT TOP 5000
     CASE WHEN p.CampusId IS NULL THEN 1 ELSE 0 END AS MissingCampus,
     CASE WHEN (p.PrimaryAddress IS NULL OR p.PrimaryAddress = '') AND 
               (p.AddressLineOne IS NULL OR p.AddressLineOne = '') THEN 1 ELSE 0 END AS MissingAddress,
-    CASE WHEN (p.CellPhone IS NULL OR p.CellPhone = '') AND 
+    CASE WHEN p.Age >= 13 THEN
+		CASE WHEN (p.CellPhone IS NULL OR p.CellPhone = '') AND 
               (p.HomePhone IS NULL OR p.HomePhone = '') AND 
-              (p.WorkPhone IS NULL OR p.WorkPhone = '') THEN 1 ELSE 0 END AS MissingPhone,
-    CASE WHEN (p.EmailAddress IS NULL OR p.EmailAddress = '') AND 
-              (p.EmailAddress2 IS NULL OR p.EmailAddress2 = '') THEN 1 ELSE 0 END AS MissingEmail,
+              (p.WorkPhone IS NULL OR p.WorkPhone = '') THEN 1 ELSE 0 END 
+			  END AS MissingPhone,
+    CASE WHEN p.Age >= 13 THEN
+		CASE WHEN (p.EmailAddress IS NULL OR p.EmailAddress = '') AND 
+              (p.EmailAddress2 IS NULL OR p.EmailAddress2 = '') THEN 1 ELSE 0 END 
+		END AS MissingEmail,
     CASE WHEN p.PictureId IS NULL THEN 1 ELSE 0 END AS MissingPhoto,
     
     -- Last modification
@@ -318,6 +322,110 @@ WHERE
 
 ORDER BY p.ModifiedDate DESC
 '''
+
+# -------------------------------------------------------------------------
+# Def Function
+# -------------------------------------------------------------------------
+
+# Near the beginning of the script, add a function to create SQL scripts
+def create_sql_scripts():
+    # Missing Email addresses
+    email_sql = '''
+    SELECT p.PeopleId, p.Name, p.Age
+    FROM People p 
+    WHERE (p.EmailAddress IS NULL OR p.EmailAddress = '') 
+      AND (p.EmailAddress2 IS NULL OR p.EmailAddress2 = '')
+      AND p.Age >= 13
+      AND p.ArchivedFlag = 0 
+      AND p.IsDeceased = 0
+    ORDER BY p.ModifiedDate DESC
+    '''
+    model.WriteContentSql("TPx_DQD-MissingEmailList", email_sql)
+    
+    # Missing Phone numbers
+    phone_sql = '''
+    SELECT p.PeopleId, p.Name, p.Age
+    FROM People p 
+    WHERE (p.CellPhone IS NULL OR p.CellPhone = '') 
+      AND (p.HomePhone IS NULL OR p.HomePhone = '') 
+      AND (p.WorkPhone IS NULL OR p.WorkPhone = '')
+      AND p.Age >= 13
+      AND p.ArchivedFlag = 0 
+      AND p.IsDeceased = 0
+    ORDER BY p.ModifiedDate DESC
+    '''
+    model.WriteContentSql("TPx_DQD-MissingPhoneList", phone_sql)
+    
+    # Missing Addresses
+    address_sql = '''
+    SELECT p.PeopleId, p.Name, p.Age
+    FROM People p 
+    WHERE ((p.PrimaryAddress IS NULL OR p.PrimaryAddress = '') 
+      AND (p.AddressLineOne IS NULL OR p.AddressLineOne = ''))
+      AND p.ArchivedFlag = 0 
+      AND p.IsDeceased = 0
+    ORDER BY p.ModifiedDate DESC
+    '''
+    model.WriteContentSql("TPx_DQD-MissingAddressList", address_sql)
+    
+    # Missing Gender
+    gender_sql = '''
+    SELECT p.PeopleId, p.Name, p.Age
+    FROM People p 
+    WHERE p.GenderId IS NULL OR p.GenderId = 0
+      AND p.ArchivedFlag = 0 
+      AND p.IsDeceased = 0
+    ORDER BY p.ModifiedDate DESC
+    '''
+    model.WriteContentSql("TPx_DQD-MissingGenderList", gender_sql)
+    
+    # Missing Birth Date
+    birthdate_sql = '''
+    SELECT p.PeopleId, p.Name, p.Age
+    FROM People p 
+    WHERE p.BDate IS NULL 
+      AND (p.BirthMonth IS NULL OR p.BirthDay IS NULL OR p.BirthYear IS NULL)
+      AND p.ArchivedFlag = 0 
+      AND p.IsDeceased = 0
+    ORDER BY p.ModifiedDate DESC
+    '''
+    model.WriteContentSql("TPx_DQD-MissingBirthDateList", birthdate_sql)
+    
+    # Missing Photo
+    photo_sql = '''
+    SELECT p.PeopleId, p.Name, p.Age
+    FROM People p 
+    WHERE p.PictureId IS NULL
+      AND p.ArchivedFlag = 0 
+      AND p.IsDeceased = 0
+    ORDER BY p.ModifiedDate DESC
+    '''
+    model.WriteContentSql("TPx_DQD-MissingPhotoList", photo_sql)
+    
+    # Bad Addresses
+    bad_address_sql = '''
+    SELECT p.PeopleId, p.Name, p.Age, p.PrimaryAddress, p.PrimaryCity, p.PrimaryState, p.PrimaryZip
+    FROM People p 
+    WHERE (p.BadAddressFlag = 1 OR p.PrimaryBadAddrFlag = 1)
+      AND p.ArchivedFlag = 0 
+      AND p.IsDeceased = 0
+    ORDER BY p.ModifiedDate DESC
+    '''
+    model.WriteContentSql("TPx_DQD-BadAddressList", bad_address_sql)
+    
+    # Stale Records
+    stale_records_sql = '''
+    SELECT p.PeopleId, p.Name, p.Age, p.ModifiedDate
+    FROM People p 
+    WHERE DATEDIFF(MONTH, p.ModifiedDate, GETDATE()) > 24
+      AND p.ArchivedFlag = 0 
+      AND p.IsDeceased = 0
+    ORDER BY p.ModifiedDate
+    '''
+    model.WriteContentSql("TPx_DQD-StaleRecordsList", stale_records_sql)
+
+# Call this function early in your script
+create_sql_scripts()
 
 # -------------------------------------------------------------------------
 # Dashboard HTML Template
@@ -1646,58 +1754,66 @@ html_template = '''
     
     // Enhanced table sorting with performance optimizations
     function sortTable(tableId, columnIndex, isNumeric = false) {
+        // Basic setup
         const table = document.getElementById(tableId);
-        const tbody = table.getElementsByTagName('tbody')[0];
-        const rows = Array.from(tbody.getElementsByTagName('tr'));
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
         
-        // Track sort direction
-        const headerCell = table.querySelector(`th:nth-child(${columnIndex + 1})`);
+        // Determine sort direction
+        const headerCells = table.querySelectorAll('th');
+        const headerCell = headerCells[columnIndex - 1]; // Adjust index to be 0-based
         const currentDir = headerCell.getAttribute('data-sort') || 'asc';
         const newDir = currentDir === 'asc' ? 'desc' : 'asc';
         
-        // Update all headers
-        table.querySelectorAll('th').forEach(th => th.setAttribute('data-sort', ''));
+        // Update sort indicators on headers
+        headerCells.forEach(cell => cell.setAttribute('data-sort', ''));
         headerCell.setAttribute('data-sort', newDir);
         
-        // Sorting function with memoization for better performance
-        const cache = new Map();
+        // Debug info
+        // console.log(`Sorting table ${tableId}, column ${columnIndex}, isNumeric: ${isNumeric}, direction: ${newDir}`);
         
+        // Sort the rows
         rows.sort((a, b) => {
-            const cellA = a.getElementsByTagName('td')[columnIndex].textContent.trim();
-            const cellB = b.getElementsByTagName('td')[columnIndex].textContent.trim();
+            // Get cell content
+            const aCell = a.cells[columnIndex - 1];
+            const bCell = b.cells[columnIndex - 1];
             
-            let valA, valB;
+            if (!aCell || !bCell) return 0;
             
+            const aContent = aCell.textContent.trim();
+            const bContent = bCell.textContent.trim();
+            
+            // Log the raw values we're comparing
+            // console.log(`Comparing raw: "${aContent}" vs "${bContent}"`);
+            
+            // For numeric columns (like percentages)
             if (isNumeric) {
-                // For numeric sorting, extract the numeric value
-                if (!cache.has(cellA)) {
-                    cache.set(cellA, parseFloat(cellA.replace(/[^0-9.-]+/g, '')));
-                }
+                // Extract numeric values (handling percentages)
+                // Convert "83.6%" to 83.6
+                const aValue = parseFloat(aContent.replace('%', ''));
+                const bValue = parseFloat(bContent.replace('%', ''));
                 
-                if (!cache.has(cellB)) {
-                    cache.set(cellB, parseFloat(cellB.replace(/[^0-9.-]+/g, '')));
-                }
+                // Log the extracted numeric values
+                // console.log(`Comparing numeric: ${aValue} vs ${bValue}`);
                 
-                valA = cache.get(cellA);
-                valB = cache.get(cellB);
-                
-                if (!isNaN(valA) && !isNaN(valB)) {
-                    return newDir === 'asc' ? valA - valB : valB - valA;
+                // Compare the numeric values directly
+                if (!isNaN(aValue) && !isNaN(bValue)) {
+                    return newDir === 'asc' ? aValue - bValue : bValue - aValue;
                 }
             }
             
-            // Default to string comparison
+            // Fallback to simple string comparison
             return newDir === 'asc' ? 
-                cellA.localeCompare(cellB) : 
-                cellB.localeCompare(cellA);
+                aContent.localeCompare(bContent) : 
+                bContent.localeCompare(aContent);
         });
         
-        // Use document fragment for better performance
-        const fragment = document.createDocumentFragment();
-        rows.forEach(row => fragment.appendChild(row));
+        // Clear the table and add the sorted rows
+        while (tbody.firstChild) {
+            tbody.removeChild(tbody.firstChild);
+        }
         
-        tbody.innerHTML = '';
-        tbody.appendChild(fragment);
+        rows.forEach(row => tbody.appendChild(row));
     }
     
     // Performance optimization for large tables
@@ -1758,6 +1874,7 @@ html_template = '''
             
             <h4>How It's Calculated</h4>
             <ul>
+                <li>A percentage that reflects how much critical information is present in a person's record</li>
                 <li>Checks key fields: Gender, Birth Date, Address, Phone, Email, Member Status</li>
                 <li>Calculates the percentage of <strong>complete</strong> records</li>
                 <li>Ranges from 0-100%</li>
@@ -1772,6 +1889,17 @@ html_template = '''
             </ul>
             
             <p><em>Goal: Maintain a high score by ensuring most records have complete, essential information.</em></p>
+
+            <h4>Example:</h4>
+            <ul>
+                <li>Gender (5% missing)</li>
+                <li>Birth Date (10% missing)</li>
+                <li>Address (15% missing)</li>
+                <li>Phone (20% missing)</li>
+                <li>Email (25% missing)</li>
+            </ul>
+            <p>The average missing percentage would be <br><br>(5+10+15+20+25)/5 = 15%<br><br>
+            100% - 15% = 85% ("Good" Data Completeness Score)<br>
             
             <button onclick="this.parentElement.remove();" style="
                 background-color: #3498db;
@@ -2107,6 +2235,8 @@ for record in problem_records:
 active_stats = status_stats.get('Active', {})
 missing_data_percentages = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
+
+
 # Calculate missing data percentages for active records
 if active_stats:
     missing_data_percentages = [
@@ -2202,7 +2332,7 @@ if active_stats:
             <td>Collect missing email addresses</td>
             <td>Improves digital communication</td>
             <td>{0}</td>
-            <td><a href="/SearchBuilder2/SavedId/105?FromQuery=EmissingSql=CAST((SELECT 1 FROM People p WHERE p.PeopleId = Person.PeopleId AND (p.EmailAddress IS NULL OR p.EmailAddress = '') AND (p.EmailAddress2 IS NULL OR p.EmailAddress2 = '')) AS BIT) = 1" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingEmailList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
         '''.format("{:,}".format(active_stats.MissingEmail))
         
@@ -2214,7 +2344,7 @@ if active_stats:
             <td>Collect missing phone numbers</td>
             <td>Enables voice/SMS contact</td>
             <td>{0}</td>
-            <td><a href="/SearchBuilder2/SavedId/106?FromQuery=MissingSql=CAST((SELECT 1 FROM People p WHERE p.PeopleId = Person.PeopleId AND (p.CellPhone IS NULL OR p.CellPhone = '') AND (p.HomePhone IS NULL OR p.HomePhone = '') AND (p.WorkPhone IS NULL OR p.WorkPhone = '')) AS BIT) = 1" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingPhoneList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
         '''.format("{:,}".format(active_stats.MissingPhone))
         
@@ -2226,7 +2356,7 @@ if active_stats:
             <td>Collect missing addresses</td>
             <td>Enables mail communication</td>
             <td>{0}</td>
-            <td><a href="/SearchBuilder2/SavedId/107?FromQuery=MissingSql=CAST((SELECT 1 FROM People p WHERE p.PeopleId = Person.PeopleId AND ((p.PrimaryAddress IS NULL OR p.PrimaryAddress = '') AND (p.AddressLineOne IS NULL OR p.AddressLineOne = ''))) AS BIT) = 1" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingAddressList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
         '''.format("{:,}".format(active_stats.MissingAddress))
 
@@ -2239,7 +2369,7 @@ if active_stats:
             <td>Update missing gender information</td>
             <td>Improves demographic analysis</td>
             <td>{0}</td>
-            <td><a href="/SearchBuilder2/SavedId/108?FromQuery=MissingSql=CAST((SELECT 1 FROM People p WHERE p.PeopleId = Person.PeopleId AND p.GenderId IS NULL) AS BIT) = 1" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingGenderList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
         '''.format("{:,}".format(active_stats.MissingGender))
         
@@ -2251,7 +2381,7 @@ if active_stats:
             <td>Update missing birth dates</td>
             <td>Enables age-based ministry</td>
             <td>{0}</td>
-            <td><a href="/SearchBuilder2/SavedId/109?FromQuery=MissingSql=CAST((SELECT 1 FROM People p WHERE p.PeopleId = Person.PeopleId AND p.BDate IS NULL AND (p.BirthMonth IS NULL OR p.BirthDay IS NULL OR p.BirthYear IS NULL)) AS BIT) = 1" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingBirthDateList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
         '''.format("{:,}".format(active_stats.MissingBirthDate))
         
@@ -2263,12 +2393,10 @@ if active_stats:
             <td>Add missing profile photos</td>
             <td>Improves member directory</td>
             <td>{0}</td>
-            <td><a href="/SearchBuilder2/SavedId/110?FromQuery=MissingSql=CAST((SELECT 1 FROM People p WHERE p.PeopleId = Person.PeopleId AND p.PictureId IS NULL) AS BIT) = 1" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingPhotoList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
         '''.format("{:,}".format(active_stats.MissingPhoto))
-        
 
-    
     if active_stats.BadAddress > 0:
         cleanup_count += 1
         action_items += '''
@@ -2277,7 +2405,7 @@ if active_stats:
             <td>Fix bad addresses</td>
             <td>Reduces returned mail</td>
             <td>{0}</td>
-            <td><a href="/SearchBuilder2/SavedId/112?FromQuery=MissingSql=CAST((SELECT 1 FROM People p WHERE p.PeopleId = Person.PeopleId AND (p.BadAddressFlag = 1 OR p.PrimaryBadAddrFlag = 1)) AS BIT) = 1" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-BadAddressList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
         '''.format("{:,}".format(active_stats.BadAddress))
         
@@ -2289,7 +2417,7 @@ if active_stats:
             <td>Verify stale records</td>
             <td>Updates outdated information</td>
             <td>{0}</td>
-            <td><a href="/SearchBuilder2/SavedId/113?FromQuery=MissingSql=CAST((SELECT 1 FROM People p WHERE p.PeopleId = Person.PeopleId AND DATEDIFF(MONTH, p.ModifiedDate, GETDATE()) > 24) AS BIT) = 1" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-StaleRecordsList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
         '''.format("{:,}".format(active_stats.StaleRecord))
 
