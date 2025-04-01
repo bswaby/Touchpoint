@@ -33,6 +33,9 @@ WITH DataQualityMetrics AS (
             ELSE 'Active'
         END AS RecordStatus,
         
+        -- Filter to exclude archived records
+        CASE WHEN p.ArchivedFlag = 0 THEN 1 ELSE 0 END AS IsActiveRecord,
+        
         -- Core demographics
         CASE WHEN p.GenderId = 0 THEN 1 ELSE 0 END AS MissingGender,
         CASE WHEN p.BDate IS NULL AND (p.BirthMonth IS NULL OR p.BirthDay IS NULL OR p.BirthYear IS NULL) THEN 1 ELSE 0 END AS MissingBirthDate,
@@ -55,13 +58,41 @@ WITH DataQualityMetrics AS (
         CASE WHEN p.BadAddressFlag = 1 OR p.PrimaryBadAddrFlag = 1 THEN 1 ELSE 0 END AS BadAddress,
         
         -- Phone info
-        CASE WHEN (p.CellPhone IS NULL OR p.CellPhone = '') AND 
-                  (p.HomePhone IS NULL OR p.HomePhone = '') AND 
-                  (p.WorkPhone IS NULL OR p.WorkPhone = '') THEN 1 ELSE 0 END AS MissingPhone,
+        -- CASE WHEN (p.CellPhone IS NULL OR p.CellPhone = '') AND 
+        --          (p.HomePhone IS NULL OR p.HomePhone = '') AND 
+        --          (p.WorkPhone IS NULL OR p.WorkPhone = '') THEN 1 ELSE 0 END AS MissingPhone,
+        CASE 
+            WHEN p.Age < 13 THEN 
+                CASE 
+                    WHEN p.MemberStatusId = 0 THEN 1 
+                    ELSE 0 
+                END
+            ELSE 
+                CASE 
+                    WHEN (p.CellPhone IS NULL OR p.CellPhone = '') AND 
+                         (p.HomePhone IS NULL OR p.HomePhone = '') AND 
+                         (p.WorkPhone IS NULL OR p.WorkPhone = '') THEN 1 
+                    ELSE 0 
+                END
+        END AS MissingPhone,
         
         -- Email info
-        CASE WHEN (p.EmailAddress IS NULL OR p.EmailAddress = '') AND 
-                  (p.EmailAddress2 IS NULL OR p.EmailAddress2 = '') THEN 1 ELSE 0 END AS MissingEmail,
+        --CASE WHEN (p.EmailAddress IS NULL OR p.EmailAddress = '') AND 
+        --          (p.EmailAddress2 IS NULL OR p.EmailAddress2 = '') THEN 1 ELSE 0 END AS MissingEmail,
+        CASE 
+            WHEN p.Age < 13 THEN 
+                CASE 
+                    WHEN p.MemberStatusId = 0 THEN 1 
+                    ELSE 0 
+                END
+            ELSE 
+                CASE 
+                    WHEN (p.EmailAddress IS NULL OR p.EmailAddress = '') AND 
+                         (p.EmailAddress2 IS NULL OR p.EmailAddress2 = '') THEN 1 
+                    ELSE 0 
+                END
+        END AS MissingEmail,
+        
         
         -- Family info
         CASE WHEN p.FamilyId IS NULL THEN 1 ELSE 0 END AS MissingFamily,
@@ -758,6 +789,25 @@ html_template = '''
             margin-bottom: 3px;
         }
 
+        /* Pop-up */
+        .info-icon {
+            cursor: pointer;
+            color: #3498db;
+            margin-left: 5px;
+            font-size: 1rem;
+        }
+        
+        .tooltip-popup {
+            position: fixed;
+            z-index: 1000;
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            max-width: 400px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -781,7 +831,9 @@ html_template = '''
             </div>
             
             <div class="metric-card">
-                <div class="metric-label">Data Completeness Score</div>
+                <div class="metric-label">Data Completeness Score 
+                    <span class="info-icon" onclick="showDataCompletenessTooltip(event)">ℹ️</span>
+                </div>
                 <div class="metric-value" id="completeness-score">{{data_completeness_score}}%</div>
                 <div id="score-rating" class="score-label">
                     {{score_rating}}
@@ -837,8 +889,8 @@ html_template = '''
                         <th>Missing Gender <button class="sort-btn" onclick="sortTable('status-table', 2)">↕</button></th>
                         <th>Missing Birth Date <button class="sort-btn" onclick="sortTable('status-table', 3)">↕</button></th>
                         <th>Missing Address <button class="sort-btn" onclick="sortTable('status-table', 4)">↕</button></th>
-                        <th>Missing Phone <button class="sort-btn" onclick="sortTable('status-table', 5)">↕</button></th>
-                        <th>Missing Email <button class="sort-btn" onclick="sortTable('status-table', 6)">↕</button></th>
+                        <th>Missing Phone <span class="info-icon" onclick="showPhoneEmailTooltip(event, 'phone')">ℹ️</span> <button class="sort-btn" onclick="sortTable('status-table', 5)">↕</button></th>
+                        <th>Missing Email <span class="info-icon" onclick="showPhoneEmailTooltip(event, 'email')">ℹ️</span> <button class="sort-btn" onclick="sortTable('status-table', 6)">↕</button></th>
                         <th>Data Score <button class="sort-btn" onclick="sortTable('status-table', 7, true)">↕</button></th>
                     </tr>
                 </thead>
@@ -858,8 +910,8 @@ html_template = '''
                         <th>Count</th>
                         <th>Missing Gender <button class="sort-btn" onclick="sortTable('age-table', 2)">↕</button></th>
                         <th>Missing Address <button class="sort-btn" onclick="sortTable('age-table', 4)">↕</button></th>
-                        <th>Missing Phone <button class="sort-btn" onclick="sortTable('age-table', 5)">↕</button></th>
-                        <th>Missing Email <button class="sort-btn" onclick="sortTable('age-table', 6)">↕</button></th>
+                        <th>Missing Phone <span class="info-icon" onclick="showPhoneEmailTooltip(event, 'phone')">ℹ️</span> <button class="sort-btn" onclick="sortTable('age-table', 5)">↕</button></th>
+                        <th>Missing Email <span class="info-icon" onclick="showPhoneEmailTooltip(event, 'email')">ℹ️</span> <button class="sort-btn" onclick="sortTable('age-table', 6)">↕</button></th>
                         <th>Data Score <button class="sort-btn" onclick="sortTable('age-table', 7, true)">↕</button></th>
                     </tr>
                 </thead>
@@ -881,8 +933,8 @@ html_template = '''
                 <label for="issue-filter">Filter by issue:</label>
                 <select id="issue-filter" onchange="filterProblemRecords()">
                     <option value="all">All Issues</option>
-                    <option value="missing-email">Missing Email</option>
-                    <option value="missing-phone">Missing Phone</option>
+                    <option value="missing-email">Missing Email (13+)</option>
+                    <option value="missing-phone">Missing Phone (13+)</option>
                     <option value="missing-address">Missing Address</option>
                     <option value="missing-gender">Missing Gender</option>
                     <option value="missing-birthdate">Missing Birth Date</option>
@@ -1141,6 +1193,14 @@ html_template = '''
             
             // Parse the JSON string back into an array
             const missingDataPercentages = {{missing_data_percentages}};
+            
+            // Validate data
+            if (!Array.isArray(missingDataPercentages) || missingDataPercentages.length === 0) {
+                console.warn("No missing data percentages available");
+                return;
+            }
+            
+            // Create labels with additional info
             const missingDataLabels = [
                 'Gender', 
                 'Birth Date', 
@@ -1149,12 +1209,6 @@ html_template = '''
                 'Email', 
                 'Photo'
             ];
-            
-            // Validate data
-            if (!Array.isArray(missingDataPercentages) || missingDataPercentages.length === 0) {
-                console.warn("No missing data percentages available");
-                return;
-            }
             
             missingDataChart = new Chart(missingDataCtx, {
                 type: 'bar',
@@ -1169,7 +1223,7 @@ html_template = '''
                             'rgba(255, 206, 86, 0.6)',   // Address
                             'rgba(75, 192, 192, 0.6)',   // Phone
                             'rgba(153, 102, 255, 0.6)',  // Email
-                            'rgba(255, 159, 64, 0.6)'   // Photo
+                            'rgba(255, 159, 64, 0.6)'    // Photo
                         ],
                         borderColor: [
                             'rgba(255, 99, 132, 1)',
@@ -1216,10 +1270,29 @@ html_template = '''
                 },
                 plugins: [ChartDataLabels]
             });
+    
+            // Add event listener for the "Data Completeness Score" info icon
+            const dataCompletenessIcon = document.querySelector('.metric-label .info-icon');
+            if (dataCompletenessIcon) {
+                dataCompletenessIcon.addEventListener('click', function(event) {
+                    showDataCompletenessTooltip(event);
+                });
+            }
+    
+            // Add event listeners for the "Phone/Email" info icons in the chart
+            const phoneEmailIcons = document.querySelectorAll('#missing-data-chart + .info-icon');
+            phoneEmailIcons.forEach(icon => {
+                icon.addEventListener('click', function(event) {
+                    const type = this.getAttribute('data-type');
+                    showPhoneEmailTooltip(event, type);
+                });
+            });
+    
         } catch (error) {
             console.error("Error initializing missing data chart:", error);
         }
     }
+
     
     function initAgeDataChart() {
         const ageDataCtx = document.getElementById('age-data-chart').getContext('2d');
@@ -1670,7 +1743,140 @@ html_template = '''
         loadMoreRow.appendChild(loadMoreCell);
         tbody.appendChild(loadMoreRow);
     }
-    
+    //Data Score toolTip
+    function showDataCompletenessTooltip(event) {
+        // Remove any existing tooltips
+        const existingTooltips = document.querySelectorAll('.tooltip-popup');
+        existingTooltips.forEach(tooltip => tooltip.remove());
+        
+        // Create tooltip element
+        const tooltip = document.createElement('div');
+        tooltip.className = 'tooltip-popup';
+        tooltip.innerHTML = `
+            <h3>Data Completeness Score Explained</h3>
+            <p>The Data Completeness Score represents the overall quality of your people records, calculated by tracking the presence of critical information.</p>
+            
+            <h4>How It's Calculated</h4>
+            <ul>
+                <li>Checks key fields: Gender, Birth Date, Address, Phone, Email, Member Status</li>
+                <li>Calculates the percentage of <strong>complete</strong> records</li>
+                <li>Ranges from 0-100%</li>
+            </ul>
+            
+            <h4>Score Ratings</h4>
+            <ul>
+                <li>95-100%: <strong style="color:#4caf50;">Excellent</strong></li>
+                <li>85-94%: <strong style="color:#8bc34a;">Good</strong></li>
+                <li>70-84%: <strong style="color:#ffc107;">Fair</strong></li>
+                <li>Below 70%: <strong style="color:#f44336;">Poor</strong></li>
+            </ul>
+            
+            <p><em>Goal: Maintain a high score by ensuring most records have complete, essential information.</em></p>
+            
+            <button onclick="this.parentElement.remove();" style="
+                background-color: #3498db;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 4px;
+                cursor: pointer;
+                margin-top: 10px;
+            ">Close</button>
+        `;
+        
+        // Position the tooltip near the clicked icon
+        tooltip.style.top = `${event.clientY + 10}px`;
+        tooltip.style.left = `${event.clientX - 200}px`;
+        
+        // Add to body and make visible
+        document.body.appendChild(tooltip);
+        tooltip.style.display = 'block';
+        
+        // Close tooltip if clicked outside
+        function closeTooltipHandler(e) {
+            if (!tooltip.contains(e.target)) {
+                tooltip.remove();
+                document.removeEventListener('click', closeTooltipHandler);
+            }
+        }
+        
+        // Add click listener to document to close tooltip
+        setTimeout(() => {
+            document.addEventListener('click', closeTooltipHandler);
+        }, 0);
+    }
+
+
+    // Phone Email pop-up
+    function showPhoneEmailTooltip(event, type) {
+        // Remove any existing tooltips
+        const existingTooltips = document.querySelectorAll('.tooltip-popup');
+        existingTooltips.forEach(tooltip => tooltip.remove());
+        
+        // Create tooltip element
+        const tooltip = document.createElement('div');
+        tooltip.className = 'tooltip-popup';
+        
+        // Define tooltip content based on type
+        const tooltipContent = type === 'phone' 
+            ? `
+                <h3>Phone Number Tracking</h3>
+                <p>Phone numbers are not tracked for individuals under 13 years old due to privacy considerations.</p>
+                
+                <h4>What This Means</h4>
+                <ul>
+                    <li>Children under 13 are excluded from phone number statistics</li>
+                    <li>This ensures compliance with child privacy guidelines</li>
+                    <li>Parents can add contact information as needed</li>
+                </ul>
+            `
+            : `
+                <h3>Email Address Tracking</h3>
+                <p>Email addresses are not tracked for individuals under 13 years old due to privacy regulations.</p>
+                
+                <h4>Key Points</h4>
+                <ul>
+                    <li>Children under 13 are excluded from email statistics</li>
+                    <li>This protects minors' online privacy</li>
+                    <li>Parents can manage contact information</li>
+                </ul>
+            `;
+        
+        // Set the tooltip content
+        tooltip.innerHTML = tooltipContent + `
+            <button onclick="this.parentElement.remove();" style="
+                background-color: #3498db;
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 4px;
+                cursor: pointer;
+                margin-top: 10px;
+            ">Close</button>
+        `;
+        
+        // Position the tooltip near the clicked icon
+        tooltip.style.top = `${event.clientY + 10}px`;
+        tooltip.style.left = `${event.clientX - 200}px`;
+        
+        // Add to body and make visible
+        document.body.appendChild(tooltip);
+        tooltip.style.display = 'block';
+        
+        // Close tooltip if clicked outside
+        function closeTooltipHandler(e) {
+            if (!tooltip.contains(e.target)) {
+                tooltip.remove();
+                document.removeEventListener('click', closeTooltipHandler);
+            }
+        }
+        
+        // Add click listener to document to close tooltip
+        setTimeout(() => {
+            document.addEventListener('click', closeTooltipHandler);
+        }, 0);
+    }
+
     // Performance monitoring utility
     function trackPerformance() {
         const metrics = {
@@ -1933,12 +2139,16 @@ age_group_counts = [
 # Prepare contact information stats
 contact_data = []
 if active_stats and active_stats.TotalRecords > 0:
-    total_records = active_stats.TotalRecords
+    #total_records = active_stats.TotalRecords
+    total_records = sum(stats.TotalRecords for status, stats in status_stats.items() if status == 'Active')
     
     # Estimate contact information categories
-    missing_email = active_stats.MissingEmail
-    missing_phone = active_stats.MissingPhone
-    missing_address = active_stats.MissingAddress
+    #missing_email = active_stats.MissingEmail
+    #missing_phone = active_stats.MissingPhone
+    #missing_address = active_stats.MissingAddress
+    missing_email = status_stats['Active'].MissingEmail
+    missing_phone = status_stats['Active'].MissingPhone
+    missing_address = status_stats['Active'].MissingAddress
     
     # Estimate overlap (missing both email and phone)
     missing_both = min(missing_email, missing_phone) // 2
