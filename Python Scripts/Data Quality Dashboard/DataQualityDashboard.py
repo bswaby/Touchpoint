@@ -458,7 +458,7 @@ html_template = '''
 
         /* Main dashboard title */
         h1 {
-            font-size: 1.8rem;
+            font-size: 2.2rem;
             font-weight: 600;
             color: #2c3e50;
             margin-bottom: 20px;
@@ -919,7 +919,32 @@ html_template = '''
     </style>
 </head>
 <body>
-    <h1>Data Quality Dashboard</h1>
+    <h1>
+      Data Quality Dashboard
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="85 75 230 130" style="width: 60px; height: 30px; margin-left: -4px; vertical-align: middle;">
+        <!-- Text portion - TP -->
+        <text x="100" y="120" font-family="Arial, sans-serif" font-weight="bold" font-size="60" fill="#333333">TP</text>
+        
+        <!-- Circular element -->
+        <g transform="translate(190, 107)">
+          <!-- Outer circle -->
+          <circle cx="0" cy="0" r="13.5" fill="#0099FF"/>
+          
+          <!-- White middle circle -->
+          <circle cx="0" cy="0" r="10.5" fill="white"/>
+          
+          <!-- Inner circle -->
+          <circle cx="0" cy="0" r="7.5" fill="#0099FF"/>
+          
+          <!-- X crossing through the circles -->
+          <path d="M-9 -9 L9 9 M-9 9 L9 -9" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+        </g>
+        
+        <!-- Single "i" letter to the right -->
+        <text x="206" y="105" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#0099FF">i</text>
+      </svg>
+    </h1>
+
     
     <div class="tabs">
         <div class="tab active" data-tab="overview">Overview</div>
@@ -2417,7 +2442,7 @@ if active_stats:
             <td>Verify stale records</td>
             <td>Updates outdated information</td>
             <td>{0}</td>
-            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-StaleRecordsList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-StaleRecordList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
         '''.format("{:,}".format(active_stats.StaleRecord))
 
