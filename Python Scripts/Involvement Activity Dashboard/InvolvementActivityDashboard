@@ -1105,6 +1105,36 @@ def print_dashboard_header():
             window.location.href = window.location.pathname + '?view=' + view;
         }
     </script>
+    <script type="text/javascript">
+        // Function to apply filters
+        function applyFilters() {
+            var program = document.getElementById('program-filter').value;
+            var division = document.getElementById('division-filter').value;
+            var orgType = document.getElementById('orgtype-filter').value;
+            var view = window.location.search.match(/[?&]view=([^&]+)/) 
+                ? window.location.search.match(/[?&]view=([^&]+)/)[1] 
+                : 'overview';
+                
+            var url = window.location.pathname + '?view=' + view;
+            
+            if (program) url += '&program=' + program;
+            if (division) url += '&division=' + division;
+            if (orgType) url += '&orgtype=' + orgType;
+            
+            // Add program_sort parameter if on programs view
+            if (view === 'programs') {
+                var programSortRadios = document.getElementsByName('program_sort');
+                for (var i = 0; i < programSortRadios.length; i++) {
+                    if (programSortRadios[i].checked) {
+                        url += '&program_sort=' + programSortRadios[i].value;
+                        break;
+                    }
+                }
+            }
+            
+            window.location.href = url;
+        }
+    </script>
     """
 
 def print_navigation(current_view):
@@ -1170,6 +1200,7 @@ def print_filter_controls(org_structure_data, involvement_type_data, program_fil
     print '<form>'
     print '<input type="hidden" name="view" value="{0}">'.format(
         model.Data.view if hasattr(model.Data, "view") else "overview")
+        
     # Program Filter dropdown
     print '<select id="program-filter" name="program">'
     print '<option value="">All Programs</option>'
@@ -1194,6 +1225,19 @@ def print_filter_controls(org_structure_data, involvement_type_data, program_fil
             selected = ' selected' if org_type_filter and type_code == org_type_filter else ''
             print '<option value="{0}"{1}>{2}</option>'.format(type_code, selected, type_desc)
     print '</select>'
+    
+    # Program Sort option (only show when on programs view)
+    current_view = model.Data.view if hasattr(model.Data, "view") else "overview"
+    if current_view == "programs":
+        program_sort = model.Data.program_sort if hasattr(model.Data, "program_sort") else "count"  # Changed default to "count"
+        alpha_selected = ' checked' if program_sort == "alpha" else ''
+        count_selected = ' checked' if program_sort == "count" or not program_sort else ''  # Make count selected by default
+        
+        print '<div style="margin-top: 10px;">'
+        print '<label style="margin-right: 15px;">Sort: </label>'
+        print '<label style="margin-right: 10px;"><input type="radio" name="program_sort" value="alpha"{0}> Alpha</label>'.format(alpha_selected)
+        print '<label><input type="radio" name="program_sort" value="count"{0}> Inv. Count</label>'.format(count_selected)
+        print '</div>'
 
     print '<button type="button" onclick="applyFilters()">Apply Filters</button>'
     print '<button type="button" onclick="resetFilters()">Reset Filters</button>'
@@ -1329,10 +1373,10 @@ def render_overview(org_data, involvement_type_data, inactive_orgs_data):
         print '<p>No organization type data available.</p>'
     
     print '</div>'
-    
+        
     # Show orgs without recent activity
     print '<div class="card">'
-    print '<div class="card-header">Organizations Without Recent Activity (Last {0} days)</div>'.format(INACTIVE_DAYS)
+    print '<div class="card-header">Involvements Without Recent Activity (Last {0} days)</div>'.format(INACTIVE_DAYS)
     
     if inactive_orgs_data:
         print '<table>'
@@ -1354,29 +1398,83 @@ def render_overview(org_data, involvement_type_data, inactive_orgs_data):
             if i >= max_orgs_to_show:
                 break
                 
-            # Determine last activity date
-            last_meeting = format_date(org.LastMeetingDate) if hasattr(org, 'LastMeetingDate') and org.LastMeetingDate else 'Never1'
-            last_added = format_date(org.LastMemberAddedDate) if hasattr(org, 'LastMemberAddedDate') and org.LastMemberAddedDate else 'Never2'
-            last_inactive = format_date(org.LastMemberInactiveDate) if hasattr(org, 'LastMemberInactiveDate') and org.LastMemberInactiveDate else 'Never3'
+            # Format dates as strings for display and comparison
+            created_date_str = None
+            if hasattr(org, 'CreatedDate') and org.CreatedDate:
+                try:
+                    created_date_str = format_date(org.CreatedDate)
+                except:
+                    pass
             
-            # Find the most recent date
-            dates_to_check = []
-            for date_str in [last_meeting, last_added, last_inactive]:
-                if date_str and date_str != 'Never4':
-                    try:
-                        date_obj = datetime.datetime.strptime(date_str, '%m/%d/%Y')
-                        dates_to_check.append((date_str, date_obj))
-                    except:
-                        pass
+            # Last Meeting Date
+            last_meeting_str = None
+            if hasattr(org, 'LastMeetingDate') and org.LastMeetingDate:
+                try:
+                    if isinstance(org.LastMeetingDate, basestring) and 'NULL' in org.LastMeetingDate.upper():
+                        last_meeting_str = None
+                    else:
+                        last_meeting_str = format_date(org.LastMeetingDate)
+                except:
+                    pass
             
-            if dates_to_check:
-                latest_date_info = max(dates_to_check, key=lambda x: x[1])
-                last_activity = latest_date_info[0]
+            # Last Member Added Date
+            last_member_added_str = None
+            if hasattr(org, 'LastMemberAddedDate') and org.LastMemberAddedDate:
+                try:
+                    if isinstance(org.LastMemberAddedDate, basestring) and 'NULL' in org.LastMemberAddedDate.upper():
+                        last_member_added_str = None
+                    else:
+                        last_member_added_str = format_date(org.LastMemberAddedDate)
+                except:
+                    pass
+            
+            # Last Member Inactive Date
+            last_inactive_str = None
+            if hasattr(org, 'LastMemberInactiveDate') and org.LastMemberInactiveDate:
+                try:
+                    if isinstance(org.LastMemberInactiveDate, basestring) and 'NULL' in org.LastMemberInactiveDate.upper():
+                        last_inactive_str = None
+                    else:
+                        last_inactive_str = format_date(org.LastMemberInactiveDate)
+                except:
+                    pass
+            
+            # Use a dictionary to store dates with their description
+            activity_dates = {}
+            
+            if created_date_str:
+                activity_dates[created_date_str] = ("Created", created_date_str)
+            
+            if last_meeting_str:
+                activity_dates[last_meeting_str] = ("Last Meeting", last_meeting_str)
+            
+            if last_member_added_str:
+                activity_dates[last_member_added_str] = ("Last Member Added", last_member_added_str)
+            
+            if last_inactive_str:
+                activity_dates[last_inactive_str] = ("Last Member Inactive", last_inactive_str)
+            
+            # Find the most recent date by sorting the date strings
+            if activity_dates:
+                most_recent_date = sorted(activity_dates.keys(), reverse=True)[0]
+                activity_type, date_str = activity_dates[most_recent_date]
+                last_activity = "{0}: {1}".format(activity_type, date_str)
             else:
-                last_activity = 'Never5'
+                last_activity = "No activity recorded"
+            
+            # Check if it's a new organization
+            is_new = False
+            if created_date_str:
+                today = datetime.datetime.now()
+                cutoff_date = today - datetime.timedelta(days=NEW_ORG_DAYS)
+                cutoff_date_str = format_date(cutoff_date)
+                is_new = created_date_str >= cutoff_date_str
             
             print '<tr>'
-            print '<td><a href="/Org/{0}" target="_blank">{1}</a></td>'.format(org.OrganizationId, org.OrganizationName)
+            print '<td><a href="/Org/{0}" target="_blank">{1}</a>{2}</td>'.format(
+                org.OrganizationId, 
+                org.OrganizationName,
+                ' <span class="badge badge-info">New</span>' if is_new else '')
             print '<td>{0}</td>'.format(org.Program)
             print '<td>{0}</td>'.format(org.Division)
             print '<td>{0}</td>'.format(org.MemberCount)
@@ -1393,8 +1491,6 @@ def render_overview(org_data, involvement_type_data, inactive_orgs_data):
         print '<p>No involvements without recent activity.</p>'
     
     print '</div>'
-    
-    print '</div>'  # Close dashboard-container
 
 def render_activity_view(org_data, activity_detail_data):
     """Render the activity metrics view with combined activity indicators"""
@@ -1793,7 +1889,7 @@ def render_inactive_view(inactive_orgs_data, filtered_data):
             print_stat_box("Total Inactive", total_inactive, COLOR_INACTIVE)
             print_stat_box("With Members", inactive_with_members, COLOR_WARNING)
             print_stat_box("Members Affected", members_affected, COLOR_WARNING)
-            print_stat_box("Recently Created", recent_creation_count, COLOR_INFO)
+            #print_stat_box("Recently Created", recent_creation_count, COLOR_INFO)
             print '</div>'
             
             # Additional inactive reasons analysis
@@ -1806,34 +1902,42 @@ def render_inactive_view(inactive_orgs_data, filtered_data):
             inactive_reasons = {
                 "No Meetings Ever": 0,
                 "No Recent Meetings": 0,
-                "No Member Changes": 0,
-                "Recently Created": 0
+                "No Recent Member Changes": 0
             }
             
             for org in inactive_orgs_data:
-                # Check if it's a new organization
-                is_new = False
-                if hasattr(org, 'CreatedDate') and org.CreatedDate:
+                # For each org, we need to determine the reason for inactivity
+                # We'll check all possible reasons and choose the most appropriate one
+                has_meeting_history = hasattr(org, 'LastMeetingDate') and org.LastMeetingDate
+                has_recent_member_changes = False
+                
+                # Check for recently added members
+                if hasattr(org, 'LastMemberAddedDate') and org.LastMemberAddedDate:
                     try:
-                        created_date_str = format_date(org.CreatedDate)
+                        last_add_date = convert_to_datetime(org.LastMemberAddedDate)
+                        if last_add_date:
+                            days_since_add = (datetime.datetime.now() - last_add_date).days
+                            if days_since_add <= MEMBER_CHANGE_DAYS:
+                                has_recent_member_changes = True
+                    except:
+                        pass
                         
-                        # Check if it's within NEW_ORG_DAYS from today
-                        today = datetime.datetime.now()
-                        cutoff_date = today - datetime.timedelta(days=NEW_ORG_DAYS)
-                        cutoff_date_str = format_date(cutoff_date)
-                        
-                        if created_date_str >= cutoff_date_str:
-                            inactive_reasons["Recently Created"] += 1
-                            is_new = True
+                # Check for recently inactivated members
+                if hasattr(org, 'LastMemberInactiveDate') and org.LastMemberInactiveDate:
+                    try:
+                        last_inactive_date = convert_to_datetime(org.LastMemberInactiveDate)
+                        if last_inactive_date:
+                            days_since_inactive = (datetime.datetime.now() - last_inactive_date).days
+                            if days_since_inactive <= MEMBER_CHANGE_DAYS:
+                                has_recent_member_changes = True
                     except:
                         pass
                 
-                if is_new:
-                    continue
-                    
-                # Check meeting history
-                if not hasattr(org, 'LastMeetingDate') or not org.LastMeetingDate:
+                # Now determine the primary reason for inactivity
+                if not has_meeting_history:
                     inactive_reasons["No Meetings Ever"] += 1
+                elif not has_recent_member_changes:
+                    inactive_reasons["No Recent Member Changes"] += 1
                 else:
                     inactive_reasons["No Recent Meetings"] += 1
             
@@ -1842,7 +1946,7 @@ def render_inactive_view(inactive_orgs_data, filtered_data):
                 ["Reason", "Count"],
                 ["No Meetings Ever", inactive_reasons["No Meetings Ever"]],
                 ["No Recent Meetings", inactive_reasons["No Recent Meetings"]],
-                ["Recently Created", inactive_reasons["Recently Created"]]
+                ["No Recent Member Changes", inactive_reasons["No Recent Member Changes"]]
             ]
             
             print '<div class="chart-container" id="inactive-reasons-chart"></div>'
@@ -2086,6 +2190,10 @@ def render_programs_view(org_data):
         
         if hasattr(item, 'Members') and item.Members is not None:
             div["total_members"] += item.Members
+    
+    # Get the sort parameter
+    program_sort = model.Data.program_sort if hasattr(model.Data, "program_sort") else "count"  # Changed default to "count"
+
 
     # Print program and division summary
     print '<div class="card">'
@@ -2093,7 +2201,16 @@ def render_programs_view(org_data):
     
     if program_data:
         # Sort programs by total organizations
-        sorted_programs = sorted(program_data.items(), key=lambda x: x[1]["total_orgs"], reverse=True)
+        #sorted_programs = sorted(program_data.items(), key=lambda x: x[1]["total_orgs"], reverse=True)
+        # Sort programs alphabetically by name
+        #sorted_programs = sorted(program_data.items(), key=lambda x: x[1]["name"].lower())
+        # Sort programs based on selected sort option
+        if program_sort == "alpha":
+            sorted_programs = sorted(program_data.items(), key=lambda x: x[1]["name"].lower())
+        else:
+            # Default to count
+            sorted_programs = sorted(program_data.items(), key=lambda x: x[1]["total_orgs"], reverse=True)
+                
         
         for prog_id, prog in sorted_programs:
             active_percent = (float(prog["active_orgs"]) / prog["total_orgs"] * 100) if prog["total_orgs"] > 0 else 0
