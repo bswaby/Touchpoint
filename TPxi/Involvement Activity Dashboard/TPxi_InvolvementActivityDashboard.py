@@ -1679,13 +1679,63 @@ def render_activity_view(org_data, activity_detail_data):
 def render_members_view(member_changes_data, filtered_data):
     """Render the member changes view"""
     
-    # Count total recent changes
-    #total_enrollments = sum(1 for item in member_changes_data if hasattr(item, 'InactiveDate') and not item.InactiveDate)
-    #total_inactivations = sum(1 for item in member_changes_data if hasattr(item, 'InactiveDate') and item.InactiveDate)
-    total_enrollments = sum(1 for item in member_changes_data 
+    # Get current filters from URL parameters
+    program_filter = model.Data.program if hasattr(model.Data, "program") else None
+    division_filter = model.Data.division if hasattr(model.Data, "division") else None
+    org_type_filter = model.Data.orgtype if hasattr(model.Data, "orgtype") else None
+    
+    # Apply filters to member_changes_data
+    filtered_member_changes = []
+    
+    # Create lookup dictionaries for program and division info
+    program_lookup = {}  # org_id -> prog_id
+    division_lookup = {}  # org_id -> div_id
+    org_type_lookup = {}  # org_id -> org_type
+    
+    # Build the lookups from filtered_data
+    for org in filtered_data:
+        if hasattr(org, 'OrgId'):
+            if hasattr(org, 'ProgId'):
+                program_lookup[org.OrgId] = org.ProgId
+            if hasattr(org, 'DivId'):
+                division_lookup[org.OrgId] = org.DivId
+            if hasattr(org, 'OrgType'):
+                org_type_lookup[org.OrgId] = org.OrgType
+    
+    # Filter member changes based on all criteria
+    for change in member_changes_data:
+        if not hasattr(change, 'OrganizationId'):
+            continue
+            
+        org_id = change.OrganizationId
+        include = True
+        
+        # Check Program filter
+        if program_filter and include:
+            prog_id = program_lookup.get(org_id)
+            if not prog_id or str(prog_id) != str(program_filter):
+                include = False
+        
+        # Check Division filter
+        if division_filter and include:
+            div_id = division_lookup.get(org_id)
+            if not div_id or str(div_id) != str(division_filter):
+                include = False
+        
+        # Check Organization Type filter
+        if org_type_filter and include:
+            org_type = org_type_lookup.get(org_id)
+            if not org_type or org_type != org_type_filter:
+                include = False
+        
+        if include:
+            filtered_member_changes.append(change)
+    
+    # Count total recent changes - USE FILTERED DATA HERE
+    total_enrollments = sum(1 for item in filtered_member_changes 
                             if hasattr(item, 'EnrollmentDate') 
                             and item.MemberStatus == 'Active')
-    total_inactivations = sum(1 for item in member_changes_data 
+    total_inactivations = sum(1 for item in filtered_member_changes 
                                if hasattr(item, 'InactiveDate') 
                                and item.MemberStatus == 'Inactive')
     
@@ -1700,7 +1750,7 @@ def render_members_view(member_changes_data, filtered_data):
     print '<div class="card">'
     print '<div class="card-header">Recent Member Changes (Last {0} days)</div>'.format(MEMBER_CHANGE_DAYS)
     
-    if member_changes_data:
+    if filtered_member_changes:
         # Add a scrollable div around the table
         print '''
         <div style="max-height: 700px; overflow-y: auto;">
@@ -1717,7 +1767,8 @@ def render_members_view(member_changes_data, filtered_data):
         print '</thead>'
         print '<tbody>'
         
-        for change in member_changes_data:
+        # USE FILTERED DATA HERE INSTEAD OF member_changes_data
+        for change in filtered_member_changes:
             # Determine if this is an enrollment or inactivation
             if hasattr(change, 'InactiveDate') and change.InactiveDate:
                 change_type = "Inactive"
@@ -1740,7 +1791,8 @@ def render_members_view(member_changes_data, filtered_data):
         print '</table>'
         print '</div>'  # Close scrollable div
         
-        print '<p><em>Showing {0} recent member changes.</em></p>'.format(len(member_changes_data))
+        # USE FILTERED DATA HERE
+        print '<p><em>Showing {0} recent member changes.</em></p>'.format(len(filtered_member_changes))
     else:
         print '<p>No recent member changes found.</p>'
     
@@ -1751,9 +1803,9 @@ def render_members_view(member_changes_data, filtered_data):
     print '<div class="card">'
     print '<div class="card-header">Involvements with Most Member Activity</div>'
     
-    # Group and count changes by organization
+    # Group and count changes by organization - USE FILTERED DATA HERE
     org_activity = {}
-    for change in member_changes_data:
+    for change in filtered_member_changes:
         if not hasattr(change, 'OrganizationId'):
             continue
             
@@ -2404,7 +2456,151 @@ def render_programs_view(org_data):
 
 def render_meetings_view(meetings_data, org_data):
     """Render the meetings view with enhanced activity analysis"""
-    print("<!-- DEBUG: Total meetings passed: " + str(len(meetings_data)) + " -->")
+    # Get current filters from URL parameters
+    program_filter = model.Data.program if hasattr(model.Data, "program") else None
+    division_filter = model.Data.division if hasattr(model.Data, "division") else None
+    org_type_filter = model.Data.orgtype if hasattr(model.Data, "orgtype") else None
+    
+    # Debug information
+    print("<!-- DEBUG: Total meetings before filtering: " + str(len(meetings_data)) + " -->")
+    print("<!-- DEBUG: Program filter: " + str(program_filter) + " -->")
+    print("<!-- DEBUG: Division filter: " + str(division_filter) + " -->")
+    print("<!-- DEBUG: Org type filter: " + str(org_type_filter) + " -->")
+    
+    # If no filters are applied, use all meetings
+    if not program_filter and not division_filter and not org_type_filter:
+        filtered_meetings = meetings_data
+        print("<!-- DEBUG: No filters applied, using all meetings -->")
+    else:
+        # Create lookups for program and division info based on filtered org_data
+        program_lookup = {}  # org_id -> prog_id
+        division_lookup = {}  # org_id -> div_id
+        type_lookup = {}     # org_id -> org_type
+        
+        # Build comprehensive lookups from org_data
+        for org in org_data:
+            if hasattr(org, 'OrgId'):
+                org_id = org.OrgId
+                
+                if hasattr(org, 'ProgId'):
+                    program_lookup[org_id] = org.ProgId
+                if hasattr(org, 'DivId'):
+                    division_lookup[org_id] = org.DivId
+                if hasattr(org, 'OrgType'):
+                    type_lookup[org_id] = org.OrgType
+        
+        # Also try to retrieve SQL for additional org data if needed
+        try:
+            if program_filter or division_filter or org_type_filter:
+                # Get additional organization data for any meetings that might not be in org_data
+                org_ids = set()
+                for meeting in meetings_data:
+                    if hasattr(meeting, 'OrganizationId'):
+                        org_ids.add(meeting.OrganizationId)
+                
+                # Only query for orgs that we don't already have info for
+                missing_org_ids = [org_id for org_id in org_ids if org_id not in program_lookup or 
+                                   org_id not in division_lookup or 
+                                   org_id not in type_lookup]
+                
+                if missing_org_ids:
+                    # Convert list to comma-separated string
+                    org_id_str = ','.join(str(org_id) for org_id in missing_org_ids)
+                    
+                    # Query for missing organization data
+                    sql = """
+                    SELECT 
+                        o.OrganizationId AS OrgId,
+                        p.Id AS ProgId,
+                        d.Id AS DivId,
+                        o.OrganizationTypeId,
+                        ot.Code AS OrgType
+                    FROM Organizations o
+                    JOIN Division d ON o.DivisionId = d.Id
+                    JOIN Program p ON d.ProgId = p.Id
+                    LEFT JOIN lookup.OrganizationType ot ON o.OrganizationTypeId = ot.Id
+                    WHERE o.OrganizationId IN ({0})
+                    """.format(org_id_str)
+                    
+                    # Execute query and update lookups
+                    additional_orgs = q.QuerySql(sql)
+                    
+                    for org in additional_orgs:
+                        if hasattr(org, 'OrgId'):
+                            org_id = org.OrgId
+                            
+                            if hasattr(org, 'ProgId'):
+                                program_lookup[org_id] = org.ProgId
+                            if hasattr(org, 'DivId'):
+                                division_lookup[org_id] = org.DivId
+                            if hasattr(org, 'OrgType'):
+                                type_lookup[org_id] = org.OrgType
+        except:
+            # If query fails, just continue with what we have
+            print("<!-- DEBUG: Failed to get additional org data -->")
+        
+        # Debug the lookup sizes
+        print("<!-- DEBUG: Program lookup size: " + str(len(program_lookup)) + " -->")
+        print("<!-- DEBUG: Division lookup size: " + str(len(division_lookup)) + " -->")
+        print("<!-- DEBUG: Type lookup size: " + str(len(type_lookup)) + " -->")
+        
+        # Filter meetings data based on the organization filters
+        filtered_meetings = []
+        excluded_count = 0
+        missing_info_count = 0
+        
+        for meeting in meetings_data:
+            if not hasattr(meeting, 'OrganizationId'):
+                continue
+                
+            org_id = meeting.OrganizationId
+            include = True
+            
+            # Skip logic based on missing information
+            missing_info = False
+            
+            # Apply program filter
+            if program_filter and include:
+                if org_id in program_lookup:
+                    if str(program_lookup[org_id]) != str(program_filter):
+                        include = False
+                        excluded_count += 1
+                else:
+                    missing_info = True
+            
+            # Apply division filter
+            if division_filter and include:
+                if org_id in division_lookup:
+                    if str(division_lookup[org_id]) != str(division_filter):
+                        include = False
+                        excluded_count += 1
+                else:
+                    missing_info = True
+            
+            # Apply org type filter
+            if org_type_filter and include:
+                if org_id in type_lookup:
+                    if type_lookup[org_id] != org_type_filter:
+                        include = False
+                        excluded_count += 1
+                else:
+                    missing_info = True
+            
+            # For debugging: if we're missing info for a filter that's applied
+            if missing_info and (program_filter or division_filter or org_type_filter):
+                missing_info_count += 1
+                # Default behavior: include if we're missing info
+                # You could change this to exclude if you prefer
+                # include = False
+            
+            if include:
+                filtered_meetings.append(meeting)
+        
+        print("<!-- DEBUG: Excluded " + str(excluded_count) + " meetings -->")
+        print("<!-- DEBUG: Missing info for " + str(missing_info_count) + " meetings -->")
+    
+    print("<!-- DEBUG: Total meetings after filtering: " + str(len(filtered_meetings)) + " -->")
+    
     # Group organizations by type and count meetings
     org_types = {}
     
@@ -2539,7 +2735,7 @@ def render_meetings_view(meetings_data, org_data):
     print '<div class="card">'
     print '<div class="card-header">Recent Meetings</div>'
     
-    if meetings_data:
+    if filtered_meetings:
         print '<table>'
         print '<thead>'
         print '<tr>'
@@ -2554,7 +2750,7 @@ def render_meetings_view(meetings_data, org_data):
         
         # Show only the first 25
         max_meetings_to_show = 25
-        for i, meeting in enumerate(meetings_data):
+        for i, meeting in enumerate(filtered_meetings):
             if i >= max_meetings_to_show:
                 break
             meeting_date = format_date(meeting.MeetingDate) if hasattr(meeting, 'MeetingDate') else '-'
@@ -2578,8 +2774,9 @@ def render_meetings_view(meetings_data, org_data):
         print '</tbody>'
         print '</table>'
         
-        if len(meetings_data) > 20:
-            print '<p><em>Showing 20 of {0} recent meetings.</em></p>'.format(len(meetings_data))
+        # count display at the bottom
+        if len(filtered_meetings) > 20:
+            print '<p><em>Showing 20 of {0} recent meetings.</em></p>'.format(len(filtered_meetings))
     else:
         print '<p>No recent meetings data available.</p>'
     
