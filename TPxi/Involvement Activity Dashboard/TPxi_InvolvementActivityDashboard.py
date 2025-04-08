@@ -9,11 +9,13 @@ model.Title = "Involvement Actiity Dashboard"
 # CONFIGURATION VARIABLES - Edit these as needed
 # ==============================================================
 # Number of days to consider for inactive/active calculations
-INACTIVE_DAYS = 90      # Organizations with no activity in this many days will be marked inactive
-RECENT_DAYS = 30        # Consider activities within this many days as "recent"
-NEW_ORG_DAYS = 180      # Organizations created within this many days are considered "new"
-MEMBER_CHANGE_DAYS = 45 # Consider member changes within this many days as activity
-WEIGHT_MEMBER_CHANGES = 1.5  # Weight for member changes in member-management orgs
+INACTIVE_DAYS = 90                      # Organizations with no activity in this many days will be marked inactive
+INACTIVE_LABEL = "Dormant"              # Display label for what was "Inactive"
+INACTIVE_DESC = "No Recent Activity"    # Longer description
+RECENT_DAYS = 30                        # Consider activities within this many days as "recent"
+NEW_ORG_DAYS = 180                      # Organizations created within this many days are considered "new"
+MEMBER_CHANGE_DAYS = 45                 # Consider member changes within this many days as activity
+WEIGHT_MEMBER_CHANGES = 1.5             # Weight for member changes in member-management orgs
 
 # Color scheme for charts and indicators
 COLOR_ACTIVE = "#28a745"     # Green for active
@@ -133,6 +135,19 @@ def get_activity_level(activity_score):
         return "low"
     else:
         return "inactive"
+        
+def get_activity_status_label(activity_level):
+    """Convert internal activity level values to user-facing labels"""
+    if activity_level == "high":
+        return "High Activity"
+    elif activity_level == "moderate":
+        return "Moderate Activity"
+    elif activity_level == "low":
+        return "Low Activity"
+    elif activity_level == "inactive":  # Keep internal code as "inactive"
+        return INACTIVE_LABEL  # But display as "Dormant"
+    else:
+        return INACTIVE_LABEL
 
 def generate_sql_structure_query():
     """Generate the SQL query for organization structure data with enhanced activity metrics"""
@@ -195,6 +210,7 @@ def generate_sql_structure_query():
     JOIN Division d ON o.DivisionId = d.Id
     JOIN Program p ON d.ProgId = p.Id
     LEFT JOIN lookup.OrganizationType ot ON o.OrganizationTypeId = ot.Id
+    WHERE o.OrganizationStatusId = 30
     ORDER BY p.Name, d.Name, o.OrganizationName
     """.format(RECENT_DAYS, MEMBER_CHANGE_DAYS)
 
@@ -1280,7 +1296,7 @@ def render_overview(org_data, involvement_type_data, inactive_orgs_data):
     print_stat_box("High Activity", high_activity, COLOR_ACTIVE)
     print_stat_box("Moderate Activity", moderate_activity, COLOR_WARNING)
     print_stat_box("Low Activity", low_activity, COLOR_INACTIVE)
-    print_stat_box("Inactive Involvements", inactive_orgs, COLOR_NEUTRAL)
+    print_stat_box(INACTIVE_LABEL, inactive_orgs, COLOR_NEUTRAL)
     print '</div>'
     
     # Activity distribution chart
@@ -1293,7 +1309,7 @@ def render_overview(org_data, involvement_type_data, inactive_orgs_data):
         ["High", high_activity],
         ["Moderate", moderate_activity],
         ["Low", low_activity],
-        ["Inactive", inactive_orgs]
+        [INACTIVE_LABEL, inactive_orgs]
     ]
     
     print '<div class="chart-container" id="activity-distribution-chart"></div>'
@@ -1507,7 +1523,7 @@ def render_activity_view(org_data, activity_detail_data):
         "Highly Active (Score 7+)": 0,
         "Moderately Active (Score 3-6)": 0,
         "Low Activity (Score 1-2)": 0,
-        "Inactive (Score 0)": 0
+        INACTIVE_LABEL + " (Score 0)": 0
     }
     
     for org in org_data:
@@ -1521,14 +1537,14 @@ def render_activity_view(org_data, activity_detail_data):
         elif org.ActivityScore > 0:
             activity_ranges["Low Activity (Score 1-2)"] += 1
         else:
-            activity_ranges["Inactive (Score 0)"] += 1
+            activity_ranges[INACTIVE_LABEL + " (Score 0)"] += 1
     
     # Print summary statistics
     print '<div class="stat-grid">'
     print_stat_box("Highly Active", activity_ranges["Highly Active (Score 7+)"], COLOR_ACTIVE)
     print_stat_box("Moderately Active", activity_ranges["Moderately Active (Score 3-6)"], COLOR_WARNING)
     print_stat_box("Low Activity", activity_ranges["Low Activity (Score 1-2)"], COLOR_INACTIVE)
-    print_stat_box("Inactive", activity_ranges["Inactive (Score 0)"], COLOR_NEUTRAL)
+    print_stat_box(INACTIVE_LABEL, activity_ranges[INACTIVE_LABEL + " (Score 0)"], COLOR_NEUTRAL)
     print '</div>'
     
     # Activity score distribution chart
@@ -1541,7 +1557,7 @@ def render_activity_view(org_data, activity_detail_data):
         ["Highly Active", activity_ranges["Highly Active (Score 7+)"]],
         ["Moderately Active", activity_ranges["Moderately Active (Score 3-6)"]],
         ["Low Activity", activity_ranges["Low Activity (Score 1-2)"]],
-        ["Inactive", activity_ranges["Inactive (Score 0)"]]
+        [INACTIVE_LABEL, activity_ranges[INACTIVE_LABEL + " (Score 0)"]]
     ]
     
     print '<div class="chart-container" id="activity-score-chart"></div>'
@@ -1665,7 +1681,9 @@ def render_activity_view(org_data, activity_detail_data):
         print '<div class="activity-gauge">'
         print '<div class="activity-gauge-fill" style="width: {0}; background-color: {1};"></div>'.format(bar_width, bar_color)
         print '</div>'
-        print ' {0}'.format(activity_level.capitalize())
+        #print ' {0}'.format(activity_level.capitalize())
+        activity_display = INACTIVE_LABEL if activity_level == "inactive" else activity_level.capitalize()
+        print ' {0}'.format(activity_display)
         print '</td>'
         print '</tr>'
     
@@ -2171,7 +2189,7 @@ def render_programs_view(org_data):
                 "divisions": {},
                 "total_orgs": 0,
                 "active_orgs": 0,
-                "inactive_orgs": 0,
+                "{0}_orgs".format(INACTIVE_LABEL.lower()): 0,  # Changed from "inactive_orgs"
                 "high_activity": 0,
                 "moderate_activity": 0,
                 "low_activity": 0,
@@ -2193,11 +2211,11 @@ def render_programs_view(org_data):
                 prog["low_activity"] += 1
                 prog["active_orgs"] += 1
             else:
-                prog["inactive_orgs"] += 1
+                prog["{0}_orgs".format(INACTIVE_LABEL.lower())] += 1 
         elif hasattr(item, 'OrgStatusId') and item.OrgStatusId == 30:
             prog["active_orgs"] += 1
         else:
-            prog["inactive_orgs"] += 1
+            prog["{0}_orgs".format(INACTIVE_LABEL.lower())] += 1 
         
         # Use or 0 to handle None values for member counts
         prog["total_members"] += item.Members or 0 if hasattr(item, 'Members') else 0
@@ -2211,7 +2229,7 @@ def render_programs_view(org_data):
                 "orgs": [],
                 "total_orgs": 0,
                 "active_orgs": 0,
-                "inactive_orgs": 0,
+                "{0}_orgs".format(INACTIVE_LABEL.lower()): 0,  # Changed from "inactive_orgs"
                 "high_activity": 0,
                 "moderate_activity": 0,
                 "low_activity": 0,
@@ -2234,11 +2252,11 @@ def render_programs_view(org_data):
                 div["low_activity"] += 1
                 div["active_orgs"] += 1
             else:
-                div["inactive_orgs"] += 1
+                div["{0}_orgs".format(INACTIVE_LABEL.lower())] += 1
         elif hasattr(item, 'OrgStatusId') and item.OrgStatusId == 30:
             div["active_orgs"] += 1
         else:
-            div["inactive_orgs"] += 1
+            div["{0}_orgs".format(INACTIVE_LABEL.lower())] += 1
         
         if hasattr(item, 'Members') and item.Members is not None:
             div["total_members"] += item.Members
@@ -2275,7 +2293,7 @@ def render_programs_view(org_data):
             print_stat_box("High Activity", prog["high_activity"], COLOR_ACTIVE)
             print_stat_box("Moderate", prog["moderate_activity"], COLOR_WARNING)
             print_stat_box("Low", prog["low_activity"], COLOR_INACTIVE)
-            print_stat_box("Inactive", prog["inactive_orgs"], COLOR_NEUTRAL)
+            print_stat_box(INACTIVE_LABEL, prog["{0}_orgs".format(INACTIVE_LABEL.lower())], COLOR_NEUTRAL)
             print '</div>'
             
             print '<div class="progress">'
@@ -2305,7 +2323,7 @@ def render_programs_view(org_data):
             print '<th>High</th>'
             print '<th>Moderate</th>'
             print '<th>Low</th>'
-            print '<th>Inactive</th>'
+            print '<th>{0}</th>'.format(INACTIVE_LABEL)
             print '<th>Activity Distribution</th>'
             print '</tr>'
             print '</thead>'
@@ -2319,7 +2337,7 @@ def render_programs_view(org_data):
                 print '<td>{0}</td>'.format(div["high_activity"])
                 print '<td>{0}</td>'.format(div["moderate_activity"])
                 print '<td>{0}</td>'.format(div["low_activity"])
-                print '<td>{0}</td>'.format(div["inactive_orgs"])
+                print '<td>{0}</td>'.format(div["{0}_orgs".format(INACTIVE_LABEL.lower())])
                 print '<td><div class="progress" style="margin-bottom: 0;">'
                 
                 # Calculate percentages for the progress bar segments
@@ -2381,7 +2399,7 @@ def render_programs_view(org_data):
                     activity_level = "Active"
                     activity_class = "status-active"
                 else:
-                    activity_level = "Inactive"
+                    activity_level = INACTIVE_LABEL
                     activity_class = "status-inactive"
                 
                 # Determine last activity date
