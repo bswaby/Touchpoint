@@ -196,6 +196,10 @@ print '''
 .anniversary-row:hover {
   background-color: #f9f9f9;
 }
+.today-highlight {
+  background-color: #e8f5e9;
+  border-left: 3px solid #4CAF50;
+}
 .anniversary-date {
   font-weight: bold;
   margin-right: 8px;
@@ -516,6 +520,11 @@ try:
             
             let visibleCount = 0;
             
+            // Get today's date in MM/dd format for comparison
+            const today = new Date();
+            const todayFormatted = (today.getMonth() + 1).toString().padStart(2, '0') + '/' + 
+                                today.getDate().toString().padStart(2, '0');
+            
             for (const anniv of this.allAnniversaries) {
                 const anniversaryDate = this.parseAnniversaryDate(anniv.date);
                 if (!anniversaryDate) continue; // Skip if date is invalid
@@ -526,6 +535,11 @@ try:
                     // Create a row for this anniversary
                     const row = document.createElement('div');
                     row.className = 'anniversary-row';
+                    
+                    // Check if this anniversary is today and add highlighting class if it is
+                    if (anniv.date === todayFormatted) {
+                        row.className += ' today-highlight';
+                    }
                     
                     // Create safe versions of strings for the onclick handler
                     const safeType = anniv.type.replace(/'/g, "\\'").replace(/"/g, '\\"');
