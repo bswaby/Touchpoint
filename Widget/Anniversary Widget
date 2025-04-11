@@ -15,6 +15,12 @@ title = '''Staff Anniversaries'''
 daysToLookOut = '30' #set to how many days you want to look out initially
 dataRange = '180' #set to how many days to load in each direction (pre-load 6 months)
 savedQuery = 'Dashboard_Birthday-Wedding' #Name of saved query
+
+# Display options - set to True to enable or False to disable
+show_birthdays = True
+show_weddings = True
+show_extra_value = True
+
 extraValueField = 'WorkAnniversary' #add extra value field name if you want to pull in another date
 extraValueFieldFriendlyName = 'Work' # just a friendly name of extra value
 
@@ -73,6 +79,14 @@ bDay AS (
 )
 
 SELECT * FROM (
+'''
+
+# Start building the UNION parts based on configuration
+unionParts = []
+
+# Add extra value field query if enabled
+if show_extra_value and extraValueField:
+    unionPart = '''
     SELECT DISTINCT
         p.PeopleId,
         Name,
@@ -88,9 +102,12 @@ SELECT * FROM (
     AND DATEADD(year, DATEPART(year, GETDATE()) - DATEPART(year, pe.DateValue), pe.DateValue) 
         BETWEEN CONVERT(datetime, DATEADD(day, -{1}, GETDATE()), 101)
         AND CONVERT(datetime, DATEADD(day, {1}, GETDATE()), 101)
-    
-    UNION ALL
-    
+    '''
+    unionParts.append(unionPart)
+
+# Add wedding date query if enabled
+if show_weddings:
+    unionPart = '''
     SELECT
         wd.PeopleId,
         wd.Name,
@@ -101,9 +118,12 @@ SELECT * FROM (
         wd.Email,
         wd.YearsCount
     FROM WeddingDate wd
-    
-    UNION ALL
-    
+    '''
+    unionParts.append(unionPart)
+
+# Add birthday query if enabled
+if show_birthdays:
+    unionPart = '''
     SELECT
         bd.PeopleId,
         bd.Name,
@@ -114,6 +134,18 @@ SELECT * FROM (
         bd.Email,
         bd.YearsCount
     FROM bDay bd
+    '''
+    unionParts.append(unionPart)
+
+# Join all enabled parts with UNION ALL
+if unionParts:
+    sql += "\n    UNION ALL\n    ".join(unionParts)
+else:
+    # Default empty query if nothing is enabled - should return no results
+    sql += "SELECT 1 AS PeopleId, '' AS Name, '' AS dDate, '' AS Type, GETDATE() AS bDate, GETDATE() AS ThisYearDate, '' AS Email, 0 AS YearsCount WHERE 1=0"
+
+# Complete the SQL query
+sql += '''
 ) AS CombinedResults
 ORDER BY MONTH(bDate), DAY(bDate)
 '''
@@ -207,7 +239,30 @@ print '''
 <div id="''' + widget_id + '''" class="anniversary-widget">
   <div class="navigation-header smallpadding">
     <span class="nav-arrow" onclick="''' + widget_id + '''_navigate(-1)" title="Previous 30 days">&lt;</span>
-    <h3 class="center-title">''' + title + '''</h3>
+    <h3 class="center-title">''' + title + '''
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="85 75 230 130" style="width: 60px; height: 30px; margin-left: -4px; vertical-align: middle;">
+        <!-- Text portion - TP -->
+        <text x="100" y="120" font-family="Arial, sans-serif" font-weight="bold" font-size="60" fill="#333333">TP</text>
+        
+        <!-- Circular element -->
+        <g transform="translate(190, 107)">
+          <!-- Outer circle -->
+          <circle cx="0" cy="0" r="13.5" fill="#0099FF"/>
+          
+          <!-- White middle circle -->
+          <circle cx="0" cy="0" r="10.5" fill="white"/>
+          
+          <!-- Inner circle -->
+          <circle cx="0" cy="0" r="7.5" fill="#0099FF"/>
+          
+          <!-- X crossing through the circles -->
+          <path d="M-9 -9 L9 9 M-9 9 L9 -9" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+        </g>
+        
+        <!-- Single "i" letter to the right -->
+        <text x="206" y="105" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#0099FF">i</text>
+      </svg>
+    </h3>
     <span class="nav-arrow" onclick="''' + widget_id + '''_navigate(1)" title="Next 30 days">&gt;</span>
   </div>
   <div id="''' + widget_id + '''_range" class="date-range" style="text-align: center; display:none;"></div>
@@ -220,7 +275,7 @@ print '''
 <script>
 (function() {
     // Namespace all functions and variables to avoid conflicts
-    const ''' + widget_id + ''' = {
+    window.''' + widget_id + ''' = {
         // Constants
         daysToShow: ''' + daysToLookOut + ''',
         
@@ -292,13 +347,17 @@ try:
             # Convert ThisYearDate from SQL DateTime to JavaScript format
             # Format: MM/DD
             date_safe = i.dDate
+            email_safe = ""
+            if hasattr(i, 'Email') and i.Email:
+                email_safe = i.Email.replace("'", "\\'").replace('"', '\\"')
             
             print "            this.allAnniversaries.push({"
             print "                pid: " + str(i.PeopleId) + ","
             print "                name: \"" + name_safe + "\","
             print "                date: \"" + date_safe + "\","
             print "                type: \"" + type_safe + "\","
-            print "                yearsCount: " + str(i.YearsCount)
+            print "                yearsCount: " + str(i.YearsCount) + ","
+            print "                email: \"" + email_safe + "\""
             print "            });"
     
     print """
@@ -332,14 +391,8 @@ try:
         },
         
         // Send email function
-        sendEmail: function(pid, celebrationType, personName, yearsCount) {
-            // Helper function to get the correct form submission URL
-            function getPyScriptAddress() {
-                let path = window.location.pathname;
-                return path.replace("/PyScript/", "/PyScriptForm/");
-            }
-            
-            const currentYear = new Date().getFullYear();
+        sendEmail: function(pid, celebrationType, personName, yearsCount, personEmail) {
+            // Create appropriate subject and email body based on celebration type
             let subject = "";
             let emailBody = "";
             
@@ -348,29 +401,26 @@ try:
                 emailBody = "Happy Birthday " + personName + "!\\n\\n";
                 emailBody += "Wishing you a wonderful birthday celebration!\\n\\n";
             } else if (celebrationType.includes("Wedding")) {
-                // Extract years from the type string
-                let years = yearsCount;
-                subject = "Happy " + years + (years === 1 ? " Year" : " Years") + " Wedding Anniversary " + personName + "!";
-                emailBody = "Congratulations on " + years + (years === 1 ? " year" : " years") + " of marriage, " + personName + "!\\n\\n";
+                subject = "Happy " + yearsCount + (yearsCount === 1 ? " Year" : " Years") + " Wedding Anniversary " + personName + "!";
+                emailBody = "Congratulations on " + yearsCount + (yearsCount === 1 ? " year" : " years") + " of marriage, " + personName + "!\\n\\n";
                 emailBody += "May your love continue to grow stronger with each passing year.\\n\\n";
             } else if (celebrationType.includes("Work")) {
-                // Extract years from the type string
-                let years = yearsCount;
-                subject = "Happy " + years + (years === 1 ? " Year" : " Years") + " Work Anniversary " + personName + "!";
-                emailBody = "Congratulations on " + years + (years === 1 ? " year" : " years") + " with us, " + personName + "!\\n\\n";
+                subject = "Happy " + yearsCount + (yearsCount === 1 ? " Year" : " Years") + " Work Anniversary " + personName + "!";
+                emailBody = "Congratulations on " + yearsCount + (yearsCount === 1 ? " year" : " years") + " with us, " + personName + "!\\n\\n";
                 emailBody += "Thank you for your dedication and all your contributions.\\n\\n";
             }
             
             emailBody += "Best wishes,\\n""" + fromName + """";
             
+            // Open email dialog with SweetAlert
             Swal.fire({
                 title: "Send Celebration Email",
                 html: `
                     <div style="text-align: left; margin-bottom: 15px;">
-                        <strong>To:</strong> ${personName}<br>
+                        <strong>To:</strong> ${personName}${personEmail ? ' (' + personEmail + ')' : ''}<br>
                         <strong>Subject:</strong> ${subject}
                     </div>
-                    <textarea id="swal-input1" class="swal2-textarea" style="height: 200px;">${emailBody.replace(/\\n/g, "\\n")}</textarea>
+                    <textarea id="swal-email-message" class="swal2-textarea" style="height: 200px;">${emailBody}</textarea>
                 `,
                 showCancelButton: true,
                 confirmButtonText: 'Send Email',
@@ -378,50 +428,50 @@ try:
                 cancelButtonColor: '#d33',
                 showLoaderOnConfirm: true,
                 preConfirm: () => {
-                    const message = document.getElementById('swal-input1').value;
-                    let postData = {
-                        email_pid: pid,
-                        email_subject: subject,
-                        email_message: message,
-                        email_from: \"""" + fromEmail + """\",
-                        email_fromname: \"""" + fromName + """\"
-                    };
-                    
-                    let formBody = [];
-                    for (const property in postData) {
-                        formBody.push(encodeURIComponent(property) + "=" + encodeURIComponent(postData[property]));
+                    // Get the message from the textarea
+                    const message = document.getElementById('swal-email-message').value;
+                    if (!message.trim()) {
+                        Swal.showValidationMessage('Please enter a message');
+                        return false;
                     }
-                        
-                    return fetch(getPyScriptAddress() + "?a=email", {
+                    
+                    // Get the current page URL path
+                    let currentPath = window.location.pathname;
+                    let formPath = currentPath.replace('/PyScript/', '/PyScriptForm/');
+                    
+                    // Build form data
+                    const formData = new FormData();
+                    formData.append('a', 'email');
+                    formData.append('email_pid', pid);
+                    formData.append('email_subject', subject);
+                    formData.append('email_message', message);
+                    formData.append('email_from', '""" + fromEmail + """');
+                    formData.append('email_fromname', '""" + fromName + """');
+                    
+                    // Send request
+                    return fetch(formPath, {
                         method: 'POST',
-                        body: formBody.join("&"),
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
-                        }
+                        body: new URLSearchParams(formData)
                     })
                     .then(response => {
                         if (!response.ok) {
-                            throw new Error(response.statusText)
+                            throw new Error(`Request failed with status ${response.status}`);
                         }
-                        return response.blob()
+                        return response.text();
                     })
                     .catch(error => {
-                        Swal.showValidationMessage(
-                            `Request failed: ${error}`
-                        )
-                    })
-                },
-                allowOutsideClick: () => !Swal.isLoading()
+                        Swal.showValidationMessage(`Request failed: ${error}`);
+                        return false;
+                    });
+                }
             }).then((result) => {
                 if (result.isConfirmed) {
                     Swal.fire({
-                        icon: 'success',
                         title: 'Email Sent!',
                         text: 'Your celebration email has been sent successfully.',
-                        confirmButtonColor: '#4CAF50',
-                        timer: 2000,
-                        timerProgressBar: true
-                    })
+                        icon: 'success',
+                        timer: 2000
+                    });
                 }
             });
         },
@@ -476,12 +526,17 @@ try:
                     // Create a row for this anniversary
                     const row = document.createElement('div');
                     row.className = 'anniversary-row';
+                    
+                    // Create safe versions of strings for the onclick handler
+                    const safeType = anniv.type.replace(/'/g, "\\'").replace(/"/g, '\\"');
+                    const safeName = anniv.name.replace(/'/g, "\\'").replace(/"/g, '\\"');
+                    
                     row.innerHTML = `
                         <span class="anniversary-date">${anniv.date}</span>
                         <span class="anniversary-name"><a href="/Person2/${anniv.pid}#tab-communications">${anniv.name}</a></span>
                         <span class="anniversary-type">${anniv.type}</span>
                         <button class="email-button" title="Send celebration email" 
-                            onclick="event.preventDefault(); """ + widget_id + """.sendEmail(${anniv.pid}, '${anniv.type.replace(/'/g, "\\'")}', '${anniv.name.replace(/'/g, "\\'")}', ${anniv.yearsCount})">✉️</button>
+                            onclick="event.preventDefault(); """ + widget_id + """.sendEmail(${anniv.pid}, '${safeType}', '${safeName}', ${anniv.yearsCount}, '${anniv.email}')">✉️</button>
                     `;
                     
                     container.appendChild(row);
