@@ -2054,14 +2054,29 @@ class AttendanceReport:
                             submitBtn.disabled = true;
                         }
                         
-                        // Animate progress
+                        // Animate progress with detailed status updates
                         var progress = 10;
                         var progressInterval = setInterval(function() {
                             progress += 2;
                             if (progress >= 95) {
                                 clearInterval(progressInterval);
                             }
-                            showProcessingOverlay('Generating report...', 'Calculating attendance data...', progress);
+                            
+                            // Update the detail text based on progress percentage
+                            var detailText = '';
+                            if (progress < 30) {
+                                detailText = 'Loading program data and service times...';
+                            } else if (progress < 50) {
+                                detailText = 'Calculating weekly attendance metrics...';
+                            } else if (progress < 70) {
+                                detailText = 'Processing year-to-date comparisons...';
+                            } else if (progress < 85) {
+                                detailText = 'Generating division and organization data...';
+                            } else {
+                                detailText = 'Finalizing report and formatting...';
+                            }
+                            
+                            showProcessingOverlay('Generating report...', detailText, progress);
                         }, 300);
                     });
                 }
@@ -2126,15 +2141,26 @@ class AttendanceReport:
             </div>
             
             <script>
-            // Function to update detailed progress
-            function updateDetailedProgress(section, status, isComplete) {
+            // Function to update detailed progress with more specific task information
+            function updateDetailedProgress(section, status, isComplete, subtasks) {
                 var element = document.getElementById(section + '-status');
                 if (element) {
                     if (isComplete) {
                         element.innerHTML = '✓ ' + status;
                         element.style.color = '#28a745';
                     } else {
-                        element.innerHTML = '<div class="spinner-small" style="margin-right: 10px;"></div> ' + status;
+                        var statusHtml = '<div class="spinner-small" style="margin-right: 10px;"></div> ' + status;
+                        
+                        // Add subtasks if provided
+                        if (subtasks && subtasks.length) {
+                            statusHtml += '<ul style="margin: 5px 0 0 25px; font-size: 12px; color: #666;">';
+                            subtasks.forEach(function(task) {
+                                statusHtml += '<li>' + task + '</li>';
+                            });
+                            statusHtml += '</ul>';
+                        }
+                        
+                        element.innerHTML = statusHtml;
                         element.style.color = '#007bff';
                     }
                 }
@@ -2146,11 +2172,11 @@ class AttendanceReport:
                 }
             }
             
-            // Function to update current task
-            function updateCurrentTask(task) {
+            // Function to update current task with more information
+            function updateCurrentTask(task, percent) {
                 var element = document.getElementById('current-task');
                 if (element) {
-                    element.textContent = task;
+                    element.textContent = task + ' (' + percent + '% complete)';
                 }
                 
                 // Also update the processing overlay
@@ -2160,9 +2186,13 @@ class AttendanceReport:
                 }
             }
             
-            // Start with programs section
-            updateDetailedProgress('programs', 'Loading program data...', false);
-            updateCurrentTask('Retrieving program information');
+            // Start with programs section with detailed subtasks
+            updateDetailedProgress('programs', 'Loading program data...', false, [
+                'Retrieving program metadata',
+                'Processing service times',
+                'Sorting by report order'
+            ]);
+            updateCurrentTask('Retrieving program information', 10);
             </script>
             """
     
@@ -2188,8 +2218,13 @@ class AttendanceReport:
             <script>
             // Programs loaded
             updateDetailedProgress('programs', 'Programs loaded successfully', true);
-            updateDetailedProgress('attendance', 'Calculating attendance data...', false);
-            updateCurrentTask('Processing attendance data');
+            updateDetailedProgress('attendance', 'Calculating attendance data...', false, [
+                'Processing current week attendance',
+                'Calculating previous week comparisons',
+                'Analyzing year-over-year trends',
+                'Computing fiscal year-to-date metrics'
+            ]);
+            updateCurrentTask('Processing attendance data', 30);
             </script>
             """
             
