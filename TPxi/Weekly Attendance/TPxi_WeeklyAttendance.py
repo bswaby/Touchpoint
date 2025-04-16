@@ -30,7 +30,7 @@ YEARS_TO_DISPLAY = 2
 # Include organization details when expanding divisions
 SHOW_ORGANIZATION_DETAILS = True
 
-# Include zero attendance rows in report
+# Include zero attendance rows for divisions
 SHOW_ZERO_ATTENDANCE = True
 
 # Default to collapsed organizations - set to TRUE
@@ -409,7 +409,7 @@ class AttendanceReport:
     
     def get_divisions_sql(self, program_id):
         """SQL to get divisions for a specific program using OrganizationStructure."""
-        return """
+        return '''
             SELECT DISTINCT
                 d.Id, 
                 d.Name, 
@@ -417,28 +417,34 @@ class AttendanceReport:
                 d.ReportLine,
                 d.NoDisplayZero
             FROM Division d
-            JOIN OrganizationStructure os ON os.DivId = d.Id
-            WHERE d.ProgId = {}
-            AND d.ReportLine IS NOT NULL AND d.ReportLine <> ''
+            INNER JOIN OrganizationStructure os ON os.DivId = d.Id
+            INNER JOIN Program p ON p.Id = {program_id}
+            WHERE d.ProgId = {program_id}
+            AND d.ReportLine IS NOT NULL 
+            AND d.ReportLine <> ''
             ORDER BY d.ReportLine
-        """.format(program_id)
+        '''.format(program_id=program_id)
     
     def get_organizations_sql(self, division_id):
         """SQL to get organizations for a specific division using OrganizationStructure."""
-        return """
+        return '''
             SELECT DISTINCT
                 o.OrganizationId,
                 o.OrganizationName,
-                os.DivId AS DivisionId,
+                {division_id} AS DivisionId,
                 o.MemberCount
             FROM Organizations o
-            JOIN OrganizationStructure os ON os.OrgId = o.OrganizationId and o.DivisionId = os.DivId
-            WHERE os.DivId = {}
+            INNER JOIN OrganizationStructure os ON os.OrgId = o.OrganizationId
+            INNER JOIN Division d ON d.Id = {division_id}
+            INNER JOIN Program p ON p.Id = d.ProgId
+            WHERE os.DivId = {division_id}
             AND o.OrganizationStatusId = 30
-            AND p.RptGroup IS NOT NULL AND p.RptGroup <> ''
-            AND d.ReportLine IS NOT NULL AND d.ReportLine <> ''
+            AND p.RptGroup IS NOT NULL 
+            AND p.RptGroup <> ''
+            AND d.ReportLine IS NOT NULL 
+            AND d.ReportLine <> ''
             ORDER BY o.OrganizationName
-        """.format(division_id)
+        '''.format(division_id=division_id)
 
     def get_program_specific_date_range(self, program, base_start_date, base_end_date):
         """Calculate program-specific date range using StartHoursOffset and EndHoursOffset."""
@@ -824,7 +830,8 @@ class AttendanceReport:
         return program_data
     
     def get_multiple_years_attendance_data(self, sunday_date, program_id=None, division_id=None, org_id=None):
-        """Get attendance data for multiple years."""
+        performance_timer.start("multiple_years_attendance_data_{}".format(org_id or division_id or program_id))
+        
         years_data = {}
         
         # First get the current year's data
@@ -852,10 +859,12 @@ class AttendanceReport:
             )
             years_data[prev_year] = prev_year_data
         
+        performance_timer.log("multiple_years_attendance_data_{}".format(org_id or division_id or program_id))
         return years_data
     
     def get_multiple_years_ytd_data(self, end_date, program_id=None, division_id=None, org_id=None):
-        """Get YTD data for multiple years."""
+        performance_timer.start("multiple_years_ytd_data_{}".format(org_id or division_id or program_id))
+        
         years_ytd_data = {}
         
         # First get the current year's YTD data
@@ -883,7 +892,8 @@ class AttendanceReport:
             )
             years_ytd_data[prev_year] = prev_year_ytd_data
         
-        return years_ytd_data    
+        performance_timer.log("multiple_years_ytd_data_{}".format(org_id or division_id or program_id))
+        return years_ytd_data
 
     def normalize_service_time(self, time_str):
         """
@@ -1411,7 +1421,7 @@ class AttendanceReport:
             <div style="margin-top: 10px;">
                 <label>
                     <input type="checkbox" name="collapse_orgs" value="no" {}>
-                    Expand Organizations (Default is Collapsed)
+                    Expand Involvements (Default is Collapsed).. Note:  This is slow.. 3+ minutes slow at times.
                 </label>
             </div>
             
@@ -1574,7 +1584,7 @@ class AttendanceReport:
         
         summary_html = """
         <div style="margin-top: 20px; margin-bottom: 30px; padding: 15px; background-color: #f0f0f8; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-            <h3 style="margin-top: 0;">Program Totals</h3>
+            <h3 style="margin-top: 0;">Program Summary</h3>
             <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
                 <thead>
                     <tr style="background-color: #e0e0e8;">
@@ -2387,6 +2397,7 @@ class AttendanceReport:
                     
                     for org in organizations:
                         # Get organization attendance data for multiple years
+                        performance_timer.start("org_processing_{}".format(org.OrganizationId))
                         years_org_data = self.get_multiple_years_attendance_data(
                             self.report_date,
                             org_id=org.OrganizationId
@@ -2397,6 +2408,7 @@ class AttendanceReport:
                             self.report_date,
                             org_id=org.OrganizationId
                         )
+                        performance_timer.log("org_processing_{}".format(org.OrganizationId))
                         
                         # Add organization row
                         report_content += self.generate_organization_row(
