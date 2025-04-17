@@ -16,6 +16,9 @@ To upload code to TouchPoint, use the following steps.
 3. Name the Python script (e.g., "AttachmentLinks") and paste all this code
 4. Test and optionally add to menu
 --Upload Instructions End--
+
+Written By: Ben Swaby
+Email: bswaby@fbchtn.org
 """
 
 # Import necessary modules
