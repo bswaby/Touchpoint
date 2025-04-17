@@ -25,11 +25,13 @@ import traceback
 # Set script title
 model.Title = "Attachment Link Generator"
 
-# TouchPoint Domain - Change this to your domain
-TOUCHPOINT_DOMAIN = "myfbch.com"
-
 # Batch size for displaying attachments per page
 BATCH_SIZE = 20
+
+
+# TouchPoint Domain - You shouldn't need to change this
+TOUCHPOINT_DOMAIN = model.CmsHost  
+
 
 def sanitize_filename(filename):
     """Sanitize a filename"""
@@ -81,7 +83,7 @@ def get_org_attachments(org_id):
 
 def get_document_url(document_id):
     """Generate download URL"""
-    return "https://" + TOUCHPOINT_DOMAIN + "/OrgMemberDialog/DocumentDownload/" + str(document_id)
+    return TOUCHPOINT_DOMAIN + "/OrgMemberDialog/DocumentDownload/" + str(document_id)
 
 # CSS styles
 styles = """
