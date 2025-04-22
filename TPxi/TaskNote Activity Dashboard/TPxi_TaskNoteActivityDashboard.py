@@ -232,7 +232,7 @@ def get_task_summary_sql(days=None):
             SUM(CASE WHEN StatusId = 1 THEN 1 ELSE 0 END) AS CompletedTasks,
             SUM(CASE WHEN StatusId = 4 THEN 1 ELSE 0 END) AS DeclinedTasks,
             SUM(CASE WHEN StatusId = 6 THEN 1 ELSE 0 END) AS ArchivedTasks,
-            SUM(CASE WHEN DueDate < GETDATE() AND StatusId NOT IN (1, 6) THEN 1 ELSE 0 END) AS OverdueTasks,
+            SUM(CASE WHEN DueDate IS NOT NULL AND DueDate < GETDATE() AND StatusId NOT IN (1, 6) THEN 1 ELSE 0 END) AS OverdueTasks,
             SUM(CASE WHEN CreatedDate >= DATEADD(day, -7, GETDATE()) THEN 1 ELSE 0 END) AS CreatedLast7Days,
             SUM(CASE WHEN CompletedDate >= DATEADD(day, -7, GETDATE()) THEN 1 ELSE 0 END) AS CompletedLast7Days
         FROM TaskNote
@@ -366,7 +366,8 @@ def get_overdue_tasks_by_assignee_sql(days=None):
         FROM TaskNote tn
         JOIN People p ON p.PeopleId = tn.AssigneeId
         WHERE 
-            tn.DueDate < GETDATE() 
+            tn.DueDate IS NOT NULL  -- Only include tasks with due dates
+            AND tn.DueDate < GETDATE() 
             AND tn.StatusId NOT IN (1, 6) -- Not completed or archived
             AND tn.IsNote = 0 -- Only tasks, not notes
             {0}
@@ -397,6 +398,7 @@ def get_overdue_tasks_for_assignee_sql(assignee_id):
         LEFT JOIN People about ON about.PeopleId = tn.AboutPersonId
         WHERE 
             tn.AssigneeId = {0}
+            AND tn.DueDate IS NOT NULL  -- Only include tasks with due dates
             AND tn.DueDate < GETDATE() 
             AND tn.StatusId NOT IN (1, 6) -- Not completed or archived
             AND tn.IsNote = 0 -- Only tasks, not notes
@@ -446,6 +448,7 @@ def get_completion_kpi_sql(days=30):
                 p.Name AS AssigneeName,
                 DATEDIFF(day, tn.CreatedDate, tn.CompletedDate) AS DaysToComplete,
                 CASE 
+                    WHEN tn.DueDate IS NULL THEN 1  -- If no due date, consider it on time
                     WHEN tn.CompletedDate <= tn.DueDate THEN 1 
                     ELSE 0 
                 END AS CompletedOnTime
@@ -478,11 +481,11 @@ def get_completion_by_assignee_sql(days=30, limit=10):
                 tn.AssigneeId,
                 p.Name AS AssigneeName,
                 COUNT(CASE WHEN tn.StatusId = 1 THEN 1 END) AS CompletedTasks,
-                COUNT(CASE WHEN tn.StatusId = 1 AND tn.CompletedDate <= tn.DueDate THEN 1 END) AS OnTimeTasks,
-                COUNT(CASE WHEN tn.StatusId = 1 AND tn.CompletedDate > tn.DueDate THEN 1 END) AS LateTasks,
+                COUNT(CASE WHEN tn.StatusId = 1 AND (tn.DueDate IS NULL OR tn.CompletedDate <= tn.DueDate) THEN 1 END) AS OnTimeTasks,
+                COUNT(CASE WHEN tn.StatusId = 1 AND tn.DueDate IS NOT NULL AND tn.CompletedDate > tn.DueDate THEN 1 END) AS LateTasks,
                 COUNT(CASE WHEN tn.StatusId = 2 THEN 1 END) AS PendingTasks,
                 COUNT(CASE WHEN tn.StatusId = 3 THEN 1 END) AS AcceptedTasks,
-                COUNT(CASE WHEN tn.DueDate < GETDATE() AND tn.StatusId NOT IN (1, 6) THEN 1 END) AS OverdueTasks,
+                COUNT(CASE WHEN tn.DueDate IS NOT NULL AND tn.DueDate < GETDATE() AND tn.StatusId NOT IN (1, 6) THEN 1 END) AS OverdueTasks,
                 AVG(CASE WHEN tn.StatusId = 1 THEN DATEDIFF(day, tn.CreatedDate, tn.CompletedDate) END) AS AvgCompletionDays
             FROM TaskNote tn
             JOIN People p ON tn.AssigneeId = p.PeopleId
@@ -535,7 +538,7 @@ def get_completion_trend_sql(weeks=12):
                 COUNT(CASE WHEN tn.IsNote = 0 AND tn.CreatedDate BETWEEN wd.WeekStart AND wd.WeekEnd THEN tn.TaskNoteId END) AS TasksCreated,
                 COUNT(CASE WHEN tn.StatusId = 1 AND tn.CompletedDate BETWEEN wd.WeekStart AND wd.WeekEnd THEN tn.TaskNoteId END) AS TasksCompleted,
                 COUNT(CASE WHEN tn.StatusId = 1 AND tn.CompletedDate BETWEEN wd.WeekStart AND wd.WeekEnd 
-                          AND tn.CompletedDate <= tn.DueDate THEN tn.TaskNoteId END) AS TasksCompletedOnTime
+                          AND (tn.DueDate IS NULL OR tn.CompletedDate <= tn.DueDate) THEN tn.TaskNoteId END) AS TasksCompletedOnTime
             FROM WeekDates wd
             LEFT JOIN TaskNote tn ON 
                 (tn.CreatedDate BETWEEN wd.WeekStart AND wd.WeekEnd) OR 
@@ -1746,8 +1749,9 @@ def render_overdue_tasks_detail(assignee_id):
             LEFT JOIN People about ON about.PeopleId = tn.AboutPersonId
             WHERE 
                 tn.AssigneeId = {0}
+                AND tn.DueDate IS NOT NULL  -- Only include tasks with due dates
                 AND tn.DueDate < GETDATE() 
-                AND tn.StatusId NOT IN (3, 5) -- Not completed or archived
+                AND tn.StatusId NOT IN (1, 6) -- Not completed or archived
                 AND tn.IsNote = 0 -- Only tasks, not notes
                 {1}
             ORDER BY tn.DueDate ASC
