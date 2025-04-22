@@ -513,7 +513,7 @@ def get_completion_by_assignee_sql(days=30, limit=10):
             END AS CompletionRate
         FROM AssigneeStats
         WHERE CompletedTasks > 0 OR PendingTasks > 0 OR AcceptedTasks > 0 OR OverdueTasks > 0
-        ORDER BY OnTimePercentage DESC, CompletedTasks DESC
+        ORDER BY CompletedTasks DESC, OnTimePercentage DESC
     """.format(days, limit)
 
 def get_completion_trend_sql(weeks=12):
@@ -863,6 +863,27 @@ def render_dashboard():
             margin-top: 20px;
             font-size: 18px;
             color: #333;
+        }
+        #assignee-efficiency {
+            max-height: 1800px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #ccc #f5f5f5;
+            padding-right: 10px;
+        }
+        
+        #assignee-efficiency::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        #assignee-efficiency::-webkit-scrollbar-track {
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+        
+        #assignee-efficiency::-webkit-scrollbar-thumb {
+            background-color: #ccc;
+            border-radius: 4px;
         }
     </style>
     """
@@ -2114,13 +2135,20 @@ def render_completion_kpi_tab(days_filter):
         """
         
         # Assignee efficiency data
-        assignee_data = q.QuerySql(get_completion_by_assignee_sql(days_filter))
+        assignee_data = q.QuerySql(get_completion_by_assignee_sql(days_filter, 30))
         
         for assignee in assignee_data:
             # Skip if no data
             completed_tasks = assignee.CompletedTasks if hasattr(assignee, 'CompletedTasks') and assignee.CompletedTasks is not None else 0
+            on_time_tasks = assignee.OnTimeTasks if hasattr(assignee, 'OnTimeTasks') and assignee.OnTimeTasks is not None else 0
             pending_tasks = assignee.PendingTasks if hasattr(assignee, 'PendingTasks') and assignee.PendingTasks is not None else 0
             overdue_tasks = assignee.OverdueTasks if hasattr(assignee, 'OverdueTasks') and assignee.OverdueTasks is not None else 0
+            
+            # Double-check the calculation here
+            if completed_tasks > 0:
+                on_time_pct = (float(on_time_tasks) / completed_tasks) * 100
+            else:
+                on_time_pct = 0
             
             if not completed_tasks and not pending_tasks and not overdue_tasks:
                 continue
