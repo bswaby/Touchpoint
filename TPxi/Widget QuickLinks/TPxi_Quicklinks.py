@@ -84,14 +84,14 @@ icons = [
     ["reports", "fa-check-circle", "Compliance", "/PyScript/Compliance_Dashboard", None, None, None, ["Admin", "FinanceAdmin", "ManageApplication", "BackgroundCheck", "BackgroundCheckRun", "ViewApplication"]],
     ["reports", "fa-gauge", "Connect Group", "/pyScript/DashboardAttendance", None, None, None, ["Admin","ManageGroups"]],
     ["reports", "fa-database", "Data Quality", "/PyScript/TPxi_DataQualityDashboard", None, None, None, ["Admin"]],
-    ["reports", "fa-layer-group", "Inv. Activity", "/PyScript/TPxi_InvolvementActivityDashboard", None, None, None, ["Beta"]],
-    ["reports", "fa fa-tasks", "TaskNote Activity", "/PyScript/TPxi_TaskNoteActivityDashboard", None, None, None, ["Beta"]],
-    ["reports", "fa-chart-line", "Weekly Attendance", "/PyScript/TPxi_WeeklyAttendance", None, None, None, ["Beta"]],
+    ["reports", "fa-layer-group", "Inv. Activity", "/PyScript/TPxi_InvolvementActivityDashboard", None, None, None, ["Admin","Beta"]],
+    ["reports", "fa fa-tasks", "TaskNote Activity", "/PyScript/TPxi_TaskNoteActivityDashboard", None, None, None, ["Admin","Beta"]],
+    ["reports", "fa-chart-line", "Weekly Attendance", "/PyScript/TPxi_WeeklyAttendance", None, None, None, ["Admin","Beta"]],
     
     # Tools category
-    ["tools", "fa-cubes", "Ministry Structure", "/PyScript/TPxi_MinistryStructure", None, None, None, ["Beta"]],
+    ["tools", "fa-cubes", "Ministry Structure", "/PyScript/TPxi_MinistryStructure", None, None, None, ["Admin","Beta"]],
     ["tools", "fa-download", "Attachment Downloader", "/PyScript/TPxi_AttachmentLinkGenerator", None, None, None, ["Admin","ManageOrgMembers"]],
-    ["tools", "fa-calendar-check", "Meeting Reminder", "/PyScript/TPxi_MeetingReminder", None, None, None, ["Beta"]]
+    ["tools", "fa-calendar-check", "Meeting Reminder", "/PyScript/TPxi_MeetingReminder", None, None, None, ["Admin","Beta"]]
 ]
 
 
@@ -216,10 +216,11 @@ dashboard_css = '''
 
 .category-toggle {
     transition: transform 0.3s;
+    transform: rotate(0deg); /* Start pointing down */
 }
 
 .category-toggle.collapsed {
-    transform: rotate(-90deg);
+    transform: rotate(-90deg); /* Point to the right when collapsed */
 }
 
 .category-content {
@@ -374,20 +375,17 @@ function toggleCategory(categoryId) {
     
     if (content.classList.contains('collapsed')) {
         content.classList.remove('collapsed');
-        toggle.classList.remove('collapsed');
-        container.style.marginBottom = '2px'; // Reduced margin when expanded
-        // Store expanded state in localStorage
+        toggle.className = 'fa fa-chevron-down category-toggle'; // Point down when expanded
+        container.style.marginBottom = '2px';
         localStorage.setItem('category-' + categoryId, 'expanded');
     } else {
         content.classList.add('collapsed');
-        toggle.classList.add('collapsed');
-        container.style.marginBottom = '1px'; // Reduce margin when collapsed
-        // Store collapsed state in localStorage
+        toggle.className = 'fa fa-chevron-right category-toggle'; // Point right when collapsed
+        container.style.marginBottom = '1px';
         localStorage.setItem('category-' + categoryId, 'collapsed');
     }
 }
 
-// Initialize categories based on stored state or default
 document.addEventListener('DOMContentLoaded', function() {
     const categories = document.querySelectorAll('[id^="category-content-"]');
     categories.forEach(function(category) {
@@ -395,14 +393,19 @@ document.addEventListener('DOMContentLoaded', function() {
         const toggle = document.getElementById('category-toggle-' + categoryId);
         const container = document.getElementById('category-container-' + categoryId);
         
-        // Check localStorage for saved state, use default if not present
+        // Check localStorage for saved state
         const savedState = localStorage.getItem('category-' + categoryId);
-        const defaultState = category.getAttribute('data-default');
         
-        if ((savedState === 'collapsed') || (savedState === null && defaultState === 'collapsed')) {
+        if (savedState === 'collapsed' && !category.classList.contains('collapsed')) {
+            // Should be collapsed but isn't
             category.classList.add('collapsed');
-            toggle.classList.add('collapsed');
-            container.style.marginBottom = '1px'; // Reduce margin when collapsed
+            toggle.className = 'fa fa-chevron-right category-toggle';
+            container.style.marginBottom = '1px';
+        } else if (savedState === 'expanded' && category.classList.contains('collapsed')) {
+            // Should be expanded but isn't
+            category.classList.remove('collapsed');
+            toggle.className = 'fa fa-chevron-down category-toggle';
+            container.style.marginBottom = '2px';
         }
     });
 });
@@ -453,18 +456,22 @@ try:
         if not visible_icons:
             continue
         
+        # Use the correct arrow icon based on the expanded state
+        arrow_icon = "fa-chevron-down" if is_expanded else "fa-chevron-right"
+        
         print '''
         <div class="category-container" id="category-container-{0}">
             <div class="category-header" onclick="toggleCategory('{0}')">
                 <i class="fa {1} category-icon"></i>
                 <span class="category-title">{2}</span>
-                <i class="fa fa-chevron-down category-toggle" id="category-toggle-{0}"></i>
+                <i class="fa {3} category-toggle" id="category-toggle-{0}"></i>
             </div>
-            <div class="category-content{3}" id="category-content-{0}" data-default="{4}">
+            <div class="category-content{4}" id="category-content-{0}" data-default="{5}">
         '''.format(
             category_id,
             category_icon,
             category_name,
+            arrow_icon,  # Use the correct arrow based on expanded state
             "" if is_expanded else " collapsed",
             "expanded" if is_expanded else "collapsed"
         )
