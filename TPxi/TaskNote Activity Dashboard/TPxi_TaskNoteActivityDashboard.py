@@ -81,12 +81,12 @@ def format_time_ago(date):
 def get_status_description(status_id):
     """Convert status ID to description"""
     statuses = {
-        1: "Pending",
-        2: "Accepted",
-        3: "Completed",
+        1: "Complete",
+        2: "Pending",
+        3: "Accepted",
         4: "Declined",
-        5: "Archived",
-        6: "Note"
+        5: "Note", 
+        6: "Archived"
     }
     return statuses.get(status_id, "Unknown")
 
@@ -144,8 +144,23 @@ def html_bar(value, max_value, color="#3498db", width=100, height=20, label=None
 
 # ---------------- SQL QUERIES ----------------
 
-def get_recent_activity_sql(days=30, limit=100, offset=0):
-    """Get SQL for recent TaskNote activities with pagination"""
+def get_recent_activity_sql(days=30, limit=100, offset=0, type_filter=None, status_filter=None):
+    """Get SQL for recent TaskNote activities with pagination and filters"""
+    # Create WHERE clauses for filters
+    where_clauses = ["tn.CreatedDate >= DATEADD(day, -{0}, GETDATE())".format(days)]
+    
+    if type_filter:
+        if type_filter == "Note":
+            where_clauses.append("tn.IsNote = 1")
+        elif type_filter == "Task":
+            where_clauses.append("tn.IsNote = 0")
+    
+    if status_filter:
+        where_clauses.append("tn.StatusId = {0}".format(status_filter))
+    
+    # Combine all WHERE clauses
+    where_clause = " AND ".join(where_clauses)
+    
     return """
         SELECT
             tn.TaskNoteId,
@@ -172,19 +187,34 @@ def get_recent_activity_sql(days=30, limit=100, offset=0):
         LEFT JOIN People owner ON tn.OwnerId = owner.PeopleId
         LEFT JOIN People about ON tn.AboutPersonId = about.PeopleId
         LEFT JOIN People assignee ON tn.AssigneeId = assignee.PeopleId
-        WHERE tn.CreatedDate >= DATEADD(day, -{0}, GETDATE())
+        WHERE {3}
         ORDER BY tn.CreatedDate DESC
         OFFSET {2} ROWS
         FETCH NEXT {1} ROWS ONLY
-    """.format(days, limit, offset)
+    """.format(days, limit, offset, where_clause)
 
-def get_activity_count_sql(days=30):
-    """Get total count of activities for pagination"""
+def get_activity_count_sql(days=30, type_filter=None, status_filter=None):
+    """Get total count of activities for pagination with filters"""
+    # Create WHERE clauses for filters
+    where_clauses = ["tn.CreatedDate >= DATEADD(day, -{0}, GETDATE())".format(days)]
+    
+    if type_filter:
+        if type_filter == "Note":
+            where_clauses.append("tn.IsNote = 1")
+        elif type_filter == "Task":
+            where_clauses.append("tn.IsNote = 0")
+    
+    if status_filter:
+        where_clauses.append("tn.StatusId = {0}".format(status_filter))
+    
+    # Combine all WHERE clauses
+    where_clause = " AND ".join(where_clauses)
+    
     return """
         SELECT COUNT(*) AS TotalCount
         FROM TaskNote tn
-        WHERE tn.CreatedDate >= DATEADD(day, -{0}, GETDATE())
-    """.format(days)
+        WHERE {0}
+    """.format(where_clause)
 
 def get_task_summary_sql(days=None):
     """Get SQL for task summary statistics with optional time filter"""
@@ -197,12 +227,12 @@ def get_task_summary_sql(days=None):
             COUNT(*) AS TotalTasks,
             SUM(CASE WHEN IsNote = 1 THEN 1 ELSE 0 END) AS TotalNotes,
             SUM(CASE WHEN IsNote = 0 THEN 1 ELSE 0 END) AS TotalActionTasks,
-            SUM(CASE WHEN StatusId = 1 THEN 1 ELSE 0 END) AS PendingTasks,
-            SUM(CASE WHEN StatusId = 2 THEN 1 ELSE 0 END) AS AcceptedTasks,
-            SUM(CASE WHEN StatusId = 3 THEN 1 ELSE 0 END) AS CompletedTasks,
+            SUM(CASE WHEN StatusId = 2 THEN 1 ELSE 0 END) AS PendingTasks,
+            SUM(CASE WHEN StatusId = 3 THEN 1 ELSE 0 END) AS AcceptedTasks,
+            SUM(CASE WHEN StatusId = 1 THEN 1 ELSE 0 END) AS CompletedTasks,
             SUM(CASE WHEN StatusId = 4 THEN 1 ELSE 0 END) AS DeclinedTasks,
-            SUM(CASE WHEN StatusId = 5 THEN 1 ELSE 0 END) AS ArchivedTasks,
-            SUM(CASE WHEN DueDate < GETDATE() AND StatusId NOT IN (3, 5) THEN 1 ELSE 0 END) AS OverdueTasks,
+            SUM(CASE WHEN StatusId = 6 THEN 1 ELSE 0 END) AS ArchivedTasks,
+            SUM(CASE WHEN DueDate < GETDATE() AND StatusId NOT IN (1, 6) THEN 1 ELSE 0 END) AS OverdueTasks,
             SUM(CASE WHEN CreatedDate >= DATEADD(day, -7, GETDATE()) THEN 1 ELSE 0 END) AS CreatedLast7Days,
             SUM(CASE WHEN CompletedDate >= DATEADD(day, -7, GETDATE()) THEN 1 ELSE 0 END) AS CompletedLast7Days
         FROM TaskNote
@@ -337,7 +367,7 @@ def get_overdue_tasks_by_assignee_sql(days=None):
         JOIN People p ON p.PeopleId = tn.AssigneeId
         WHERE 
             tn.DueDate < GETDATE() 
-            AND tn.StatusId NOT IN (3, 5) -- Not completed or archived
+            AND tn.StatusId NOT IN (1, 6) -- Not completed or archived
             AND tn.IsNote = 0 -- Only tasks, not notes
             {0}
         GROUP BY p.PeopleId, p.Name
@@ -368,7 +398,7 @@ def get_overdue_tasks_for_assignee_sql(assignee_id):
         WHERE 
             tn.AssigneeId = {0}
             AND tn.DueDate < GETDATE() 
-            AND tn.StatusId NOT IN (3, 5) -- Not completed or archived
+            AND tn.StatusId NOT IN (1, 6) -- Not completed or archived
             AND tn.IsNote = 0 -- Only tasks, not notes
         ORDER BY tn.DueDate ASC
     """.format(assignee_id)
@@ -396,6 +426,138 @@ def get_monthly_activity_sql(months=12):
         GROUP BY md.MonthStart, FORMAT(md.MonthStart, 'MMMM yyyy')
         ORDER BY md.MonthStart DESC
     """.format(months)
+    
+def get_completion_kpi_sql(days=30):
+    """Get SQL for task completion KPIs with optional time filter"""
+    # Ensure days is treated as an integer (in case it comes from form data)
+    try:
+        days = int(days)
+    except (ValueError, TypeError):
+        days = 30  # Default if days is not a valid integer
+        
+    return """
+        WITH CompletedTasks AS (
+            SELECT
+                tn.TaskNoteId,
+                tn.CreatedDate,
+                tn.CompletedDate,
+                tn.DueDate,
+                tn.AssigneeId,
+                p.Name AS AssigneeName,
+                DATEDIFF(day, tn.CreatedDate, tn.CompletedDate) AS DaysToComplete,
+                CASE 
+                    WHEN tn.CompletedDate <= tn.DueDate THEN 1 
+                    ELSE 0 
+                END AS CompletedOnTime
+            FROM TaskNote tn
+            LEFT JOIN People p ON tn.AssigneeId = p.PeopleId
+            WHERE 
+                tn.IsNote = 0
+                AND tn.StatusId = 1  -- Completed tasks
+                AND tn.CompletedDate IS NOT NULL
+                AND tn.CreatedDate >= DATEADD(day, -{0}, GETDATE())
+        )
+        SELECT
+            COUNT(*) AS TotalCompleted,
+            ISNULL(SUM(CompletedOnTime), 0) AS CompletedOnTime,
+            ISNULL(AVG(CAST(DaysToComplete AS FLOAT)), 0) AS AvgCompletionDays,
+            ISNULL(MIN(DaysToComplete), 0) AS MinCompletionDays,
+            ISNULL(MAX(DaysToComplete), 0) AS MaxCompletionDays,
+            CASE 
+                WHEN COUNT(*) > 0 THEN CAST(ISNULL(SUM(CompletedOnTime), 0) AS FLOAT) / COUNT(*) * 100
+                ELSE 0
+            END AS OnTimePercentage
+        FROM CompletedTasks
+    """.format(days)
+
+def get_completion_by_assignee_sql(days=30, limit=10):
+    """Get SQL for completion efficiency by assignee"""
+    return """
+        WITH AssigneeStats AS (
+            SELECT
+                tn.AssigneeId,
+                p.Name AS AssigneeName,
+                COUNT(CASE WHEN tn.StatusId = 1 THEN 1 END) AS CompletedTasks,
+                COUNT(CASE WHEN tn.StatusId = 1 AND tn.CompletedDate <= tn.DueDate THEN 1 END) AS OnTimeTasks,
+                COUNT(CASE WHEN tn.StatusId = 1 AND tn.CompletedDate > tn.DueDate THEN 1 END) AS LateTasks,
+                COUNT(CASE WHEN tn.StatusId = 2 THEN 1 END) AS PendingTasks,
+                COUNT(CASE WHEN tn.StatusId = 3 THEN 1 END) AS AcceptedTasks,
+                COUNT(CASE WHEN tn.DueDate < GETDATE() AND tn.StatusId NOT IN (1, 6) THEN 1 END) AS OverdueTasks,
+                AVG(CASE WHEN tn.StatusId = 1 THEN DATEDIFF(day, tn.CreatedDate, tn.CompletedDate) END) AS AvgCompletionDays
+            FROM TaskNote tn
+            JOIN People p ON tn.AssigneeId = p.PeopleId
+            WHERE 
+                tn.IsNote = 0
+                AND tn.AssigneeId IS NOT NULL
+                AND tn.CreatedDate >= DATEADD(day, -{0}, GETDATE())
+            GROUP BY tn.AssigneeId, p.Name
+        )
+        SELECT TOP {1}
+            AssigneeId,
+            AssigneeName,
+            CompletedTasks,
+            OnTimeTasks,
+            LateTasks,
+            PendingTasks,
+            AcceptedTasks,
+            OverdueTasks,
+            AvgCompletionDays,
+            CASE 
+                WHEN CompletedTasks > 0 THEN CAST(OnTimeTasks AS FLOAT) / CompletedTasks * 100 
+                ELSE 0 
+            END AS OnTimePercentage,
+            CASE
+                WHEN (CompletedTasks + PendingTasks + AcceptedTasks) > 0 
+                THEN CAST(CompletedTasks AS FLOAT) / (CompletedTasks + PendingTasks + AcceptedTasks) * 100
+                ELSE 0
+            END AS CompletionRate
+        FROM AssigneeStats
+        WHERE CompletedTasks > 0 OR PendingTasks > 0 OR AcceptedTasks > 0 OR OverdueTasks > 0
+        ORDER BY OnTimePercentage DESC, CompletedTasks DESC
+    """.format(days, limit)
+
+def get_completion_trend_sql(weeks=12):
+    """Get SQL for weekly completion trends over time"""
+    return """
+        WITH WeekDates AS (
+            SELECT 
+                DATEADD(WEEK, -n, DATEADD(DAY, -(DATEPART(WEEKDAY, GETDATE()) - 1), CAST(GETDATE() AS DATE))) AS WeekStart,
+                DATEADD(DAY, 6, DATEADD(WEEK, -n, DATEADD(DAY, -(DATEPART(WEEKDAY, GETDATE()) - 1), CAST(GETDATE() AS DATE)))) AS WeekEnd
+            FROM (
+                SELECT TOP ({0}) 
+                    ROW_NUMBER() OVER (ORDER BY object_id) - 1 AS n
+                FROM sys.objects
+            ) AS nums
+        ),
+        WeeklyStats AS (
+            SELECT 
+                wd.WeekStart,
+                COUNT(CASE WHEN tn.IsNote = 0 AND tn.CreatedDate BETWEEN wd.WeekStart AND wd.WeekEnd THEN tn.TaskNoteId END) AS TasksCreated,
+                COUNT(CASE WHEN tn.StatusId = 1 AND tn.CompletedDate BETWEEN wd.WeekStart AND wd.WeekEnd THEN tn.TaskNoteId END) AS TasksCompleted,
+                COUNT(CASE WHEN tn.StatusId = 1 AND tn.CompletedDate BETWEEN wd.WeekStart AND wd.WeekEnd 
+                          AND tn.CompletedDate <= tn.DueDate THEN tn.TaskNoteId END) AS TasksCompletedOnTime
+            FROM WeekDates wd
+            LEFT JOIN TaskNote tn ON 
+                (tn.CreatedDate BETWEEN wd.WeekStart AND wd.WeekEnd) OR 
+                (tn.StatusId = 1 AND tn.CompletedDate BETWEEN wd.WeekStart AND wd.WeekEnd)
+            GROUP BY wd.WeekStart
+        )
+        SELECT 
+            FORMAT(WeekStart, 'MMM d') + ' - ' + FORMAT(DATEADD(DAY, 6, WeekStart), 'MMM d, yyyy') AS WeekLabel,
+            ISNULL(TasksCreated, 0) AS TasksCreated,
+            ISNULL(TasksCompleted, 0) AS TasksCompleted,
+            ISNULL(TasksCompletedOnTime, 0) AS TasksCompletedOnTime,
+            CASE WHEN ISNULL(TasksCompleted, 0) > 0 
+                 THEN CAST(ISNULL(TasksCompletedOnTime, 0) AS FLOAT) / ISNULL(TasksCompleted, 0) * 100 
+                 ELSE 0 
+            END AS OnTimePercentage,
+            CASE WHEN ISNULL(TasksCreated, 0) > 0 
+                 THEN CAST(ISNULL(TasksCompleted, 0) AS FLOAT) / ISNULL(TasksCreated, 0) * 100 
+                 ELSE 0 
+            END AS CompletionRate
+        FROM WeeklyStats
+        ORDER BY WeekStart DESC
+    """.format(weeks)
 
 # ---------------- DASHBOARD RENDERING ----------------
 
@@ -403,14 +565,14 @@ def render_dashboard():
     """Render the full dashboard"""
     days_filter = 90
     try:
-        if model.Data.days is not None:
+        if hasattr(model.Data, 'days') and model.Data.days is not None:
             days_filter = int(model.Data.days)
     except:
         days_filter = 90
     
     assignee_id = None
     try:
-        if model.Data.assignee is not None:
+        if hasattr(model.Data, 'assignee') and model.Data.assignee is not None:
             assignee_id = int(model.Data.assignee)
     except:
         assignee_id = None
@@ -418,7 +580,7 @@ def render_dashboard():
     # Get current page for activity tab
     page = 1
     try:
-        if model.Data.page is not None:
+        if hasattr(model.Data, 'page') and model.Data.page is not None:
             page = int(model.Data.page)
     except:
         page = 1
@@ -426,10 +588,21 @@ def render_dashboard():
     # Get current active tab
     active_tab = "overview"
     try:
-        if model.Data.tab is not None and model.Data.tab.strip():
+        if hasattr(model.Data, 'tab') and model.Data.tab is not None and model.Data.tab.strip():
             active_tab = model.Data.tab
     except:
         active_tab = "overview"
+    
+    # Get type and status filters for activity tab
+    type_filter = None
+    status_filter = None
+    try:
+        if hasattr(model.Data, 'type_filter') and model.Data.type_filter is not None and model.Data.type_filter.strip():
+            type_filter = model.Data.type_filter
+        if hasattr(model.Data, 'status_filter') and model.Data.status_filter is not None and model.Data.status_filter.strip():
+            status_filter = model.Data.status_filter
+    except:
+        pass
     
     # CSS for dashboard styling
     print """
@@ -489,7 +662,7 @@ def render_dashboard():
         /* Task status colors */
         .status-pending { color: #e67e22; }
         .status-accepted { color: #3498db; }
-        .status-completed { color: #2ecc71; }
+        .status-complete { color: #2ecc71; }
         .status-declined { color: #e74c3c; }
         .status-archived { color: #7f8c8d; }
         .status-note { color: #9b59b6; }
@@ -841,6 +1014,7 @@ def render_dashboard():
             <button id="activity-button" class="tab-button" onclick="return switchTab('activity')">Recent Activity</button>
             <button id="trends-button" class="tab-button" onclick="return switchTab('trends')">Keyword Trends</button>
             <button id="overdue-button" class="tab-button" onclick="return switchTab('overdue')">Overdue Tasks</button>
+            <button id="completion-button" class="tab-button" onclick="return switchTab('completion')">Completion KPIs</button>
             <button id="stats-button" class="tab-button" onclick="return switchTab('stats')">Analytics</button>
         </div>
     """.format(
@@ -896,6 +1070,14 @@ def render_dashboard():
         print """<div class="loading"><div class="loading-spinner"></div><p>Loading overdue data...</p></div>"""
     print """</div>"""
     
+    # Completion KPIs tab
+    print """<div id="completion-panel" class="tab-panel">"""
+    if active_tab == "completion":
+        render_completion_kpi_tab(days_filter)
+    else:
+        print """<div class="loading"><div class="loading-spinner"></div><p>Loading completion KPI data...</p></div>"""
+    print """</div>"""
+    
     # Stats tab
     print """<div id="stats-panel" class="tab-panel">"""
     if active_tab == "stats":
@@ -949,6 +1131,69 @@ def render_overview_tab(days_filter):
             
         print """
                     </div>
+        """
+        
+        # Add a divider after the stat boxes
+        print """
+            <div style="border-top: 1px solid #eee; margin: 15px 0; padding-top: 15px;">
+                <h3 style="margin-top: 0;">Task Completion Summary</h3>
+        """
+        # Fetch KPI data for completion summary
+        try:
+            kpi_data = q.QuerySqlTop1(get_completion_kpi_sql(days_filter))
+            
+            # Simple metrics display
+            if kpi_data.TotalCompleted > 0:
+                on_time_pct = kpi_data.OnTimePercentage or 0
+                on_time_color = "green" if on_time_pct >= 75 else "orange" if on_time_pct >= 50 else "red"
+                
+                print """
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <div>
+                            <strong>Task Completion Rate:</strong>
+                        </div>
+                        <div>
+                            <span style="color: {0};">{1:.1f}%</span>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                        <div>
+                            <strong>On-Time Completion:</strong>
+                        </div>
+                        <div>
+                            <span style="color: {2};">{3:.1f}%</span>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between;">
+                        <div>
+                            <strong>Average Completion Time:</strong>
+                        </div>
+                        <div>
+                            {4:.1f} days
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 10px;">
+                        <a href="?tab=completion&days={5}" style="color: #3498db;">View detailed completion analytics →</a>
+                    </div>
+                """.format(
+                    "green" if (kpi_data.TotalCompleted / float(summary_data.TotalActionTasks) * 100 if summary_data.TotalActionTasks > 0 else 0) >= 75 else "orange",
+                    kpi_data.TotalCompleted / float(summary_data.TotalActionTasks) * 100 if summary_data.TotalActionTasks > 0 else 0,
+                    on_time_color,
+                    on_time_pct,
+                    kpi_data.AvgCompletionDays or 0,
+                    days_filter
+                )
+            else:
+                print "<p>No completed tasks in this time period.</p>"
+        except Exception as e:
+            print "<p>Error loading completion summary: {0}</p>".format(str(e))
+        # Close the divider section
+        print """</div>"""
+        
+        print """
                 </div>
             </div>
         </div>
@@ -1108,14 +1353,52 @@ def render_overview_tab(days_filter):
         print "<p>Error loading summary data: {0}</p>".format(str(e))
 
 def render_activity_tab(days_filter, page=1):
-    """Render the recent activity tab with pagination"""
+    """Render the recent activity tab with pagination and filters"""
     items_per_page = 20
     page = int(page)  # Ensure page is an integer
     offset = (page - 1) * items_per_page
     
+    # Get filter values from request if they exist
+    type_filter = None
+    status_filter = None
+    try:
+        if hasattr(model.Data, 'type_filter') and model.Data.type_filter is not None and model.Data.type_filter.strip():
+            type_filter = model.Data.type_filter
+        if hasattr(model.Data, 'status_filter') and model.Data.status_filter is not None and model.Data.status_filter.strip():
+            status_filter = model.Data.status_filter
+    except:
+        pass
+    
     print """
         <div class="card">
             <h2 class="card-title">Recent Activity (Last {0} Days)</h2>
+            
+            <!-- Add filter form -->
+            <form method="get" action="" class="filter-controls">
+                <input type="hidden" name="tab" value="activity">
+                <input type="hidden" name="days" value="{1}">
+                <input type="hidden" name="page" value="1">
+                
+                <label for="type-filter">Type:</label>
+                <select id="type-filter" name="type_filter">
+                    <option value="" {2}>All Types</option>
+                    <option value="Task" {3}>Tasks</option>
+                    <option value="Note" {4}>Notes</option>
+                </select>
+                
+                <label for="status-filter">Status:</label>
+                <select id="status-filter" name="status_filter">
+                    <option value="" {5}>All Statuses</option>
+                    <option value="1" {6}>Complete</option>
+                    <option value="2" {7}>Pending</option>
+                    <option value="3" {8}>Accepted</option>
+                    <option value="4" {9}>Declined</option>
+                    <option value="5" {10}>Note</option>
+                    <option value="6" {11}>Archived</option>
+                </select>
+                
+                <button type="submit">Apply Filters</button>
+            </form>
             
             <table class="data-table">
                 <tr>
@@ -1128,25 +1411,94 @@ def render_activity_tab(days_filter, page=1):
                     <th>Content</th>
                     <th>Keywords</th>
                 </tr>
-    """.format(days_filter)
+    """.format(
+        days_filter,
+        days_filter,
+        "selected" if not type_filter else "",
+        "selected" if type_filter == "Task" else "",
+        "selected" if type_filter == "Note" else "",
+        "selected" if not status_filter else "",
+        "selected" if status_filter == "1" else "",
+        "selected" if status_filter == "2" else "",
+        "selected" if status_filter == "3" else "",
+        "selected" if status_filter == "4" else "",
+        "selected" if status_filter == "5" else "",
+        "selected" if status_filter == "6" else "",
+    )
     
     try:
+        # Create WHERE clauses for filters
+        where_clauses = ["tn.CreatedDate >= DATEADD(day, -{0}, GETDATE())".format(days_filter)]
+        
+        if type_filter:
+            if type_filter == "Note":
+                where_clauses.append("tn.IsNote = 1")
+            elif type_filter == "Task":
+                where_clauses.append("tn.IsNote = 0")
+        
+        if status_filter:
+            where_clauses.append("tn.StatusId = {0}".format(status_filter))
+        
+        # Combine all WHERE clauses
+        where_clause = " AND ".join(where_clauses)
+        
+        # Modify the SQL query to include filters
+        activity_sql = """
+            SELECT
+                tn.TaskNoteId,
+                tn.CreatedDate,
+                CASE WHEN tn.IsNote = 1 THEN 'Note' ELSE 'Task' END AS ActivityType,
+                tn.StatusId,
+                tn.OwnerId,
+                owner.Name AS OwnerName,
+                tn.AboutPersonId,
+                about.Name AS AboutName,
+                tn.AssigneeId,
+                assignee.Name AS AssigneeName,
+                tn.Instructions,
+                tn.Notes,
+                tn.CompletedDate,
+                tn.DueDate,
+                (
+                    SELECT STRING_AGG(k.Description, ', ')
+                    FROM TaskNoteKeyword tnk
+                    JOIN Keyword k ON tnk.KeywordId = k.KeywordId
+                    WHERE tnk.TaskNoteId = tn.TaskNoteId
+                ) AS Keywords
+            FROM TaskNote tn
+            LEFT JOIN People owner ON tn.OwnerId = owner.PeopleId
+            LEFT JOIN People about ON tn.AboutPersonId = about.PeopleId
+            LEFT JOIN People assignee ON tn.AssigneeId = assignee.PeopleId
+            WHERE {0}
+            ORDER BY tn.CreatedDate DESC
+            OFFSET {1} ROWS
+            FETCH NEXT {2} ROWS ONLY
+        """.format(where_clause, offset, items_per_page)
+        
+        # Count query with filters
+        count_sql = """
+            SELECT COUNT(*) AS TotalCount
+            FROM TaskNote tn
+            WHERE {0}
+        """.format(where_clause)
+        
         # Get total count for pagination
-        total_count_result = q.QuerySqlTop1(get_activity_count_sql(days_filter))
+        total_count_result = q.QuerySqlTop1(count_sql)
         total_count = total_count_result.TotalCount if hasattr(total_count_result, 'TotalCount') else 0
         total_pages = (total_count + items_per_page - 1) // items_per_page if total_count > 0 else 1
         
         # Get paginated activity data
-        activity_data = q.QuerySql(get_recent_activity_sql(days_filter, items_per_page, offset))
+        activity_data = q.QuerySql(activity_sql)
         
         for activity in activity_data:
             # Determine status class
             status_class = "status-note" if activity.ActivityType == "Note" else {
-                1: "status-pending",
-                2: "status-accepted",
-                3: "status-completed",
-                4: "status-declined",
-                5: "status-archived"
+                1: "status-complete",    # Was "status-pending"
+                2: "status-pending",     # Was "status-accepted"
+                3: "status-accepted",    # Was "status-completed"
+                4: "status-declined",    # This one was correct
+                5: "status-note",        # Was "status-archived"
+                6: "status-archived"     # Was "status-note"
             }.get(activity.StatusId, "")
             
             # Format content for display
@@ -1186,7 +1538,8 @@ def render_activity_tab(days_filter, page=1):
             
             # Previous page link
             if page > 1:
-                print """<a href="?days={0}&page={1}&tab=activity">&laquo; Previous</a>""".format(days_filter, page - 1)
+                print """<a href="?days={0}&page={1}&tab=activity&type_filter={2}&status_filter={3}">&laquo; Previous</a>""".format(
+                    days_filter, page - 1, type_filter or "", status_filter or "")
             else:
                 print """<span class="disabled">&laquo; Previous</span>"""
             
@@ -1202,11 +1555,13 @@ def render_activity_tab(days_filter, page=1):
                 if p == page:
                     print """<span class="current">{0}</span>""".format(p)
                 else:
-                    print """<a href="?days={0}&page={1}&tab=activity">{1}</a>""".format(days_filter, p)
+                    print """<a href="?days={0}&page={1}&tab=activity&type_filter={2}&status_filter={3}">{1}</a>""".format(
+                        days_filter, p, type_filter or "", status_filter or "")
             
             # Next page link
             if page < total_pages:
-                print """<a href="?days={0}&page={1}&tab=activity">Next &raquo;</a>""".format(days_filter, page + 1)
+                print """<a href="?days={0}&page={1}&tab=activity&type_filter={2}&status_filter={3}">Next &raquo;</a>""".format(
+                    days_filter, page + 1, type_filter or "", status_filter or "")
             else:
                 print """<span class="disabled">Next &raquo;</span>"""
             
@@ -1605,6 +1960,308 @@ def render_stats_tab(days_filter):
     except Exception as e:
         # Handle errors gracefully
         print "<p>Error loading stats data: {0}</p>".format(str(e))
+
+def render_completion_kpi_tab(days_filter):
+    """Render the task completion KPI tab with metrics and charts"""
+    print """
+        <div class="flex-row">
+            <div class="flex-col">
+                <div class="card">
+                    <h2 class="card-title">Task Completion KPIs (Last {0} Days)</h2>
+                    <div class="stat-grid">
+    """.format(days_filter)
+    
+    # Fetch KPI data
+    try:
+        kpi_data = q.QuerySqlTop1(get_completion_kpi_sql(days_filter))
+        
+        # Display summary KPI boxes
+        # The issue is in these format strings - fixing them below
+        on_time_percentage = kpi_data.OnTimePercentage if hasattr(kpi_data, 'OnTimePercentage') and kpi_data.OnTimePercentage is not None else 0
+        avg_days = kpi_data.AvgCompletionDays if hasattr(kpi_data, 'AvgCompletionDays') and kpi_data.AvgCompletionDays is not None else 0
+        min_days = kpi_data.MinCompletionDays if hasattr(kpi_data, 'MinCompletionDays') and kpi_data.MinCompletionDays is not None else 0
+        max_days = kpi_data.MaxCompletionDays if hasattr(kpi_data, 'MaxCompletionDays') and kpi_data.MaxCompletionDays is not None else 0
+        
+        kpi_boxes = [
+            ("Total Completed", kpi_data.TotalCompleted if hasattr(kpi_data, 'TotalCompleted') else 0, "bg-blue"),
+            ("On-Time Rate", "{0:.1f}%".format(float(on_time_percentage)), "bg-green" if on_time_percentage >= 75 else "bg-orange"),
+            ("Avg Days to Complete", "{0:.1f}".format(float(avg_days)), "bg-purple"),
+            ("Fastest Completion", "{0} day{1}".format(min_days, "s" if min_days != 1 else ""), "bg-green"),
+            ("Slowest Completion", "{0} day{1}".format(max_days, "s" if max_days != 1 else ""), "bg-orange"),
+        ]
+        
+        for label, value, color_class in kpi_boxes:
+            print """
+                <div class="stat-box {2}">
+                    <div class="number">{1}</div>
+                    <div class="label">{0}</div>
+                </div>
+            """.format(label, value, color_class)
+            
+        print """
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2 class="card-title">Task Completion Trends (Last 12 Weeks)</h2>
+                    <div class="viz-container">
+        """
+        
+        # Weekly completion trends
+        weekly_trends = q.QuerySql(get_completion_trend_sql(12))
+        
+        # Find max values for scaling the bars
+        max_tasks = 1  # Default to prevent division by zero
+        for week in weekly_trends:
+            tasks_created = week.TasksCreated if hasattr(week, 'TasksCreated') and week.TasksCreated is not None else 0
+            tasks_completed = week.TasksCompleted if hasattr(week, 'TasksCompleted') and week.TasksCompleted is not None else 0
+            max_tasks = max(max_tasks, tasks_created, tasks_completed)
+        
+        # Create legend
+        print """
+            <div class="viz-legend">
+                <div class="viz-legend-item">
+                    <div class="viz-color-box" style="background-color: #3498db;"></div>
+                    <span>Tasks Created</span>
+                </div>
+                <div class="viz-legend-item">
+                    <div class="viz-color-box" style="background-color: #2ecc71;"></div>
+                    <span>Tasks Completed</span>
+                </div>
+                <div class="viz-legend-item">
+                    <div class="viz-color-box" style="background-color: #f39c12;"></div>
+                    <span>Completion Rate</span>
+                </div>
+            </div>
+        """
+        
+        # Create bar charts for each week
+        for week in weekly_trends:
+            # Skip weeks with no activity
+            tasks_created = week.TasksCreated if hasattr(week, 'TasksCreated') and week.TasksCreated is not None else 0
+            tasks_completed = week.TasksCompleted if hasattr(week, 'TasksCompleted') and week.TasksCompleted is not None else 0
+            
+            if tasks_created == 0 and tasks_completed == 0:
+                continue
+                
+            print """
+            <div style="margin-bottom: 20px;">
+                <div style="font-weight: bold; margin-bottom: 5px;">{0}</div>
+            """.format(week.WeekLabel if hasattr(week, 'WeekLabel') else "")
+            
+            # Created tasks bar
+            print html_bar(tasks_created, max_tasks, color="#3498db", width=300, label="Created")
+            
+            # Completed tasks bar
+            print html_bar(tasks_completed, max_tasks, color="#2ecc71", width=300, label="Completed")
+            
+            # Completion rate (scaled to 100%)
+            completion_rate = week.CompletionRate if hasattr(week, 'CompletionRate') and week.CompletionRate is not None else 0
+            rate_color = "#2ecc71" if completion_rate >= 75 else "#f39c12" if completion_rate >= 50 else "#e74c3c"
+            print html_bar(float(completion_rate), 100, color=rate_color, width=300, label="{0:.1f}%".format(float(completion_rate)))
+            
+            print """</div>"""
+        
+        print """
+                    </div>
+                    <table class="data-table">
+                        <tr>
+                            <th>Week</th>
+                            <th>Created</th>
+                            <th>Completed</th>
+                            <th>On-Time</th>
+                            <th>On-Time %</th>
+                            <th>Completion %</th>
+                        </tr>
+        """
+        
+        # Data table for the trends
+        for week in weekly_trends:
+            week_label = week.WeekLabel if hasattr(week, 'WeekLabel') else ""
+            tasks_created = week.TasksCreated if hasattr(week, 'TasksCreated') and week.TasksCreated is not None else 0
+            tasks_completed = week.TasksCompleted if hasattr(week, 'TasksCompleted') and week.TasksCompleted is not None else 0
+            tasks_completed_on_time = week.TasksCompletedOnTime if hasattr(week, 'TasksCompletedOnTime') and week.TasksCompletedOnTime is not None else 0
+            on_time_percentage = week.OnTimePercentage if hasattr(week, 'OnTimePercentage') and week.OnTimePercentage is not None else 0
+            completion_rate = week.CompletionRate if hasattr(week, 'CompletionRate') and week.CompletionRate is not None else 0
+            
+            print """
+                <tr>
+                    <td>{0}</td>
+                    <td>{1}</td>
+                    <td>{2}</td>
+                    <td>{3}</td>
+                    <td>{4:.1f}%</td>
+                    <td>{5:.1f}%</td>
+                </tr>
+            """.format(
+                week_label,
+                tasks_created,
+                tasks_completed,
+                tasks_completed_on_time,
+                float(on_time_percentage),
+                float(completion_rate)
+            )
+            
+        print """
+                    </table>
+                </div>
+            </div>
+            
+            <div class="flex-col">
+                <div class="card">
+                    <h2 class="card-title">Completion Efficiency by Assignee</h2>
+                    <div id="assignee-efficiency">
+        """
+        
+        # Assignee efficiency data
+        assignee_data = q.QuerySql(get_completion_by_assignee_sql(days_filter))
+        
+        for assignee in assignee_data:
+            # Skip if no data
+            completed_tasks = assignee.CompletedTasks if hasattr(assignee, 'CompletedTasks') and assignee.CompletedTasks is not None else 0
+            pending_tasks = assignee.PendingTasks if hasattr(assignee, 'PendingTasks') and assignee.PendingTasks is not None else 0
+            overdue_tasks = assignee.OverdueTasks if hasattr(assignee, 'OverdueTasks') and assignee.OverdueTasks is not None else 0
+            
+            if not completed_tasks and not pending_tasks and not overdue_tasks:
+                continue
+                
+            print """
+            <div style="margin-bottom: 25px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
+                <div style="font-weight: bold; margin-bottom: 10px;">
+                    {0}
+                </div>
+            """.format(get_person_link(assignee.AssigneeId, assignee.AssigneeName if hasattr(assignee, 'AssigneeName') else ""))
+            
+            # Completion rate (total completed / total assigned)
+            completion_rate = assignee.CompletionRate if hasattr(assignee, 'CompletionRate') and assignee.CompletionRate is not None else 0
+            rate_color = "#2ecc71" if completion_rate >= 75 else "#f39c12" if completion_rate >= 50 else "#e74c3c"
+            
+            print """
+                <div style="margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                        <span>Completion Rate:</span>
+                        <span style="color: {1};">{0:.1f}%</span>
+                    </div>
+            """.format(float(completion_rate), rate_color)
+            
+            print html_bar(float(completion_rate), 100, color=rate_color, width=300)
+            print """</div>"""
+            
+            # On-time percentage (completed on time / completed)
+            on_time_pct = assignee.OnTimePercentage if hasattr(assignee, 'OnTimePercentage') and assignee.OnTimePercentage is not None else 0
+            on_time_color = "#2ecc71" if on_time_pct >= 75 else "#f39c12" if on_time_pct >= 50 else "#e74c3c"
+            
+            print """
+                <div style="margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                        <span>On-Time Rate:</span>
+                        <span style="color: {1};">{0:.1f}%</span>
+                    </div>
+            """.format(float(on_time_pct), on_time_color)
+            
+            print html_bar(float(on_time_pct), 100, color=on_time_color, width=300)
+            print """</div>"""
+            
+            # Avg completion time
+            avg_days = assignee.AvgCompletionDays if hasattr(assignee, 'AvgCompletionDays') and assignee.AvgCompletionDays is not None else 0
+            accepted_tasks = assignee.AcceptedTasks if hasattr(assignee, 'AcceptedTasks') and assignee.AcceptedTasks is not None else 0
+            
+            print """
+                <div style="margin-top: 10px; display: flex; justify-content: space-between;">
+                    <div>
+                        <span style="font-size: 13px; color: #777;">Completed:</span>
+                        <span style="margin-left: 5px; font-weight: bold;">{0}</span>
+                    </div>
+                    <div>
+                        <span style="font-size: 13px; color: #777;">Pending:</span>
+                        <span style="margin-left: 5px; font-weight: bold;">{1}</span>
+                    </div>
+                    <div>
+                        <span style="font-size: 13px; color: #777;">Overdue:</span>
+                        <span style="margin-left: 5px; font-weight: bold; color: {3};">{2}</span>
+                    </div>
+                    <div>
+                        <span style="font-size: 13px; color: #777;">Avg Time:</span>
+                        <span style="margin-left: 5px; font-weight: bold;">{4:.1f} days</span>
+                    </div>
+                </div>
+            """.format(
+                completed_tasks,
+                pending_tasks + accepted_tasks,
+                overdue_tasks,
+                "#e74c3c" if overdue_tasks > 0 else "#777",
+                float(avg_days)
+            )
+            
+            print """</div>"""
+            
+        print """
+                    </div>
+                    
+                    <table class="data-table">
+                        <tr>
+                            <th>Assignee</th>
+                            <th>Completed</th>
+                            <th>On-Time</th>
+                            <th>Late</th>
+                            <th>Pending</th>
+                            <th>Overdue</th>
+                            <th>Avg Days</th>
+                            <th>On-Time %</th>
+                        </tr>
+        """
+        
+        # Reset the query to get fresh data
+        assignee_data = q.QuerySql(get_completion_by_assignee_sql(days_filter))
+        
+        for assignee in assignee_data:
+            assignee_name = assignee.AssigneeName if hasattr(assignee, 'AssigneeName') else ""
+            completed_tasks = assignee.CompletedTasks if hasattr(assignee, 'CompletedTasks') else 0
+            on_time_tasks = assignee.OnTimeTasks if hasattr(assignee, 'OnTimeTasks') else 0
+            late_tasks = assignee.LateTasks if hasattr(assignee, 'LateTasks') else 0
+            pending_tasks = assignee.PendingTasks if hasattr(assignee, 'PendingTasks') else 0
+            accepted_tasks = assignee.AcceptedTasks if hasattr(assignee, 'AcceptedTasks') else 0
+            overdue_tasks = assignee.OverdueTasks if hasattr(assignee, 'OverdueTasks') else 0
+            avg_completion_days = assignee.AvgCompletionDays if hasattr(assignee, 'AvgCompletionDays') and assignee.AvgCompletionDays is not None else 0
+            on_time_percentage = assignee.OnTimePercentage if hasattr(assignee, 'OnTimePercentage') and assignee.OnTimePercentage is not None else 0
+            
+            print """
+                <tr>
+                    <td>{0}</td>
+                    <td>{1}</td>
+                    <td>{2}</td>
+                    <td>{3}</td>
+                    <td>{4}</td>
+                    <td>{5}</td>
+                    <td>{6:.1f}</td>
+                    <td>{7:.1f}%</td>
+                </tr>
+            """.format(
+                get_person_link(assignee.AssigneeId if hasattr(assignee, 'AssigneeId') else 0, assignee_name),
+                completed_tasks,
+                on_time_tasks,
+                late_tasks,
+                pending_tasks + accepted_tasks,
+                overdue_tasks,
+                float(avg_completion_days),
+                float(on_time_percentage)
+            )
+            
+        print """
+                    </table>
+                </div>
+            </div>
+        </div>
+        """
+        
+    except Exception as e:
+        # Handle errors gracefully
+        import traceback
+        print "<h2>Error</h2>"
+        print "<p>Error loading completion KPI data: " + str(e) + "</p>"
+        print "<pre>"
+        traceback.print_exc()
+        print "</pre>"
 
 # ---------------- MAIN EXECUTION ----------------
 
