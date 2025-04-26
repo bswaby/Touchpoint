@@ -21,6 +21,9 @@
 # 4. Test and optionally add to menu
 # --Upload Instructions End--
 
+# written by: Ben Swaby
+# email: bswaby@fbchtn.org
+
 # Set script header and roles
 model.Header = "TaskNote Activity Dashboard"
 # Uncomment and modify the line below to restrict access based on role
