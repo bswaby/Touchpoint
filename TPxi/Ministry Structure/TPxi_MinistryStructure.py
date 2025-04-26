@@ -12,6 +12,9 @@
 # - Support for involvements assigned to multiple divisions
 #####################################################################
 
+# written by: Ben Swaby
+# email: bswaby@fbchtn.org
+
 #roles=Admin,Finance,ManagePeople,ManageGroups
 
 # Set page header
