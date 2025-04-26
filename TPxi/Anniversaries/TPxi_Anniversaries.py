@@ -7,6 +7,9 @@
 #3. Add as a home page widget (Admin ~ Advanced ~ Homepage Widget) by selecting the script, 
 #   adding name, and setting permissions that can see it
 
+# written by: Ben Swaby
+# email: bswaby@fbchtn.org
+
 
 #------------------------------------------------------
 #config parameters
