@@ -5,7 +5,7 @@
 # 1. Consolidates identical questions from different orgs into single columns
 # 2. Groups all answers for a person into a single row
 # 3. Formats the data for easy import into spreadsheet applications
-# 4. Supports multiple organizations with parameter filtering
+# 4. Supports multiple involvement with parameter filtering
 #
 #####################################################################
 # Upload Instructions
@@ -16,6 +16,9 @@
 # 3. Name the Python (suggested: RegQuestionExport) and paste all this code
 # 4. Test and optionally add to menu
 #####################################################################
+
+#written by: Ben Swaby
+#email: bswaby@fbchtn.org
 
 model.Header = "Registration Question Export"
 
@@ -154,7 +157,7 @@ def get_registration_orgs():
 # Display organization selection form
 if not org_ids:
     print """
-    <h2>Select Organizations for Question Export
+    <h2>Select Involvements for Question Export
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="85 75 230 130" style="width: 60px; height: 30px; margin-left: -4px; vertical-align: middle;">
         <!-- Text portion - TP -->
         <text x="100" y="120" font-family="Arial, sans-serif" font-weight="bold" font-size="60" fill="#333333">TP</text>
@@ -180,12 +183,12 @@ if not org_ids:
     </h2>
     <form method="get" action="">
         <div style="margin-bottom: 20px;">
-            <label for="org_ids">Enter Organization IDs (comma-separated):</label>
+            <label for="org_ids">Enter Involvement IDs (comma-separated):</label>
             <input type="text" id="org_ids" name="p1" style="width: 300px;">
         </div>
         <p>- OR -</p>
         <div style="margin-bottom: 20px;">
-            <label>Select from organizations with registration questions:</label>
+            <label>Select from involvements with registration questions:</label>
             <div style="max-height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; margin-top: 5px;">
     """
     
@@ -202,7 +205,7 @@ if not org_ids:
             </div>
             """.format(org.OrganizationId, org.OrganizationName)
     else:
-        print "<p>No organizations with registration questions found.</p>"
+        print "<p>No involvements with registration questions found.</p>"
     
     print """
             </div>
@@ -246,7 +249,7 @@ else:
                     <text x="206" y="105" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#0099FF">si</text>
                   </svg>
         </h2>"""
-        print '<h3>Selected Organizations:</h3>'
+        print '<h3>Selected Involvements:</h3>'
         print '<ul>'
         
         org_id_list = org_ids.split(",")
@@ -282,7 +285,7 @@ else:
         
         # Check if we found any questions
         if not questions:
-            show_error("No registration questions found for the selected organizations.")
+            show_error("No registration questions found for the selected involvements.")
             print '</div>'
         else:
             # Print all questions for debugging
@@ -309,12 +312,12 @@ else:
                 <button onclick="exportToCSV();">
                     <i class="fa fa-download"></i> Export to CSV
                 </button>
-                <a href="?">Select Different Organizations</a>
+                <a href="?">Select Different Involvements</a>
             </div>
             
             <div class="question-reference">
                 <h3>Question Reference</h3>
-                <p>The following questions have been consolidated across organizations:</p>
+                <p>The following questions have been consolidated across involvements:</p>
                 <table>
                     <tr>
                         <th>Column</th>
@@ -403,7 +406,7 @@ else:
             
             # Table header with friendly names for standard columns
             print '<tr>'
-            print '<th>Org ID</th><th>Organization</th><th>ID</th><th>First Name</th><th>Last Name</th><th>Email</th><th>Phone</th>'
+            print '<th>Org ID</th><th>Involvement</th><th>ID</th><th>First Name</th><th>Last Name</th><th>Email</th><th>Phone</th>'
             
             # Add simple question headers - just the question number
             for q_idx in range(len(question_headers)):
