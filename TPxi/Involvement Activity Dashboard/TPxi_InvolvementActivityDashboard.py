@@ -1,3 +1,6 @@
+# written by: Ben Swaby
+# email: bswaby@fbchtn.org
+
 #roles=Admin
 import datetime
 import json
