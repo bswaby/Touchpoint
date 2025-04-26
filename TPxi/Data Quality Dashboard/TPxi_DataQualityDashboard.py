@@ -11,6 +11,9 @@
 #3. Paste in all this code and Run
 #Optional: Add to navigation menu
 
+# written by: Ben Swaby
+# email: bswaby@fbchtn.org
+
 #--------------------------------------------------------------------
 ####USER CONFIG FIELDS
 #--------------------------------------------------------------------
