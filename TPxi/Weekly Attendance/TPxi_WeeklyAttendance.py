@@ -9,13 +9,16 @@
 
 #written by: Ben Swaby
 #email: bswaby@fbchtn.org
-#last updated: 04/29/2025
+#last updated: 05/2/2025
+
+#written by: Ben Swaby
+#email: bswaby@fbchtn.org
 
 #####################################################################
 #### USER CONFIG FIELDS (Modify these settings as needed)
 #####################################################################
 # Report Title (displayed at top of page)
-REPORT_TITLE = "Weekly Attendance"
+REPORT_TITLE = "Weekly at a Glance 2.0"
 
 # Year Type: "fiscal" or "calendar"
 YEAR_TYPE = "fiscal"
@@ -532,12 +535,13 @@ class AttendanceReport:
         
         # Simple SQL query to count enrolled members
         sql = """
-            SELECT COUNT(DISTINCT om.PeopleId) AS EnrolledCount
+            SELECT COUNT(om.PeopleId) AS EnrolledCount
             FROM OrganizationMembers om
             JOIN OrganizationStructure os ON os.OrgId = om.OrganizationId
             WHERE os.DivId = {}
             AND (om.EnrollmentDate IS NULL OR om.EnrollmentDate <= '{}')
             AND (om.InactiveDate IS NULL OR om.InactiveDate > '{}')
+            AND om.MemberTypeId NOT IN (230,311)
         """.format(division_id, date_str, date_str)
             
         # Print the SQL for debugging
@@ -1761,49 +1765,72 @@ class AttendanceReport:
         DECLARE @StartDate DATE = '{start_date}'; -- Start date
         DECLARE @EndDate DATE = '{end_date}'; -- End date
         DECLARE @LastSundayDate DATE = '{last_sunday_date}'; -- Last Sunday date
+        DECLARE @SelectedDate DATE = '{selected_date}'; -- The selected report date
         DECLARE @NeedsInReachThreshold INT = {needs_inreach}; -- Threshold for "Needs In-reach" category
         DECLARE @GoodRatioThreshold INT = {good_ratio}; -- Threshold for "Good Ratio" category
         DECLARE @IncludeOrgDetails BIT = {include_org_details}; -- Set to 1 to include Organization name and ID in results
-    
+
+        -- Calculate the Sunday before the selected date
+        DECLARE @LastSunday DATE = DATEADD(DAY, 
+            CASE 
+                WHEN DATEPART(WEEKDAY, @SelectedDate) = 1 THEN -7 -- If already Sunday, go back a week
+                ELSE -(DATEPART(WEEKDAY, @SelectedDate) - 1) -- Otherwise go back to previous Sunday
+            END, 
+            @SelectedDate);
+        
         -- Temporary table for program names
-        CREATE TABLE #ProgramNames (Name NVARCHAR(100));
-    
-        -- Insert program names to include
-        {program_insert}
-    
-        -- Create temporary table for base organization data
+        CREATE TABLE #ProgramNames (
+            Name NVARCHAR(100),
+            StartHoursOffset INT,  -- Added column to store offset
+            EndHoursOffset INT     -- Added column to store offset
+        ); 
+        
+        -- Insert program names to include with their respective offsets
+        INSERT INTO #ProgramNames (Name, StartHoursOffset, EndHoursOffset) 
+        SELECT Name, StartHoursOffset, EndHoursOffset
+        FROM Program
+        WHERE Name = 'Connect Group Attendance'; 
+        
+        -- Create temporary table for base organization data 
         CREATE TABLE #OrganizationBase (
             OrganizationId INT,
             OrganizationName NVARCHAR(255),
             Enrollment INT,
             ProgramName NVARCHAR(100),
             ProgramId INT,
+            ProgramStartHoursOffset INT,
+            ProgramEndHoursOffset INT,
             DivisionName NVARCHAR(100),
             DivisionId INT
-        );
-    
-        -- Populate the organization base table
-        INSERT INTO #OrganizationBase
-        SELECT DISTINCT
-            o.OrganizationId,
+        ); 
+        
+        -- Populate the organization base table with program offsets
+        INSERT INTO #OrganizationBase 
+        SELECT DISTINCT 
+            o.OrganizationId, 
             o.OrganizationName,
-            o.MemberCount AS Enrollment,
+            -- Count members who were active as of the selected date 
+            (
+                SELECT COUNT(*) 
+                FROM OrganizationMembers om 
+                WHERE om.OrganizationId = o.OrganizationId 
+                AND (om.EnrollmentDate IS NULL OR om.EnrollmentDate <= @SelectedDate) 
+                AND (om.InactiveDate IS NULL OR om.InactiveDate > @SelectedDate)
+                AND om.MemberTypeId NOT IN (230, 311) -- Exclude specific member types
+            ) AS Enrollment,
             p.Name AS ProgramName,
             p.Id AS ProgramId,
+            p.StartHoursOffset,
+            p.EndHoursOffset,
             d.Name AS DivisionName,
             d.Id AS DivisionId
-        FROM 
-            Organizations o
-            JOIN OrganizationStructure os ON os.OrgId = o.OrganizationId
-            JOIN Division d ON d.Id = os.DivId
-            JOIN Program p ON p.Id = d.ProgId AND p.Name IN (SELECT Name FROM #ProgramNames)
-        WHERE 
-            o.OrganizationStatusId = 30
-            {org_filter}
-            {division_filter}
-            {program_id_filter};
-    
-        -- Create temporary table for organization meetings
+        FROM Organizations o
+        JOIN OrganizationStructure os ON os.OrgId = o.OrganizationId
+        JOIN Division d ON d.Id = os.DivId
+        JOIN Program p ON p.Id = d.ProgId AND p.Name IN (SELECT Name FROM #ProgramNames)
+        WHERE o.OrganizationStatusId = 30; 
+        
+        -- Create temporary table for organization meetings 
         CREATE TABLE #OrganizationMeetings (
             OrganizationId INT,
             OrganizationName NVARCHAR(255),
@@ -1814,36 +1841,39 @@ class AttendanceReport:
             DivisionId INT,
             TotalAttendance FLOAT,
             AvgAttendance FLOAT
-        );
-    
-        -- Populate the organization meetings table
-        INSERT INTO #OrganizationMeetings
+        ); 
+        
+        -- Populate the organization meetings table with program-specific date ranges
+        INSERT INTO #OrganizationMeetings 
         SELECT 
-            ob.OrganizationId,
-            ob.OrganizationName,
-            ob.Enrollment,
-            ob.ProgramName,
-            ob.ProgramId,
-            ob.DivisionName,
+            ob.OrganizationId, 
+            ob.OrganizationName, 
+            ob.Enrollment, 
+            ob.ProgramName, 
+            ob.ProgramId, 
+            ob.DivisionName, 
             ob.DivisionId,
             SUM(CAST(COALESCE(m.MaxCount, 0) AS FLOAT)) AS TotalAttendance,
-            AVG(CAST(COALESCE(m.MaxCount, 0) AS FLOAT)) AS AvgAttendance
-        FROM 
-            #OrganizationBase ob
-            JOIN Meetings m ON m.OrganizationId = ob.OrganizationId
-        WHERE
-            (m.DidNotMeet = 0 OR m.DidNotMeet IS NULL)
-            AND m.MeetingDate BETWEEN @StartDate AND @EndDate
+            SUM(CAST(COALESCE(m.MaxCount, 0) AS FLOAT)) AS AvgAttendance -- Changed to SUM since we are only looking at a single day
+        FROM #OrganizationBase ob
+        JOIN Meetings m ON m.OrganizationId = ob.OrganizationId
+        WHERE (m.DidNotMeet = 0 OR m.DidNotMeet IS NULL)
+        -- Apply program-specific date range using DATETIME for hour offsets
+        AND m.MeetingDate BETWEEN 
+            DATEADD(HOUR, ob.ProgramStartHoursOffset, CAST(DATEADD(DAY, -DATEPART(WEEKDAY, @SelectedDate) + 1, @SelectedDate) AS DATETIME)) 
+            AND 
+            DATEADD(HOUR, ob.ProgramEndHoursOffset, CAST(DATEADD(DAY, -DATEPART(WEEKDAY, @SelectedDate) + 1, @SelectedDate) AS DATETIME))
         GROUP BY 
             ob.OrganizationId, 
-            ob.OrganizationName,
-            ob.Enrollment,
-            ob.ProgramName,
-            ob.ProgramId,
-            ob.DivisionName,
-            ob.DivisionId;
-    
-        -- Create temporary table for last Sunday meetings
+            ob.OrganizationName, 
+            ob.Enrollment, 
+            ob.ProgramName, 
+            ob.ProgramId, 
+            ob.DivisionName, 
+            ob.DivisionId
+        HAVING SUM(CAST(COALESCE(m.MaxCount, 0) AS FLOAT)) > 0; 
+        
+        -- Create temporary table for last Sunday meetings 
         CREATE TABLE #LastSundayMeetings (
             OrganizationId INT,
             OrganizationName NVARCHAR(255),
@@ -1853,35 +1883,40 @@ class AttendanceReport:
             DivisionName NVARCHAR(100),
             DivisionId INT,
             LastSundayAttendance FLOAT
-        );
-    
-        -- Populate the last Sunday meetings table
-        INSERT INTO #LastSundayMeetings
+        ); 
+        
+        -- Populate the last Sunday meetings table with ONLY the Last Sunday
+        INSERT INTO #LastSundayMeetings 
         SELECT 
-            ob.OrganizationId,
-            ob.OrganizationName,
-            ob.Enrollment,
-            ob.ProgramName,
-            ob.ProgramId,
-            ob.DivisionName,
+            ob.OrganizationId, 
+            ob.OrganizationName, 
+            ob.Enrollment, 
+            ob.ProgramName, 
+            ob.ProgramId, 
+            ob.DivisionName, 
             ob.DivisionId,
             SUM(CAST(COALESCE(m.MaxCount, 0) AS FLOAT)) AS LastSundayAttendance
-        FROM 
-            #OrganizationBase ob
-            JOIN Meetings m ON m.OrganizationId = ob.OrganizationId
-        WHERE
-            (m.DidNotMeet = 0 OR m.DidNotMeet IS NULL)
-            AND CONVERT(date, m.MeetingDate) = @LastSundayDate
+        FROM #OrganizationBase ob
+        JOIN Meetings m ON m.OrganizationId = ob.OrganizationId
+        WHERE (m.DidNotMeet = 0 OR m.DidNotMeet IS NULL)
+        -- Use the calculated LastSunday date and time range
+        AND CONVERT(DATE, m.MeetingDate) = @LastSunday
+        -- Apply proper hour range for the specific day
+        AND m.MeetingDate BETWEEN 
+            DATEADD(HOUR, ob.ProgramStartHoursOffset, CAST(@LastSunday AS DATETIME)) 
+            AND 
+            DATEADD(HOUR, ob.ProgramEndHoursOffset, CAST(@LastSunday AS DATETIME))
         GROUP BY 
             ob.OrganizationId, 
-            ob.OrganizationName,
-            ob.Enrollment,
-            ob.ProgramName,
-            ob.ProgramId,
-            ob.DivisionName,
-            ob.DivisionId;
-    
-        -- Create temporary table for organization ratios
+            ob.OrganizationName, 
+            ob.Enrollment, 
+            ob.ProgramName, 
+            ob.ProgramId, 
+            ob.DivisionName, 
+            ob.DivisionId
+        HAVING SUM(CAST(COALESCE(m.MaxCount, 0) AS FLOAT)) > 0; 
+        
+        -- Create temporary table for organization ratios 
         CREATE TABLE #OrganizationRatios (
             OrganizationId INT,
             OrganizationName NVARCHAR(255),
@@ -1892,40 +1927,37 @@ class AttendanceReport:
             Enrollment INT,
             RatioCategory NVARCHAR(50),
             LastSundayRatioCategory NVARCHAR(50)
-        );
-    
-        -- Populate the organization ratios table
-        INSERT INTO #OrganizationRatios
-        SELECT
-            ob.OrganizationId,
-            ob.OrganizationName,
-            ob.ProgramName,
-            ob.ProgramId,
-            ob.DivisionName,
-            ob.DivisionId,
+        ); 
+        
+        -- Populate the organization ratios table 
+        INSERT INTO #OrganizationRatios 
+        SELECT 
+            ob.OrganizationId, 
+            ob.OrganizationName, 
+            ob.ProgramName, 
+            ob.ProgramId, 
+            ob.DivisionName, 
+            ob.DivisionId, 
             ob.Enrollment,
-            
-            -- Regular period ratio category
-            CASE
-                WHEN ob.Enrollment = 0 OR COALESCE(om.TotalAttendance, 0) = 0 THEN 'No Data'
-                WHEN (COALESCE(om.TotalAttendance, 0) / @WeeksCount) / ob.Enrollment * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach'
-                WHEN (COALESCE(om.TotalAttendance, 0) / @WeeksCount) / ob.Enrollment * 100 <= @GoodRatioThreshold THEN 'Good Ratio'
-                ELSE 'Needs Outreach'
+            -- Regular period ratio category - removed division by @WeeksCount since we're only looking at a single day
+            CASE 
+                WHEN ob.Enrollment = 0 OR COALESCE(om.TotalAttendance, 0) = 0 THEN 'No Data' 
+                WHEN (COALESCE(om.TotalAttendance, 0)) / ob.Enrollment * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach' 
+                WHEN (COALESCE(om.TotalAttendance, 0)) / ob.Enrollment * 100 <= @GoodRatioThreshold THEN 'Good Ratio' 
+                ELSE 'Needs Outreach' 
             END AS RatioCategory,
-            
-            -- Last Sunday ratio category
-            CASE
-                WHEN ob.Enrollment = 0 OR COALESCE(lsm.LastSundayAttendance, 0) = 0 THEN 'No Data'
-                WHEN COALESCE(lsm.LastSundayAttendance, 0) / ob.Enrollment * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach'
-                WHEN COALESCE(lsm.LastSundayAttendance, 0) / ob.Enrollment * 100 <= @GoodRatioThreshold THEN 'Good Ratio'
-                ELSE 'Needs Outreach'
+            -- Last Sunday ratio category 
+            CASE 
+                WHEN ob.Enrollment = 0 OR COALESCE(lsm.LastSundayAttendance, 0) = 0 THEN 'No Data' 
+                WHEN COALESCE(lsm.LastSundayAttendance, 0) / ob.Enrollment * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach' 
+                WHEN COALESCE(lsm.LastSundayAttendance, 0) / ob.Enrollment * 100 <= @GoodRatioThreshold THEN 'Good Ratio' 
+                ELSE 'Needs Outreach' 
             END AS LastSundayRatioCategory
-        FROM 
-            #OrganizationBase ob
-            LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
-            LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId;
-    
-        -- Create temporary table for program category counts
+        FROM #OrganizationBase ob
+        LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
+        LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId; 
+        
+        -- Create temporary table for program category counts 
         CREATE TABLE #ProgramCategoryCounts (
             ProgramId INT,
             ProgramName NVARCHAR(100),
@@ -1935,12 +1967,12 @@ class AttendanceReport:
             LastSundayNeedsInReachCount INT,
             LastSundayGoodRatioCount INT,
             LastSundayNeedsOutreachCount INT
-        );
-    
-        -- Populate the program category counts table
-        INSERT INTO #ProgramCategoryCounts
-        SELECT
-            ProgramId,
+        ); 
+        
+        -- Populate the program category counts table 
+        INSERT INTO #ProgramCategoryCounts 
+        SELECT 
+            ProgramId, 
             ProgramName,
             SUM(CASE WHEN RatioCategory = 'Needs In-reach' THEN 1 ELSE 0 END) AS NeedsInReachCount,
             SUM(CASE WHEN RatioCategory = 'Good Ratio' THEN 1 ELSE 0 END) AS GoodRatioCount,
@@ -1948,12 +1980,10 @@ class AttendanceReport:
             SUM(CASE WHEN LastSundayRatioCategory = 'Needs In-reach' THEN 1 ELSE 0 END) AS LastSundayNeedsInReachCount,
             SUM(CASE WHEN LastSundayRatioCategory = 'Good Ratio' THEN 1 ELSE 0 END) AS LastSundayGoodRatioCount,
             SUM(CASE WHEN LastSundayRatioCategory = 'Needs Outreach' THEN 1 ELSE 0 END) AS LastSundayNeedsOutreachCount
-        FROM 
-            #OrganizationRatios
-        GROUP BY
-            ProgramId, ProgramName;
-    
-        -- Create temporary table for division category counts
+        FROM #OrganizationRatios
+        GROUP BY ProgramId, ProgramName; 
+        
+        -- Create temporary table for division category counts 
         CREATE TABLE #DivisionCategoryCounts (
             DivisionId INT,
             DivisionName NVARCHAR(100),
@@ -1965,14 +1995,14 @@ class AttendanceReport:
             LastSundayNeedsInReachCount INT,
             LastSundayGoodRatioCount INT,
             LastSundayNeedsOutreachCount INT
-        );
-    
-        -- Populate the division category counts table
-        INSERT INTO #DivisionCategoryCounts
-        SELECT
-            DivisionId,
-            DivisionName,
-            ProgramId,
+        ); 
+        
+        -- Populate the division category counts table 
+        INSERT INTO #DivisionCategoryCounts 
+        SELECT 
+            DivisionId, 
+            DivisionName, 
+            ProgramId, 
             ProgramName,
             SUM(CASE WHEN RatioCategory = 'Needs In-reach' THEN 1 ELSE 0 END) AS NeedsInReachCount,
             SUM(CASE WHEN RatioCategory = 'Good Ratio' THEN 1 ELSE 0 END) AS GoodRatioCount,
@@ -1980,12 +2010,10 @@ class AttendanceReport:
             SUM(CASE WHEN LastSundayRatioCategory = 'Needs In-reach' THEN 1 ELSE 0 END) AS LastSundayNeedsInReachCount,
             SUM(CASE WHEN LastSundayRatioCategory = 'Good Ratio' THEN 1 ELSE 0 END) AS LastSundayGoodRatioCount,
             SUM(CASE WHEN LastSundayRatioCategory = 'Needs Outreach' THEN 1 ELSE 0 END) AS LastSundayNeedsOutreachCount
-        FROM 
-            #OrganizationRatios
-        GROUP BY
-            DivisionId, DivisionName, ProgramId, ProgramName;
-    
-        -- Create temporary table for overall category counts
+        FROM #OrganizationRatios
+        GROUP BY DivisionId, DivisionName, ProgramId, ProgramName; 
+        
+        -- Create temporary table for overall category counts 
         CREATE TABLE #OverallCategoryCounts (
             NeedsInReachCount INT,
             GoodRatioCount INT,
@@ -1993,21 +2021,20 @@ class AttendanceReport:
             LastSundayNeedsInReachCount INT,
             LastSundayGoodRatioCount INT,
             LastSundayNeedsOutreachCount INT
-        );
-    
-        -- Populate the overall category counts table
-        INSERT INTO #OverallCategoryCounts
-        SELECT
+        ); 
+        
+        -- Populate the overall category counts table 
+        INSERT INTO #OverallCategoryCounts 
+        SELECT 
             SUM(CASE WHEN RatioCategory = 'Needs In-reach' THEN 1 ELSE 0 END) AS NeedsInReachCount,
             SUM(CASE WHEN RatioCategory = 'Good Ratio' THEN 1 ELSE 0 END) AS GoodRatioCount,
             SUM(CASE WHEN RatioCategory = 'Needs Outreach' THEN 1 ELSE 0 END) AS NeedsOutreachCount,
             SUM(CASE WHEN LastSundayRatioCategory = 'Needs In-reach' THEN 1 ELSE 0 END) AS LastSundayNeedsInReachCount,
             SUM(CASE WHEN LastSundayRatioCategory = 'Good Ratio' THEN 1 ELSE 0 END) AS LastSundayGoodRatioCount,
             SUM(CASE WHEN LastSundayRatioCategory = 'Needs Outreach' THEN 1 ELSE 0 END) AS LastSundayNeedsOutreachCount
-        FROM 
-            #OrganizationRatios;
-    
-        -- Create temporary table for overall summary
+        FROM #OrganizationRatios; 
+        
+        -- Create temporary table for overall summary 
         CREATE TABLE #OverallSummary (
             TotalEnrollment INT,
             EnrollmentWithMeetings INT,
@@ -2015,34 +2042,28 @@ class AttendanceReport:
             AvgAttendance FLOAT,
             LastSundayEnrollment INT,
             LastSundayAttendance FLOAT
-        );
-    
-        -- Populate the overall summary table
-        INSERT INTO #OverallSummary
-        SELECT
-            -- Enrollment for ALL qualifying organizations
+        ); 
+        
+        -- Populate the overall summary table 
+        INSERT INTO #OverallSummary 
+        SELECT 
+            -- Enrollment for ALL qualifying organizations 
             SUM(ob.Enrollment) AS TotalEnrollment,
-            
-            -- Enrollment ONLY for organizations that had meetings
+            -- Enrollment ONLY for organizations that had meetings 
             SUM(CASE WHEN om.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END) AS EnrollmentWithMeetings,
-            
-            -- Attendance (only for those with meetings)
+            -- Attendance (only for those with meetings) 
             SUM(COALESCE(om.TotalAttendance, 0)) AS TotalAttendance,
-            
-            -- Average attendance
+            -- Average attendance - no longer dividing by @WeeksCount
             AVG(COALESCE(om.AvgAttendance, 0)) AS AvgAttendance,
-            
-            -- Last Sunday's enrollment (for groups that met)
+            -- Last Sunday's enrollment (for groups that met) 
             SUM(CASE WHEN lsm.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END) AS LastSundayEnrollment,
-            
-            -- Last Sunday's attendance
+            -- Last Sunday's attendance 
             SUM(COALESCE(lsm.LastSundayAttendance, 0)) AS LastSundayAttendance
-        FROM 
-            #OrganizationBase ob
-            LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
-            LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId;
-    
-        -- Create temporary table for program summary
+        FROM #OrganizationBase ob
+        LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
+        LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId; 
+        
+        -- Create temporary table for program summary 
         CREATE TABLE #ProgramSummary (
             ProgramId INT,
             ProgramName NVARCHAR(100),
@@ -2052,40 +2073,31 @@ class AttendanceReport:
             AvgAttendance FLOAT,
             LastSundayEnrollment INT,
             LastSundayAttendance FLOAT
-        );
-    
-        -- Populate the program summary table
-        INSERT INTO #ProgramSummary
-        SELECT
-            ob.ProgramId,
+        ); 
+        
+        -- Populate the program summary table 
+        INSERT INTO #ProgramSummary 
+        SELECT 
+            ob.ProgramId, 
             ob.ProgramName,
-            
-            -- Enrollment for ALL qualifying organizations in this program
+            -- Enrollment for ALL qualifying organizations in this program 
             SUM(ob.Enrollment) AS TotalEnrollment,
-            
-            -- Enrollment ONLY for organizations that had meetings
+            -- Enrollment ONLY for organizations that had meetings 
             SUM(CASE WHEN om.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END) AS EnrollmentWithMeetings,
-            
-            -- Attendance (only for those with meetings)
+            -- Attendance (only for those with meetings) 
             SUM(COALESCE(om.TotalAttendance, 0)) AS TotalAttendance,
-            
-            -- Average attendance
+            -- Average attendance - no longer dividing by @WeeksCount
             AVG(COALESCE(om.AvgAttendance, 0)) AS AvgAttendance,
-            
-            -- Last Sunday's enrollment (for groups that met)
+            -- Last Sunday's enrollment (for groups that met) 
             SUM(CASE WHEN lsm.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END) AS LastSundayEnrollment,
-            
-            -- Last Sunday's attendance
+            -- Last Sunday's attendance 
             SUM(COALESCE(lsm.LastSundayAttendance, 0)) AS LastSundayAttendance
-        FROM 
-            #OrganizationBase ob
-            LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
-            LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId
-        GROUP BY
-            ob.ProgramId,
-            ob.ProgramName;
-    
-        -- Create temporary table for division summary
+        FROM #OrganizationBase ob
+        LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
+        LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId
+        GROUP BY ob.ProgramId, ob.ProgramName; 
+        
+        -- Create temporary table for division summary 
         CREATE TABLE #DivisionSummary (
             DivisionId INT,
             DivisionName NVARCHAR(100),
@@ -2097,44 +2109,33 @@ class AttendanceReport:
             AvgAttendance FLOAT,
             LastSundayEnrollment INT,
             LastSundayAttendance FLOAT
-        );
-    
-        -- Populate the division summary table
-        INSERT INTO #DivisionSummary
-        SELECT
-            ob.DivisionId,
-            ob.DivisionName,
-            ob.ProgramId,
+        ); 
+        
+        -- Populate the division summary table 
+        INSERT INTO #DivisionSummary 
+        SELECT 
+            ob.DivisionId, 
+            ob.DivisionName, 
+            ob.ProgramId, 
             ob.ProgramName,
-            
-            -- Enrollment for ALL qualifying organizations in this division
+            -- Enrollment for ALL qualifying organizations in this division 
             SUM(ob.Enrollment) AS TotalEnrollment,
-            
-            -- Enrollment ONLY for organizations that had meetings
+            -- Enrollment ONLY for organizations that had meetings 
             SUM(CASE WHEN om.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END) AS EnrollmentWithMeetings,
-            
-            -- Attendance (only for those with meetings)
+            -- Attendance (only for those with meetings) 
             SUM(COALESCE(om.TotalAttendance, 0)) AS TotalAttendance,
-            
-            -- Average attendance
+            -- Average attendance - no longer dividing by @WeeksCount
             AVG(COALESCE(om.AvgAttendance, 0)) AS AvgAttendance,
-            
-            -- Last Sunday's enrollment (for groups that met)
+            -- Last Sunday's enrollment (for groups that met) 
             SUM(CASE WHEN lsm.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END) AS LastSundayEnrollment,
-            
-            -- Last Sunday's attendance
+            -- Last Sunday's attendance 
             SUM(COALESCE(lsm.LastSundayAttendance, 0)) AS LastSundayAttendance
-        FROM 
-            #OrganizationBase ob
-            LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
-            LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId
-        GROUP BY
-            ob.DivisionId,
-            ob.DivisionName,
-            ob.ProgramId,
-            ob.ProgramName;
-    
-        -- Create temporary table for results to properly handle ordering
+        FROM #OrganizationBase ob
+        LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
+        LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId
+        GROUP BY ob.DivisionId, ob.DivisionName, ob.ProgramId, ob.ProgramName; 
+        
+        -- Create temporary table for results to properly handle ordering 
         CREATE TABLE #Results (
             Level NVARCHAR(100),
             DivisionName NVARCHAR(100) NULL,
@@ -2159,11 +2160,11 @@ class AttendanceReport:
             LastSundayNeedsInReachCount INT NULL,
             LastSundayGoodRatioCount INT NULL,
             LastSundayNeedsOutreachCount INT NULL
-        );
-    
-        -- Organization details temp table (for @IncludeOrgDetails = 1)
-        IF @IncludeOrgDetails = 1
-        BEGIN
+        ); 
+        
+        -- Organization details temp table (for @IncludeOrgDetails = 1) 
+        IF @IncludeOrgDetails = 1 
+        BEGIN 
             CREATE TABLE #OrganizationDetails (
                 OrganizationId INT,
                 OrganizationName NVARCHAR(255),
@@ -2181,16 +2182,16 @@ class AttendanceReport:
                 RatioCategory NVARCHAR(50),
                 LastSundayAttendanceRatio FLOAT,
                 LastSundayRatioCategory NVARCHAR(50)
-            );
-            
-            -- Populate the organization details table
-            INSERT INTO #OrganizationDetails
-            SELECT
-                ob.OrganizationId,
-                ob.OrganizationName,
-                ob.DivisionId,
-                ob.DivisionName,
-                ob.ProgramId,
+            ); 
+        
+            -- Populate the organization details table 
+            INSERT INTO #OrganizationDetails 
+            SELECT 
+                ob.OrganizationId, 
+                ob.OrganizationName, 
+                ob.DivisionId, 
+                ob.DivisionName, 
+                ob.ProgramId, 
                 ob.ProgramName,
                 ob.Enrollment AS TotalEnrollment,
                 CASE WHEN om.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END AS EnrollmentWithMeetings,
@@ -2198,80 +2199,96 @@ class AttendanceReport:
                 COALESCE(om.AvgAttendance, 0) AS AvgAttendance,
                 CASE WHEN lsm.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END AS LastSundayEnrollment,
                 COALESCE(lsm.LastSundayAttendance, 0) AS LastSundayAttendance,
-                
-                -- Organization Attendance Ratio (divide by @WeeksCount for multiple weeks)
+                -- Organization Attendance Ratio - removed division by @WeeksCount
                 CASE 
-                    WHEN COALESCE(om.TotalAttendance, 0) > 0 AND ob.Enrollment > 0
-                    THEN (COALESCE(om.TotalAttendance, 0) / @WeeksCount) / ob.Enrollment * 100
+                    WHEN COALESCE(om.TotalAttendance, 0) > 0 AND ob.Enrollment > 0 
+                    THEN (COALESCE(om.TotalAttendance, 0)) / ob.Enrollment * 100 
                     ELSE 0 
                 END AS AttendanceRatio,
-                
-                -- Organization Ratio Category (divide by @WeeksCount for multiple weeks)
-                CASE
-                    WHEN ob.Enrollment = 0 OR COALESCE(om.TotalAttendance, 0) = 0 THEN 'No Data'
-                    WHEN (COALESCE(om.TotalAttendance, 0) / @WeeksCount) / ob.Enrollment * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach'
-                    WHEN (COALESCE(om.TotalAttendance, 0) / @WeeksCount) / ob.Enrollment * 100 <= @GoodRatioThreshold THEN 'Good Ratio'
-                    ELSE 'Needs Outreach'
-                END AS RatioCategory,
-                
-                -- Last Sunday's Attendance Ratio (NO division by @WeeksCount for single day)
+                -- Organization Ratio Category - removed division by @WeeksCount
                 CASE 
-                    WHEN COALESCE(lsm.LastSundayAttendance, 0) > 0 AND ob.Enrollment > 0
-                    THEN COALESCE(lsm.LastSundayAttendance, 0) / ob.Enrollment * 100
+                    WHEN ob.Enrollment = 0 OR COALESCE(om.TotalAttendance, 0) = 0 THEN 'No Data' 
+                    WHEN (COALESCE(om.TotalAttendance, 0)) / ob.Enrollment * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach' 
+                    WHEN (COALESCE(om.TotalAttendance, 0)) / ob.Enrollment * 100 <= @GoodRatioThreshold THEN 'Good Ratio' 
+                    ELSE 'Needs Outreach' 
+                END AS RatioCategory,
+                -- Last Sunday's Attendance Ratio
+                CASE 
+                    WHEN COALESCE(lsm.LastSundayAttendance, 0) > 0 AND ob.Enrollment > 0 
+                    THEN COALESCE(lsm.LastSundayAttendance, 0) / ob.Enrollment * 100 
                     ELSE 0 
                 END AS LastSundayAttendanceRatio,
-                
-                -- Last Sunday's Ratio Category (NO division by @WeeksCount for single day)
-                CASE
-                    WHEN ob.Enrollment = 0 OR COALESCE(lsm.LastSundayAttendance, 0) = 0 THEN 'No Data'
-                    WHEN COALESCE(lsm.LastSundayAttendance, 0) / ob.Enrollment * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach'
-                    WHEN COALESCE(lsm.LastSundayAttendance, 0) / ob.Enrollment * 100 <= @GoodRatioThreshold THEN 'Good Ratio'
-                    ELSE 'Needs Outreach'
+                -- Last Sunday's Ratio Category
+                CASE 
+                    WHEN ob.Enrollment = 0 OR COALESCE(lsm.LastSundayAttendance, 0) = 0 THEN 'No Data' 
+                    WHEN COALESCE(lsm.LastSundayAttendance, 0) / ob.Enrollment * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach' 
+                    WHEN COALESCE(lsm.LastSundayAttendance, 0) / ob.Enrollment * 100 <= @GoodRatioThreshold THEN 'Good Ratio' 
+                    ELSE 'Needs Outreach' 
                 END AS LastSundayRatioCategory
-            FROM 
-                #OrganizationBase ob
-                LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
-                LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId;
-        END
-    
-        -- Populate results table - Overall Summary
+            FROM #OrganizationBase ob
+            LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
+            LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId; 
+        END 
+        
+        -- Populate results table - Overall Summary 
         INSERT INTO #Results (
-            Level, DivisionName, ProgramName, OrganizationName, 
-            LevelSortOrder, CategorySortOrder,
-            TotalEnrollment, EnrollmentWithMeetings, TotalAttendance, AvgAttendance,
-            LastSundayEnrollment, LastSundayAttendance, AttendanceRatio, RatioCategory,
-            LastSundayAttendanceRatio, LastSundayRatioCategory,
-            NeedsInReachCount, GoodRatioCount, NeedsOutreachCount,
-            LastSundayNeedsInReachCount, LastSundayGoodRatioCount, LastSundayNeedsOutreachCount
-        )
+            Level, 
+            DivisionName, 
+            ProgramName, 
+            OrganizationName, 
+            LevelSortOrder, 
+            CategorySortOrder, 
+            TotalEnrollment, 
+            EnrollmentWithMeetings, 
+            TotalAttendance, 
+            AvgAttendance, 
+            LastSundayEnrollment, 
+            LastSundayAttendance, 
+            AttendanceRatio, 
+            RatioCategory, 
+            LastSundayAttendanceRatio, 
+            LastSundayRatioCategory, 
+            NeedsInReachCount, 
+            GoodRatioCount, 
+            NeedsOutreachCount, 
+            LastSundayNeedsInReachCount, 
+            LastSundayGoodRatioCount, 
+            LastSundayNeedsOutreachCount
+        ) 
         SELECT 
-            'Overall', NULL, 'All Programs', NULL, 
-            1, 1,
+            'Overall', 
+            NULL, 
+            'All Programs', 
+            NULL, 
+            1, 
+            1,
             os.TotalEnrollment,
             os.EnrollmentWithMeetings,
             os.TotalAttendance,
             os.AvgAttendance,
             os.LastSundayEnrollment,
             os.LastSundayAttendance,
+            -- Removed division by @WeeksCount
             CASE 
                 WHEN os.EnrollmentWithMeetings > 0 
-                THEN (os.TotalAttendance / @WeeksCount) / NULLIF(os.EnrollmentWithMeetings, 0) * 100
+                THEN (os.TotalAttendance) / NULLIF(os.EnrollmentWithMeetings, 0) * 100 
                 ELSE 0 
             END,
-            CASE
-                WHEN (os.TotalAttendance / @WeeksCount) / NULLIF(os.EnrollmentWithMeetings, 0) * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach'
-                WHEN (os.TotalAttendance / @WeeksCount) / NULLIF(os.EnrollmentWithMeetings, 0) * 100 <= @GoodRatioThreshold THEN 'Good Ratio'
-                ELSE 'Needs Outreach'
+            -- Removed division by @WeeksCount
+            CASE 
+                WHEN (os.TotalAttendance) / NULLIF(os.EnrollmentWithMeetings, 0) * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach' 
+                WHEN (os.TotalAttendance) / NULLIF(os.EnrollmentWithMeetings, 0) * 100 <= @GoodRatioThreshold THEN 'Good Ratio' 
+                ELSE 'Needs Outreach' 
             END,
             CASE 
                 WHEN os.LastSundayEnrollment > 0 
-                THEN os.LastSundayAttendance / NULLIF(os.LastSundayEnrollment, 0) * 100
+                THEN os.LastSundayAttendance / NULLIF(os.LastSundayEnrollment, 0) * 100 
                 ELSE 0 
             END,
-            CASE
-                WHEN os.LastSundayAttendance / NULLIF(os.LastSundayEnrollment, 0) * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach'
-                WHEN os.LastSundayAttendance / NULLIF(os.LastSundayEnrollment, 0) * 100 <= @GoodRatioThreshold THEN 'Good Ratio'
-                ELSE 'Needs Outreach'
+            CASE 
+                WHEN os.LastSundayAttendance / NULLIF(os.LastSundayEnrollment, 0) * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach' 
+                WHEN os.LastSundayAttendance / NULLIF(os.LastSundayEnrollment, 0) * 100 <= @GoodRatioThreshold THEN 'Good Ratio' 
+                ELSE 'Needs Outreach' 
             END,
             occ.NeedsInReachCount,
             occ.GoodRatioCount,
@@ -2279,48 +2296,68 @@ class AttendanceReport:
             occ.LastSundayNeedsInReachCount,
             occ.LastSundayGoodRatioCount,
             occ.LastSundayNeedsOutreachCount
-        FROM 
-            #OverallSummary os
-            CROSS JOIN #OverallCategoryCounts occ;
-    
-        -- Populate results table - Program Summary
+        FROM #OverallSummary os
+        CROSS JOIN #OverallCategoryCounts occ; 
+        
+        -- Populate results table - Program Summary 
         INSERT INTO #Results (
-            Level, DivisionName, ProgramName, OrganizationName, 
-            LevelSortOrder, CategorySortOrder,
-            TotalEnrollment, EnrollmentWithMeetings, TotalAttendance, AvgAttendance,
-            LastSundayEnrollment, LastSundayAttendance, AttendanceRatio, RatioCategory,
-            LastSundayAttendanceRatio, LastSundayRatioCategory,
-            NeedsInReachCount, GoodRatioCount, NeedsOutreachCount,
-            LastSundayNeedsInReachCount, LastSundayGoodRatioCount, LastSundayNeedsOutreachCount
-        )
-        SELECT
-            'Program', NULL, ps.ProgramName, NULL, 
-            2, 1,
+            Level, 
+            DivisionName, 
+            ProgramName, 
+            OrganizationName, 
+            LevelSortOrder, 
+            CategorySortOrder, 
+            TotalEnrollment, 
+            EnrollmentWithMeetings, 
+            TotalAttendance, 
+            AvgAttendance, 
+            LastSundayEnrollment, 
+            LastSundayAttendance, 
+            AttendanceRatio, 
+            RatioCategory, 
+            LastSundayAttendanceRatio, 
+            LastSundayRatioCategory, 
+            NeedsInReachCount, 
+            GoodRatioCount, 
+            NeedsOutreachCount, 
+            LastSundayNeedsInReachCount, 
+            LastSundayGoodRatioCount, 
+            LastSundayNeedsOutreachCount
+        ) 
+        SELECT 
+            'Program', 
+            NULL, 
+            ps.ProgramName, 
+            NULL, 
+            2, 
+            1,
             ps.TotalEnrollment,
             ps.EnrollmentWithMeetings,
             ps.TotalAttendance,
             ps.AvgAttendance,
             ps.LastSundayEnrollment,
             ps.LastSundayAttendance,
+            -- Removed division by @WeeksCount
             CASE 
                 WHEN ps.EnrollmentWithMeetings > 0 
-                THEN (ps.TotalAttendance / @WeeksCount) / NULLIF(ps.EnrollmentWithMeetings, 0) * 100
+                THEN (ps.TotalAttendance) / NULLIF(ps.EnrollmentWithMeetings, 0) * 100 
                 ELSE 0 
             END,
-            CASE
-                WHEN (ps.TotalAttendance / @WeeksCount) / NULLIF(ps.EnrollmentWithMeetings, 0) * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach'
-                WHEN (ps.TotalAttendance / @WeeksCount) / NULLIF(ps.EnrollmentWithMeetings, 0) * 100 <= @GoodRatioThreshold THEN 'Good Ratio'
-                ELSE 'Needs Outreach'
+            -- Removed division by @WeeksCount
+            CASE 
+                WHEN (ps.TotalAttendance) / NULLIF(ps.EnrollmentWithMeetings, 0) * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach' 
+                WHEN (ps.TotalAttendance) / NULLIF(ps.EnrollmentWithMeetings, 0) * 100 <= @GoodRatioThreshold THEN 'Good Ratio' 
+                ELSE 'Needs Outreach' 
             END,
             CASE 
                 WHEN ps.LastSundayEnrollment > 0 
-                THEN ps.LastSundayAttendance / NULLIF(ps.LastSundayEnrollment, 0) * 100
+                THEN ps.LastSundayAttendance / NULLIF(ps.LastSundayEnrollment, 0) * 100 
                 ELSE 0 
             END,
-            CASE
-                WHEN ps.LastSundayAttendance / NULLIF(ps.LastSundayEnrollment, 0) * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach'
-                WHEN ps.LastSundayAttendance / NULLIF(ps.LastSundayEnrollment, 0) * 100 <= @GoodRatioThreshold THEN 'Good Ratio'
-                ELSE 'Needs Outreach'
+            CASE 
+                WHEN ps.LastSundayAttendance / NULLIF(ps.LastSundayEnrollment, 0) * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach' 
+                WHEN ps.LastSundayAttendance / NULLIF(ps.LastSundayEnrollment, 0) * 100 <= @GoodRatioThreshold THEN 'Good Ratio' 
+                ELSE 'Needs Outreach' 
             END,
             pcc.NeedsInReachCount,
             pcc.GoodRatioCount,
@@ -2328,48 +2365,68 @@ class AttendanceReport:
             pcc.LastSundayNeedsInReachCount,
             pcc.LastSundayGoodRatioCount,
             pcc.LastSundayNeedsOutreachCount
-        FROM
-            #ProgramSummary ps
-            JOIN #ProgramCategoryCounts pcc ON ps.ProgramId = pcc.ProgramId;
-    
-        -- Populate results table - Division Summary
+        FROM #ProgramSummary ps
+        JOIN #ProgramCategoryCounts pcc ON ps.ProgramId = pcc.ProgramId; 
+        
+        -- Populate results table - Division Summary 
         INSERT INTO #Results (
-            Level, DivisionName, ProgramName, OrganizationName, 
-            LevelSortOrder, CategorySortOrder,
-            TotalEnrollment, EnrollmentWithMeetings, TotalAttendance, AvgAttendance,
-            LastSundayEnrollment, LastSundayAttendance, AttendanceRatio, RatioCategory,
-            LastSundayAttendanceRatio, LastSundayRatioCategory,
-            NeedsInReachCount, GoodRatioCount, NeedsOutreachCount,
-            LastSundayNeedsInReachCount, LastSundayGoodRatioCount, LastSundayNeedsOutreachCount
-        )
-        SELECT
-            'Division', ds.DivisionName, ds.ProgramName, NULL, 
-            3, 1,
+            Level, 
+            DivisionName, 
+            ProgramName, 
+            OrganizationName, 
+            LevelSortOrder, 
+            CategorySortOrder, 
+            TotalEnrollment, 
+            EnrollmentWithMeetings, 
+            TotalAttendance, 
+            AvgAttendance, 
+            LastSundayEnrollment, 
+            LastSundayAttendance, 
+            AttendanceRatio, 
+            RatioCategory, 
+            LastSundayAttendanceRatio, 
+            LastSundayRatioCategory, 
+            NeedsInReachCount, 
+            GoodRatioCount, 
+            NeedsOutreachCount, 
+            LastSundayNeedsInReachCount, 
+            LastSundayGoodRatioCount, 
+            LastSundayNeedsOutreachCount
+        ) 
+        SELECT 
+            'Division', 
+            ds.DivisionName, 
+            ds.ProgramName, 
+            NULL, 
+            3, 
+            1,
             ds.TotalEnrollment,
             ds.EnrollmentWithMeetings,
             ds.TotalAttendance,
             ds.AvgAttendance,
             ds.LastSundayEnrollment,
             ds.LastSundayAttendance,
+            -- Removed division by @WeeksCount
             CASE 
                 WHEN ds.EnrollmentWithMeetings > 0 
-                THEN (ds.TotalAttendance / @WeeksCount) / NULLIF(ds.EnrollmentWithMeetings, 0) * 100
+                THEN (ds.TotalAttendance) / NULLIF(ds.EnrollmentWithMeetings, 0) * 100 
                 ELSE 0 
             END,
-            CASE
-                WHEN (ds.TotalAttendance / @WeeksCount) / NULLIF(ds.EnrollmentWithMeetings, 0) * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach'
-                WHEN (ds.TotalAttendance / @WeeksCount) / NULLIF(ds.EnrollmentWithMeetings, 0) * 100 <= @GoodRatioThreshold THEN 'Good Ratio'
-                ELSE 'Needs Outreach'
+            -- Removed division by @WeeksCount
+            CASE 
+                WHEN (ds.TotalAttendance) / NULLIF(ds.EnrollmentWithMeetings, 0) * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach' 
+                WHEN (ds.TotalAttendance) / NULLIF(ds.EnrollmentWithMeetings, 0) * 100 <= @GoodRatioThreshold THEN 'Good Ratio' 
+                ELSE 'Needs Outreach' 
             END,
             CASE 
                 WHEN ds.LastSundayEnrollment > 0 
-                THEN ds.LastSundayAttendance / NULLIF(ds.LastSundayEnrollment, 0) * 100
+                THEN ds.LastSundayAttendance / NULLIF(ds.LastSundayEnrollment, 0) * 100 
                 ELSE 0 
             END,
-            CASE
-                WHEN ds.LastSundayAttendance / NULLIF(ds.LastSundayEnrollment, 0) * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach'
-                WHEN ds.LastSundayAttendance / NULLIF(ds.LastSundayEnrollment, 0) * 100 <= @GoodRatioThreshold THEN 'Good Ratio'
-                ELSE 'Needs Outreach'
+            CASE 
+                WHEN ds.LastSundayAttendance / NULLIF(ds.LastSundayEnrollment, 0) * 100 <= @NeedsInReachThreshold THEN 'Needs In-reach' 
+                WHEN ds.LastSundayAttendance / NULLIF(ds.LastSundayEnrollment, 0) * 100 <= @GoodRatioThreshold THEN 'Good Ratio' 
+                ELSE 'Needs Outreach' 
             END,
             dcc.NeedsInReachCount,
             dcc.GoodRatioCount,
@@ -2377,26 +2434,44 @@ class AttendanceReport:
             dcc.LastSundayNeedsInReachCount,
             dcc.LastSundayGoodRatioCount,
             dcc.LastSundayNeedsOutreachCount
-        FROM
-            #DivisionSummary ds
-            JOIN #DivisionCategoryCounts dcc ON ds.DivisionId = dcc.DivisionId AND ds.ProgramId = dcc.ProgramId;
-    
-        -- Add Organization Details if @IncludeOrgDetails = 1
-        IF @IncludeOrgDetails = 1
-        BEGIN
-            -- Populate results table - Organization Details
+        FROM #DivisionSummary ds
+        JOIN #DivisionCategoryCounts dcc ON ds.DivisionId = dcc.DivisionId AND ds.ProgramId = dcc.ProgramId; 
+        
+        -- Add Organization Details if @IncludeOrgDetails = 1 
+        IF @IncludeOrgDetails = 1 
+        BEGIN 
+            -- Populate results table - Organization Details 
             INSERT INTO #Results (
-                Level, DivisionName, ProgramName, OrganizationName, 
-                LevelSortOrder, CategorySortOrder,
-                TotalEnrollment, EnrollmentWithMeetings, TotalAttendance, AvgAttendance,
-                LastSundayEnrollment, LastSundayAttendance, AttendanceRatio, RatioCategory,
-                LastSundayAttendanceRatio, LastSundayRatioCategory,
-                NeedsInReachCount, GoodRatioCount, NeedsOutreachCount,
-                LastSundayNeedsInReachCount, LastSundayGoodRatioCount, LastSundayNeedsOutreachCount
-            )
-            SELECT
-                'Organization', od.DivisionName, od.ProgramName, od.OrganizationName, 
-                4, 1,
+                Level, 
+                DivisionName, 
+                ProgramName, 
+                OrganizationName, 
+                LevelSortOrder, 
+                CategorySortOrder, 
+                TotalEnrollment, 
+                EnrollmentWithMeetings, 
+                TotalAttendance, 
+                AvgAttendance, 
+                LastSundayEnrollment, 
+                LastSundayAttendance, 
+                AttendanceRatio, 
+                RatioCategory, 
+                LastSundayAttendanceRatio, 
+                LastSundayRatioCategory, 
+                NeedsInReachCount, 
+                GoodRatioCount, 
+                NeedsOutreachCount, 
+                LastSundayNeedsInReachCount, 
+                LastSundayGoodRatioCount, 
+                LastSundayNeedsOutreachCount
+            ) 
+            SELECT 
+                'Organization', 
+                od.DivisionName, 
+                od.ProgramName, 
+                od.OrganizationName, 
+                4, 
+                1,
                 od.TotalEnrollment,
                 od.EnrollmentWithMeetings,
                 od.TotalAttendance,
@@ -2407,43 +2482,100 @@ class AttendanceReport:
                 od.RatioCategory,
                 od.LastSundayAttendanceRatio,
                 od.LastSundayRatioCategory,
-                NULL, NULL, NULL, NULL, NULL, NULL
-            FROM
-                #OrganizationDetails od;
-            
-            -- Category headers and details
-            -- Regular period - Needs In-reach
-            IF EXISTS (SELECT 1 FROM #OrganizationDetails WHERE RatioCategory = 'Needs In-reach')
-            BEGIN
-                -- Header
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                NULL
+            FROM #OrganizationDetails od; 
+        
+            -- Category headers and details 
+            -- Regular period - Needs In-reach 
+            IF EXISTS (SELECT 1 FROM #OrganizationDetails WHERE RatioCategory = 'Needs In-reach') 
+            BEGIN 
+                -- Header 
                 INSERT INTO #Results (
-                    Level, DivisionName, ProgramName, OrganizationName, 
-                    LevelSortOrder, CategorySortOrder,
-                    TotalEnrollment, EnrollmentWithMeetings, TotalAttendance, AvgAttendance,
-                    LastSundayEnrollment, LastSundayAttendance, AttendanceRatio, RatioCategory,
-                    LastSundayAttendanceRatio, LastSundayRatioCategory,
-                    NeedsInReachCount, GoodRatioCount, NeedsOutreachCount,
-                    LastSundayNeedsInReachCount, LastSundayGoodRatioCount, LastSundayNeedsOutreachCount
-                )
+                    Level, 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    LevelSortOrder, 
+                    CategorySortOrder, 
+                    TotalEnrollment, 
+                    EnrollmentWithMeetings, 
+                    TotalAttendance, 
+                    AvgAttendance, 
+                    LastSundayEnrollment, 
+                    LastSundayAttendance, 
+                    AttendanceRatio, 
+                    RatioCategory, 
+                    LastSundayAttendanceRatio, 
+                    LastSundayRatioCategory, 
+                    NeedsInReachCount, 
+                    GoodRatioCount, 
+                    NeedsOutreachCount, 
+                    LastSundayNeedsInReachCount, 
+                    LastSundayGoodRatioCount, 
+                    LastSundayNeedsOutreachCount
+                ) 
                 VALUES (
-                    'Needs In-reach Organizations', NULL, 'Regular Period', NULL, 
-                    5, 1,
-                    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
-                );
-                
-                -- Details
+                    'Needs In-reach Organizations', 
+                    NULL, 
+                    'Regular Period', 
+                    NULL, 
+                    5, 
+                    1,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                ); 
+        
+                -- Details 
                 INSERT INTO #Results (
-                    Level, DivisionName, ProgramName, OrganizationName, 
-                    LevelSortOrder, CategorySortOrder,
-                    TotalEnrollment, EnrollmentWithMeetings, TotalAttendance, AvgAttendance,
-                    LastSundayEnrollment, LastSundayAttendance, AttendanceRatio, RatioCategory,
-                    LastSundayAttendanceRatio, LastSundayRatioCategory,
-                    NeedsInReachCount, GoodRatioCount, NeedsOutreachCount,
-                    LastSundayNeedsInReachCount, LastSundayGoodRatioCount, LastSundayNeedsOutreachCount
-                )
-                SELECT
-                    'Organization', DivisionName, ProgramName, OrganizationName, 
-                    5, 2,
+                    Level, 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    LevelSortOrder, 
+                    CategorySortOrder, 
+                    TotalEnrollment, 
+                    EnrollmentWithMeetings, 
+                    TotalAttendance, 
+                    AvgAttendance, 
+                    LastSundayEnrollment, 
+                    LastSundayAttendance, 
+                    AttendanceRatio, 
+                    RatioCategory, 
+                    LastSundayAttendanceRatio, 
+                    LastSundayRatioCategory, 
+                    NeedsInReachCount, 
+                    GoodRatioCount, 
+                    NeedsOutreachCount, 
+                    LastSundayNeedsInReachCount, 
+                    LastSundayGoodRatioCount, 
+                    LastSundayNeedsOutreachCount
+                ) 
+                SELECT 
+                    'Organization', 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    5, 
+                    2,
                     TotalEnrollment,
                     EnrollmentWithMeetings,
                     TotalAttendance,
@@ -2454,72 +2586,602 @@ class AttendanceReport:
                     RatioCategory,
                     NULL,
                     NULL,
-                    NULL, NULL, NULL, NULL, NULL, NULL
-                FROM
-                    #OrganizationDetails
-                WHERE
-                    RatioCategory = 'Needs In-reach'
-                ORDER BY
-                    AttendanceRatio;
-            END
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                FROM #OrganizationDetails
+                WHERE RatioCategory = 'Needs In-reach'
+                ORDER BY AttendanceRatio; 
+            END 
         
-            -- Add other organization details sections as in the original SQL...
-        END
-    
-        -- Return the final result, sorted properly
-        SELECT
-            Level,
-            DivisionName,
-            ProgramName,
-            OrganizationName,
-            TotalEnrollment,
-            EnrollmentWithMeetings,
-            TotalAttendance,
-            AvgAttendance,
-            LastSundayEnrollment,
-            LastSundayAttendance,
-            AttendanceRatio,
-            RatioCategory,
-            LastSundayAttendanceRatio,
-            LastSundayRatioCategory,
-            NeedsInReachCount,
-            GoodRatioCount,
-            NeedsOutreachCount,
-            LastSundayNeedsInReachCount,
-            LastSundayGoodRatioCount,
-            LastSundayNeedsOutreachCount
-        FROM
-            #Results
-        ORDER BY
-            LevelSortOrder,
-            CategorySortOrder,
-            ProgramName,
-            DivisionName,
-            OrganizationName;
-    
-        -- Clean up temporary tables
-        DROP TABLE #ProgramNames;
-        DROP TABLE #OrganizationBase;
-        DROP TABLE #OrganizationMeetings;
-        DROP TABLE #LastSundayMeetings;
-        DROP TABLE #OrganizationRatios;
-        DROP TABLE #ProgramCategoryCounts;
-        DROP TABLE #DivisionCategoryCounts;
-        DROP TABLE #OverallCategoryCounts;
-        DROP TABLE #OverallSummary;
-        DROP TABLE #ProgramSummary;
-        DROP TABLE #DivisionSummary;
-        DROP TABLE #Results;
-    
-        IF @IncludeOrgDetails = 1
-        BEGIN
-            DROP TABLE #OrganizationDetails;
+            -- Regular period - Good Ratio 
+            IF EXISTS (SELECT 1 FROM #OrganizationDetails WHERE RatioCategory = 'Good Ratio') 
+            BEGIN 
+                -- Header 
+                INSERT INTO #Results (
+                    Level, 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    LevelSortOrder, 
+                    CategorySortOrder, 
+                    TotalEnrollment, 
+                    EnrollmentWithMeetings, 
+                    TotalAttendance, 
+                    AvgAttendance, 
+                    LastSundayEnrollment, 
+                    LastSundayAttendance, 
+                    AttendanceRatio, 
+                    RatioCategory, 
+                    LastSundayAttendanceRatio, 
+                    LastSundayRatioCategory, 
+                    NeedsInReachCount, 
+                    GoodRatioCount, 
+                    NeedsOutreachCount, 
+                    LastSundayNeedsInReachCount, 
+                    LastSundayGoodRatioCount, 
+                    LastSundayNeedsOutreachCount
+                ) 
+                VALUES (
+                    'Good Ratio Organizations', 
+                    NULL, 
+                    'Regular Period', 
+                    NULL, 
+                    6, 
+                    1,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                ); 
+        
+                -- Details 
+                INSERT INTO #Results (
+                    Level, 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    LevelSortOrder, 
+                    CategorySortOrder, 
+                    TotalEnrollment, 
+                    EnrollmentWithMeetings, 
+                    TotalAttendance, 
+                    AvgAttendance, 
+                    LastSundayEnrollment, 
+                    LastSundayAttendance, 
+                    AttendanceRatio, 
+                    RatioCategory, 
+                    LastSundayAttendanceRatio, 
+                    LastSundayRatioCategory, 
+                    NeedsInReachCount, 
+                    GoodRatioCount, 
+                    NeedsOutreachCount, 
+                    LastSundayNeedsInReachCount, 
+                    LastSundayGoodRatioCount, 
+                    LastSundayNeedsOutreachCount
+                ) 
+                SELECT 
+                    'Organization', 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    6, 
+                    2,
+                    TotalEnrollment,
+                    EnrollmentWithMeetings,
+                    TotalAttendance,
+                    AvgAttendance,
+                    NULL,
+                    NULL,
+                    AttendanceRatio,
+                    RatioCategory,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                FROM #OrganizationDetails
+                WHERE RatioCategory = 'Good Ratio'
+                ORDER BY AttendanceRatio; 
+            END 
+        
+            -- Regular period - Needs Outreach 
+            IF EXISTS (SELECT 1 FROM #OrganizationDetails WHERE RatioCategory = 'Needs Outreach') 
+            BEGIN 
+                -- Header 
+                INSERT INTO #Results (
+                    Level, 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    LevelSortOrder, 
+                    CategorySortOrder, 
+                    TotalEnrollment, 
+                    EnrollmentWithMeetings, 
+                    TotalAttendance, 
+                    AvgAttendance, 
+                    LastSundayEnrollment, 
+                    LastSundayAttendance, 
+                    AttendanceRatio, 
+                    RatioCategory, 
+                    LastSundayAttendanceRatio, 
+                    LastSundayRatioCategory, 
+                    NeedsInReachCount, 
+                    GoodRatioCount, 
+                    NeedsOutreachCount, 
+                    LastSundayNeedsInReachCount, 
+                    LastSundayGoodRatioCount, 
+                    LastSundayNeedsOutreachCount
+                ) 
+                VALUES (
+                    'Needs Outreach Organizations', 
+                    NULL, 
+                    'Regular Period', 
+                    NULL, 
+                    7, 
+                    1,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                ); 
+        
+                -- Details 
+                INSERT INTO #Results (
+                    Level, 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    LevelSortOrder, 
+                    CategorySortOrder, 
+                    TotalEnrollment, 
+                    EnrollmentWithMeetings, 
+                    TotalAttendance, 
+                    AvgAttendance, 
+                    LastSundayEnrollment, 
+                    LastSundayAttendance, 
+                    AttendanceRatio, 
+                    RatioCategory, 
+                    LastSundayAttendanceRatio, 
+                    LastSundayRatioCategory, 
+                    NeedsInReachCount, 
+                    GoodRatioCount, 
+                    NeedsOutreachCount, 
+                    LastSundayNeedsInReachCount, 
+                    LastSundayGoodRatioCount, 
+                    LastSundayNeedsOutreachCount
+                ) 
+                SELECT 
+                    'Organization', 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    7, 
+                    2,
+                    TotalEnrollment,
+                    EnrollmentWithMeetings,
+                    TotalAttendance,
+                    AvgAttendance,
+                    NULL,
+                    NULL,
+                    AttendanceRatio,
+                    RatioCategory,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                FROM #OrganizationDetails
+                WHERE RatioCategory = 'Needs Outreach'
+                ORDER BY AttendanceRatio DESC; 
+            END 
+        
+            -- Last Sunday - Needs In-reach 
+            IF EXISTS (SELECT 1 FROM #OrganizationDetails WHERE LastSundayRatioCategory = 'Needs In-reach') 
+            BEGIN 
+                -- Header 
+                INSERT INTO #Results (
+                    Level, 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    LevelSortOrder, 
+                    CategorySortOrder, 
+                    TotalEnrollment, 
+                    EnrollmentWithMeetings, 
+                    TotalAttendance, 
+                    AvgAttendance, 
+                    LastSundayEnrollment, 
+                    LastSundayAttendance, 
+                    AttendanceRatio, 
+                    RatioCategory, 
+                    LastSundayAttendanceRatio, 
+                    LastSundayRatioCategory, 
+                    NeedsInReachCount, 
+                    GoodRatioCount, 
+                    NeedsOutreachCount, 
+                    LastSundayNeedsInReachCount, 
+                    LastSundayGoodRatioCount, 
+                    LastSundayNeedsOutreachCount
+                ) 
+                VALUES (
+                    'Needs In-reach Organizations', 
+                    NULL, 
+                    'Last Sunday', 
+                    NULL, 
+                    8, 
+                    1,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                ); 
+        
+                -- Details 
+                INSERT INTO #Results (
+                    Level, 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    LevelSortOrder, 
+                    CategorySortOrder, 
+                    TotalEnrollment, 
+                    EnrollmentWithMeetings, 
+                    TotalAttendance, 
+                    AvgAttendance, 
+                    LastSundayEnrollment, 
+                    LastSundayAttendance, 
+                    AttendanceRatio, 
+                    RatioCategory, 
+                    LastSundayAttendanceRatio, 
+                    LastSundayRatioCategory, 
+                    NeedsInReachCount, 
+                    GoodRatioCount, 
+                    NeedsOutreachCount, 
+                    LastSundayNeedsInReachCount, 
+                    LastSundayGoodRatioCount, 
+                    LastSundayNeedsOutreachCount
+                ) 
+                SELECT 
+                    'Organization', 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    8, 
+                    2,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    LastSundayEnrollment,
+                    LastSundayAttendance,
+                    NULL,
+                    NULL,
+                    LastSundayAttendanceRatio,
+                    LastSundayRatioCategory,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                FROM #OrganizationDetails
+                WHERE LastSundayRatioCategory = 'Needs In-reach'
+                ORDER BY LastSundayAttendanceRatio; 
+            END 
+        
+            -- Last Sunday - Good Ratio 
+            IF EXISTS (SELECT 1 FROM #OrganizationDetails WHERE LastSundayRatioCategory = 'Good Ratio') 
+            BEGIN 
+                -- Header 
+                INSERT INTO #Results (
+                    Level, 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    LevelSortOrder, 
+                    CategorySortOrder, 
+                    TotalEnrollment, 
+                    EnrollmentWithMeetings, 
+                    TotalAttendance, 
+                    AvgAttendance, 
+                    LastSundayEnrollment, 
+                    LastSundayAttendance, 
+                    AttendanceRatio, 
+                    RatioCategory, 
+                    LastSundayAttendanceRatio, 
+                    LastSundayRatioCategory, 
+                    NeedsInReachCount, 
+                    GoodRatioCount, 
+                    NeedsOutreachCount, 
+                    LastSundayNeedsInReachCount, 
+                    LastSundayGoodRatioCount, 
+                    LastSundayNeedsOutreachCount
+                ) 
+                VALUES (
+                    'Good Ratio Organizations', 
+                    NULL, 
+                    'Last Sunday', 
+                    NULL, 
+                    9, 
+                    1,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                ); 
+        
+                -- Details 
+                INSERT INTO #Results (
+                    Level, 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    LevelSortOrder, 
+                    CategorySortOrder, 
+                    TotalEnrollment, 
+                    EnrollmentWithMeetings, 
+                    TotalAttendance, 
+                    AvgAttendance, 
+                    LastSundayEnrollment, 
+                    LastSundayAttendance, 
+                    AttendanceRatio, 
+                    RatioCategory, 
+                    LastSundayAttendanceRatio, 
+                    LastSundayRatioCategory, 
+                    NeedsInReachCount, 
+                    GoodRatioCount, 
+                    NeedsOutreachCount, 
+                    LastSundayNeedsInReachCount, 
+                    LastSundayGoodRatioCount, 
+                    LastSundayNeedsOutreachCount
+                ) 
+                SELECT 
+                    'Organization', 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    9, 
+                    2,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    LastSundayEnrollment,
+                    LastSundayAttendance,
+                    NULL,
+                    NULL,
+                    LastSundayAttendanceRatio,
+                    LastSundayRatioCategory,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                FROM #OrganizationDetails
+                WHERE LastSundayRatioCategory = 'Good Ratio'
+                ORDER BY LastSundayAttendanceRatio; 
+            END 
+        
+            -- Last Sunday - Needs Outreach 
+            IF EXISTS (SELECT 1 FROM #OrganizationDetails WHERE LastSundayRatioCategory = 'Needs Outreach') 
+            BEGIN 
+                -- Header 
+                INSERT INTO #Results (
+                    Level, 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    LevelSortOrder, 
+                    CategorySortOrder, 
+                    TotalEnrollment, 
+                    EnrollmentWithMeetings, 
+                    TotalAttendance, 
+                    AvgAttendance, 
+                    LastSundayEnrollment, 
+                    LastSundayAttendance, 
+                    AttendanceRatio, 
+                    RatioCategory, 
+                    LastSundayAttendanceRatio, 
+                    LastSundayRatioCategory, 
+                    NeedsInReachCount, 
+                    GoodRatioCount, 
+                    NeedsOutreachCount, 
+                    LastSundayNeedsInReachCount, 
+                    LastSundayGoodRatioCount, 
+                    LastSundayNeedsOutreachCount
+                ) 
+                VALUES (
+                    'Needs Outreach Organizations', 
+                    NULL, 
+                    'Last Sunday', 
+                    NULL, 
+                    10, 
+                    1,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                ); 
+        
+                -- Details 
+                INSERT INTO #Results (
+                    Level, 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    LevelSortOrder, 
+                    CategorySortOrder, 
+                    TotalEnrollment, 
+                    EnrollmentWithMeetings, 
+                    TotalAttendance, 
+                    AvgAttendance, 
+                    LastSundayEnrollment, 
+                    LastSundayAttendance, 
+                    AttendanceRatio, 
+                    RatioCategory, 
+                    LastSundayAttendanceRatio, 
+                    LastSundayRatioCategory, 
+                    NeedsInReachCount, 
+                    GoodRatioCount, 
+                    NeedsOutreachCount, 
+                    LastSundayNeedsInReachCount, 
+                    LastSundayGoodRatioCount, 
+                    LastSundayNeedsOutreachCount
+                ) 
+                SELECT 
+                    'Organization', 
+                    DivisionName, 
+                    ProgramName, 
+                    OrganizationName, 
+                    10, 
+                    2,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    LastSundayEnrollment,
+                    LastSundayAttendance,
+                    NULL,
+                    NULL,
+                    LastSundayAttendanceRatio,
+                    LastSundayRatioCategory,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                FROM #OrganizationDetails
+                WHERE LastSundayRatioCategory = 'Needs Outreach'
+                ORDER BY LastSundayAttendanceRatio DESC; 
+            END 
+        END 
+        
+        -- Return the final result, sorted properly 
+        SELECT 
+            Level, 
+            DivisionName, 
+            ProgramName, 
+            OrganizationName, 
+            TotalEnrollment, 
+            EnrollmentWithMeetings, 
+            TotalAttendance, 
+            AvgAttendance, 
+            LastSundayEnrollment, 
+            LastSundayAttendance, 
+            AttendanceRatio, 
+            RatioCategory, 
+            LastSundayAttendanceRatio, 
+            LastSundayRatioCategory, 
+            NeedsInReachCount, 
+            GoodRatioCount, 
+            NeedsOutreachCount, 
+            LastSundayNeedsInReachCount, 
+            LastSundayGoodRatioCount, 
+            LastSundayNeedsOutreachCount 
+        FROM #Results 
+        ORDER BY 
+            LevelSortOrder, 
+            CategorySortOrder, 
+            ProgramName, 
+            DivisionName, 
+            OrganizationName; 
+        
+        -- Clean up temporary tables 
+        DROP TABLE #ProgramNames; 
+        DROP TABLE #OrganizationBase; 
+        DROP TABLE #OrganizationMeetings; 
+        DROP TABLE #LastSundayMeetings; 
+        DROP TABLE #OrganizationRatios; 
+        DROP TABLE #ProgramCategoryCounts; 
+        DROP TABLE #DivisionCategoryCounts; 
+        DROP TABLE #OverallCategoryCounts; 
+        DROP TABLE #OverallSummary; 
+        DROP TABLE #ProgramSummary; 
+        DROP TABLE #DivisionSummary; 
+        DROP TABLE #Results; 
+        
+        IF @IncludeOrgDetails = 1 
+        BEGIN 
+            DROP TABLE #OrganizationDetails; 
         END
         """.format(
-            weeks_count=ENROLLMENT_RATIO_WEEKS,
+            weeks_count=1,    #ENROLLMENT_RATIO_WEEKS,
             start_date=weeks_ago_date_sql,
             end_date=current_date_sql,
             last_sunday_date=last_sunday_sql,
+            selected_date=current_date_sql,
             needs_inreach=ENROLLMENT_RATIO_THRESHOLDS['needs_inreach'],
             good_ratio=ENROLLMENT_RATIO_THRESHOLDS['good_ratio'],
             include_org_details=1 if SHOW_DETAILED_ENROLLMENT else 0,
@@ -2633,65 +3295,89 @@ class AttendanceReport:
                     organization_levels[level].append(item)
             
             # Set title based on the first program if only one program is defined
-            program_title = "Enrollment Analysis"
+            program_title = "Enrollment Metrics"
             if len(organization_levels['Program']) == 1:
-                program_title = "{} Attendance".format(
+                program_title = "{} Enrollment Metrics".format(
                     getattr(organization_levels['Program'][0], 'ProgramName', 'Group')
                 )
             
             # Format the HTML using a more compact style
-            
-            # <div style="font-style: italic; color: #666; margin-bottom: 15px; font-size: 13px;">
-            #     Note: Average attendance is calculated based on the last {weeks} weeks of attendance data.
-            # </div>
-            
             analysis_html = """
             <div id="enrollment-analysis" style="display: none;">
                 <div style="background-color: #f9f9f9; border-radius: 5px; padding: 15px; margin-bottom: 20px;">
                     <h3 style="margin-top: 0;">{title}</h3>
-
+                    
+                    <!-- Add explanation about enrollment count -->
+                    <div style="margin-bottom: 15px; font-size: 13px; font-style: italic; color: #666; padding: 5px 10px; border-left: 3px solid #4A90E2; background-color: #f0f4f8;">
+                        <strong>Note:</strong> Enrollment numbers only include members in groups that have scheduled meetings. Members in groups without meetings are not counted in this analysis.
+                    </div>
+    
             """.format(
-                title=program_title,
-                weeks=ENROLLMENT_RATIO_WEEKS
+                title=program_title
             )
             
-            # Create the main metrics section - use Overall or the single Program
+            # Create the main metrics section - find the row where Level='Program' and DivisionName is NULL
             data_source = None
-            if organization_levels['Overall']:
+            program_data_source = None
+            attendance_ratio = 0
+            
+            # Create the main metrics section - find the row where Level='Program' and DivisionName is NULL
+            data_source = None
+            attendance_ratio = 0
+            
+            # Look through all data sources to find the Program level row with NULL DivisionName
+            for level_type, level_data in organization_levels.items():
+                for row in level_data:
+                    # Look specifically for the row with Level='Program' and NULL DivisionName
+                    if (getattr(row, 'Level', '') == 'Program' and 
+                        (getattr(row, 'DivisionName', None) is None or getattr(row, 'DivisionName', '') == 'NULL')):
+                        # We found the Program level row - use it for attendance ratio
+                        attendance_ratio = getattr(row, 'AttendanceRatio', 0) or 0
+                        # But keep looking for a data_source if we don't have one yet
+                        if not data_source:
+                            data_source = row
+            
+            # If we couldn't find a Program level row, look for the Overall level for other metrics
+            if not data_source and organization_levels['Overall']:
                 data_source = organization_levels['Overall'][0]
-            elif len(organization_levels['Program']) == 1:
-                data_source = organization_levels['Program'][0]
                     
             if data_source:
                 # Direct access to values from the SQL result
-                total_enrollment = getattr(data_source, 'TotalEnrollment', 0) or 0
-                last_sunday_attendance = getattr(data_source, 'LastSundayAttendance', 0) or 0
-                attendance_ratio = getattr(data_source, 'AttendanceRatio', 0) or 0
+                total_enrollment = getattr(data_source, 'EnrollmentWithMeetings', 0) or 0
+                #last_sunday_attendance = getattr(data_source, 'LastSundayAttendance', 0) or 0
+                last_sunday_attendance = getattr(data_source, 'TotalAttendance', 0) or 0
+                #attendance_ratio = getattr(data_source, 'AttendanceRatio', 0) or 0
+                
+                
+                # Ensure values are of the correct type
+                total_enrollment = int(total_enrollment)
+                # Convert attendance to float to ensure decimal formatting works
+                last_sunday_attendance = float(last_sunday_attendance)
+                attendance_ratio = float(attendance_ratio)
                 
                 # Get correct field names from SQL result
                 # Updated field names to match SQL query result
-                needs_inreach_count = int(getattr(data_source, 'LastSundayNeedsInReachCount', 0) or 0)
-                good_ratio_count = int(getattr(data_source, 'LastSundayGoodRatioCount', 0) or 0) 
-                needs_outreach_count = int(getattr(data_source, 'LastSundayNeedsOutreachCount', 0) or 0)
+                needs_inreach_count = int(getattr(data_source, 'NeedsInReachCount', 0) or 0)
+                good_ratio_count = int(getattr(data_source, 'GoodRatioCount', 0) or 0) 
+                needs_outreach_count = int(getattr(data_source, 'NeedsOutreachCount', 0) or 0)
                 
-                #<h4 style="color: #333; padding-bottom: 10px;">{title}</h4>
                 analysis_html += """
                     <div style="border-bottom: 1px solid #4A90E2; margin-bottom: 15px;">
-
+    
                         <div style="display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 15px;">
                             <div style="flex: 1; min-width: 110px; background-color: #f0f4f8; border-radius: 3px; text-align: center; padding: 8px;">
                                 <div style="font-size: 12px; color: #666; margin-bottom: 3px;">Enrollment</div>
-                                <div style="font-size: 24px; font-weight: bold; color: #333;">{enrollment:,}</div>
+                                <div style="font-size: 24px; font-weight: bold; color: #333;">{enrollment}</div>
                             </div>
                             
                             <div style="flex: 1; min-width: 110px; background-color: #f0f4f8; border-radius: 3px; text-align: center; padding: 8px;">
-                                <div style="font-size: 12px; color: #666; margin-bottom: 3px;">Avg Attendance</div>
-                                <div style="font-size: 24px; font-weight: bold; color: #333;">{attendance:,.1f}</div>
+                                <div style="font-size: 12px; color: #666; margin-bottom: 3px;">Attendance</div>
+                                <div style="font-size: 24px; font-weight: bold; color: #333;">{attendance}</div>
                             </div>
                             
                             <div style="flex: 1; min-width: 110px; background-color: #f0f4f8; border-radius: 3px; text-align: center; padding: 8px;">
                                 <div style="font-size: 12px; color: #666; margin-bottom: 3px;">Ratio</div>
-                                <div style="font-size: 24px; font-weight: bold; color: #333;">{ratio:.1f}%</div>
+                                <div style="font-size: 24px; font-weight: bold; color: #333;">{ratio}%</div>
                             </div>
                             
                             <div style="flex: 1; min-width: 110px; background-color: #ffe6e6; border-radius: 3px; text-align: center; padding: 8px;">
@@ -2712,9 +3398,9 @@ class AttendanceReport:
                     </div>
                 """.format(
                     title="Connect Group Attendance" if program_title == "Enrollment Analysis" else program_title,
-                    enrollment=total_enrollment,
-                    attendance=last_sunday_attendance,
-                    ratio=attendance_ratio,
+                    enrollment="{:,}".format(total_enrollment),
+                    attendance="{:.1f}".format(last_sunday_attendance),
+                    ratio="{:.1f}".format(attendance_ratio),
                     needs_inreach=needs_inreach_count,
                     good_ratio=good_ratio_count,
                     needs_outreach=needs_outreach_count
@@ -2728,9 +3414,11 @@ class AttendanceReport:
                 for division_item in sorted(organization_levels['Division'], 
                                       key=lambda x: getattr(x, 'DivisionName', '')):
                     div_name = getattr(division_item, 'DivisionName', 'Unknown Division')
-                    div_enrollment = getattr(division_item, 'TotalEnrollment', 0) or 0
-                    div_attendance = getattr(division_item, 'LastSundayAttendance', 0) or 0
-                    div_ratio = getattr(division_item, 'AttendanceRatio', 0) or 0
+                    
+                    # Ensure values are of the correct type
+                    div_enrollment = int(getattr(division_item, 'EnrollmentWithMeetings', 0) or 0)
+                    div_attendance = float(getattr(division_item, 'TotalAttendance', 0) or 0)
+                    div_ratio = float(getattr(division_item, 'AttendanceRatio', 0) or 0)
                     
                     # Get division counts directly from the SQL result
                     # Updated field names to match SQL query result
@@ -2744,10 +3432,10 @@ class AttendanceReport:
                         
                         <div style="display: flex; align-items: center; padding: 5px 10px; flex-wrap: wrap;">
                             <div style="min-width: 150px; flex: 1;">
-                                <span style="color: #666;">Enrollment:</span> <strong>{enrollment:,}</strong>
+                                <span style="color: #666;">Enrollment:</span> <strong>{enrollment}</strong>
                             </div>
                             <div style="min-width: 170px; flex: 1;">
-                                <span style="color: #666;">Attendance:</span> <strong>{attendance:,.1f}</strong>
+                                <span style="color: #666;">Attendance:</span> <strong>{attendance}</strong>
                             </div>
                             
                             <div style="min-width: 200px; flex: 2; display: flex; align-items: center; flex-wrap: wrap;">
@@ -2772,16 +3460,16 @@ class AttendanceReport:
                             
                             <div style="min-width: 120px; text-align: right;">
                                 <span style="display: inline-block; padding: 2px 6px; background-color: #e6f0ff; border-radius: 3px;">
-                                    <span style="color: #666;">Ratio:</span> <strong style="color: #4A90E2;">{ratio:.1f}%</strong>
+                                    <span style="color: #666;">Ratio:</span> <strong style="color: #4A90E2;">{ratio}%</strong>
                                 </span>
                             </div>
                         </div>
                     </div>
                     """.format(
                         division=div_name,
-                        enrollment=div_enrollment,
-                        attendance=div_attendance,
-                        ratio=div_ratio,
+                        enrollment="{:,}".format(div_enrollment),
+                        attendance="{:.1f}".format(div_attendance),
+                        ratio="{:.1f}".format(div_ratio),
                         in_reach=div_needs_inreach,
                         good_ratio=div_good_ratio,
                         outreach=div_needs_outreach
@@ -2798,9 +3486,8 @@ class AttendanceReport:
             """
             
             return analysis_html
-            
         except Exception as e:
-            # Final error handling
+            # Detailed error handling
             import traceback
             error_html = "<h3>Error in Enrollment Analysis</h3>"
             error_html += "<p>Details: {}</p>".format(str(e))
