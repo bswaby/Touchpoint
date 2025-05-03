@@ -1,5 +1,4 @@
 #roles=admin
-
 #--------------------------------------------------------------------
 ####REPORT INFORMATION####
 #--------------------------------------------------------------------
@@ -10,329 +9,397 @@
 #2. Select New Python Script File and Name the File
 #3. Paste in all this code and Run
 #Optional: Add to navigation menu
-
 # written by: Ben Swaby
 # email: bswaby@fbchtn.org
-
 #--------------------------------------------------------------------
 ####USER CONFIG FIELDS
 #--------------------------------------------------------------------
 model.Header = "Data Quality Dashboard"
-
 #--------------------------------------------------------------------
 ####START OF CODE.  No configuration should be needed beyond this point
 #--------------------------------------------------------------------
-
 import json
 
-# Main query to calculate data quality metrics
-sqlDataQuality = '''
-WITH DataQualityMetrics AS (
-    SELECT 
+# Get filter parameters from URL parameters if available
+# Default values: don't use ActiveRecords filter, show all member statuses
+use_active_records = '0'  # 0 = show all, 1 = active records only
+member_status_filter = '-1'  # -1 = all statuses
+
+
+
+# Query to get the list of available member statuses
+sqlMemberStatuses = '''
+SELECT DISTINCT ms.Id, ms.Description
+FROM lookup.MemberStatus ms
+INNER JOIN People p ON p.MemberStatusId = ms.Id
+ORDER BY ms.Description
+'''
+
+# Get all member statuses for the dropdown
+member_statuses = q.QuerySql(sqlMemberStatuses)
+
+# Generate member status options
+member_status_options = ''
+for status in member_statuses:
+    member_status_id = status.Id
+    member_status_description = status.Description
+    if member_status_description:
+        member_status_options += '<option value="{0}">{1}</option>\n'.format(
+            member_status_id, member_status_description)
+
+# Create a template for the filter form to be inserted at the top of the dashboard
+filter_template = '''
+<div class="filter-panel">
+    <h3>Global Data Filters</h3>
+    <form id="global-filters" class="filter-form">
+        <div class="filter-row">
+            <div class="filter-group">
+                <label for="activeRecordsFilter">Active Records:</label>
+                <select id="activeRecordsFilter" name="activeRecords">
+                    <option value="0">All Records</option>
+                    <option value="1">Active Records Only</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="memberStatusFilter">Member Status:</label>
+                <select id="memberStatusFilter" name="memberStatus">
+                    <option value="-1">All Statuses</option>
+                    {0}
+                </select>
+            </div>
+            <div class="filter-actions">
+                <button type="submit" class="filter-button">Apply Filters</button>
+                <button type="reset" class="filter-reset">Reset</button>
+            </div>
+        </div>
+    </form>
+</div>
+'''.format(member_status_options)
+
+# Main query to calculate data quality metrics - now with parameters for filters
+def get_data_quality_sql(use_active_records_val, member_status_filter_val):
+    """Build the data quality SQL with properly inserted parameter values"""
+    sql_template = '''
+    WITH DataQualityMetrics AS (
+        SELECT 
+            CASE 
+                WHEN p.IsDeceased = 1 AND p.ArchivedFlag = 1 THEN 'Deceased and Archived'
+                WHEN p.IsDeceased = 1 THEN 'Deceased (Not Archived)'
+                WHEN p.ArchivedFlag = 1 THEN 'Archived (Not Deceased)'
+                ELSE 'Active'
+            END AS RecordStatus,
+            
+            -- Filter to exclude archived records
+            CASE WHEN p.ArchivedFlag = 0 THEN 1 ELSE 0 END AS IsActiveRecord,
+            
+            -- Core demographics
+            CASE WHEN p.GenderId = 0 THEN 1 ELSE 0 END AS MissingGender,
+            CASE WHEN p.BDate IS NULL AND (p.BirthMonth IS NULL OR p.BirthDay IS NULL OR p.BirthYear IS NULL) THEN 1 ELSE 0 END AS MissingBirthDate,
+            CASE WHEN p.MaritalStatusId = 0 THEN 1 ELSE 0 END AS MissingMaritalStatus,
+            CASE WHEN p.MemberStatusId IS NULL THEN 1 ELSE 0 END AS MissingMemberStatus,
+            
+            -- Church-specific data
+            CASE WHEN p.BaptismStatusId = 0 THEN 1 ELSE 0 END AS MissingBaptismStatus,
+            CASE WHEN p.CampusId IS NULL THEN 1 ELSE 0 END AS MissingCampus,
+            
+            -- Contact info 
+            CASE WHEN (p.PrimaryAddress IS NULL OR p.PrimaryAddress = '') AND 
+                      (p.AddressLineOne IS NULL OR p.AddressLineOne = '') THEN 1 ELSE 0 END AS MissingAddress,
+            CASE WHEN (p.PrimaryCity IS NULL OR p.PrimaryCity = '') AND 
+                      (p.CityName IS NULL OR p.CityName = '') THEN 1 ELSE 0 END AS MissingCity,
+            CASE WHEN (p.PrimaryState IS NULL OR p.PrimaryState = '') AND 
+                      (p.StateCode IS NULL OR p.StateCode = '') THEN 1 ELSE 0 END AS MissingState,
+            CASE WHEN (p.PrimaryZip IS NULL OR p.PrimaryZip = '') AND 
+                      (p.ZipCode IS NULL OR p.ZipCode = '') THEN 1 ELSE 0 END AS MissingZip,
+            CASE WHEN p.BadAddressFlag = 1 OR p.PrimaryBadAddrFlag = 1 THEN 1 ELSE 0 END AS BadAddress,
+            
+            -- Phone info
+            CASE 
+                WHEN p.Age < 13 THEN 
+                    CASE 
+                        WHEN p.MemberStatusId = 0 THEN 1 
+                        ELSE 0 
+                    END
+                ELSE 
+                    CASE 
+                        WHEN (p.CellPhone IS NULL OR p.CellPhone = '') AND 
+                             (p.HomePhone IS NULL OR p.HomePhone = '') AND 
+                             (p.WorkPhone IS NULL OR p.WorkPhone = '') THEN 1 
+                        ELSE 0 
+                    END
+            END AS MissingPhone,
+            
+            -- Email info
+            CASE 
+                WHEN p.Age < 13 THEN 
+                    CASE 
+                        WHEN p.MemberStatusId = 0 THEN 1 
+                        ELSE 0 
+                    END
+                ELSE 
+                    CASE 
+                        WHEN (p.EmailAddress IS NULL OR p.EmailAddress = '') AND 
+                             (p.EmailAddress2 IS NULL OR p.EmailAddress2 = '') THEN 1 
+                        ELSE 0 
+                    END
+            END AS MissingEmail,
+            
+            -- Family info
+            CASE WHEN p.FamilyId IS NULL THEN 1 ELSE 0 END AS MissingFamily,
+            CASE WHEN p.PositionInFamilyId IS NULL THEN 1 ELSE 0 END AS MissingFamilyPosition,
+            
+            -- Photo
+            CASE WHEN p.PictureId IS NULL THEN 1 ELSE 0 END AS MissingPhoto,
+            
+            -- Multiple of these flags ON indicates potential data quality issues
+            (CASE WHEN p.DoNotMailFlag = 1 THEN 1 ELSE 0 END +
+             CASE WHEN p.DoNotCallFlag = 1 THEN 1 ELSE 0 END +
+             CASE WHEN p.DoNotVisitFlag = 1 THEN 1 ELSE 0 END +
+             CASE WHEN p.DoNotPublishPhones = 1 THEN 1 ELSE 0 END) AS PrivacyRestrictions,
+             
+            -- For age demographics breakdown
+            CASE 
+                WHEN p.Age < 13 THEN 'Under 13'
+                WHEN p.Age BETWEEN 13 AND 17 THEN '13-17'
+                WHEN p.Age BETWEEN 18 AND 24 THEN '18-24'
+                WHEN p.Age BETWEEN 25 AND 34 THEN '25-34'
+                WHEN p.Age BETWEEN 35 AND 44 THEN '35-44'
+                WHEN p.Age BETWEEN 45 AND 54 THEN '45-54'
+                WHEN p.Age BETWEEN 55 AND 64 THEN '55-64'
+                WHEN p.Age BETWEEN 65 AND 74 THEN '65-74'
+                WHEN p.Age >= 75 THEN '75+'
+                ELSE 'Unknown'
+            END AS AgeRange,
+            
+            -- Organization involvement
+            CASE WHEN p.BibleFellowshipClassId IS NULL THEN 1 ELSE 0 END AS MissingBibleClass,
+            
+            -- Data management status - useful to track when records might need review
+            CASE WHEN p.ModifiedDate IS NULL THEN 1 ELSE 0 END AS NeverModified,
+            CASE WHEN DATEDIFF(MONTH, p.ModifiedDate, GETDATE()) > 24 THEN 1 ELSE 0 END AS StaleRecord,
+            
+            1 AS PersonCount -- For calculating total records
+            
+        FROM People p
+        WHERE 1=1
+            -- Filter for ActiveRecords if enabled
+            AND ({0} = 0 
+                OR EXISTS(
+                    SELECT NULL AS EMPTY
+                    FROM dbo.ActiveRecords(GETDATE()) AS t1
+                    WHERE t1.PeopleId = p.PeopleId
+                ))
+            -- Filter for MemberStatus if selected
+            AND ({1} = -1 
+                OR p.MemberStatusId = {1})
+    )
+    SELECT * FROM (
+        -- Calculate aggregate statistics
+        SELECT
+            'OverallStats' AS MetricType,
+            RecordStatus,
+            COUNT(*) AS TotalRecords,
+            SUM(MissingGender) AS MissingGender,
+            SUM(MissingBirthDate) AS MissingBirthDate,
+            SUM(MissingMaritalStatus) AS MissingMaritalStatus,
+            SUM(MissingMemberStatus) AS MissingMemberStatus,
+            SUM(MissingBaptismStatus) AS MissingBaptismStatus,
+            SUM(MissingCampus) AS MissingCampus,
+            SUM(MissingAddress) AS MissingAddress,
+            SUM(MissingCity) AS MissingCity,
+            SUM(MissingState) AS MissingState,
+            SUM(MissingZip) AS MissingZip,
+            SUM(BadAddress) AS BadAddress,
+            SUM(MissingPhone) AS MissingPhone,
+            SUM(MissingEmail) AS MissingEmail,
+            SUM(MissingFamily) AS MissingFamily,
+            SUM(MissingFamilyPosition) AS MissingFamilyPosition,
+            SUM(MissingPhoto) AS MissingPhoto,
+            SUM(MissingBibleClass) AS MissingBibleClass,
+            SUM(NeverModified) AS NeverModified,
+            SUM(StaleRecord) AS StaleRecord,
+            
+            -- Calculate percentages for key metrics
+            CAST(SUM(MissingGender) * 100.0 / COUNT(*) AS DECIMAL(5,1)) AS PctMissingGender,
+            CAST(SUM(MissingBirthDate) * 100.0 / COUNT(*) AS DECIMAL(5,1)) AS PctMissingBirthDate,
+            CAST(SUM(MissingAddress) * 100.0 / COUNT(*) AS DECIMAL(5,1)) AS PctMissingAddress,
+            CAST(SUM(MissingPhone) * 100.0 / COUNT(*) AS DECIMAL(5,1)) AS PctMissingPhone,
+            CAST(SUM(MissingEmail) * 100.0 / COUNT(*) AS DECIMAL(5,1)) AS PctMissingEmail,
+            CAST(SUM(MissingPhoto) * 100.0 / COUNT(*) AS DECIMAL(5,1)) AS PctMissingPhoto,
+            
+            -- Count records with privacy restrictions
+            SUM(CASE WHEN PrivacyRestrictions > 0 THEN 1 ELSE 0 END) AS HasPrivacyRestrictions,
+            
+            -- Data completeness score (100% - average of missing critical data percentages)
+            100 - (
+                (CAST(SUM(MissingGender) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
+                 CAST(SUM(MissingBirthDate) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
+                 CAST(SUM(MissingAddress) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
+                 CAST(SUM(MissingPhone) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
+                 CAST(SUM(MissingEmail) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
+                 CAST(SUM(MissingMemberStatus) * 100.0 / COUNT(*) AS DECIMAL(5,1))) / 6
+            ) AS DataCompletenessScore
+            
+        FROM DataQualityMetrics
+        GROUP BY RecordStatus
+        UNION ALL
+        -- Age breakdown statistics
+        SELECT
+            'AgeBreakdown' AS MetricType,
+            AgeRange AS RecordStatus,
+            COUNT(*) AS TotalRecords,
+            SUM(MissingGender) AS MissingGender,
+            SUM(MissingBirthDate) AS MissingBirthDate,
+            SUM(MissingMaritalStatus) AS MissingMaritalStatus,
+            SUM(MissingMemberStatus) AS MissingMemberStatus,
+            SUM(MissingBaptismStatus) AS MissingBaptismStatus,
+            SUM(MissingCampus) AS MissingCampus,
+            SUM(MissingAddress) AS MissingAddress,
+            SUM(MissingCity) AS MissingCity,
+            SUM(MissingState) AS MissingState,
+            SUM(MissingZip) AS MissingZip,
+            SUM(BadAddress) AS BadAddress,
+            SUM(MissingPhone) AS MissingPhone,
+            SUM(MissingEmail) AS MissingEmail,
+            SUM(MissingFamily) AS MissingFamily,
+            SUM(MissingFamilyPosition) AS MissingFamilyPosition,
+            SUM(MissingPhoto) AS MissingPhoto,
+            SUM(MissingBibleClass) AS MissingBibleClass,
+            SUM(NeverModified) AS NeverModified,
+            SUM(StaleRecord) AS StaleRecord,
+            
+            -- Calculate percentages for key metrics
+            CAST(SUM(MissingGender) * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(5,1)) AS PctMissingGender,
+            CAST(SUM(MissingBirthDate) * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(5,1)) AS PctMissingBirthDate,
+            CAST(SUM(MissingAddress) * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(5,1)) AS PctMissingAddress,
+            CAST(SUM(MissingPhone) * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(5,1)) AS PctMissingPhone,
+            CAST(SUM(MissingEmail) * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(5,1)) AS PctMissingEmail,
+            CAST(SUM(MissingPhoto) * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(5,1)) AS PctMissingPhoto,
+            
+            -- Count records with privacy restrictions
+            SUM(CASE WHEN PrivacyRestrictions > 0 THEN 1 ELSE 0 END) AS HasPrivacyRestrictions,
+            
+            -- Data completeness score (100% - average of missing critical data percentages)
+            100 - (
+                (CAST(SUM(MissingGender) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
+                 CAST(SUM(MissingBirthDate) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
+                 CAST(SUM(MissingAddress) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
+                 CAST(SUM(MissingPhone) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
+                 CAST(SUM(MissingEmail) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
+                 CAST(SUM(MissingMemberStatus) * 100.0 / COUNT(*) AS DECIMAL(5,1))) / 6
+            ) AS DataCompletenessScore
+        FROM DataQualityMetrics
+        WHERE RecordStatus = 'Active'
+        GROUP BY AgeRange
+    ) AS combined_results
+    ORDER BY 
+        MetricType,
         CASE 
-            WHEN p.IsDeceased = 1 AND p.ArchivedFlag = 1 THEN 'Deceased and Archived'
-            WHEN p.IsDeceased = 1 THEN 'Deceased (Not Archived)'
-            WHEN p.ArchivedFlag = 1 THEN 'Archived (Not Deceased)'
+            WHEN RecordStatus = 'Active' THEN 1
+            WHEN RecordStatus = 'Dropped' THEN 2
+            WHEN RecordStatus = 'Deceased' THEN 3
+            WHEN RecordStatus = 'Archived' THEN 4
+            WHEN RecordStatus = 'Unknown' THEN 5
+            WHEN RecordStatus = 'Under 13' THEN 10
+            WHEN RecordStatus = '13-17' THEN 11
+            WHEN RecordStatus = '18-24' THEN 12
+            WHEN RecordStatus = '25-34' THEN 13
+            WHEN RecordStatus = '35-44' THEN 14
+            WHEN RecordStatus = '45-54' THEN 15
+            WHEN RecordStatus = '55-64' THEN 16
+            WHEN RecordStatus = '65-74' THEN 17
+            WHEN RecordStatus = '75+' THEN 18
+            ELSE 19
+        END
+    '''
+    return sql_template.format(use_active_records_val, member_status_filter_val)
+
+def get_missing_data_people_sql(use_active_records_val, member_status_filter_val):
+    """Build the missing data people SQL with properly inserted parameter values"""
+    sql_template = '''
+    SELECT TOP 5000
+        p.PeopleId,
+        p.Name,
+        p.Age,
+        CASE 
+            WHEN p.ArchivedFlag = 1 THEN 'Archived'
+            WHEN p.IsDeceased = 1 THEN 'Deceased'
             ELSE 'Active'
         END AS RecordStatus,
+        ms.Description AS MemberStatus,
+        COALESCE(p.CampusId, 0) AS CampusId,
         
-        -- Filter to exclude archived records
-        CASE WHEN p.ArchivedFlag = 0 THEN 1 ELSE 0 END AS IsActiveRecord,
+        -- Contact Info
+        COALESCE(p.PrimaryAddress, p.AddressLineOne, '') AS Address,
+        COALESCE(p.PrimaryCity, p.CityName, '') AS City,
+        COALESCE(p.PrimaryState, p.StateCode, '') AS State,
+        COALESCE(p.PrimaryZip, p.ZipCode, '') AS Zip,
+        CASE WHEN p.Age >= 13 THEN COALESCE(p.CellPhone, '') END AS CellPhone,
+        CASE WHEN p.Age >= 13 THEN COALESCE(p.HomePhone, '') END AS HomePhone,
+        CASE WHEN p.Age >= 13 THEN COALESCE(p.EmailAddress, '') END AS Email,
         
-        -- Core demographics
+        -- Missing Data Flags
         CASE WHEN p.GenderId = 0 THEN 1 ELSE 0 END AS MissingGender,
-        CASE WHEN p.BDate IS NULL AND (p.BirthMonth IS NULL OR p.BirthDay IS NULL OR p.BirthYear IS NULL) THEN 1 ELSE 0 END AS MissingBirthDate,
+        CASE WHEN p.BDate IS NULL THEN 1 ELSE 0 END AS MissingBirthDate,
         CASE WHEN p.MaritalStatusId = 0 THEN 1 ELSE 0 END AS MissingMaritalStatus,
-        CASE WHEN p.MemberStatusId IS NULL THEN 1 ELSE 0 END AS MissingMemberStatus,
-        
-        -- Church-specific data
         CASE WHEN p.BaptismStatusId = 0 THEN 1 ELSE 0 END AS MissingBaptismStatus,
         CASE WHEN p.CampusId IS NULL THEN 1 ELSE 0 END AS MissingCampus,
-        
-        -- Contact info 
         CASE WHEN (p.PrimaryAddress IS NULL OR p.PrimaryAddress = '') AND 
                   (p.AddressLineOne IS NULL OR p.AddressLineOne = '') THEN 1 ELSE 0 END AS MissingAddress,
-        CASE WHEN (p.PrimaryCity IS NULL OR p.PrimaryCity = '') AND 
-                  (p.CityName IS NULL OR p.CityName = '') THEN 1 ELSE 0 END AS MissingCity,
-        CASE WHEN (p.PrimaryState IS NULL OR p.PrimaryState = '') AND 
-                  (p.StateCode IS NULL OR p.StateCode = '') THEN 1 ELSE 0 END AS MissingState,
-        CASE WHEN (p.PrimaryZip IS NULL OR p.PrimaryZip = '') AND 
-                  (p.ZipCode IS NULL OR p.ZipCode = '') THEN 1 ELSE 0 END AS MissingZip,
-        CASE WHEN p.BadAddressFlag = 1 OR p.PrimaryBadAddrFlag = 1 THEN 1 ELSE 0 END AS BadAddress,
-        
-        -- Phone info
-        -- CASE WHEN (p.CellPhone IS NULL OR p.CellPhone = '') AND 
-        --          (p.HomePhone IS NULL OR p.HomePhone = '') AND 
-        --          (p.WorkPhone IS NULL OR p.WorkPhone = '') THEN 1 ELSE 0 END AS MissingPhone,
-        CASE 
-            WHEN p.Age < 13 THEN 
-                CASE 
-                    WHEN p.MemberStatusId = 0 THEN 1 
-                    ELSE 0 
-                END
-            ELSE 
-                CASE 
-                    WHEN (p.CellPhone IS NULL OR p.CellPhone = '') AND 
-                         (p.HomePhone IS NULL OR p.HomePhone = '') AND 
-                         (p.WorkPhone IS NULL OR p.WorkPhone = '') THEN 1 
-                    ELSE 0 
-                END
-        END AS MissingPhone,
-        
-        -- Email info
-        --CASE WHEN (p.EmailAddress IS NULL OR p.EmailAddress = '') AND 
-        --          (p.EmailAddress2 IS NULL OR p.EmailAddress2 = '') THEN 1 ELSE 0 END AS MissingEmail,
-        CASE 
-            WHEN p.Age < 13 THEN 
-                CASE 
-                    WHEN p.MemberStatusId = 0 THEN 1 
-                    ELSE 0 
-                END
-            ELSE 
-                CASE 
-                    WHEN (p.EmailAddress IS NULL OR p.EmailAddress = '') AND 
-                         (p.EmailAddress2 IS NULL OR p.EmailAddress2 = '') THEN 1 
-                    ELSE 0 
-                END
-        END AS MissingEmail,
-        
-        
-        -- Family info
-        CASE WHEN p.FamilyId IS NULL THEN 1 ELSE 0 END AS MissingFamily,
-        CASE WHEN p.PositionInFamilyId IS NULL THEN 1 ELSE 0 END AS MissingFamilyPosition,
-        
-        -- Photo
+        CASE WHEN p.Age >= 13 THEN
+            CASE WHEN (p.CellPhone IS NULL OR p.CellPhone = '') AND 
+                  (p.HomePhone IS NULL OR p.HomePhone = '') AND 
+                  (p.WorkPhone IS NULL OR p.WorkPhone = '') THEN 1 ELSE 0 END 
+                  END AS MissingPhone,
+        CASE WHEN p.Age >= 13 THEN
+            CASE WHEN (p.EmailAddress IS NULL OR p.EmailAddress = '') AND 
+                  (p.EmailAddress2 IS NULL OR p.EmailAddress2 = '') THEN 1 ELSE 0 END 
+            END AS MissingEmail,
         CASE WHEN p.PictureId IS NULL THEN 1 ELSE 0 END AS MissingPhoto,
         
-        -- Multiple of these flags ON indicates potential data quality issues
-        (CASE WHEN p.DoNotMailFlag = 1 THEN 1 ELSE 0 END +
-         CASE WHEN p.DoNotCallFlag = 1 THEN 1 ELSE 0 END +
-         CASE WHEN p.DoNotVisitFlag = 1 THEN 1 ELSE 0 END +
-         CASE WHEN p.DoNotPublishPhones = 1 THEN 1 ELSE 0 END) AS PrivacyRestrictions,
-         
-        -- For age demographics breakdown
-        CASE 
-            WHEN p.Age < 13 THEN 'Under 13'
-            WHEN p.Age BETWEEN 13 AND 17 THEN '13-17'
-            WHEN p.Age BETWEEN 18 AND 24 THEN '18-24'
-            WHEN p.Age BETWEEN 25 AND 34 THEN '25-34'
-            WHEN p.Age BETWEEN 35 AND 44 THEN '35-44'
-            WHEN p.Age BETWEEN 45 AND 54 THEN '45-54'
-            WHEN p.Age BETWEEN 55 AND 64 THEN '55-64'
-            WHEN p.Age BETWEEN 65 AND 74 THEN '65-74'
-            WHEN p.Age >= 75 THEN '75+'
-            ELSE 'Unknown'
-        END AS AgeRange,
-        
-        -- Organization involvement
-        CASE WHEN p.BibleFellowshipClassId IS NULL THEN 1 ELSE 0 END AS MissingBibleClass,
-        
-        -- Data management status - useful to track when records might need review
-        CASE WHEN p.ModifiedDate IS NULL THEN 1 ELSE 0 END AS NeverModified,
-        CASE WHEN DATEDIFF(MONTH, p.ModifiedDate, GETDATE()) > 24 THEN 1 ELSE 0 END AS StaleRecord,
-        
-        1 AS PersonCount -- For calculating total records
+        -- Last modification
+        p.ModifiedDate AS LastModified
         
     FROM People p
-)
-
-SELECT * FROM (
-    -- Calculate aggregate statistics
-    SELECT
-        'OverallStats' AS MetricType,
-        RecordStatus,
-        COUNT(*) AS TotalRecords,
-        SUM(MissingGender) AS MissingGender,
-        SUM(MissingBirthDate) AS MissingBirthDate,
-        SUM(MissingMaritalStatus) AS MissingMaritalStatus,
-        SUM(MissingMemberStatus) AS MissingMemberStatus,
-        SUM(MissingBaptismStatus) AS MissingBaptismStatus,
-        SUM(MissingCampus) AS MissingCampus,
-        SUM(MissingAddress) AS MissingAddress,
-        SUM(MissingCity) AS MissingCity,
-        SUM(MissingState) AS MissingState,
-        SUM(MissingZip) AS MissingZip,
-        SUM(BadAddress) AS BadAddress,
-        SUM(MissingPhone) AS MissingPhone,
-        SUM(MissingEmail) AS MissingEmail,
-        SUM(MissingFamily) AS MissingFamily,
-        SUM(MissingFamilyPosition) AS MissingFamilyPosition,
-        SUM(MissingPhoto) AS MissingPhoto,
-        SUM(MissingBibleClass) AS MissingBibleClass,
-        SUM(NeverModified) AS NeverModified,
-        SUM(StaleRecord) AS StaleRecord,
+    LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+    WHERE 
+        -- Only include records where some essential data is missing
+        (
+            p.GenderId IS NULL OR
+            (p.BDate IS NULL AND (p.BirthMonth IS NULL OR p.BirthDay IS NULL OR p.BirthYear IS NULL)) OR
+            p.MaritalStatusId IS NULL OR
+            p.MemberStatusId IS NULL OR
+            ((p.PrimaryAddress IS NULL OR p.PrimaryAddress = '') AND (p.AddressLineOne IS NULL OR p.AddressLineOne = '')) OR
+            ((p.CellPhone IS NULL OR p.CellPhone = '') AND (p.HomePhone IS NULL OR p.HomePhone = '') AND (p.WorkPhone IS NULL OR p.WorkPhone = '')) OR
+            ((p.EmailAddress IS NULL OR p.EmailAddress = '') AND (p.EmailAddress2 IS NULL OR p.EmailAddress2 = ''))
+        )
         
-        -- Calculate percentages for key metrics
-        CAST(SUM(MissingGender) * 100.0 / COUNT(*) AS DECIMAL(5,1)) AS PctMissingGender,
-        CAST(SUM(MissingBirthDate) * 100.0 / COUNT(*) AS DECIMAL(5,1)) AS PctMissingBirthDate,
-        CAST(SUM(MissingAddress) * 100.0 / COUNT(*) AS DECIMAL(5,1)) AS PctMissingAddress,
-        CAST(SUM(MissingPhone) * 100.0 / COUNT(*) AS DECIMAL(5,1)) AS PctMissingPhone,
-        CAST(SUM(MissingEmail) * 100.0 / COUNT(*) AS DECIMAL(5,1)) AS PctMissingEmail,
-        CAST(SUM(MissingPhoto) * 100.0 / COUNT(*) AS DECIMAL(5,1)) AS PctMissingPhoto,
+        -- Focusing on active records by default
+        AND (p.ArchivedFlag = 0 AND p.IsDeceased = 0)
         
-        -- Count records with privacy restrictions
-        SUM(CASE WHEN PrivacyRestrictions > 0 THEN 1 ELSE 0 END) AS HasPrivacyRestrictions,
+        -- Apply ActiveRecords filter if enabled
+        AND ({0} = 0 
+            OR EXISTS(
+                SELECT NULL AS EMPTY
+                FROM dbo.ActiveRecords(GETDATE()) AS t1
+                WHERE t1.PeopleId = p.PeopleId
+            ))
         
-        -- Data completeness score (100% - average of missing critical data percentages)
-        100 - (
-            (CAST(SUM(MissingGender) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
-             CAST(SUM(MissingBirthDate) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
-             CAST(SUM(MissingAddress) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
-             CAST(SUM(MissingPhone) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
-             CAST(SUM(MissingEmail) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
-             CAST(SUM(MissingMemberStatus) * 100.0 / COUNT(*) AS DECIMAL(5,1))) / 6
-        ) AS DataCompletenessScore
+        -- Apply MemberStatus filter if selected
+        AND ({1} = -1 
+            OR p.MemberStatusId = {1})
         
-    FROM DataQualityMetrics
-    GROUP BY RecordStatus
-
-    UNION ALL
-
-    -- Age breakdown statistics
-    SELECT
-        'AgeBreakdown' AS MetricType,
-        AgeRange AS RecordStatus,
-        COUNT(*) AS TotalRecords,
-        SUM(MissingGender) AS MissingGender,
-        SUM(MissingBirthDate) AS MissingBirthDate,
-        SUM(MissingMaritalStatus) AS MissingMaritalStatus,
-        SUM(MissingMemberStatus) AS MissingMemberStatus,
-        SUM(MissingBaptismStatus) AS MissingBaptismStatus,
-        SUM(MissingCampus) AS MissingCampus,
-        SUM(MissingAddress) AS MissingAddress,
-        SUM(MissingCity) AS MissingCity,
-        SUM(MissingState) AS MissingState,
-        SUM(MissingZip) AS MissingZip,
-        SUM(BadAddress) AS BadAddress,
-        SUM(MissingPhone) AS MissingPhone,
-        SUM(MissingEmail) AS MissingEmail,
-        SUM(MissingFamily) AS MissingFamily,
-        SUM(MissingFamilyPosition) AS MissingFamilyPosition,
-        SUM(MissingPhoto) AS MissingPhoto,
-        SUM(MissingBibleClass) AS MissingBibleClass,
-        SUM(NeverModified) AS NeverModified,
-        SUM(StaleRecord) AS StaleRecord,
-        
-        -- Calculate percentages for key metrics
-        CAST(SUM(MissingGender) * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(5,1)) AS PctMissingGender,
-        CAST(SUM(MissingBirthDate) * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(5,1)) AS PctMissingBirthDate,
-        CAST(SUM(MissingAddress) * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(5,1)) AS PctMissingAddress,
-        CAST(SUM(MissingPhone) * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(5,1)) AS PctMissingPhone,
-        CAST(SUM(MissingEmail) * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(5,1)) AS PctMissingEmail,
-        CAST(SUM(MissingPhoto) * 100.0 / NULLIF(COUNT(*), 0) AS DECIMAL(5,1)) AS PctMissingPhoto,
-        
-        -- Count records with privacy restrictions
-        SUM(CASE WHEN PrivacyRestrictions > 0 THEN 1 ELSE 0 END) AS HasPrivacyRestrictions,
-        
-        -- Data completeness score (100% - average of missing critical data percentages)
-        100 - (
-            (CAST(SUM(MissingGender) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
-             CAST(SUM(MissingBirthDate) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
-             CAST(SUM(MissingAddress) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
-             CAST(SUM(MissingPhone) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
-             CAST(SUM(MissingEmail) * 100.0 / COUNT(*) AS DECIMAL(5,1)) +
-             CAST(SUM(MissingMemberStatus) * 100.0 / COUNT(*) AS DECIMAL(5,1))) / 6
-        ) AS DataCompletenessScore
-    FROM DataQualityMetrics
-    --WHERE ArchivedFlag = 0 -- Only include non-archived records in age breakdown
-    WHERE RecordStatus = 'Active'
-    GROUP BY AgeRange
-) AS combined_results
-ORDER BY 
-    MetricType,
-    CASE 
-        WHEN RecordStatus = 'Active' THEN 1
-        WHEN RecordStatus = 'Dropped' THEN 2
-        WHEN RecordStatus = 'Deceased' THEN 3
-        WHEN RecordStatus = 'Archived' THEN 4
-        WHEN RecordStatus = 'Unknown' THEN 5
-        WHEN RecordStatus = 'Under 13' THEN 10
-        WHEN RecordStatus = '13-17' THEN 11
-        WHEN RecordStatus = '18-24' THEN 12
-        WHEN RecordStatus = '25-34' THEN 13
-        WHEN RecordStatus = '35-44' THEN 14
-        WHEN RecordStatus = '45-54' THEN 15
-        WHEN RecordStatus = '55-64' THEN 16
-        WHEN RecordStatus = '65-74' THEN 17
-        WHEN RecordStatus = '75+' THEN 18
-        ELSE 19
-    END
-'''
-
-# Query for specific people with missing data
-sqlMissingDataPeople = '''
-SELECT TOP 5000
-    p.PeopleId,
-    p.Name,
-    p.Age,
-    CASE 
-        WHEN p.ArchivedFlag = 1 THEN 'Archived'
-        WHEN p.IsDeceased = 1 THEN 'Deceased'
-        ELSE 'Active'
-    END AS RecordStatus,
-    ms.Description AS MemberStatus,
-    COALESCE(p.CampusId, 0) AS CampusId,
-    
-    -- Contact Info
-    COALESCE(p.PrimaryAddress, p.AddressLineOne, '') AS Address,
-    COALESCE(p.PrimaryCity, p.CityName, '') AS City,
-    COALESCE(p.PrimaryState, p.StateCode, '') AS State,
-    COALESCE(p.PrimaryZip, p.ZipCode, '') AS Zip,
-    CASE WHEN p.Age >= 13 THEN COALESCE(p.CellPhone, '') END AS CellPhone,
-    CASE WHEN p.Age >= 13 THEN COALESCE(p.HomePhone, '') END AS HomePhone,
-    CASE WHEN p.Age >= 13 THEN COALESCE(p.EmailAddress, '') END AS Email,
-    
-    -- Missing Data Flags
-    CASE WHEN p.GenderId = 0 THEN 1 ELSE 0 END AS MissingGender,
-    CASE WHEN p.BDate IS NULL THEN 1 ELSE 0 END AS MissingBirthDate, --AND (p.BirthMonth IS NULL OR p.BirthDay IS NULL OR p.BirthYear IS NULL) 
-    CASE WHEN p.MaritalStatusId = 0 THEN 1 ELSE 0 END AS MissingMaritalStatus,
-    --CASE WHEN p.MemberStatusId IS NULL THEN 1 ELSE 0 END AS MissingMemberStatus,
-    CASE WHEN p.BaptismStatusId = 0 THEN 1 ELSE 0 END AS MissingBaptismStatus,
-    CASE WHEN p.CampusId IS NULL THEN 1 ELSE 0 END AS MissingCampus,
-    CASE WHEN (p.PrimaryAddress IS NULL OR p.PrimaryAddress = '') AND 
-              (p.AddressLineOne IS NULL OR p.AddressLineOne = '') THEN 1 ELSE 0 END AS MissingAddress,
-    CASE WHEN p.Age >= 13 THEN
-		CASE WHEN (p.CellPhone IS NULL OR p.CellPhone = '') AND 
-              (p.HomePhone IS NULL OR p.HomePhone = '') AND 
-              (p.WorkPhone IS NULL OR p.WorkPhone = '') THEN 1 ELSE 0 END 
-			  END AS MissingPhone,
-    CASE WHEN p.Age >= 13 THEN
-		CASE WHEN (p.EmailAddress IS NULL OR p.EmailAddress = '') AND 
-              (p.EmailAddress2 IS NULL OR p.EmailAddress2 = '') THEN 1 ELSE 0 END 
-		END AS MissingEmail,
-    CASE WHEN p.PictureId IS NULL THEN 1 ELSE 0 END AS MissingPhoto,
-    
-    -- Last modification
-    p.ModifiedDate AS LastModified
-    
-FROM People p
-LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
-
-WHERE 
-    -- Only include records where some essential data is missing
-    (
-        p.GenderId IS NULL OR
-        (p.BDate IS NULL AND (p.BirthMonth IS NULL OR p.BirthDay IS NULL OR p.BirthYear IS NULL)) OR
-        p.MaritalStatusId IS NULL OR
-        p.MemberStatusId IS NULL OR
-        ((p.PrimaryAddress IS NULL OR p.PrimaryAddress = '') AND (p.AddressLineOne IS NULL OR p.AddressLineOne = '')) OR
-        ((p.CellPhone IS NULL OR p.CellPhone = '') AND (p.HomePhone IS NULL OR p.HomePhone = '') AND (p.WorkPhone IS NULL OR p.WorkPhone = '')) OR
-        ((p.EmailAddress IS NULL OR p.EmailAddress = '') AND (p.EmailAddress2 IS NULL OR p.EmailAddress2 = ''))
-    )
-    
-    -- Focusing on active records by default
-    AND (p.ArchivedFlag = 0 AND p.IsDeceased = 0)
-
-ORDER BY p.ModifiedDate DESC
-'''
+    ORDER BY p.ModifiedDate DESC
+    '''
+    return sql_template.format(use_active_records_val, member_status_filter_val)
 
 # -------------------------------------------------------------------------
 # Def Function
 # -------------------------------------------------------------------------
-
 # Near the beginning of the script, add a function to create SQL scripts
+# Near the beginning of the script, add a function to create SQL scripts with better parameter handling
 def create_sql_scripts():
-    # Missing Email addresses
+    # Define the SQL templates with better parameter handling
     email_sql = '''
     SELECT p.PeopleId, p.Name, p.Age
     FROM People p 
@@ -341,6 +408,16 @@ def create_sql_scripts():
       AND p.Age >= 13
       AND p.ArchivedFlag = 0 
       AND p.IsDeceased = 0
+      -- Apply ActiveRecords filter if enabled
+      AND (@UseActiveRecords = 0 
+          OR EXISTS(
+              SELECT NULL AS EMPTY
+              FROM dbo.ActiveRecords(GETDATE()) AS t1
+              WHERE t1.PeopleId = p.PeopleId
+          ))
+      -- Apply MemberStatus filter if selected
+      AND (@MemberStatusFilter = -1 
+          OR p.MemberStatusId = @MemberStatusFilter)
     ORDER BY p.ModifiedDate DESC
     '''
     model.WriteContentSql("TPx_DQD-MissingEmailList", email_sql)
@@ -355,6 +432,16 @@ def create_sql_scripts():
       AND p.Age >= 13
       AND p.ArchivedFlag = 0 
       AND p.IsDeceased = 0
+      -- Apply ActiveRecords filter if enabled
+      AND (@UseActiveRecords = 0 
+          OR EXISTS(
+              SELECT NULL AS EMPTY
+              FROM dbo.ActiveRecords(GETDATE()) AS t1
+              WHERE t1.PeopleId = p.PeopleId
+          ))
+      -- Apply MemberStatus filter if selected
+      AND (@MemberStatusFilter = -1 
+          OR p.MemberStatusId = @MemberStatusFilter)
     ORDER BY p.ModifiedDate DESC
     '''
     model.WriteContentSql("TPx_DQD-MissingPhoneList", phone_sql)
@@ -367,6 +454,16 @@ def create_sql_scripts():
       AND (p.AddressLineOne IS NULL OR p.AddressLineOne = ''))
       AND p.ArchivedFlag = 0 
       AND p.IsDeceased = 0
+      -- Apply ActiveRecords filter if enabled
+      AND (@UseActiveRecords = 0 
+          OR EXISTS(
+              SELECT NULL AS EMPTY
+              FROM dbo.ActiveRecords(GETDATE()) AS t1
+              WHERE t1.PeopleId = p.PeopleId
+          ))
+      -- Apply MemberStatus filter if selected
+      AND (@MemberStatusFilter = -1 
+          OR p.MemberStatusId = @MemberStatusFilter)
     ORDER BY p.ModifiedDate DESC
     '''
     model.WriteContentSql("TPx_DQD-MissingAddressList", address_sql)
@@ -378,6 +475,16 @@ def create_sql_scripts():
     WHERE p.GenderId IS NULL OR p.GenderId = 0
       AND p.ArchivedFlag = 0 
       AND p.IsDeceased = 0
+      -- Apply ActiveRecords filter if enabled
+      AND (@UseActiveRecords = 0 
+          OR EXISTS(
+              SELECT NULL AS EMPTY
+              FROM dbo.ActiveRecords(GETDATE()) AS t1
+              WHERE t1.PeopleId = p.PeopleId
+          ))
+      -- Apply MemberStatus filter if selected
+      AND (@MemberStatusFilter = -1 
+          OR p.MemberStatusId = @MemberStatusFilter)
     ORDER BY p.ModifiedDate DESC
     '''
     model.WriteContentSql("TPx_DQD-MissingGenderList", gender_sql)
@@ -390,6 +497,16 @@ def create_sql_scripts():
       AND (p.BirthMonth IS NULL OR p.BirthDay IS NULL OR p.BirthYear IS NULL)
       AND p.ArchivedFlag = 0 
       AND p.IsDeceased = 0
+      -- Apply ActiveRecords filter if enabled
+      AND (@UseActiveRecords = 0 
+          OR EXISTS(
+              SELECT NULL AS EMPTY
+              FROM dbo.ActiveRecords(GETDATE()) AS t1
+              WHERE t1.PeopleId = p.PeopleId
+          ))
+      -- Apply MemberStatus filter if selected
+      AND (@MemberStatusFilter = -1 
+          OR p.MemberStatusId = @MemberStatusFilter)
     ORDER BY p.ModifiedDate DESC
     '''
     model.WriteContentSql("TPx_DQD-MissingBirthDateList", birthdate_sql)
@@ -401,6 +518,16 @@ def create_sql_scripts():
     WHERE p.PictureId IS NULL
       AND p.ArchivedFlag = 0 
       AND p.IsDeceased = 0
+      -- Apply ActiveRecords filter if enabled
+      AND (@UseActiveRecords = 0 
+          OR EXISTS(
+              SELECT NULL AS EMPTY
+              FROM dbo.ActiveRecords(GETDATE()) AS t1
+              WHERE t1.PeopleId = p.PeopleId
+          ))
+      -- Apply MemberStatus filter if selected
+      AND (@MemberStatusFilter = -1 
+          OR p.MemberStatusId = @MemberStatusFilter)
     ORDER BY p.ModifiedDate DESC
     '''
     model.WriteContentSql("TPx_DQD-MissingPhotoList", photo_sql)
@@ -412,6 +539,16 @@ def create_sql_scripts():
     WHERE (p.BadAddressFlag = 1 OR p.PrimaryBadAddrFlag = 1)
       AND p.ArchivedFlag = 0 
       AND p.IsDeceased = 0
+      -- Apply ActiveRecords filter if enabled
+      AND (@UseActiveRecords = 0 
+          OR EXISTS(
+              SELECT NULL AS EMPTY
+              FROM dbo.ActiveRecords(GETDATE()) AS t1
+              WHERE t1.PeopleId = p.PeopleId
+          ))
+      -- Apply MemberStatus filter if selected
+      AND (@MemberStatusFilter = -1 
+          OR p.MemberStatusId = @MemberStatusFilter)
     ORDER BY p.ModifiedDate DESC
     '''
     model.WriteContentSql("TPx_DQD-BadAddressList", bad_address_sql)
@@ -423,9 +560,20 @@ def create_sql_scripts():
     WHERE DATEDIFF(MONTH, p.ModifiedDate, GETDATE()) > 24
       AND p.ArchivedFlag = 0 
       AND p.IsDeceased = 0
+      -- Apply ActiveRecords filter if enabled
+      AND (@UseActiveRecords = 0 
+          OR EXISTS(
+              SELECT NULL AS EMPTY
+              FROM dbo.ActiveRecords(GETDATE()) AS t1
+              WHERE t1.PeopleId = p.PeopleId
+          ))
+      -- Apply MemberStatus filter if selected
+      AND (@MemberStatusFilter = -1 
+          OR p.MemberStatusId = @MemberStatusFilter)
     ORDER BY p.ModifiedDate
     '''
     model.WriteContentSql("TPx_DQD-StaleRecordsList", stale_records_sql)
+
 
 # Call this function early in your script
 create_sql_scripts()
@@ -433,7 +581,6 @@ create_sql_scripts()
 # -------------------------------------------------------------------------
 # Dashboard HTML Template
 # -------------------------------------------------------------------------
-
 html_template = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -458,7 +605,6 @@ html_template = '''
         h1, h2, h3, h4 {
             color: #2c3e50;
         }
-
         /* Main dashboard title */
         h1 {
             font-size: 2.2rem;
@@ -466,7 +612,6 @@ html_template = '''
             color: #2c3e50;
             margin-bottom: 20px;
         }
-
         /* Section headings should be bigger too */
         h2 {
             font-size: 1.8rem !important;
@@ -477,7 +622,6 @@ html_template = '''
             padding-bottom: 15px !important;
             border-bottom: 2px solid #eee !important;
         }
-
         /* Secondary headings and card titles */
         h3, .metric-label {
             font-size: 1.1rem;
@@ -486,14 +630,12 @@ html_template = '''
             margin-top: 0;
             margin-bottom: 10px;
         }
-
         .container {
             display: flex;
             flex-wrap: wrap;
             gap: 20px;
             margin-bottom: 30px;
         }
-
         .container-fluid {
             padding-left: 0;
             padding-right: 0;
@@ -509,7 +651,6 @@ html_template = '''
             min-width: 200px;
             text-align: center;
         }
-
         /* Main metric card titles */
         .metric-card .metric-label {
             font-size: 1.3rem !important; /* Increase font size significantly */
@@ -561,7 +702,6 @@ html_template = '''
             max-width: 100%;
             box-sizing: border-box;
         }        
-
         .chart-card {
             background-color: #fff;
             border-radius: 8px;
@@ -602,7 +742,6 @@ html_template = '''
             padding: 0; /* Remove padding */
             margin-bottom: 30px;
         }
-
         /* Table section titles */
         .table-container h3 {
             font-size: 1.5rem !important;
@@ -616,7 +755,6 @@ html_template = '''
             border-collapse: collapse;
             table-layout: fixed; /* Fixed layout for better performance */
         }
-
         /* Make table headers more prominent */
         table th {
             font-size: 1.1rem !important;
@@ -831,13 +969,11 @@ html_template = '''
                 padding: 8px 10px;
             }
         }
-
         #problem-records-table {
             border-collapse: separate;
             border-spacing: 0;
             width: 100%;
         }
-
         /* Properly sticky headers */
         #problem-records-table thead {
             position: sticky;
@@ -899,7 +1035,6 @@ html_template = '''
             margin-right: 3px;
             margin-bottom: 3px;
         }
-
         /* Pop-up */
         .info-icon {
             cursor: pointer;
@@ -918,6 +1053,118 @@ html_template = '''
             max-width: 400px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             display: none;
+        }
+        
+        /* Global Filter Panel Styles */
+        .filter-panel {
+            background-color: #f5f7fa;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .filter-panel h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.4rem !important;
+            color: #2c3e50;
+        }
+        
+        .filter-form {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .filter-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: center;
+        }
+        
+        .filter-group {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .filter-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #34495e;
+        }
+        
+        .filter-group select {
+            width: 100%;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            background-color: white;
+            font-size: 1rem;
+        }
+        
+        .filter-actions {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+        
+        .filter-button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 10px 15px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+        
+        .filter-button:hover {
+            background-color: #2980b9;
+        }
+        
+        .filter-reset {
+            background-color: #e0e0e0;
+            color: #333;
+            border: none;
+            border-radius: 4px;
+            padding: 10px 15px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+        
+        .filter-reset:hover {
+            background-color: #bdc3c7;
+        }
+        
+        /* Add styling for the filter tag that shows current filters */
+        .active-filters {
+            background-color: #ebf5fb;
+            border-radius: 4px;
+            padding: 10px 15px;
+            margin-bottom: 15px;
+            display: none; /* Hidden by default */
+        }
+        
+        .active-filters span {
+            font-weight: 600;
+            color: #2980b9;
+        }
+        
+        /* Animation for loading state */
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .loading-state {
+            animation: pulse 1.5s infinite;
+            pointer-events: none;
         }
     </style>
 </head>
@@ -944,17 +1191,45 @@ html_template = '''
         </g>
         
         <!-- Single "i" letter to the right -->
-        <text x="206" y="105" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#0099FF">i</text>
+        <text x="206" y="105" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#0099FF">si</text>
       </svg>
     </h1>
-
+    
+    <!-- Global Filter Panel -->
+    <div class="filter-panel">
+        <h3>Global Data Filters</h3>
+        <div class="active-filters" id="active-filters">
+            Currently filtering: <span id="filter-description">All Records</span>
+        </div>
+        <form id="global-filters" class="filter-form" action="" method="get">
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label for="activeRecordsFilter">Active Records:</label>
+                    <select id="activeRecordsFilter" name="activeRecords">
+                        <option value="0">All Records</option>
+                        <option value="1">Active Records Only</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="memberStatusFilter">Member Status:</label>
+                    <select id="memberStatusFilter" name="memberStatus">
+                        <option value="-1">All Statuses</option>
+                        {{member_status_options}}
+                    </select>
+                </div>
+                <div class="filter-actions">
+                    <button type="submit" class="filter-button">Apply Filters</button>
+                    <button type="reset" class="filter-reset">Reset</button>
+                </div>
+            </div>
+        </form>
+    </div>
     
     <div class="tabs">
         <div class="tab active" data-tab="overview">Overview</div>
         <div class="tab" data-tab="records">Problem Records</div>
         <div class="tab" data-tab="actions">Recommended Actions</div>
     </div>
-
     <!-- Overview Tab -->
     <div id="overview" class="tab-content active">
         <h2>Data Health Overview</h2>
@@ -988,7 +1263,6 @@ html_template = '''
                 <div class="help-text">Not updated in over 24 months</div>
             </div>
         </div>
-
         <!-- Charts for data completeness -->
         <div class="chart-row">
             <div class="chart-card">
@@ -1109,8 +1383,7 @@ html_template = '''
                     {{problem_records_rows}}
                 </tbody>
             </table>
-            
-            <div class="pagination" id="records-pagination"></div>
+        <div class="pagination" id="records-pagination"></div>
         </div>
     </div>
     
@@ -1183,6 +1456,12 @@ html_template = '''
     // Defer chart initialization to improve initial page load
     let statusChart, missingDataChart, ageDataChart, contactChart;
     let chartsInitialized = false;
+    
+    // Global filter state
+    let activeFilters = {
+        activeRecords: false,
+        memberStatus: '-1'
+    };
     
     // Tab functionality with lazy loading
     document.querySelectorAll('.tab').forEach(tab => {
@@ -1306,7 +1585,6 @@ html_template = '''
             }
         });
     }
-
     const commonChartOptions = {
         responsive: true,
         maintainAspectRatio: false,  // This is crucial!
@@ -1428,7 +1706,6 @@ html_template = '''
             console.error("Error initializing missing data chart:", error);
         }
     }
-
     
     function initAgeDataChart() {
         const ageDataCtx = document.getElementById('age-data-chart').getContext('2d');
@@ -1917,7 +2194,6 @@ html_template = '''
             </ul>
             
             <p><em>Goal: Maintain a high score by ensuring most records have complete, essential information.</em></p>
-
             <h4>Example:</h4>
             <ul>
                 <li>Gender (5% missing)</li>
@@ -1961,8 +2237,6 @@ html_template = '''
             document.addEventListener('click', closeTooltipHandler);
         }, 0);
     }
-
-
     // Phone Email pop-up
     function showPhoneEmailTooltip(event, type) {
         // Remove any existing tooltips
@@ -2032,58 +2306,27 @@ html_template = '''
             document.addEventListener('click', closeTooltipHandler);
         }, 0);
     }
-
-    // Performance monitoring utility
-    function trackPerformance() {
-        const metrics = {
-            initialLoadTime: 0,
-            chartRenderTime: 0,
-            tableLoadTime: 0
-        };
-        
-        const startTime = performance.now();
-        
-        window.addEventListener('load', () => {
-            metrics.initialLoadTime = performance.now() - startTime;
-            console.log(`Initial page load: ${metrics.initialLoadTime.toFixed(2)}ms`);
-        });
-        
-        // Add observer for tracking visible elements
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    // When overview tab becomes visible, initialize charts
-                    if (entry.target.id === 'overview' && !chartsInitialized) {
-                        const chartStart = performance.now();
-                        initializeCharts();
-                        metrics.chartRenderTime = performance.now() - chartStart;
-                        console.log(`Chart rendering: ${metrics.chartRenderTime.toFixed(2)}ms`);
-                    }
-                    
-                    // When records tab becomes visible, load problem records
-                    if (entry.target.id === 'records' && !problemRecordsLoaded) {
-                        const tableStart = performance.now();
-                        loadProblemRecords();
-                        // We'll log the table load time when the data is actually loaded
-                        setTimeout(() => {
-                            metrics.tableLoadTime = performance.now() - tableStart;
-                            console.log(`Table data loading: ${metrics.tableLoadTime.toFixed(2)}ms`);
-                        }, 500);
-                    }
-                    
-                    observer.unobserve(entry.target);
-                }
-            });
-        }, { threshold: 0.1 });
-        
-        // Observe the tab content elements
-        document.querySelectorAll('.tab-content').forEach(content => {
-            observer.observe(content);
-        });
-    }
     
     // Initialize dashboard
     document.addEventListener('DOMContentLoaded', function() {
+        // Preselect active filters based on URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('activeRecords')) {
+            const activeRecordsValue = urlParams.get('activeRecords');
+            document.getElementById('activeRecordsFilter').value = activeRecordsValue;
+            activeFilters.activeRecords = activeRecordsValue === '1';
+        }
+        if (urlParams.has('memberStatus')) {
+            const memberStatusValue = urlParams.get('memberStatus');
+            document.getElementById('memberStatusFilter').value = memberStatusValue;
+            activeFilters.memberStatus = memberStatusValue;
+        }
+        
+        // Show active filters indicator if filters are active
+        if (activeFilters.activeRecords || activeFilters.memberStatus !== '-1') {
+            updateActiveFiltersDisplay();
+        }
+        
         // Only load critical data initially
         // Initialize overview tab charts since it's active by default
         if (document.getElementById('overview').classList.contains('active')) {
@@ -2093,23 +2336,101 @@ html_template = '''
         // Apply table optimizations
         optimizeTable('status-table');
         optimizeTable('age-table');
-        
-        // Start performance tracking
-        trackPerformance();
     });
-    </script>
-</body>
-</html>
-'''
+    
+    // Update active filters display
+    function updateActiveFiltersDisplay() {
+        const activeFiltersDisplay = document.getElementById('active-filters');
+        const filterDescription = document.getElementById('filter-description');
+        
+        if (!activeFiltersDisplay || !filterDescription) return;
+        
+        let filterText = '';
+        
+        if (activeFilters.activeRecords) {
+            filterText += 'Active Records Only';
+        } else {
+            filterText += 'All Records';
+        }
+        
+        if (activeFilters.memberStatus !== '-1') {
+            const memberStatusSelect = document.getElementById('memberStatusFilter');
+            const selectedOption = memberStatusSelect.options[memberStatusSelect.selectedIndex];
+            const memberStatusText = selectedOption ? selectedOption.text : 'Unknown Status';
+            
+            filterText += ` with Member Status "${memberStatusText}"`;
+        }
+        
+        filterDescription.textContent = filterText;
+        activeFiltersDisplay.style.display = 'block';
+    }
+    
+    // Handle form reset
+    document.querySelector('.filter-reset').addEventListener('click', function(e) {
+        setTimeout(function() {
+            window.location.href = window.location.pathname; // Redirect to same page without parameters
+        }, 50);
+    });
+    </script>'''
+    
 
-# Execute queries
-overall_stats = q.QuerySql(sqlDataQuality)
-problem_records = q.QuerySql(sqlMissingDataPeople)
+
+# Try to get parameters from the URL using model.Data
+try:
+    if hasattr(model, 'Data'):
+        # Check for activeRecords parameter
+        if hasattr(model.Data, 'activeRecords'):
+            use_active_records = model.Data.activeRecords
+        
+        # Check for memberStatus parameter
+        if hasattr(model.Data, 'memberStatus'):
+            member_status_filter = model.Data.memberStatus
+except:
+    # Fall back to default values if there's an error
+    pass
+
+# Safe conversion to integers
+try:
+    use_active_records_val = int(use_active_records) if use_active_records else 0
+except ValueError:
+    use_active_records_val = 0
+
+try:
+    member_status_filter_val = int(member_status_filter) if member_status_filter else -1
+except ValueError:
+    member_status_filter_val = -1
+    
+
+# Create parameter dictionary for SQL queries
+# sql_params = {
+#     'UseActiveRecords': use_active_records_int,
+#     'MemberStatusFilter': member_status_filter_int
+# }
+
+# Directly replace the parameter placeholders with actual values
+# formatted_data_quality_sql = sqlDataQuality.replace(
+#     "{use_active_records}", str(use_active_records)
+# ).replace(
+#     "{member_status_filter}", str(member_status_filter)
+# )
+
+# formatted_missing_data_sql = sqlMissingDataPeople.replace(
+#     "{use_active_records}", str(use_active_records)
+# ).replace(
+#     "{member_status_filter}", str(member_status_filter)
+# )
+
+# Get SQL queries with properly inserted parameter values
+data_quality_sql = get_data_quality_sql(use_active_records_val, member_status_filter_val)
+missing_data_people_sql = get_missing_data_people_sql(use_active_records_val, member_status_filter_val)
+
+# Execute the SQL queries directly without parameters
+overall_stats = q.QuerySql(data_quality_sql)
+problem_records = q.QuerySql(missing_data_people_sql)
 
 # Process data for display
 status_stats = {}
 age_stats = {}
-
 for row in overall_stats:
     if row.MetricType == 'OverallStats':
         status_stats[row.RecordStatus] = row
@@ -2120,7 +2441,6 @@ for row in overall_stats:
 status_table_rows = ''
 status_labels = []
 status_data = []
-
 for status in status_stats:
     stats = status_stats[status]
     status_labels.append(status)
@@ -2161,7 +2481,6 @@ age_table_rows = ''
 age_group_labels = []
 age_group_scores = []
 age_group_counts = []
-
 # Define a sort order for age groups
 age_order = {
     'Under 13': 0,
@@ -2175,9 +2494,7 @@ age_order = {
     '75+': 8,
     'Unknown': 9
 }
-
 sorted_age_groups = sorted(age_stats.items(), key=lambda x: age_order.get(x[0], 10))
-
 for age_item in sorted_age_groups:
     age = age_item[0]
     stats = age_item[1]
@@ -2217,12 +2534,9 @@ for age_item in sorted_age_groups:
 
 # Problem records table generation section with fix
 problem_records_rows = ''
-
-
 for record in problem_records:
     # Create missing data tags
     missing_data_tags = []
-
     # Add missing data tags for ALL types of missing data
     if record.MissingGender == 1:
         missing_data_tags.append('<span class="badge badge-warning">Gender</span>')
@@ -2258,13 +2572,9 @@ for record in problem_records:
         last_modified_str
     )
 
-
 # Calculate missing data percentages for active records
 active_stats = status_stats.get('Active', {})
 missing_data_percentages = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-
-
-
 # Calculate missing data percentages for active records
 if active_stats:
     missing_data_percentages = [
@@ -2274,7 +2584,6 @@ if active_stats:
         round(float(active_stats.PctMissingPhone or 0.0), 2),
         round(float(active_stats.PctMissingEmail or 0.0), 2),
         round(float(active_stats.PctMissingPhoto or 0.0), 2),
-        #round(float(active_stats.MissingMemberStatus * 100.0 / active_stats.TotalRecords or 0.0), 2)
     ]
 else:
     missing_data_percentages = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -2285,9 +2594,7 @@ missing_data_percentages = [
     for x in missing_data_percentages
 ]
 
-    #print missing_data_percentages
-
-# Prepare age group counts (add this section)
+# Prepare age group counts
 age_group_counts = [
     stats.TotalRecords 
     for age, stats in sorted_age_groups 
@@ -2297,13 +2604,9 @@ age_group_counts = [
 # Prepare contact information stats
 contact_data = []
 if active_stats and active_stats.TotalRecords > 0:
-    #total_records = active_stats.TotalRecords
     total_records = sum(stats.TotalRecords for status, stats in status_stats.items() if status == 'Active')
     
     # Estimate contact information categories
-    #missing_email = active_stats.MissingEmail
-    #missing_phone = active_stats.MissingPhone
-    #missing_address = active_stats.MissingAddress
     missing_email = status_stats['Active'].MissingEmail
     missing_phone = status_stats['Active'].MissingPhone
     missing_address = status_stats['Active'].MissingAddress
@@ -2330,12 +2633,10 @@ else:
 
 # Generate recommended actions
 action_items = ''
-
 # Calculate the overall data quality score
 active_data_score = 0
 if active_stats:
     active_data_score = active_stats.DataCompletenessScore
-
 if active_data_score < 70:
     health_rating = "Poor"
 elif active_data_score < 85:
@@ -2348,7 +2649,6 @@ else:
 # Count critical actions
 critical_count = 0
 cleanup_count = 0
-
 # Add action items based on data quality issues
 if active_stats:
     # Missing contact information
@@ -2360,9 +2660,9 @@ if active_stats:
             <td>Collect missing email addresses</td>
             <td>Improves digital communication</td>
             <td>{0}</td>
-            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingEmailList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingEmailList?activeRecords={1}&memberStatus={2}', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
-        '''.format("{:,}".format(active_stats.MissingEmail))
+        '''.format("{:,}".format(active_stats.MissingEmail), use_active_records, member_status_filter)
         
     if active_stats.MissingPhone > 0:
         critical_count += 1
@@ -2372,9 +2672,9 @@ if active_stats:
             <td>Collect missing phone numbers</td>
             <td>Enables voice/SMS contact</td>
             <td>{0}</td>
-            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingPhoneList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingPhoneList?activeRecords={1}&memberStatus={2}', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
-        '''.format("{:,}".format(active_stats.MissingPhone))
+        '''.format("{:,}".format(active_stats.MissingPhone), use_active_records, member_status_filter)
         
     if active_stats.MissingAddress > 0:
         critical_count += 1
@@ -2384,10 +2684,10 @@ if active_stats:
             <td>Collect missing addresses</td>
             <td>Enables mail communication</td>
             <td>{0}</td>
-            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingAddressList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingAddressList?activeRecords={1}&memberStatus={2}', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
-        '''.format("{:,}".format(active_stats.MissingAddress))
-
+        '''.format("{:,}".format(active_stats.MissingAddress), use_active_records, member_status_filter)
+    
     # Missing demographic information
     if active_stats.MissingGender > 0:
         cleanup_count += 1
@@ -2397,9 +2697,9 @@ if active_stats:
             <td>Update missing gender information</td>
             <td>Improves demographic analysis</td>
             <td>{0}</td>
-            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingGenderList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingGenderList?activeRecords={1}&memberStatus={2}', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
-        '''.format("{:,}".format(active_stats.MissingGender))
+        '''.format("{:,}".format(active_stats.MissingGender), use_active_records, member_status_filter)
         
     if active_stats.MissingBirthDate > 0:
         cleanup_count += 1
@@ -2409,9 +2709,9 @@ if active_stats:
             <td>Update missing birth dates</td>
             <td>Enables age-based ministry</td>
             <td>{0}</td>
-            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingBirthDateList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingBirthDateList?activeRecords={1}&memberStatus={2}', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
-        '''.format("{:,}".format(active_stats.MissingBirthDate))
+        '''.format("{:,}".format(active_stats.MissingBirthDate), use_active_records, member_status_filter)
         
     if active_stats.MissingPhoto > 0:
         cleanup_count += 1
@@ -2421,10 +2721,10 @@ if active_stats:
             <td>Add missing profile photos</td>
             <td>Improves member directory</td>
             <td>{0}</td>
-            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingPhotoList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-MissingPhotoList?activeRecords={1}&memberStatus={2}', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
-        '''.format("{:,}".format(active_stats.MissingPhoto))
-
+        '''.format("{:,}".format(active_stats.MissingPhoto), use_active_records, member_status_filter)
+    
     if active_stats.BadAddress > 0:
         cleanup_count += 1
         action_items += '''
@@ -2433,9 +2733,9 @@ if active_stats:
             <td>Fix bad addresses</td>
             <td>Reduces returned mail</td>
             <td>{0}</td>
-            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-BadAddressList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-BadAddressList?activeRecords={1}&memberStatus={2}', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
-        '''.format("{:,}".format(active_stats.BadAddress))
+        '''.format("{:,}".format(active_stats.BadAddress), use_active_records, member_status_filter)
         
     if active_stats.StaleRecord > 0:
         cleanup_count += 1
@@ -2445,15 +2745,14 @@ if active_stats:
             <td>Verify stale records</td>
             <td>Updates outdated information</td>
             <td>{0}</td>
-            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-StaleRecordList', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
+            <td><a href="javascript:void(0)" onclick="window.open('/RunScript/TPx_DQD-StaleRecordsList?activeRecords={1}&memberStatus={2}', '_blank', 'width=800,height=600')" class="action-btn">Create List</a></td>
         </tr>
-        '''.format("{:,}".format(active_stats.StaleRecord))
+        '''.format("{:,}".format(active_stats.StaleRecord), use_active_records, member_status_filter)
 
 # Prepare data for dashboard
 active_count = 0
 if 'Active' in status_stats:
     active_count = status_stats['Active'].TotalRecords
-
 data_completeness_score = "0.0"
 if active_stats:
     data_completeness_score = "{:.1f}".format(active_stats.DataCompletenessScore)
@@ -2485,7 +2784,6 @@ if active_stats:
 status_labels_str = str(status_labels)
 status_data_str = str([stats.TotalRecords for stats in status_stats.values()])
 
-
 def safe_json_convert(data):
     """
     Recursively convert data to a JSON-serializable format
@@ -2506,6 +2804,13 @@ missing_data_percentages = [
     round(float(x), 2) if x is not None else 0.0 
     for x in missing_data_percentages
 ]
+
+# Mark the current filter values as selected in the HTML
+active_records_selected = "selected" if use_active_records == "1" else ""
+member_status_filter_html = member_status_options.replace(
+    'value="{0}"'.format(member_status_filter), 
+    'value="{0}" selected'.format(member_status_filter)
+)
 
 # Replace template variables with safe JSON serialization
 template_variables = {
@@ -2528,7 +2833,8 @@ template_variables = {
     'age_group_scores': safe_json_convert(age_group_scores),
     'contact_data': safe_json_convert(contact_data),
     'age_group_counts': safe_json_convert(age_group_counts),
-    'contact_data': safe_json_convert(contact_data)
+    'member_status_options': member_status_options,
+    'active_records_selected': active_records_selected
 }
 
 # Replace template variables
@@ -2536,7 +2842,7 @@ dashboard_html = html_template
 for key, value in template_variables.items():
     # Convert to JSON string for most variables
     if key in ['status_labels', 'status_data', 'missing_data_percentages', 
-               'age_group_labels', 'age_group_scores', 'contact_data']:
+               'age_group_labels', 'age_group_scores', 'contact_data', 'age_group_counts']:
         value = json.dumps(value)
     
     dashboard_html = dashboard_html.replace('{{' + key + '}}', str(value))
