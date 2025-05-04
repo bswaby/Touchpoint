@@ -617,6 +617,96 @@ class AttendanceReport:
         
         return program_start_date, program_end_date
     
+    def get_all_programs_divisions_organizations(self):
+        """Fetch all programs, divisions, and organizations in a single query."""
+        sql = """
+        SELECT 
+            p.Id AS ProgramId, 
+            p.Name AS ProgramName,
+            p.RptGroup AS ProgramRptGroup,
+            p.StartHoursOffset,
+            p.EndHoursOffset,
+            d.Id AS DivisionId,
+            d.Name AS DivisionName,
+            d.ReportLine AS DivisionReportLine,
+            d.NoDisplayZero AS DivisionNoDisplayZero,
+            o.OrganizationId,
+            o.OrganizationName,
+            o.MemberCount
+        FROM Program p
+        LEFT JOIN Division d ON d.ProgId = p.Id AND d.ReportLine IS NOT NULL AND d.ReportLine <> ''
+        LEFT JOIN OrganizationStructure os ON os.DivId = d.Id
+        LEFT JOIN Organizations o ON os.OrgId = o.OrganizationId AND o.OrganizationStatusId = 30
+        WHERE p.RptGroup IS NOT NULL AND p.RptGroup <> ''
+        ORDER BY p.RptGroup, d.ReportLine, o.OrganizationName
+        """
+        return q.QuerySql(sql)
+    
+    def get_batch_attendance_data(self, date_ranges):
+        """
+        Fetch attendance data for multiple date ranges in a single query.
+        
+        Parameters:
+            date_ranges: Dictionary with keys as range identifiers and values as (start_date, end_date) tuples
+        """
+        # Build UNION ALL query for all date ranges
+        query_parts = []
+        
+        for range_id, (start_date, end_date) in date_ranges.items():
+            # Format dates for SQL
+            start_date_str = ReportHelper.format_date(start_date)
+            end_date_str = ReportHelper.format_date(end_date)
+            
+            # Create query part for this date range
+            query_part = """
+            SELECT 
+                '{range_id}' AS RangeId,
+                m.OrganizationId,
+                os.DivId,
+                d.ProgId,
+                p.Name as ProgramName,
+                CONVERT(date, m.MeetingDate) as MeetingDate,
+                DATEPART(HOUR, m.MeetingDate) as MeetingHour,
+                COALESCE(m.MaxCount, 0) as AttendCount
+            FROM Meetings m
+            JOIN OrganizationStructure os ON os.OrgId = m.OrganizationId
+            JOIN Division d ON os.DivId = d.Id
+            JOIN Program p ON p.Id = d.ProgId
+            WHERE CONVERT(date, m.MeetingDate) BETWEEN '{start_date}' AND '{end_date}'
+            AND (m.DidNotMeet = 0 OR m.DidNotMeet IS NULL)
+            AND p.RptGroup IS NOT NULL AND p.RptGroup <> ''
+            AND d.ReportLine IS NOT NULL AND d.ReportLine <> ''
+            """.format(
+                range_id=range_id,
+                start_date=start_date_str,
+                end_date=end_date_str
+            )
+            
+            query_parts.append(query_part)
+        
+        # Combine all query parts with UNION ALL
+        full_query = " UNION ALL ".join(query_parts)
+        
+        # Add final select to aggregate results
+        final_query = """
+        WITH CombinedAttendance AS (
+            {0}
+        )
+        SELECT 
+            RangeId,
+            OrganizationId,
+            DivId AS DivisionId,
+            ProgId AS ProgramId,
+            ProgramName,
+            MeetingHour,
+            SUM(AttendCount) as TotalAttendance,
+            COUNT(*) as MeetingCount
+        FROM CombinedAttendance
+        GROUP BY RangeId, OrganizationId, DivId, ProgId, ProgramName, MeetingHour
+        """.format(full_query)
+        
+        return q.QuerySql(final_query)
+
     def get_week_attendance_sql(self, week_start_date, week_end_date, program_id=None, division_id=None, org_id=None):
         """Get SQL for attendance within a week range, accounting for program-specific offsets."""
         # Format dates for SQL
@@ -3193,6 +3283,37 @@ class AttendanceReport:
         
         return sql
     
+    def get_batch_enrollment_data(self, division_ids, report_date):
+        """Get enrollment data for multiple divisions in a single query."""
+        # Format date for SQL
+        date_str = report_date.strftime('%Y-%m-%d')
+        
+        # Create division list for SQL IN clause
+        division_list = ", ".join(str(div_id) for div_id in division_ids)
+        
+        # Query all division enrollments at once
+        sql = """
+        SELECT 
+            os.DivId AS DivisionId,
+            COUNT(om.PeopleId) AS EnrolledCount
+        FROM OrganizationMembers om
+        JOIN OrganizationStructure os ON os.OrgId = om.OrganizationId
+        WHERE os.DivId IN ({0})
+        AND (om.EnrollmentDate IS NULL OR om.EnrollmentDate <= '{1}')
+        AND (om.InactiveDate IS NULL OR om.InactiveDate > '{1}')
+        AND om.MemberTypeId NOT IN (230,311)
+        GROUP BY os.DivId
+        """.format(division_list, date_str)
+        
+        results = q.QuerySql(sql)
+        
+        # Convert to dictionary for easy lookup
+        enrollment_data = {}
+        for row in results:
+            enrollment_data[row.DivisionId] = row.EnrolledCount
+        
+        return enrollment_data
+    
     def _build_program_insert_sql(self):
         """Build the SQL to insert program names into the #ProgramNames table."""
         # Check if the ENROLLMENT_ANALYSIS_PROGRAMS constant is defined and has values
@@ -5027,6 +5148,340 @@ class AttendanceReport:
         row_html += "</tr>"
         return row_html
 
+    def generate_report_content_optimized(self):
+        """Generate report content with optimized database queries."""
+        # Get all structural data in a single query
+        all_data = self.get_all_programs_divisions_organizations()
+        
+        # Create organized data structures to hold the hierarchy
+        programs = {}
+        divisions = {}
+        organizations = {}
+        
+        # Process all data into a hierarchical structure
+        for row in all_data:
+            # Handle program data
+            if row.ProgramId not in programs:
+                programs[row.ProgramId] = {
+                    'id': row.ProgramId,
+                    'name': row.ProgramName,
+                    'rpt_group': row.ProgramRptGroup,
+                    'start_hours_offset': row.StartHoursOffset,
+                    'end_hours_offset': row.EndHoursOffset,
+                    'divisions': {}
+                }
+            
+            # Skip if no division data
+            if not row.DivisionId:
+                continue
+                
+            # Handle division data
+            if row.DivisionId not in divisions:
+                divisions[row.DivisionId] = {
+                    'id': row.DivisionId, 
+                    'name': row.DivisionName,
+                    'report_line': row.DivisionReportLine,
+                    'program_id': row.ProgramId,
+                    'organizations': {}
+                }
+                programs[row.ProgramId]['divisions'][row.DivisionId] = divisions[row.DivisionId]
+            
+            # Skip if no organization data
+            if not row.OrganizationId:
+                continue
+                
+            # Handle organization data
+            if row.OrganizationId not in organizations:
+                organizations[row.OrganizationId] = {
+                    'id': row.OrganizationId,
+                    'name': row.OrganizationName,
+                    'division_id': row.DivisionId,
+                    'member_count': row.MemberCount
+                }
+                divisions[row.DivisionId]['organizations'][row.OrganizationId] = organizations[row.OrganizationId]
+        
+        # Build date ranges for all the attendance data we need
+        date_ranges = {
+            'current_week': (self.week_start_date, self.report_date),
+            'previous_week': (self.previous_week_start, self.previous_week_date),
+            'previous_year_week': (self.previous_week_start_date, self.previous_year_date),
+            'current_ytd': (self.current_fiscal_start, self.report_date),
+            'previous_ytd': (self.previous_fiscal_start, self.previous_year_date)
+        }
+        
+        # Add four-week ranges if enabled
+        if SHOW_FOUR_WEEK_COMPARISON:
+            date_ranges['current_four_week'] = (self.four_weeks_ago_start_date, self.report_date)
+            date_ranges['previous_four_week'] = (self.prev_year_four_weeks_ago_start_date, self.previous_year_date)
+        
+        # Get all attendance data in a single query
+        all_attendance = self.get_batch_attendance_data(date_ranges)
+        
+        # Process attendance data into our hierarchical structure
+        attendance_data = {}
+        for range_id in date_ranges.keys():
+            attendance_data[range_id] = {
+                'programs': {},
+                'divisions': {},
+                'organizations': {}
+            }
+        
+        for row in all_attendance:
+            range_id = row.RangeId
+            program_id = row.ProgramId
+            division_id = row.DivisionId
+            org_id = row.OrganizationId
+            
+            # Add to program attendance
+            if program_id not in attendance_data[range_id]['programs']:
+                attendance_data[range_id]['programs'][program_id] = {
+                    'total': 0,
+                    'meetings': 0,
+                    'by_hour': {}
+                }
+            
+            attendance_data[range_id]['programs'][program_id]['total'] += row.TotalAttendance
+            attendance_data[range_id]['programs'][program_id]['meetings'] += row.MeetingCount
+            if row.MeetingHour not in attendance_data[range_id]['programs'][program_id]['by_hour']:
+                attendance_data[range_id]['programs'][program_id]['by_hour'][row.MeetingHour] = 0
+            attendance_data[range_id]['programs'][program_id]['by_hour'][row.MeetingHour] += row.TotalAttendance
+            
+            # Add to division attendance
+            if division_id not in attendance_data[range_id]['divisions']:
+                attendance_data[range_id]['divisions'][division_id] = {
+                    'total': 0,
+                    'meetings': 0,
+                    'by_hour': {}
+                }
+            
+            attendance_data[range_id]['divisions'][division_id]['total'] += row.TotalAttendance
+            attendance_data[range_id]['divisions'][division_id]['meetings'] += row.MeetingCount
+            if row.MeetingHour not in attendance_data[range_id]['divisions'][division_id]['by_hour']:
+                attendance_data[range_id]['divisions'][division_id]['by_hour'][row.MeetingHour] = 0
+            attendance_data[range_id]['divisions'][division_id]['by_hour'][row.MeetingHour] += row.TotalAttendance
+            
+            # Add to organization attendance
+            if org_id not in attendance_data[range_id]['organizations']:
+                attendance_data[range_id]['organizations'][org_id] = {
+                    'total': 0,
+                    'meetings': 0,
+                    'by_hour': {}
+                }
+            
+            attendance_data[range_id]['organizations'][org_id]['total'] += row.TotalAttendance
+            attendance_data[range_id]['organizations'][org_id]['meetings'] += row.MeetingCount
+            if row.MeetingHour not in attendance_data[range_id]['organizations'][org_id]['by_hour']:
+                attendance_data[range_id]['organizations'][org_id]['by_hour'][row.MeetingHour] = 0
+            attendance_data[range_id]['organizations'][org_id]['by_hour'][row.MeetingHour] += row.TotalAttendance
+        
+        # Structure data by years for easier report generation
+        years_attendance = {}
+        years_ytd_attendance = {}
+        
+        # Initialize attendance data structures by year
+        for i in range(YEARS_TO_DISPLAY):
+            year = self.current_year - i
+            years_attendance[year] = {'programs': {}, 'divisions': {}, 'organizations': {}}
+            years_ytd_attendance[year] = {'programs': {}, 'divisions': {}, 'organizations': {}}
+        
+        # Map the data from date ranges to year structures
+        years_attendance[self.current_year] = attendance_data.get('current_week', {'programs': {}, 'divisions': {}, 'organizations': {}})
+        years_attendance[self.current_year - 1] = attendance_data.get('previous_year_week', {'programs': {}, 'divisions': {}, 'organizations': {}})
+        years_ytd_attendance[self.current_year] = attendance_data.get('current_ytd', {'programs': {}, 'divisions': {}, 'organizations': {}})
+        years_ytd_attendance[self.current_year - 1] = attendance_data.get('previous_ytd', {'programs': {}, 'divisions': {}, 'organizations': {}})
+        
+        # Set up four-week data if enabled
+        four_week_attendance = {}
+        if SHOW_FOUR_WEEK_COMPARISON:
+            four_week_attendance = {
+                'current': attendance_data.get('current_four_week', {'programs': {}, 'divisions': {}, 'organizations': {}}),
+                'previous_year': attendance_data.get('previous_four_week', {'programs': {}, 'divisions': {}, 'organizations': {}})
+            }
+        
+        # Get all division enrollments in batch if needed
+        division_ids = list(divisions.keys())
+        division_enrollment = {}
+        if SHOW_ENROLLMENT_COLUMN and division_ids:
+            division_enrollment = self.get_batch_enrollment_data(division_ids, self.report_date)
+        
+        # Generate HTML from the collected data
+        report_content = ""
+        
+        # Process programs in order
+        for program_id, program_info in sorted(programs.items(), 
+                                            key=lambda x: ReportHelper.parse_program_rpt_group(x[1]['rpt_group'])[0]):
+            # Create a program object for compatibility with existing methods
+            program_obj = type('Program', (), {
+                'Id': program_info['id'],
+                'Name': program_info['name'],
+                'RptGroup': program_info['rpt_group'],
+                'StartHoursOffset': program_info['start_hours_offset'],
+                'EndHoursOffset': program_info['end_hours_offset']
+            })
+            
+            # Start a new table for each program
+            report_content += "<h3>{}</h3>".format(program_info['name'])
+            report_content += "<table>"
+            
+            # Add the header row
+            service_times = self.parse_service_times(program_info['rpt_group'])
+            report_content += self.generate_header_row(service_times)
+            
+            # Prepare program attendance data for all years
+            years_program_data = {}
+            for year in years_attendance:
+                if program_id in years_attendance[year]['programs']:
+                    years_program_data[year] = years_attendance[year]['programs'][program_id]
+                else:
+                    years_program_data[year] = {'total': 0, 'meetings': 0, 'by_hour': {}}
+            
+            # Prepare program YTD data for all years
+            years_program_ytd = {}
+            for year in years_ytd_attendance:
+                if program_id in years_ytd_attendance[year]['programs']:
+                    years_program_ytd[year] = years_ytd_attendance[year]['programs'][program_id]
+                else:
+                    years_program_ytd[year] = {'total': 0, 'meetings': 0, 'by_hour': {}}
+            
+            # Get four-week data for this program
+            program_four_week_data = None
+            if SHOW_FOUR_WEEK_COMPARISON:
+                current_data = {'total': 0, 'meetings': 0}
+                prev_year_data = {'total': 0, 'meetings': 0}
+                
+                if program_id in four_week_attendance['current']['programs']:
+                    current_data = four_week_attendance['current']['programs'][program_id]
+                
+                if program_id in four_week_attendance['previous_year']['programs']:
+                    prev_year_data = four_week_attendance['previous_year']['programs'][program_id]
+                
+                program_four_week_data = {
+                    'current': current_data,
+                    'previous_year': prev_year_data
+                }
+            
+            # Generate program row
+            report_content += self.generate_program_row(
+                program_obj,
+                years_program_data,
+                years_program_ytd,
+                program_four_week_data
+            )
+            
+            # Process divisions for this program
+            for division_id, division_info in sorted(
+                program_info['divisions'].items(),
+                key=lambda x: x[1]['report_line'] if x[1]['report_line'] else '999'
+            ):
+                # Create a division object for compatibility with existing methods
+                division_obj = type('Division', (), {
+                    'Id': division_id,
+                    'Name': division_info['name'],
+                    'ProgId': program_id
+                })
+                
+                # Prepare division attendance data for all years
+                years_division_data = {}
+                for year in years_attendance:
+                    if division_id in years_attendance[year]['divisions']:
+                        years_division_data[year] = years_attendance[year]['divisions'][division_id]
+                    else:
+                        years_division_data[year] = {'total': 0, 'meetings': 0, 'by_hour': {}}
+                
+                # Prepare division YTD data for all years
+                years_division_ytd = {}
+                for year in years_ytd_attendance:
+                    if division_id in years_ytd_attendance[year]['divisions']:
+                        years_division_ytd[year] = years_ytd_attendance[year]['divisions'][division_id]
+                    else:
+                        years_division_ytd[year] = {'total': 0, 'meetings': 0, 'by_hour': {}}
+                
+                # Get four-week data for this division
+                division_four_week_data = None
+                if SHOW_FOUR_WEEK_COMPARISON:
+                    current_data = {'total': 0, 'meetings': 0}
+                    prev_year_data = {'total': 0, 'meetings': 0}
+                    
+                    if division_id in four_week_attendance['current']['divisions']:
+                        current_data = four_week_attendance['current']['divisions'][division_id]
+                    
+                    if division_id in four_week_attendance['previous_year']['divisions']:
+                        prev_year_data = four_week_attendance['previous_year']['divisions'][division_id]
+                    
+                    division_four_week_data = {
+                        'current': current_data,
+                        'previous_year': prev_year_data
+                    }
+                
+                # Generate division row
+                division_row = self.generate_division_row(
+                    division_obj,
+                    years_division_data,
+                    years_division_ytd,
+                    division_four_week_data
+                )
+                report_content += division_row
+                
+                # Process organizations if needed
+                if SHOW_ORGANIZATION_DETAILS and not self.collapse_orgs and division_row != "":
+                    for org_id, org_info in sorted(
+                        division_info['organizations'].items(),
+                        key=lambda x: x[1]['name']
+                    ):
+                        # Create an organization object for compatibility
+                        org_obj = type('Organization', (), {
+                            'OrganizationId': org_id,
+                            'OrganizationName': org_info['name'],
+                            'DivisionId': division_id
+                        })
+                        
+                        # Prepare organization attendance data for all years
+                        years_org_data = {}
+                        for year in years_attendance:
+                            if org_id in years_attendance[year]['organizations']:
+                                years_org_data[year] = years_attendance[year]['organizations'][org_id]
+                            else:
+                                years_org_data[year] = {'total': 0, 'meetings': 0, 'by_hour': {}}
+                        
+                        # Prepare organization YTD data for all years
+                        years_org_ytd = {}
+                        for year in years_ytd_attendance:
+                            if org_id in years_ytd_attendance[year]['organizations']:
+                                years_org_ytd[year] = years_ytd_attendance[year]['organizations'][org_id]
+                            else:
+                                years_org_ytd[year] = {'total': 0, 'meetings': 0, 'by_hour': {}}
+                        
+                        # Get four-week data for this organization
+                        org_four_week_data = None
+                        if SHOW_FOUR_WEEK_COMPARISON:
+                            current_data = {'total': 0, 'meetings': 0}
+                            prev_year_data = {'total': 0, 'meetings': 0}
+                            
+                            if org_id in four_week_attendance['current']['organizations']:
+                                current_data = four_week_attendance['current']['organizations'][org_id]
+                            
+                            if org_id in four_week_attendance['previous_year']['organizations']:
+                                prev_year_data = four_week_attendance['previous_year']['organizations'][org_id]
+                            
+                            org_four_week_data = {
+                                'current': current_data,
+                                'previous_year': prev_year_data
+                            }
+                        
+                        # Generate organization row
+                        report_content += self.generate_organization_row(
+                            org_obj,
+                            years_org_data,
+                            years_org_ytd,
+                            org_four_week_data
+                        )
+            
+            # Close the table for this program
+            report_content += "</table>"
+        
+        # Return the complete HTML report
+        return report_content
+
     def generate_report_content(self, for_email=False):
         """Generate just the report content (used for both display and email)."""
         
@@ -5562,23 +6017,23 @@ class AttendanceReport:
                     
                     <!-- Circular element -->
                     <g transform="translate(190, 107)">
-                      <!-- Outer circle -->
-                      <circle cx="0" cy="0" r="13.5" fill="#0099FF"/>
-                      
-                      <!-- White middle circle -->
-                      <circle cx="0" cy="0" r="10.5" fill="white"/>
-                      
-                      <!-- Inner circle -->
-                      <circle cx="0" cy="0" r="7.5" fill="#0099FF"/>
-                      
-                      <!-- X crossing through the circles -->
-                      <path d="M-9 -9 L9 9 M-9 9 L9 -9" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+                    <!-- Outer circle -->
+                    <circle cx="0" cy="0" r="13.5" fill="#0099FF"/>
+                    
+                    <!-- White middle circle -->
+                    <circle cx="0" cy="0" r="10.5" fill="white"/>
+                    
+                    <!-- Inner circle -->
+                    <circle cx="0" cy="0" r="7.5" fill="#0099FF"/>
+                    
+                    <!-- X crossing through the circles -->
+                    <path d="M-9 -9 L9 9 M-9 9 L9 -9" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
                     </g>
                     
                     <!-- Single "i" letter to the right -->
                     <text x="206" y="105" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#0099FF">si</text>
-                  </svg></h2>\n""".format(REPORT_TITLE)
-                  
+                </svg></h2>\n""".format(REPORT_TITLE)
+                
             report_html += "<p>Report Type: {}</p>\n".format(
                 "Fiscal Year (Starting {}/{})".format(FISCAL_YEAR_START_MONTH, FISCAL_YEAR_START_DAY) 
                 if YEAR_TYPE.lower() == "fiscal" else "Calendar Year"
@@ -5607,8 +6062,84 @@ class AttendanceReport:
                 # Add date range summary
                 report_html += self.generate_date_range_summary()
                 
-                # Generate all report content
-                report_html += self.generate_report_content()
+                # Calculate overall totals for summaries
+                performance_timer.start("calculate_totals")
+                overall_totals = {}
+                ytd_overall_totals = {}
+                four_week_totals = {'current': 0, 'previous_year': 0}
+                
+                for i in range(YEARS_TO_DISPLAY):
+                    year = self.current_year - i
+                    overall_totals[year] = 0
+                    ytd_overall_totals[year] = 0
+                
+                # Get all programs
+                performance_timer.start("load_programs")
+                programs = q.QuerySql(self.get_programs_sql())
+                performance_timer.end("load_programs")
+                
+                # Pre-calculate overall totals
+                for program in programs:
+                    years_program_data = self.get_multiple_years_attendance_data(
+                        self.report_date,
+                        program_id=program.Id
+                    )
+                    
+                    years_program_ytd = self.get_multiple_years_ytd_data(
+                        self.report_date,
+                        program_id=program.Id
+                    )
+                    
+                    if SHOW_FOUR_WEEK_COMPARISON:
+                        four_week_data = self.get_four_week_attendance_comparison(program_id=program.Id)
+                        four_week_totals['current'] += four_week_data['current']['total']
+                        four_week_totals['previous_year'] += four_week_data['previous_year']['total']
+                    
+                    for year in years_program_data:
+                        overall_totals[year] += years_program_data[year]['total']
+                        
+                    for year in years_program_ytd:
+                        ytd_overall_totals[year] += years_program_ytd[year]['total']
+                
+                performance_timer.end("calculate_totals")
+                
+                # Add the overall summary section
+                report_html += self.generate_overall_summary(
+                    overall_totals[self.current_year],
+                    overall_totals[self.current_year - 1] if self.current_year - 1 in overall_totals else 0,
+                    ytd_overall_totals[self.current_year],
+                    ytd_overall_totals[self.current_year - 1] if self.current_year - 1 in ytd_overall_totals else 0,
+                    four_week_totals if SHOW_FOUR_WEEK_COMPARISON else None
+                )
+                
+                # Add fiscal year-to-date summary
+                report_html += self.generate_fiscal_year_summary(
+                    ytd_overall_totals[self.current_year],
+                    ytd_overall_totals[self.current_year - 1] if self.current_year - 1 in ytd_overall_totals else 0
+                )
+                
+                # Add enrollment analysis section if configured
+                if any(prog in ENROLLMENT_ANALYSIS_PROGRAMS for prog in [p.Name for p in programs]):
+                    report_html += self.generate_enrollment_analysis_section()
+                
+                # Get data for program totals section
+                current_week_data = self.get_week_attendance_data(self.week_start_date, self.report_date)
+                previous_week_data = self.get_week_attendance_data(
+                    self.previous_week_start_date, 
+                    self.previous_year_date
+                )
+                
+                # Add program totals section if enabled
+                if SHOW_PROGRAM_SUMMARY:
+                    report_html += self.generate_selected_program_average_summaries(
+                        current_week_data,
+                        previous_week_data,
+                        ytd_overall_totals[self.current_year],
+                        ytd_overall_totals[self.current_year - 1] if self.current_year - 1 in ytd_overall_totals else 0
+                    )
+                
+                # Now generate the detailed program tables using the optimized method
+                report_html += self.generate_report_content_optimized()
             else:
                 # Show instructions when no date is selected
                 report_html += """
@@ -5729,18 +6260,8 @@ class AttendanceReport:
             performance_timer.end("total_report_generation")
             if performance_timer.enabled:
                 report_html += performance_timer.get_report()
-    
+
             return report_html
-            
-        except Exception as e:
-            # Print any errors
-            import traceback
-            error_html = """
-            <h2>Error</h2>
-            <p>An error occurred: {}</p>
-            <pre>{}</pre>
-            """.format(str(e), traceback.format_exc())
-            return error_html
             
         except Exception as e:
             # Print any errors
