@@ -3430,7 +3430,7 @@ class AttendanceReport:
                     
                     <!-- Add explanation about enrollment count -->
                     <div style="margin-bottom: 15px; font-size: 13px; font-style: italic; color: #666; padding: 5px 10px; border-left: 3px solid #4A90E2; background-color: #f0f4f8;">
-                        <strong>Note:</strong> Enrollment numbers only include members in groups that have scheduled meetings. Members in groups without meetings are not counted in this analysis.
+                        <strong>Note:</strong> Enrollment numbers only include involvements that have attendance.
                     </div>
     
             """.format(
