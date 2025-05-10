@@ -36,7 +36,7 @@ from System.Collections.Generic import List
 
 # Constants and configuration
 Script_Name = "FastLaneCheckIn"
-PAGE_SIZE = 50  # Number of people to show per page - smaller for faster loading
+PAGE_SIZE = 500  # Number of people to show per page - smaller for faster loading
 DATE_FORMAT = "M/d/yyyy"
 ATTEND_FLAG = 1  # Present flag for attendance
 ALPHA_BLOCKS = [
@@ -515,55 +515,6 @@ class CheckInManager:
         except Exception as e:
             print "<div style='color:red'>Error checking in person: " + str(e) + "</div>"
             return False
-    
-    # Simplified people list rendering function - just displays each person with a direct check-in button
-    def render_simplified_people_list(people, check_in_manager, script_name, meeting_ids, alpha_filter, search_term, current_page):
-        """Render people list with direct check-in buttons"""
-        people_list_html = []
-        
-        for person in people:
-            # Get primary meeting ID
-            meeting_id = meeting_ids[0] if meeting_ids else ""
-            
-            # Create item HTML with direct check-in button
-            item_html = """
-            <div class="list-group-item">
-                <div class="row">
-                    <div class="col-xs-8">
-                        <span class="person-name">{1}</span>
-                    </div>
-                    <div class="col-xs-4 text-right">
-                        <form method="post" action="/PyScriptForm/{2}" style="display:inline;" onsubmit="showLoading()">
-                            <input type="hidden" name="step" value="check_in">
-                            <input type="hidden" name="action" value="single_direct_check_in">
-                            <input type="hidden" name="person_id" value="{0}">
-                            <input type="hidden" name="meeting_id" value="{3}">
-                            <input type="hidden" name="view_mode" value="not_checked_in">
-                            <input type="hidden" name="alpha_filter" value="{4}">
-                            <input type="hidden" name="search_term" value="{5}">
-                            <input type="hidden" name="page" value="{6}">
-                            <button type="submit" class="btn btn-xs btn-success" onclick="showLoading()">
-                                <i class="fa fa-check"></i> Check In
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-            """.format(
-                person.people_id,  # {0}
-                person.name,       # {1}
-                script_name,       # {2}
-                meeting_id,        # {3}
-                alpha_filter,      # {4}
-                search_term,       # {5}
-                current_page       # {6}
-            )
-            
-            people_list_html.append(item_html)
-        
-        return "\n".join(people_list_html)
-    
-
     
     def remove_check_in(self, people_id, meeting_ids):
         """Remove check-in for a person using the Meeting API"""
@@ -1264,22 +1215,37 @@ def render_meeting_selection(check_in_manager):
     """
 
 def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, alpha_filter, search_term):
-    """Create a pagination control"""
+    """Create a pagination control with proper layout"""
     if total_pages <= 1:
         return ""
         
-    pagination = ['<ul class="pagination">']
+    # Create hidden inputs for meeting IDs
+    meeting_id_inputs = ""
+    for meeting_id in meeting_ids:
+        meeting_id_inputs += '<input type="hidden" name="meeting_id" value="{0}">'.format(meeting_id)
+    
+    # Build pagination HTML with proper styling
+    pagination = ['<div class="pagination" style="display: inline-block;">']
     
     # Previous button
     if page > 1:
         pagination.append(
-            '<li><form method="post" action="/PyScriptForm/{0}" style="display:inline;"><input type="hidden" name="step" value="check_in"><input type="hidden" name="page" value="{1}"><input type="hidden" name="view_mode" value="{2}"><input type="hidden" name="alpha_filter" value="{3}"><input type="hidden" name="search_term" value="{4}">{5}<button type="submit" class="btn btn-link" style="margin:-6px;padding:6px 12px;text-decoration:none;" onclick="showLoading()">&laquo;</button></form></li>'.format(
-                script_name, page - 1, view_mode, alpha_filter, search_term, 
-                "\n".join(['<input type="hidden" name="meeting_id" value="{0}">'.format(m) for m in meeting_ids])
+            '<form method="post" action="/PyScriptForm/{0}" style="display:inline-block; margin:0 2px;">'
+            '<input type="hidden" name="step" value="check_in">'
+            '<input type="hidden" name="page" value="{1}">'
+            '<input type="hidden" name="view_mode" value="{2}">'
+            '<input type="hidden" name="alpha_filter" value="{3}">'
+            '<input type="hidden" name="search_term" value="{4}">'
+            '{5}'
+            '<button type="submit" style="padding:6px 12px; border:1px solid #ddd; background-color:#f8f9fa; border-radius:4px; cursor:pointer; margin:0;" onclick="showLoading()">&laquo;</button>'
+            '</form>'.format(
+                script_name, page - 1, view_mode, alpha_filter, search_term, meeting_id_inputs
             )
         )
     else:
-        pagination.append('<li class="disabled"><a href="#">&laquo;</a></li>')
+        pagination.append(
+            '<span style="display:inline-block; padding:6px 12px; border:1px solid #ddd; background-color:#f8f9fa; border-radius:4px; color:#999; margin:0 2px;">&laquo;</span>'
+        )
         
     # Page numbers
     start_page = max(1, page - 2)
@@ -1288,50 +1254,86 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
     # Always show page 1
     if start_page > 1:
         pagination.append(
-            '<li><form method="post" action="/PyScriptForm/{0}" style="display:inline;"><input type="hidden" name="step" value="check_in"><input type="hidden" name="page" value="1"><input type="hidden" name="view_mode" value="{1}"><input type="hidden" name="alpha_filter" value="{2}"><input type="hidden" name="search_term" value="{3}">{4}<button type="submit" class="btn btn-link" style="margin:-6px;padding:6px 12px;text-decoration:none;" onclick="showLoading()">1</button></form></li>'.format(
-                script_name, view_mode, alpha_filter, search_term, 
-                "\n".join(['<input type="hidden" name="meeting_id" value="{0}">'.format(m) for m in meeting_ids])
+            '<form method="post" action="/PyScriptForm/{0}" style="display:inline-block; margin:0 2px;">'
+            '<input type="hidden" name="step" value="check_in">'
+            '<input type="hidden" name="page" value="1">'
+            '<input type="hidden" name="view_mode" value="{1}">'
+            '<input type="hidden" name="alpha_filter" value="{2}">'
+            '<input type="hidden" name="search_term" value="{3}">'
+            '{4}'
+            '<button type="submit" style="padding:6px 12px; border:1px solid #ddd; background-color:#f8f9fa; border-radius:4px; cursor:pointer; margin:0;" onclick="showLoading()">1</button>'
+            '</form>'.format(
+                script_name, view_mode, alpha_filter, search_term, meeting_id_inputs
             )
         )
         if start_page > 2:
-            pagination.append('<li class="disabled"><a href="#">...</a></li>')
+            pagination.append(
+                '<span style="display:inline-block; padding:6px 12px; margin:0 2px;">...</span>'
+            )
             
     # Page links
     for i in range(start_page, end_page + 1):
         if i == page:
-            pagination.append('<li class="active"><a href="#">{0}</a></li>'.format(i))
+            pagination.append(
+                '<span style="display:inline-block; padding:6px 12px; border:1px solid #007bff; background-color:#007bff; color:white; border-radius:4px; margin:0 2px;">{0}</span>'.format(i)
+            )
         else:
             pagination.append(
-                '<li><form method="post" action="/PyScriptForm/{0}" style="display:inline;"><input type="hidden" name="step" value="check_in"><input type="hidden" name="page" value="{1}"><input type="hidden" name="view_mode" value="{2}"><input type="hidden" name="alpha_filter" value="{3}"><input type="hidden" name="search_term" value="{4}">{5}<button type="submit" class="btn btn-link" style="margin:-6px;padding:6px 12px;text-decoration:none;" onclick="showLoading()">{1}</button></form></li>'.format(
-                    script_name, i, view_mode, alpha_filter, search_term, 
-                    "\n".join(['<input type="hidden" name="meeting_id" value="{0}">'.format(m) for m in meeting_ids])
+                '<form method="post" action="/PyScriptForm/{0}" style="display:inline-block; margin:0 2px;">'
+                '<input type="hidden" name="step" value="check_in">'
+                '<input type="hidden" name="page" value="{1}">'
+                '<input type="hidden" name="view_mode" value="{2}">'
+                '<input type="hidden" name="alpha_filter" value="{3}">'
+                '<input type="hidden" name="search_term" value="{4}">'
+                '{5}'
+                '<button type="submit" style="padding:6px 12px; border:1px solid #ddd; background-color:#f8f9fa; border-radius:4px; cursor:pointer; margin:0;" onclick="showLoading()">{1}</button>'
+                '</form>'.format(
+                    script_name, i, view_mode, alpha_filter, search_term, meeting_id_inputs
                 )
             )
             
     # Always show last page
     if end_page < total_pages:
         if end_page < total_pages - 1:
-            pagination.append('<li class="disabled"><a href="#">...</a></li>')
+            pagination.append(
+                '<span style="display:inline-block; padding:6px 12px; margin:0 2px;">...</span>'
+            )
         pagination.append(
-            '<li><form method="post" action="/PyScriptForm/{0}" style="display:inline;"><input type="hidden" name="step" value="check_in"><input type="hidden" name="page" value="{1}"><input type="hidden" name="view_mode" value="{2}"><input type="hidden" name="alpha_filter" value="{3}"><input type="hidden" name="search_term" value="{4}">{5}<button type="submit" class="btn btn-link" style="margin:-6px;padding:6px 12px;text-decoration:none;" onclick="showLoading()">{1}</button></form></li>'.format(
-                script_name, total_pages, view_mode, alpha_filter, search_term, 
-                "\n".join(['<input type="hidden" name="meeting_id" value="{0}">'.format(m) for m in meeting_ids])
+            '<form method="post" action="/PyScriptForm/{0}" style="display:inline-block; margin:0 2px;">'
+            '<input type="hidden" name="step" value="check_in">'
+            '<input type="hidden" name="page" value="{1}">'
+            '<input type="hidden" name="view_mode" value="{2}">'
+            '<input type="hidden" name="alpha_filter" value="{3}">'
+            '<input type="hidden" name="search_term" value="{4}">'
+            '{5}'
+            '<button type="submit" style="padding:6px 12px; border:1px solid #ddd; background-color:#f8f9fa; border-radius:4px; cursor:pointer; margin:0;" onclick="showLoading()">{1}</button>'
+            '</form>'.format(
+                script_name, total_pages, view_mode, alpha_filter, search_term, meeting_id_inputs
             )
         )
         
     # Next button
     if page < total_pages:
         pagination.append(
-            '<li><form method="post" action="/PyScriptForm/{0}" style="display:inline;"><input type="hidden" name="step" value="check_in"><input type="hidden" name="page" value="{1}"><input type="hidden" name="view_mode" value="{2}"><input type="hidden" name="alpha_filter" value="{3}"><input type="hidden" name="search_term" value="{4}">{5}<button type="submit" class="btn btn-link" style="margin:-6px;padding:6px 12px;text-decoration:none;" onclick="showLoading()">&raquo;</button></form></li>'.format(
-                script_name, page + 1, view_mode, alpha_filter, search_term, 
-                "\n".join(['<input type="hidden" name="meeting_id" value="{0}">'.format(m) for m in meeting_ids])
+            '<form method="post" action="/PyScriptForm/{0}" style="display:inline-block; margin:0 2px;">'
+            '<input type="hidden" name="step" value="check_in">'
+            '<input type="hidden" name="page" value="{1}">'
+            '<input type="hidden" name="view_mode" value="{2}">'
+            '<input type="hidden" name="alpha_filter" value="{3}">'
+            '<input type="hidden" name="search_term" value="{4}">'
+            '{5}'
+            '<button type="submit" style="padding:6px 12px; border:1px solid #ddd; background-color:#f8f9fa; border-radius:4px; cursor:pointer; margin:0;" onclick="showLoading()">&raquo;</button>'
+            '</form>'.format(
+                script_name, page + 1, view_mode, alpha_filter, search_term, meeting_id_inputs
             )
         )
     else:
-        pagination.append('<li class="disabled"><a href="#">&raquo;</a></li>')
+        pagination.append(
+            '<span style="display:inline-block; padding:6px 12px; border:1px solid #ddd; background-color:#f8f9fa; border-radius:4px; color:#999; margin:0 2px;">&raquo;</span>'
+        )
         
-    pagination.append('</ul>')
-    return "".join(pagination)
+    pagination.append('</div>')
+    return "\n".join(pagination)
 
 
 def render_fastlane_check_in(check_in_manager):
@@ -1345,7 +1347,11 @@ def render_fastlane_check_in(check_in_manager):
         if isinstance(check_in_manager.model.Data.meeting_id, list):
             meeting_ids = [str(m) for m in check_in_manager.model.Data.meeting_id]
         else:
-            meeting_ids = [str(check_in_manager.model.Data.meeting_id)]
+            # If it's a comma-separated string, split it
+            if ',' in str(check_in_manager.model.Data.meeting_id):
+                meeting_ids = str(check_in_manager.model.Data.meeting_id).split(',')
+            else:
+                meeting_ids = [str(check_in_manager.model.Data.meeting_id)]
             
     # Get other parameters
     alpha_filter = getattr(check_in_manager.model.Data, 'alpha_filter', 'All')
@@ -1384,7 +1390,17 @@ def render_fastlane_check_in(check_in_manager):
             meeting_id = getattr(check_in_manager.model.Data, 'meeting_id', None)
             person_name = getattr(check_in_manager.model.Data, 'person_name', "")
             
+            print "<!-- DEBUG: single_direct_check_in called with person_id={0}, meeting_id={1} -->".format(person_id, meeting_id)
+            
             if person_id and meeting_id:
+                # Check if meeting_id contains commas (multiple meetings)
+                if ',' in str(meeting_id):
+                    # This is the issue - we need to handle only a single meeting ID
+                    print "<!-- DEBUG: Multiple meeting IDs detected: {0} -->".format(meeting_id)
+                    # Just use the first meeting ID in the list
+                    meeting_id = str(meeting_id).split(',')[0].strip()
+                    print "<!-- DEBUG: Using first meeting ID instead: {0} -->".format(meeting_id)
+                
                 # Direct API call - simplified for reliability
                 try:
                     # Force refresh of statistics
@@ -1393,11 +1409,14 @@ def render_fastlane_check_in(check_in_manager):
                     result = check_in_manager.model.EditPersonAttendance(int(meeting_id), int(person_id), True)
                     success = "Success" in str(result)
                     
+                    print "<!-- DEBUG: EditPersonAttendance result: {0} -->".format(result)
+                    
                     if success:
                         flash_message = "Successfully checked in"
                         flash_name = person_name
                 except Exception as e:
                     flash_message = "Error checking in: {0}".format(str(e))
+                    print "<!-- DEBUG: Check-in error: {0} -->".format(str(e))
         
         elif action == 'remove_check_in' and hasattr(check_in_manager.model.Data, 'person_id'):
             # Single person check-in removal
@@ -1476,74 +1495,256 @@ def render_fastlane_check_in(check_in_manager):
     
     # Determine number of columns based on viewport - updated for better fit
     people_list_html.append("""
-    <div class="people-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:10px; margin-bottom:20px;">
+    <div class="people-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:10px; margin-bottom:20px;">
     """)
     
     for person in people:
-        # Use the primary meeting ID for simplicity
-        meeting_id = meeting_ids[0] if meeting_ids else ""
+        # Get the organizations this person is a member of
+        person_org_names = []
+        for org_id in person.org_ids:
+            # Find the org name for this ID
+            for meeting in check_in_manager.all_meetings_today:
+                if str(meeting.org_id) == str(org_id):
+                    if meeting.org_name not in person_org_names:
+                        person_org_names.append(meeting.org_name)
+                    break
         
+        # Create a representation of the organizations this person belongs to
+        org_display = ""
+        if person_org_names:
+            org_display = '<div style="font-size:12px; color:#666; margin-top:2px;">' + ', '.join(person_org_names) + '</div>'
+        
+        # For disambiguation in case of duplicate names
+        unique_identifier = ""
+        if person.people_id:
+            # Convert to string first before trying to slice
+            people_id_str = str(person.people_id)
+            # Get last 4 characters if long enough
+            last_digits = people_id_str[-4:] if len(people_id_str) >= 4 else people_id_str
+            unique_identifier = '<span style="font-size:10px; color:#999;"> (ID: {0})</span>'.format(last_digits)
+                
         if view_mode == "checked_in":
-            # For checked-in people, show "remove" button with improved alignment
+            # For checked-in people, we need to determine which meetings they're checked into
+            # Get the person's attended meetings
+            attended_meeting_ids = []
+            
+            try:
+                # First get all meeting IDs this person has attended today
+                sql = """
+                    SELECT DISTINCT MeetingId
+                    FROM Attend
+                    WHERE PeopleId = {0}
+                    AND CONVERT(date, MeetingDate) = CONVERT(date, GETDATE())
+                    AND AttendanceFlag = 1
+                """.format(person.people_id)
+                
+                results = check_in_manager.q.QuerySql(sql)
+                
+                # Extract the meeting IDs from the results
+                for result in results:
+                    attended_meeting_id = str(result.MeetingId)
+                    # Only include meetings that were selected in the UI
+                    if attended_meeting_id in meeting_ids:
+                        attended_meeting_ids.append(attended_meeting_id)
+            except Exception as e:
+                print "<!-- DEBUG: Error getting attended meeting IDs: {0} -->".format(str(e))
+            
+            # If we couldn't get attended meetings from SQL, fall back to the first meeting ID
+            if not attended_meeting_ids and meeting_ids:
+                attended_meeting_ids = [meeting_ids[0]]
+                
+            # Start the HTML for this person
             item_html = """
-            <div style="padding:8px; background-color:#fff; border:1px solid #ddd; border-radius:4px; display:flex; align-items:center;">
-                <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:15px;">{1}</div>
-                <form method="post" action="/PyScriptForm/{2}" style="margin:0; padding:0; flex-shrink:0;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
-                    <input type="hidden" name="step" value="check_in">
-                    <input type="hidden" name="action" value="remove_check_in">
-                    <input type="hidden" name="person_id" value="{0}">
-                    <input type="hidden" name="person_name" value="{1}">
-                    <input type="hidden" name="meeting_id" value="{3}">
-                    <input type="hidden" name="view_mode" value="checked_in">
-                    <input type="hidden" name="alpha_filter" value="{4}">
-                    <input type="hidden" name="search_term" value="{5}">
-                    <input type="hidden" name="page" value="{6}">
-                    <button type="submit" style="padding:3px 8px; font-size:12px; background-color:#dc3545; color:#fff; border:1px solid #dc3545; border-radius:3px; cursor:pointer; min-width:60px; height:28px; vertical-align:middle;">Remove</button>
-                </form>
-            </div>
+            <div style="padding:8px; background-color:#fff; border:1px solid #ddd; border-radius:4px;">
+                <div style="display:flex; align-items:center; justify-content:space-between;">
+                    <div style="flex:1; overflow:hidden; text-overflow:ellipsis;">
+                        <div style="font-size:15px;">{1}{2}</div>
+                        {3}
+                    </div>
             """.format(
-                person.people_id,  # {0}
-                person.name,       # {1}
-                script_name,       # {2}
-                meeting_id,        # {3}
-                alpha_filter,      # {4}
-                search_term,       # {5}
-                current_page       # {6}
+                person.people_id,       # {0}
+                person.name,            # {1}
+                unique_identifier,      # {2}
+                org_display,            # {3}
             )
+            
+            # If we have multiple attended meetings, show a button for each
+            if len(attended_meeting_ids) > 1:
+                item_html += """
+                    <div style="display:flex; flex-wrap:wrap; justify-content:flex-end; gap:5px;">
+                """
+                
+                # Add a remove button for each attended meeting
+                for meeting_id in attended_meeting_ids:
+                    # Get meeting info for display
+                    meeting_info = None
+                    for m in check_in_manager.all_meetings_today:
+                        if str(m.meeting_id) == meeting_id:
+                            meeting_info = m
+                            break
+                    
+                    # Use the org name as the button label if we have meeting info
+                    button_label = "Remove"
+                    if meeting_info:
+                        button_label = "Remove " + meeting_info.org_name.split(' ')[0]
+                    
+                    # Add the remove button
+                    item_html += """
+                    <form method="post" action="/PyScriptForm/{4}" style="margin:0; padding:0;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
+                        <input type="hidden" name="step" value="check_in">
+                        <input type="hidden" name="action" value="remove_check_in">
+                        <input type="hidden" name="person_id" value="{0}">
+                        <input type="hidden" name="person_name" value="{1}">
+                        <input type="hidden" name="meeting_id" value="{5}">
+                        <input type="hidden" name="view_mode" value="checked_in">
+                        <input type="hidden" name="alpha_filter" value="{6}">
+                        <input type="hidden" name="search_term" value="{7}">
+                        <input type="hidden" name="page" value="{8}">
+                        <button type="submit" style="padding:3px 8px; font-size:12px; background-color:#dc3545; color:#fff; border:1px solid #dc3545; border-radius:3px; cursor:pointer; min-width:60px; height:28px; vertical-align:middle;">{9}</button>
+                    </form>
+                    """.format(
+                        person.people_id,       # {0}
+                        person.name,            # {1}
+                        "",                     # {2} - not used
+                        "",                     # {3} - not used
+                        script_name,            # {4}
+                        meeting_id,             # {5}
+                        alpha_filter,           # {6}
+                        search_term,            # {7}
+                        current_page,           # {8}
+                        button_label            # {9}
+                    )
+                    
+                # Close the container
+                item_html += """
+                    </div>
+                """
+            else:
+                # Just one meeting - use a single remove button
+                meeting_id = attended_meeting_ids[0] if attended_meeting_ids else (meeting_ids[0] if meeting_ids else "")
+                
+                item_html += """
+                    <form method="post" action="/PyScriptForm/{4}" style="margin:0; padding:0; flex-shrink:0;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
+                        <input type="hidden" name="step" value="check_in">
+                        <input type="hidden" name="action" value="remove_check_in">
+                        <input type="hidden" name="person_id" value="{0}">
+                        <input type="hidden" name="person_name" value="{1}">
+                        <input type="hidden" name="meeting_id" value="{5}">
+                        <input type="hidden" name="view_mode" value="checked_in">
+                        <input type="hidden" name="alpha_filter" value="{6}">
+                        <input type="hidden" name="search_term" value="{7}">
+                        <input type="hidden" name="page" value="{8}">
+                        <button type="submit" style="padding:3px 8px; font-size:12px; background-color:#dc3545; color:#fff; border:1px solid #dc3545; border-radius:3px; cursor:pointer; min-width:60px; height:28px; vertical-align:middle;">Remove</button>
+                    </form>
+                """.format(
+                    person.people_id,       # {0}
+                    person.name,            # {1}
+                    "",                     # {2} - not used
+                    "",                     # {3} - not used
+                    script_name,            # {4}
+                    meeting_id,             # {5}
+                    alpha_filter,           # {6}
+                    search_term,            # {7}
+                    current_page            # {8}
+                )
+            
+            # Close the containers
+            item_html += """
+                </div>
+            </div>
+            """
+
         else:
-            # For not-checked-in people, show "check in" button with improved alignment
+            # For not-checked-in people, show "check in" button with individual meeting buttons
+            # Create a container for this person
             item_html = """
-            <div style="padding:8px; background-color:#fff; border:1px solid #ddd; border-radius:4px; display:flex; align-items:center;">
-                <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:15px;">{1}</div>
-                <form method="post" action="/PyScriptForm/{2}" style="margin:0; padding:0; flex-shrink:0;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
+            <div style="padding:8px; background-color:#fff; border:1px solid #ddd; border-radius:4px;">
+                <div style="display:flex; align-items:center; justify-content:space-between;">
+                    <div style="flex:1; overflow:hidden; text-overflow:ellipsis;">
+                        <div style="font-size:15px;">{1}{2}</div>
+                        {3}
+                    </div>
+                    <div style="display:flex; flex-wrap:wrap; justify-content:flex-end; gap:5px;">
+            """.format(
+                person.people_id,       # {0}
+                person.name,            # {1}
+                unique_identifier,      # {2}
+                org_display,            # {3}
+            )
+        
+            # Debug information
+            print "<!-- DETAILED DEBUG FOR: {0} (ID: {1}) -->".format(person.name, person.people_id)
+            print "<!-- Person org IDs: {0} -->".format([str(org_id) for org_id in person.org_ids])
+            print "<!-- Meeting IDs: {0} -->".format(meeting_ids)
+            
+            # FIXED SECTION: Create a check-in button for each meeting that this person should attend
+            # Find the correct meetings for this person's organizations
+            person_meeting_ids = []
+            
+            # Map from person's org_ids to meeting_ids that are active today
+            for org_id in person.org_ids:
+                for meeting in check_in_manager.all_meetings_today:
+                    if (str(meeting.org_id) == str(org_id) and 
+                        str(meeting.meeting_id) in meeting_ids):
+                        person_meeting_ids.append(str(meeting.meeting_id))
+                        print "<!-- Found matching meeting ID {0} for org {1} -->".format(
+                            meeting.meeting_id, org_id)
+            
+            # If no specific meetings found, use first available meeting
+            if not person_meeting_ids and meeting_ids:
+                person_meeting_ids = [meeting_ids[0]]
+                print "<!-- No specific meetings found, using first meeting ID: {0} -->".format(meeting_ids[0])
+            
+            # Add check-in buttons for each appropriate meeting
+            for meeting_id in person_meeting_ids:
+                # Find meeting info for button label
+                meeting_name = "Check In"
+                for meeting in check_in_manager.all_meetings_today:
+                    if str(meeting.meeting_id) == str(meeting_id):
+                        if len(person_meeting_ids) > 1:
+                            # If multiple buttons, use org name to differentiate
+                            meeting_name = meeting.org_name.split(' ')[0]
+                        break
+                
+                print "<!-- Adding check-in button for meeting ID: {0} ({1}) -->".format(meeting_id, meeting_name)
+                
+                # Create a single check-in button for this specific meeting
+                item_html += """
+                <form method="post" action="/PyScriptForm/{4}" style="margin:0; padding:0;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
                     <input type="hidden" name="step" value="check_in">
                     <input type="hidden" name="action" value="single_direct_check_in">
                     <input type="hidden" name="person_id" value="{0}">
                     <input type="hidden" name="person_name" value="{1}">
-                    <input type="hidden" name="meeting_id" value="{3}">
+                    <input type="hidden" name="meeting_id" value="{5}">
                     <input type="hidden" name="view_mode" value="not_checked_in">
-                    <input type="hidden" name="alpha_filter" value="{4}">
-                    <input type="hidden" name="search_term" value="{5}">
-                    <input type="hidden" name="page" value="{6}">
-                    <button type="submit" style="padding:3px 8px; font-size:12px; background-color:#28a745; color:#fff; border:1px solid #28a745; border-radius:3px; cursor:pointer; min-width:60px; height:28px; vertical-align:middle;">Check In</button>
+                    <input type="hidden" name="alpha_filter" value="{6}">
+                    <input type="hidden" name="search_term" value="{7}">
+                    <input type="hidden" name="page" value="{8}">
+                    <button type="submit" style="padding:3px 8px; font-size:12px; background-color:#28a745; color:#fff; border:1px solid #28a745; border-radius:3px; cursor:pointer; min-width:60px; height:28px; vertical-align:middle;">{9}</button>
                 </form>
+                """.format(
+                    person.people_id,  # {0}
+                    person.name,       # {1}
+                    "",                # {2} - not used
+                    "",                # {3} - not used
+                    script_name,       # {4}
+                    meeting_id,        # {5} - specific meeting ID
+                    alpha_filter,      # {6}
+                    search_term,       # {7}
+                    current_page,      # {8}
+                    meeting_name       # {9} - button label
+                )
+            
+            # Close the containers
+            item_html += """
+                    </div>
+                </div>
             </div>
-            """.format(
-                person.people_id,  # {0}
-                person.name,       # {1}
-                script_name,       # {2}
-                meeting_id,        # {3}
-                alpha_filter,      # {4}
-                search_term,       # {5}
-                current_page       # {6}
-            )
+            """
         
         people_list_html.append(item_html)
     
     people_list_html.append("</div>")
-    
-    # Combine all list items
-    people_list_html_str = "\n".join(people_list_html)
     
     # Create the compact stats bar
     stats_bar = """
@@ -1692,11 +1893,12 @@ def render_fastlane_check_in(check_in_manager):
         "checked_in" if view_mode == "not_checked_in" else "not_checked_in", # {7} - opposite mode for toggle
         "Checked In List" if view_mode == "not_checked_in" else "Check-In Page", # {8} - toggle button text
         alpha_filters_html,       # {9}
-        people_list_html_str,     # {10}
+        "\n".join(people_list_html), # {10}
         pagination                # {11}
     )
     
     return True  # Indicate successful rendering
+
 
 def render_checked_in_view(check_in_manager):
     """Render the checked-in people view"""
@@ -1704,1051 +1906,11 @@ def render_checked_in_view(check_in_manager):
     # This allows removing individual check-ins if needed
     return render_check_in_page(check_in_manager)
     
-def render_family_check_in(check_in_manager):
-    """Render the family check-in page"""
-    # Get the current script name
-    script_name = get_script_name()
-    
-    # Get parameters
-    meeting_ids = []
-    if hasattr(check_in_manager.model.Data, 'meeting_id'):
-        if isinstance(check_in_manager.model.Data.meeting_id, list):
-            meeting_ids = [str(m) for m in check_in_manager.model.Data.meeting_id]
-        else:
-            meeting_ids = [str(check_in_manager.model.Data.meeting_id)]
-            
-    person_id = getattr(check_in_manager.model.Data, 'person_id', None)
-    family_id = getattr(check_in_manager.model.Data, 'family_id', None)
-    
-    if not person_id:
-        # Redirect back to check-in page if no person selected
-        return render_check_in_page(check_in_manager)
-        
-    # Set the selected person ID for use in family member query
-    check_in_manager.model.Data.selected_person_id = person_id
-    
-    # Get person info
-    if hasattr(check_in_manager.model.Data, 'org_ids'):
-        org_ids = check_in_manager.model.Data.org_ids.split(',')
-    else:
-        org_ids = []
-        
-    # Process form submission for family check-in
-    success_message = ""
-    if hasattr(check_in_manager.model.Data, 'action') and check_in_manager.model.Data.action == 'family_check_in_submit':
-        # Get family member IDs to check in
-        family_member_ids = []
-        if hasattr(check_in_manager.model.Data, 'family_member_id'):
-            if isinstance(check_in_manager.model.Data.family_member_id, list):
-                family_member_ids = [str(m) for m in check_in_manager.model.Data.family_member_id]
-            else:
-                family_member_ids = [str(check_in_manager.model.Data.family_member_id)]
-                
-        # Also check in the main person
-        if getattr(check_in_manager.model.Data, 'check_in_person', False):
-            family_member_ids.append(person_id)
-            
-        # Do the check-in
-        if family_member_ids:
-            success = check_in_manager.bulk_check_in(family_member_ids, meeting_ids)
-            if success:
-                success_message = """
-                <div class="alert alert-success">
-                    <strong>Success!</strong> {0} family members have been checked in.
-                </div>
-                """.format(len(family_member_ids))
-                
-                # Redirect back to check-in page
-                return render_check_in_page(check_in_manager)
-        
-    # Get family members
-    family_members = []
-    if family_id:
-        family_members = check_in_manager.get_family_members(family_id, org_ids)
-        
-    # Get person name
-    person_name = ""
-    sql = "SELECT Name FROM People WHERE PeopleId = {0}".format(person_id)
-    result = check_in_manager.q.QuerySqlTop1(sql)
-    if result and hasattr(result, 'Name'):
-        person_name = result.Name
-        
-    # Start the page with modern styling
-    print """<!DOCTYPE html>
-    <html>
-    <head>
-        <title>Rapid Check-In System - Family Check-In</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body { 
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                margin: 0; 
-                padding: 20px;
-                color: #333;
-                background-color: #f9f9f9;
-            }
-            h2 { 
-                margin-top: 0;
-                color: #2c3e50;
-                font-weight: 500;
-            }
-            hr {
-                border: 0;
-                height: 1px;
-                background-color: #e0e0e0;
-                margin: 15px 0;
-            }
-            .btn { 
-                display: inline-block; 
-                padding: 8px 16px; 
-                margin-bottom: 0; 
-                font-size: 14px; 
-                font-weight: 400; 
-                line-height: 1.42857143; 
-                text-align: center; 
-                white-space: nowrap; 
-                vertical-align: middle; 
-                cursor: pointer; 
-                border: 1px solid transparent; 
-                border-radius: 4px;
-                transition: all 0.3s;
-            }
-            .btn-primary { color: #fff; background-color: #3498db; border-color: #2980b9; }
-            .btn-primary:hover { background-color: #2980b9; }
-            .btn-default { color: #333; background-color: #fff; border-color: #ccc; }
-            .btn-default:hover { background-color: #f5f5f5; }
-            .btn-success { color: #fff; background-color: #2ecc71; border-color: #27ae60; }
-            .btn-success:hover { background-color: #27ae60; }
-            .btn-lg { padding: 12px 20px; font-size: 16px; }
-            .btn-sm { padding: 5px 10px; font-size: 12px; }
-            .well { 
-                min-height: 20px; 
-                padding: 19px; 
-                margin-bottom: 20px; 
-                background-color: #fff;
-                border: 1px solid #e3e3e3; 
-                border-radius: 4px; 
-                box-shadow: 0 1px 3px rgba(0,0,0,.05);
-            }
-            .checkbox { 
-                position: relative; 
-                display: block; 
-                margin-top: 10px; 
-                margin-bottom: 10px; 
-            }
-            .checkbox label {
-                padding-left: 25px;
-                cursor: pointer;
-            }
-            .checkbox input[type=checkbox] {
-                position: absolute;
-                margin-left: -20px;
-                margin-top: 2px;
-                cursor: pointer;
-            }
-            .panel { 
-                margin-bottom: 20px; 
-                background-color: #fff; 
-                border: 1px solid #ddd; 
-                border-radius: 4px;
-                box-shadow: 0 1px 3px rgba(0,0,0,.05);
-            }
-            .panel-heading { 
-                padding: 12px 15px; 
-                background-color: #f7f7f7;
-                border-bottom: 1px solid #ddd; 
-                border-top-left-radius: 3px;
-                border-top-right-radius: 3px; 
-            }
-            .panel-body { padding: 15px; }
-            .panel-title { 
-                margin-top: 0; 
-                margin-bottom: 0; 
-                font-size: 16px; 
-                color: #333;
-                font-weight: 500;
-            }
-            .alert { 
-                padding: 15px; 
-                margin-bottom: 20px; 
-                border: 1px solid transparent; 
-                border-radius: 4px; 
-            }
-            .alert-warning { color: #8a6d3b; background-color: #fcf8e3; border-color: #faebcc; }
-            .alert-info { color: #31708f; background-color: #d9edf7; border-color: #bce8f1; }
-            .alert-success { color: #3c763d; background-color: #dff0d8; border-color: #d6e9c6; }
-            .row { 
-                display: flex; 
-                flex-wrap: wrap; 
-                margin-right: -15px; 
-                margin-left: -15px; 
-            }
-            .col-md-6 { 
-                position: relative; 
-                min-height: 1px; 
-                padding-right: 15px; 
-                padding-left: 15px; 
-                flex: 0 0 50%; 
-                max-width: 50%; 
-            }
-            .col-md-12 { 
-                position: relative; 
-                min-height: 1px; 
-                padding-right: 15px; 
-                padding-left: 15px; 
-                flex: 0 0 100%; 
-                max-width: 100%; 
-            }
-            @media (max-width: 768px) {
-                .col-md-6 {
-                    flex: 0 0 100%;
-                    max-width: 100%;
-                }
-            }
-            .form-group {
-                margin-bottom: 15px;
-            }
-            .header {
-                background-color: #3498db;
-                color: #fff;
-                padding: 15px;
-                margin: -20px -20px 20px -20px;
-                border-bottom: 3px solid #2980b9;
-            }
-            .header h2 {
-                margin: 0;
-                color: #fff;
-            }
-            .loading {
-                display: none;
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background-color: rgba(255,255,255,0.8);
-                z-index: 1000;
-                text-align: center;
-                padding-top: 20%;
-                font-size: 18px;
-            }
-            .loading-spinner {
-                border: 6px solid #f3f3f3;
-                border-top: 6px solid #3498db;
-                border-radius: 50%;
-                width: 50px;
-                height: 50px;
-                animation: spin 2s linear infinite;
-                margin: 0 auto 20px auto;
-            }
-            @keyframes spin {
-                0% {{ transform: rotate(0deg); }}
-                100% {{ transform: rotate(360deg); }}
-            }
-        </style>
-    </head>
-    <body>
-    <div class="loading" id="loadingIndicator">
-        <div class="loading-spinner"></div>
-        <div>Processing...</div>
-    </div>
-    <div class="header">
-        <h2>Rapid Check-In System</h2>
-    </div>
-    """
-    
-    # Create form for hidden fields
-    meeting_id_inputs = ""
-    for meeting_id in meeting_ids:
-        meeting_id_inputs += '<input type="hidden" name="meeting_id" value="{0}">'.format(meeting_id)
-        
-    # Display family check-in form
-    print """
-    <div class="well">
-        <form method="post" action="/PyScriptForm/{0}" onsubmit="showLoading()">
-            <input type="hidden" name="step" value="check_in">
-            <input type="hidden" name="action" value="family_check_in_submit">
-            <input type="hidden" name="person_id" value="{1}">
-            <input type="hidden" name="family_id" value="{2}">
-            {3}
-            
-            <h3>Family Check-In for {4}</h3>
-            
-            <div class="checkbox">
-                <label>
-                    <input type="checkbox" name="check_in_person" value="1" checked>
-                    Check in {4}
-                </label>
-            </div>
-    """.format(script_name, person_id, family_id, meeting_id_inputs, person_name)
-    
-    if family_members:
-        print "<hr>"
-        print "<h4>Family Members</h4>"
-        print "<p>Select family members to check in:</p>"
-        
-        for member in family_members:
-            # Create list of orgs this person belongs to
-            org_list = []
-            for org_id in member.org_ids:
-                org_name = get_org_name(check_in_manager, org_id)
-                org_list.append(org_name)
-                
-            org_text = ""
-            if org_list:
-                org_text = "<small class='text-muted'>({0})</small>".format(", ".join(org_list))
-                
-            print """
-            <div class="checkbox">
-                <label>
-                    <input type="checkbox" name="family_member_id" value="{0}" checked>
-                    {1} {2}
-                </label>
-            </div>
-            """.format(member.people_id, member.name, org_text)
-    else:
-        print """
-        <div class="alert alert-info">
-            <p>No other family members found that can be checked in.</p>
-        </div>
-        """
-        
-    print """
-            <hr>
-            
-            <div class="row">
-                <div class="col-md-6">
-                    <a href="/PyScriptForm/{0}?step=check_in&{1}" class="btn btn-default" onclick="showLoading()">
-                        <i class="fa fa-arrow-left"></i> Back to Check-In
-                    </a>
-                </div>
-                <div class="col-md-6 text-right">
-                    <button type="submit" class="btn btn-success" onclick="showLoading()">
-                        <i class="fa fa-check-circle"></i> Complete Check-In
-                    </button>
-                </div>
-            </div>
-        </form>
-    </div>
-    
-    <script>
-        // Show loading indicator during form submission
-        function showLoading() {
-            document.getElementById('loadingIndicator').style.display = 'block';
-        }
-    </script>
-    </body>
-    </html>
-    """.format(script_name, "&".join(["meeting_id={0}".format(m) for m in meeting_ids]))
-    
 
-# HTML template 
-def render_simplified_check_in_page(check_in_manager):
-    """Render a simplified check-in page with direct check-in buttons and no selection checkboxes"""
-    # Get the current script name
-    script_name = get_script_name()
     
-    # Get parameters
-    meeting_ids = []
-    if hasattr(check_in_manager.model.Data, 'meeting_id'):
-        if isinstance(check_in_manager.model.Data.meeting_id, list):
-            meeting_ids = [str(m) for m in check_in_manager.model.Data.meeting_id]
-        else:
-            meeting_ids = [str(check_in_manager.model.Data.meeting_id)]
-            
-    # Get other parameters
-    alpha_filter = getattr(check_in_manager.model.Data, 'alpha_filter', 'All')
-    search_term = getattr(check_in_manager.model.Data, 'search_term', '')
-    view_mode = getattr(check_in_manager.model.Data, 'view_mode', 'not_checked_in')
-    
-    # Handle page
-    try:
-        page_value = getattr(check_in_manager.model.Data, 'page', 1)
-        current_page = int(page_value) if page_value else 1
-    except (ValueError, TypeError):
-        current_page = 1
-
-    # Get check-in statistics
-    stats = check_in_manager.get_check_in_stats(meeting_ids)
-    
-    # Process form submission
-    success_message = ""
-    if hasattr(check_in_manager.model.Data, 'action'):
-        action = check_in_manager.model.Data.action
-        
-        if action == 'single_direct_check_in':
-            # Get person ID and meeting ID directly
-            person_id = getattr(check_in_manager.model.Data, 'person_id', None)
-            meeting_id = getattr(check_in_manager.model.Data, 'meeting_id', None)
-            
-            if person_id and meeting_id:
-                # Direct API call - simplified for reliability
-                try:
-                    result = check_in_manager.model.EditPersonAttendance(int(meeting_id), int(person_id), True)
-                    success = "Success" in str(result)
-                    
-                    if success:
-                        success_message = """
-                        <div class="alert alert-success">
-                            <strong>Success!</strong> Person has been checked in.
-                        </div>
-                        """
-                    else:
-                        success_message = """
-                        <div class="alert alert-danger">
-                            <strong>Error!</strong> Could not check in the person. Result: {0}
-                        </div>
-                        """.format(str(result))
-                except Exception as e:
-                    success_message = """
-                    <div class="alert alert-danger">
-                        <strong>Error!</strong> Exception: {0}
-                    </div>
-                    """.format(str(e))
-        
-        elif action == 'remove_check_in' and hasattr(check_in_manager.model.Data, 'person_id'):
-            # Single person check-in removal
-            person_id = check_in_manager.model.Data.person_id
-            meeting_id = getattr(check_in_manager.model.Data, 'meeting_id', None)
-            
-            # Direct API call
-            if person_id and meeting_id:
-                try:
-                    result = check_in_manager.model.EditPersonAttendance(int(meeting_id), int(person_id), False)
-                    success = "Success" in str(result)
-                    
-                    if success:
-                        success_message = """
-                        <div class="alert alert-success">
-                            <strong>Success!</strong> Check-in has been removed.
-                        </div>
-                        """
-                except Exception:
-                    success_message = """
-                    <div class="alert alert-danger">
-                        <strong>Error!</strong> Could not remove check-in.
-                    </div>
-                    """
-    
-    # Get people based on view mode
-    people = []
-    total_count = 0
-    
-    if view_mode == "checked_in":
-        people, total_count = check_in_manager.get_checked_in_people(meeting_ids, current_page, PAGE_SIZE)
-    else:
-        people, total_count = check_in_manager.get_people_by_filter(alpha_filter, search_term, meeting_ids, current_page, PAGE_SIZE)
-    
-    # Calculate pagination
-    total_pages = (total_count + PAGE_SIZE - 1) // PAGE_SIZE
-    
-    # Create pagination controls
-    pagination = create_pagination(current_page, total_pages, script_name, meeting_ids, view_mode, alpha_filter, search_term)
-    
-    # Render alpha filters
-    alpha_filters_html = render_alpha_filters(alpha_filter)
-    
-    # Generate the people list HTML based on view mode
-    if view_mode == "checked_in":
-        # For checked-in people, show "remove" button
-        people_list_html = []
-        for person in people:
-            # Use the primary meeting ID for simplicity
-            meeting_id = meeting_ids[0] if meeting_ids else ""
-            
-            item_html = """
-            <div class="list-group-item">
-                <div class="row">
-                    <div class="col-xs-8">
-                        <span class="person-name">{1}</span>
-                    </div>
-                    <div class="col-xs-4 text-right">
-                        <form method="post" action="/PyScriptForm/{2}" style="display:inline;" onsubmit="showLoading()">
-                            <input type="hidden" name="step" value="check_in">
-                            <input type="hidden" name="action" value="remove_check_in">
-                            <input type="hidden" name="person_id" value="{0}">
-                            <input type="hidden" name="meeting_id" value="{3}">
-                            <input type="hidden" name="view_mode" value="checked_in">
-                            <input type="hidden" name="alpha_filter" value="{4}">
-                            <input type="hidden" name="search_term" value="{5}">
-                            <input type="hidden" name="page" value="{6}">
-                            <button type="submit" class="btn btn-xs btn-danger" onclick="showLoading()">
-                                <i class="fa fa-times"></i> Remove
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-            """.format(
-                person.people_id,  # {0}
-                person.name,       # {1}
-                script_name,       # {2}
-                meeting_id,        # {3}
-                alpha_filter,      # {4}
-                search_term,       # {5}
-                current_page       # {6}
-            )
-            people_list_html.append(item_html)
-    else:
-        # For not-checked-in people, show "check in" button
-        people_list_html = []
-        for person in people:
-            # Use the primary meeting ID for simplicity
-            meeting_id = meeting_ids[0] if meeting_ids else ""
-            
-            item_html = """
-            <div style="padding:8px; background-color:#fff; border:1px solid #ddd; border-radius:4px; display:flex; align-items:center;">
-                <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:15px;">{1}</div>
-                <form method="post" action="/PyScriptForm/{2}" style="margin:0; padding:0; flex-shrink:0;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
-                    <input type="hidden" name="step" value="check_in">
-                    <input type="hidden" name="action" value="single_direct_check_in">
-                    <input type="hidden" name="person_id" value="{0}">
-                    <input type="hidden" name="person_name" value="{1}">
-                    <input type="hidden" name="meeting_id" value="{3}">
-                    <input type="hidden" name="view_mode" value="not_checked_in">
-                    <input type="hidden" name="alpha_filter" value="{4}">
-                    <input type="hidden" name="search_term" value="{5}">
-                    <input type="hidden" name="page" value="{6}">
-                    <button type="submit" style="padding:3px 8px; font-size:12px; background-color:#28a745; color:#fff; border:1px solid #28a745; border-radius:3px; cursor:pointer; min-width:60px; height:28px; vertical-align:middle;">Check In</button>
-                </form>
-            </div>
-            """.format(
-                person.people_id,  # {0}
-                person.name,       # {1}
-                script_name,       # {2}
-                meeting_id,        # {3}
-                alpha_filter,      # {4}
-                search_term,       # {5}
-                current_page       # {6}
-            )
-            people_list_html.append(item_html)
-    
-    # Combine all list items
-    people_list_html_str = "\n".join(people_list_html)
-    
-    # Create inputs for meeting IDs (for other forms)
-    meeting_id_inputs = ""
-    for meeting_id in meeting_ids:
-        meeting_id_inputs += '<input type="hidden" name="meeting_id" value="{0}">'.format(meeting_id)
-    
-    # HTML for the page - FIXED CSS
-    print """<!DOCTYPE html>
-    <html>
-    <head>
-        <title>Rapid Check-In System</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body { 
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                margin: 0; 
-                padding: 20px;
-                color: #333;
-                background-color: #f9f9f9;
-            }
-            h2 { 
-                margin-top: 0;
-                color: #2c3e50;
-                font-weight: 500;
-            }
-            .btn { 
-                display: inline-block; 
-                padding: 8px 16px; 
-                margin-bottom: 0; 
-                font-size: 14px; 
-                font-weight: 400; 
-                line-height: 1.42857143; 
-                text-align: center; 
-                white-space: nowrap; 
-                vertical-align: middle; 
-                cursor: pointer; 
-                border: 1px solid transparent; 
-                border-radius: 4px;
-            }
-            .btn-xs {
-                padding: 1px 5px;
-                font-size: 12px;
-                line-height: 1.5;
-                border-radius: 3px;
-            }
-            .btn-primary { color: #fff; background-color: #3498db; border-color: #2980b9; }
-            .btn-default { color: #333; background-color: #fff; border-color: #ccc; }
-            .btn-success { color: #fff; background-color: #2ecc71; border-color: #27ae60; }
-            .btn-danger { color: #fff; background-color: #e74c3c; border-color: #c0392b; }
-            .person-name {
-                font-size: 16px;
-                line-height: 28px;
-            }
-        </style>
-    </head>
-    <body>
-    <div class="loading" id="loadingIndicator" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(255,255,255,0.8); z-index: 1000; text-align: center; padding-top: 20%;">
-        <div class="loading-spinner" style="border: 6px solid #f3f3f3; border-top: 6px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 2s linear infinite; margin: 0 auto 20px auto;"></div>
-        <div>Processing...</div>
-    </div>
-    
-    <div class="header" style="background-color: #3498db; color: #fff; padding: 15px; margin: -20px -20px 20px -20px; border-bottom: 3px solid #2980b9;">
-        <h2 style="margin: 0; color: #fff;">Rapid Check-In System</h2>
-    </div>
-    
-    <!-- Success message -->
-    {0}
-    
-    <!-- Stats boxes -->
-    <div class="row" style="display: flex; flex-wrap: wrap; margin-right: -15px; margin-left: -15px;">
-        <div class="col-xs-4" style="position: relative; min-height: 1px; padding-right: 15px; padding-left: 15px; flex: 0 0 33.33333%; max-width: 33.33333%;">
-            <div class="stats-box checked-in-box" style="padding: 15px; text-align: center; background-color: #d9f2e6; border-left: 4px solid #2ecc71; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.05); margin-bottom: 15px;">
-                <div class="number" style="font-size: 24px; font-weight: bold; margin-bottom: 5px;">{1}</div>
-                <div class="label" style="font-size: 14px; color: #888;">Checked In</div>
-            </div>
-        </div>
-        <div class="col-xs-4" style="position: relative; min-height: 1px; padding-right: 15px; padding-left: 15px; flex: 0 0 33.33333%; max-width: 33.33333%;">
-            <div class="stats-box not-checked-in-box" style="padding: 15px; text-align: center; background-color: #e6f2fa; border-left: 4px solid #3498db; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.05); margin-bottom: 15px;">
-                <div class="number" style="font-size: 24px; font-weight: bold; margin-bottom: 5px;">{2}</div>
-                <div class="label" style="font-size: 14px; color: #888;">Not Checked In</div>
-            </div>
-        </div>
-        <div class="col-xs-4" style="position: relative; min-height: 1px; padding-right: 15px; padding-left: 15px; flex: 0 0 33.33333%; max-width: 33.33333%;">
-            <div class="stats-box total-box" style="padding: 15px; text-align: center; background-color: #f9f9f9; border-left: 4px solid #95a5a6; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.05); margin-bottom: 15px;">
-                <div class="number" style="font-size: 24px; font-weight: bold; margin-bottom: 5px;">{3}</div>
-                <div class="label" style="font-size: 14px; color: #888;">Total</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Main content -->
-    <div class="panel panel-default" style="margin-bottom: 20px; background-color: #fff; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.05);">
-        <div class="panel-heading" style="padding: 12px 15px; background-color: #f7f7f7; border-bottom: 1px solid #ddd; border-top-left-radius: 3px; border-top-right-radius: 3px;">
-            <div class="row" style="display: flex; flex-wrap: wrap; margin-right: -15px; margin-left: -15px;">
-                <div class="col-xs-8" style="position: relative; min-height: 1px; padding-right: 15px; padding-left: 15px; flex: 0 0 66.66666%; max-width: 66.66666%;">
-                    <h3 class="panel-title" style="margin-top: 0; margin-bottom: 0; font-size: 16px; color: #333; font-weight: 500;">{4}</h3>
-                </div>
-                <div class="col-xs-4 text-right" style="position: relative; min-height: 1px; padding-right: 15px; padding-left: 15px; flex: 0 0 33.33333%; max-width: 33.33333%; text-align: right;">
-                    <a href="/PyScript/{5}?step=choose_meetings" class="btn btn-sm btn-default" onclick="showLoading()" style="padding: 5px 10px; font-size: 12px;">
-                        <i class="fa fa-arrow-left"></i> Back to Meetings
-                    </a>
-                </div>
-            </div>
-        </div>
-        
-        <div class="panel-body" style="padding: 15px;">
-            <!-- View toggle buttons -->
-            <div class="row" style="display: flex; flex-wrap: wrap; margin-right: -15px; margin-left: -15px;">
-                <div class="col-xs-12" style="position: relative; min-height: 1px; padding-right: 15px; padding-left: 15px; flex: 0 0 100%; max-width: 100%;">
-                    <form method="post" action="/PyScriptForm/{5}" class="form-inline" onsubmit="showLoading()">
-                        <input type="hidden" name="step" value="check_in">
-                        {6}
-                        <div class="btn-group" data-toggle="buttons" style="margin-bottom: 15px; position: relative; display: inline-block; vertical-align: middle;">
-                            <label class="btn btn-default {7}" style="position: relative; float: left;">
-                                <input type="radio" name="view_mode" value="not_checked_in" {8} onchange="this.form.submit()"> People to Check In
-                            </label>
-                            <label class="btn btn-default {9}" style="position: relative; float: left;">
-                                <input type="radio" name="view_mode" value="checked_in" {10} onchange="this.form.submit()"> Checked In People
-                            </label>
-                        </div>
-                    </form>
-                </div>
-            </div>
-            
-            <!-- Search and filters -->
-            <form method="post" action="/PyScriptForm/{5}" onsubmit="showLoading()">
-                <input type="hidden" name="step" value="check_in">
-                <input type="hidden" name="view_mode" value="{11}">
-                {6}
-                
-                <div class="row" style="display: flex; flex-wrap: wrap; margin-right: -15px; margin-left: -15px;">
-                    <div class="col-xs-12" style="position: relative; min-height: 1px; padding-right: 15px; padding-left: 15px; flex: 0 0 100%; max-width: 100%;">
-                        <div class="form-group" style="margin-bottom: 15px;">
-                            <div class="input-group" style="position: relative; display: table; border-collapse: separate; width: 100%;">
-                                <input type="text" class="form-control" name="search_term" value="{12}" placeholder="Search by name..." style="display: table-cell; position: relative; z-index: 2; float: left; width: 100%; margin-bottom: 0; height: 38px; padding: 8px 12px; font-size: 14px; line-height: 1.42857143; color: #555; background-color: #fff; background-image: none; border: 1px solid #ddd; border-radius: 4px; border-top-right-radius: 0; border-bottom-right-radius: 0; box-shadow: inset 0 1px 1px rgba(0,0,0,.075);">
-                                <span class="input-group-btn" style="position: relative; font-size: 0; white-space: nowrap; width: 1%; vertical-align: middle; display: table-cell;">
-                                    <button class="btn btn-primary" type="submit" onclick="showLoading()" style="border-top-left-radius: 0; border-bottom-left-radius: 0;">
-                                        <i class="fa fa-search"></i> Search
-                                    </button>
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="row" style="display: flex; flex-wrap: wrap; margin-right: -15px; margin-left: -15px;">
-                    <div class="col-xs-12" style="position: relative; min-height: 1px; padding-right: 15px; padding-left: 15px; flex: 0 0 100%; max-width: 100%;">
-                        <div class="form-group" style="margin-bottom: 15px;">
-                            <label style="display: inline-block; max-width: 100%; margin-bottom: 5px; font-weight: 500;">Filter by Last Name:</label>
-                            {13}
-                        </div>
-                    </div>
-                </div>
-            </form>
-            
-            <!-- People list -->
-            <div class="list-group" style="padding-left: 0; margin-bottom: 20px;">
-                {14}
-            </div>
-            
-            <!-- Pagination -->
-            <div class="text-center" style="text-align: center;">
-                {15}
-            </div>
-        </div>
-    </div>
-    
-    <script>
-        // Show loading indicator during form submission
-        function showLoading() {{
-            document.getElementById('loadingIndicator').style.display = 'block';
-        }}
-    </script>
-    </body>
-    </html>
-    """.format(
-        success_message,            # {0}
-        stats["checked_in"],        # {1}
-        stats["not_checked_in"],    # {2}
-        stats["total"],             # {3}
-        "People to Check In" if view_mode == "not_checked_in" else "Checked In People", # {4}
-        script_name,                # {5}
-        meeting_id_inputs,          # {6}
-        "active" if view_mode == "not_checked_in" else "", # {7}
-        "checked" if view_mode == "not_checked_in" else "", # {8}
-        "active" if view_mode == "checked_in" else "", # {9}
-        "checked" if view_mode == "checked_in" else "", # {10}
-        view_mode,                  # {11}
-        search_term,                # {12}
-        alpha_filters_html,         # {13}
-        people_list_html_str,       # {14}
-        pagination                  # {15}
-    )
-    
-    return True  # Indicate successful rendering
-
-# Simplified version with properly escaped curly braces for Python 2.7
-def render_basic_check_in_page(check_in_manager):
-    """Render basic check-in page with minimal CSS and properly escaped curly braces"""
-    # Get the current script name
-    script_name = get_script_name()
-    
-    # Get parameters
-    meeting_ids = []
-    if hasattr(check_in_manager.model.Data, 'meeting_id'):
-        if isinstance(check_in_manager.model.Data.meeting_id, list):
-            meeting_ids = [str(m) for m in check_in_manager.model.Data.meeting_id]
-        else:
-            meeting_ids = [str(check_in_manager.model.Data.meeting_id)]
-            
-    # Get other parameters
-    alpha_filter = getattr(check_in_manager.model.Data, 'alpha_filter', 'All')
-    search_term = getattr(check_in_manager.model.Data, 'search_term', '')
-    view_mode = getattr(check_in_manager.model.Data, 'view_mode', 'not_checked_in')
-    
-    # Handle page
-    try:
-        page_value = getattr(check_in_manager.model.Data, 'page', 1)
-        current_page = int(page_value) if page_value else 1
-    except (ValueError, TypeError):
-        current_page = 1
-
-    # Get check-in statistics
-    stats = check_in_manager.get_check_in_stats(meeting_ids)
-    
-    # Process form submission
-    success_message = ""
-    if hasattr(check_in_manager.model.Data, 'action'):
-        action = check_in_manager.model.Data.action
-        
-        if action == 'single_direct_check_in':
-            # Get person ID and meeting ID directly
-            person_id = getattr(check_in_manager.model.Data, 'person_id', None)
-            meeting_id = getattr(check_in_manager.model.Data, 'meeting_id', None)
-            
-            if person_id and meeting_id:
-                # Direct API call - simplified for reliability
-                try:
-                    result = check_in_manager.model.EditPersonAttendance(int(meeting_id), int(person_id), True)
-                    success = "Success" in str(result)
-                    
-                    if success:
-                        success_message = """
-                        <div style="padding:15px; margin-bottom:20px; border:1px solid #d6e9c6; border-radius:4px; background-color:#dff0d8; color:#3c763d;">
-                            <strong>Success!</strong> Person has been checked in.
-                        </div>
-                        """
-                    else:
-                        success_message = """
-                        <div style="padding:15px; margin-bottom:20px; border:1px solid #ebccd1; border-radius:4px; background-color:#f2dede; color:#a94442;">
-                            <strong>Error!</strong> Could not check in the person.
-                        </div>
-                        """
-                except Exception as e:
-                    success_message = """
-                    <div style="padding:15px; margin-bottom:20px; border:1px solid #ebccd1; border-radius:4px; background-color:#f2dede; color:#a94442;">
-                        <strong>Error!</strong> Exception: {0}
-                    </div>
-                    """.format(str(e))
-        
-        elif action == 'remove_check_in' and hasattr(check_in_manager.model.Data, 'person_id'):
-            # Single person check-in removal
-            person_id = check_in_manager.model.Data.person_id
-            meeting_id = getattr(check_in_manager.model.Data, 'meeting_id', None)
-            
-            # Direct API call
-            if person_id and meeting_id:
-                try:
-                    result = check_in_manager.model.EditPersonAttendance(int(meeting_id), int(person_id), False)
-                    success = "Success" in str(result)
-                    
-                    if success:
-                        success_message = """
-                        <div style="padding:15px; margin-bottom:20px; border:1px solid #d6e9c6; border-radius:4px; background-color:#dff0d8; color:#3c763d;">
-                            <strong>Success!</strong> Check-in has been removed.
-                        </div>
-                        """
-                except Exception:
-                    success_message = """
-                    <div style="padding:15px; margin-bottom:20px; border:1px solid #ebccd1; border-radius:4px; background-color:#f2dede; color:#a94442;">
-                        <strong>Error!</strong> Could not remove check-in.
-                    </div>
-                    """
-    
-    # Get people based on view mode
-    people = []
-    total_count = 0
-    
-    if view_mode == "checked_in":
-        people, total_count = check_in_manager.get_checked_in_people(meeting_ids, current_page, PAGE_SIZE)
-    else:
-        people, total_count = check_in_manager.get_people_by_filter(alpha_filter, search_term, meeting_ids, current_page, PAGE_SIZE)
-    
-    # Calculate pagination
-    total_pages = (total_count + PAGE_SIZE - 1) // PAGE_SIZE
-    
-    # Create pagination controls
-    pagination = create_pagination(current_page, total_pages, script_name, meeting_ids, view_mode, alpha_filter, search_term)
-    
-    # Render alpha filters
-    alpha_filters_html = render_alpha_filters(alpha_filter)
-    
-    # Generate the people list HTML based on view mode
-    people_list_html = []
-    for person in people:
-        # Use the primary meeting ID for simplicity
-        meeting_id = meeting_ids[0] if meeting_ids else ""
-        
-        if view_mode == "checked_in":
-            # For checked-in people, show "remove" button
-            item_html = """
-            <div style="position:relative; display:block; padding:10px 15px; margin-bottom:10px; background-color:#fff; border:1px solid #ddd; border-radius:4px;">
-                <div style="width:100%; overflow:hidden;">
-                    <div style="float:left; width:66.6%; padding-right:15px;">
-                        <span style="font-size:16px; line-height:28px;">{1}</span>
-                    </div>
-                    <div style="float:right; width:33.3%; text-align:right;">
-                        <form method="post" action="/PyScriptForm/{2}" style="display:inline;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
-                            <input type="hidden" name="step" value="check_in">
-                            <input type="hidden" name="action" value="remove_check_in">
-                            <input type="hidden" name="person_id" value="{0}">
-                            <input type="hidden" name="meeting_id" value="{3}">
-                            <input type="hidden" name="view_mode" value="checked_in">
-                            <input type="hidden" name="alpha_filter" value="{4}">
-                            <input type="hidden" name="search_term" value="{5}">
-                            <input type="hidden" name="page" value="{6}">
-                            <button type="submit" style="padding:5px 10px; font-size:12px; color:#fff; background-color:#d9534f; border:1px solid #d43f3a; border-radius:3px; cursor:pointer;">
-                                Remove
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-            """.format(
-                person.people_id,  # {0}
-                person.name,       # {1}
-                script_name,       # {2}
-                meeting_id,        # {3}
-                alpha_filter,      # {4}
-                search_term,       # {5}
-                current_page       # {6}
-            )
-        else:
-            # For not-checked-in people, show "check in" button
-            item_html = """
-            <div style="position:relative; display:block; padding:10px 15px; margin-bottom:10px; background-color:#fff; border:1px solid #ddd; border-radius:4px;">
-                <div style="width:100%; overflow:hidden;">
-                    <div style="float:left; width:66.6%; padding-right:15px;">
-                        <span style="font-size:16px; line-height:28px;">{1}</span>
-                    </div>
-                    <div style="float:right; width:33.3%; text-align:right;">
-                        <form method="post" action="/PyScriptForm/{2}" style="display:inline;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
-                            <input type="hidden" name="step" value="check_in">
-                            <input type="hidden" name="action" value="single_direct_check_in">
-                            <input type="hidden" name="person_id" value="{0}">
-                            <input type="hidden" name="meeting_id" value="{3}">
-                            <input type="hidden" name="view_mode" value="not_checked_in">
-                            <input type="hidden" name="alpha_filter" value="{4}">
-                            <input type="hidden" name="search_term" value="{5}">
-                            <input type="hidden" name="page" value="{6}">
-                            <button type="submit" style="padding:5px 10px; font-size:12px; color:#fff; background-color:#5cb85c; border:1px solid #4cae4c; border-radius:3px; cursor:pointer;">
-                                Check In
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-            """.format(
-                person.people_id,  # {0}
-                person.name,       # {1}
-                script_name,       # {2}
-                meeting_id,        # {3}
-                alpha_filter,      # {4}
-                search_term,       # {5}
-                current_page       # {6}
-            )
-        
-        people_list_html.append(item_html)
-    
-    # Combine all list items
-    people_list_html_str = "\n".join(people_list_html)
-    
-    # Create inputs for meeting IDs (for other forms)
-    meeting_id_inputs = ""
-    for meeting_id in meeting_ids:
-        meeting_id_inputs += '<input type="hidden" name="meeting_id" value="{0}">'.format(meeting_id)
-    
-    # Simple HTML without complex CSS or curly braces in JavaScript
-    print """<!DOCTYPE html>
-    <html>
-    <head>
-        <title>Rapid Check-In System</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    </head>
-    <body style="font-family:Arial,sans-serif; margin:0; padding:20px; color:#333; background-color:#f9f9f9;">
-        <div id="loadingIndicator" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(255,255,255,0.8); z-index:1000; text-align:center; padding-top:20%;">
-            <div style="border:6px solid #f3f3f3; border-top:6px solid #3498db; border-radius:50%; width:50px; height:50px; margin:0 auto 20px auto;"></div>
-            <div>Processing...</div>
-        </div>
-        
-        <div style="background-color:#3498db; color:#fff; padding:15px; margin:-20px -20px 20px -20px; border-bottom:3px solid #2980b9;">
-            <h2 style="margin:0; color:#fff;">Rapid Check-In System</h2>
-        </div>
-        
-        <!-- Success message -->
-        {0}
-        
-        <!-- Stats boxes -->
-        <div style="margin-bottom:20px; overflow:hidden;">
-            <div style="float:left; width:31%; margin:0 1%; padding:15px; text-align:center; background-color:#d9f2e6; border-left:4px solid #2ecc71; border-radius:4px;">
-                <div style="font-size:24px; font-weight:bold; margin-bottom:5px;">{1}</div>
-                <div style="font-size:14px; color:#888;">Checked In</div>
-            </div>
-            <div style="float:left; width:31%; margin:0 1%; padding:15px; text-align:center; background-color:#e6f2fa; border-left:4px solid #3498db; border-radius:4px;">
-                <div style="font-size:24px; font-weight:bold; margin-bottom:5px;">{2}</div>
-                <div style="font-size:14px; color:#888;">Not Checked In</div>
-            </div>
-            <div style="float:left; width:31%; margin:0 1%; padding:15px; text-align:center; background-color:#f9f9f9; border-left:4px solid #95a5a6; border-radius:4px;">
-                <div style="font-size:24px; font-weight:bold; margin-bottom:5px;">{3}</div>
-                <div style="font-size:14px; color:#888;">Total</div>
-            </div>
-        </div>
-    
-        <!-- Main content -->
-        <div style="margin-bottom:20px; background-color:#fff; border:1px solid #ddd; border-radius:4px; padding:0;">
-            <div style="padding:12px 15px; background-color:#f7f7f7; border-bottom:1px solid #ddd;">
-                <div style="overflow:hidden;">
-                    <div style="float:left; width:60%;">
-                        <h3 style="margin:0; font-size:16px; color:#333;">{4}</h3>
-                    </div>
-                    <div style="float:right; width:40%; text-align:right;">
-                        <a href="/PyScript/{5}?step=choose_meetings" style="padding:5px 10px; background-color:#f0f0f0; border:1px solid #ddd; border-radius:4px; text-decoration:none; color:#333; display:inline-block;" onclick="document.getElementById('loadingIndicator').style.display='block';">
-                            Back to Meetings
-                        </a>
-                    </div>
-                </div>
-            </div>
-            
-            <div style="padding:15px;">
-                <!-- View toggle buttons -->
-                <div style="margin-bottom:20px;">
-                    <form method="post" action="/PyScriptForm/{5}" style="display:inline-block;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
-                        <input type="hidden" name="step" value="check_in">
-                        {6}
-                        <span style="display:inline-block;">
-                            <label style="display:inline-block; padding:6px 12px; margin-right:-1px; background-color:{7}; border:1px solid #ccc; border-top-left-radius:4px; border-bottom-left-radius:4px;">
-                                <input type="radio" name="view_mode" value="not_checked_in" {8} onchange="this.form.submit()" style="margin-right:5px;"> People to Check In
-                            </label>
-                            <label style="display:inline-block; padding:6px 12px; background-color:{9}; border:1px solid #ccc; border-top-right-radius:4px; border-bottom-right-radius:4px;">
-                                <input type="radio" name="view_mode" value="checked_in" {10} onchange="this.form.submit()" style="margin-right:5px;"> Checked In People
-                            </label>
-                        </span>
-                    </form>
-                </div>
-                
-                <!-- Search and filters -->
-                <form method="post" action="/PyScriptForm/{5}" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
-                    <input type="hidden" name="step" value="check_in">
-                    <input type="hidden" name="view_mode" value="{11}">
-                    {6}
-                    
-                    <div style="margin-bottom:15px;">
-                        <div style="display:table; width:100%;">
-                            <div style="display:table-cell; width:100%;">
-                                <input type="text" name="search_term" value="{12}" placeholder="Search by name..." style="width:100%; height:38px; padding:6px 12px; border:1px solid #ddd; border-radius:4px 0 0 4px; box-sizing:border-box;">
-                            </div>
-                            <div style="display:table-cell; vertical-align:top; width:1%;">
-                                <button type="submit" style="height:38px; padding:6px 12px; background-color:#337ab7; color:white; border:1px solid #2e6da4; border-radius:0 4px 4px 0; cursor:pointer; white-space:nowrap;" onclick="document.getElementById('loadingIndicator').style.display='block';">
-                                    Search
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div style="margin-bottom:15px;">
-                        <label style="display:block; margin-bottom:5px; font-weight:bold;">Filter by Last Name:</label>
-                        {13}
-                    </div>
-                </form>
-                
-                <!-- People list -->
-                <div style="margin-bottom:20px;">
-                    {14}
-                </div>
-                
-                <!-- Pagination -->
-                <div style="text-align:center;">
-                    {15}
-                </div>
-            </div>
-        </div>
-        
-        <script>
-            function showLoading() {{
-                document.getElementById('loadingIndicator').style.display = 'block';
-            }}
-        </script>
-    </body>
-    </html>
-    """.format(
-            success_message,            # {0}
-            stats["checked_in"],        # {1}
-            stats["not_checked_in"],    # {2}
-            stats["total"],             # {3}
-            "People to Check In" if view_mode == "not_checked_in" else "Checked In People", # {4}
-            script_name,                # {5}
-            meeting_id_inputs,          # {6}
-            "#eee" if view_mode == "not_checked_in" else "#fff", # {7}
-            "checked" if view_mode == "not_checked_in" else "", # {8}
-            "#fff" if view_mode == "not_checked_in" else "#eee", # {9}
-            "checked" if view_mode == "checked_in" else "", # {10}
-            view_mode,                  # {11}
-            search_term,                # {12}
-            alpha_filters_html,         # {13}
-            people_list_html_str,       # {14}
-            pagination                  # {15}
-        )
-        
-    return True  # Indicate successful rendering
-
 
 # Main execution
 try:
-
     # Set up the check-in manager
     check_in_manager = CheckInManager(model, q)
     
@@ -2769,13 +1931,21 @@ try:
     if clean_meeting_id and ',' in str(clean_meeting_id):
         clean_meeting_id = str(clean_meeting_id).split(',')[0].strip()
     
+    # New: Handle selected_org_ids for multi-meeting check-in
+    selected_org_ids = []
+    if hasattr(model.Data, 'selected_org_ids'):
+        org_ids_str = str(model.Data.selected_org_ids)
+        if org_ids_str:
+            selected_org_ids = org_ids_str.split(',')
+    
     # Store cleaned values
     model.Data.cleaned_step = clean_step
     model.Data.cleaned_action = clean_action
     model.Data.cleaned_person_id = clean_person_id
     model.Data.cleaned_meeting_id = clean_meeting_id
+    model.Data.selected_org_ids = selected_org_ids
     
-    # Special handling for direct check-in
+    # Process different actions
     if clean_action == 'single_direct_check_in':
         # Do direct API call
         if clean_person_id and clean_meeting_id:
@@ -2786,6 +1956,87 @@ try:
                 check_in_manager.last_check_in_time = check_in_manager.model.DateTime
             except Exception as e:
                 print "Error: " + str(e) + ""
+    
+    # New action type for multi-meeting check-in
+    elif clean_action == 'multi_direct_check_in':
+        # Get person ID
+        if not clean_person_id:
+            print "<div style='color:red;'>Error: No person ID provided</div>"
+        else:
+            try:
+                # Simple approach: Just use the meeting IDs directly from the form
+                success = True
+                check_in_count = 0
+                
+                # Get all meetings selected on the meetings page
+                all_selected_meeting_ids = []
+                if hasattr(model.Data, 'meeting_id'):
+                    if isinstance(model.Data.meeting_id, list):
+                        all_selected_meeting_ids = [m for m in model.Data.meeting_id if m]  # Filter out empty values
+                    elif model.Data.meeting_id:  # Check if not empty
+                        all_selected_meeting_ids = [model.Data.meeting_id]
+                
+                print "<!-- DEBUG: Person ID: {0}, Meeting IDs: {1} -->".format(clean_person_id, all_selected_meeting_ids)
+                
+                # Check person into each meeting directly
+                for meeting_id in all_selected_meeting_ids:
+                    if meeting_id:  # Skip empty meeting IDs
+                        try:
+                            # Convert to integers and use direct API call
+                            person_id_int = int(clean_person_id)
+                            meeting_id_int = int(meeting_id)
+                            
+                            # Skip if zeros to prevent SQL errors
+                            if person_id_int <= 0 or meeting_id_int <= 0:
+                                continue
+                                
+                            result = model.EditPersonAttendance(meeting_id_int, person_id_int, True)
+                            
+                            if "Success" in str(result):
+                                check_in_count += 1
+                            else:
+                                print "<!-- DEBUG: Check-in failed: {0} -->".format(result)
+                                success = False
+                        except Exception as e:
+                            print "<!-- DEBUG: Check-in error for meeting {0}: {1} -->".format(meeting_id, str(e))
+                            success = False
+                
+                # Update last check-in time to force stats refresh
+                check_in_manager.last_check_in_time = check_in_manager.model.DateTime
+                
+                if check_in_count > 0:
+                    print "<!-- DEBUG: Successfully checked in to {0} meetings -->".format(check_in_count)
+                else:
+                    print "<div style='color:red;'>No check-ins were completed. Please try again.</div>"
+                    
+            except Exception as e:
+                print "<div style='color:red;'>Error during check-in: " + str(e) + "</div>"
+                import traceback
+                print "<!-- DEBUG: Full error details: " + traceback.format_exc() + " -->"
+    
+    # Handle check-in removal
+    elif clean_action == 'remove_check_in':
+        if clean_person_id and hasattr(model.Data, 'meeting_id'):
+            success = True
+            try:
+                meeting_id = model.Data.meeting_id
+                if isinstance(meeting_id, list):
+                    for mid in meeting_id:
+                        result = check_in_manager.model.EditPersonAttendance(int(mid), int(clean_person_id), False)
+                        if "Success" not in str(result):
+                            success = False
+                else:
+                    result = check_in_manager.model.EditPersonAttendance(int(meeting_id), int(clean_person_id), False)
+                    if "Success" not in str(result):
+                        success = False
+                
+                # Update last check-in time to force stats refresh
+                check_in_manager.last_check_in_time = check_in_manager.model.DateTime
+                
+                if not success:
+                    print "<div style='color:red;'>Some check-in removals failed</div>"
+            except Exception as e:
+                print "<div style='color:red;'>Error: " + str(e) + "</div>"
     
     # Determine which page to render
     if clean_step == 'check_in':
