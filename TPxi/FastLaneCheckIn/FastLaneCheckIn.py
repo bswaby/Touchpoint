@@ -1335,6 +1335,56 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
     pagination.append('</div>')
     return "\n".join(pagination)
 
+# Function to process AJAX check-in requests
+def process_ajax_check_in(check_in_manager):
+    """Process AJAX check-in requests without full page reload"""
+    try:
+        # Get parameters
+        person_id = getattr(check_in_manager.model.Data, 'person_id', None)
+        meeting_id = getattr(check_in_manager.model.Data, 'meeting_id', None)
+        
+        # Validate parameters
+        if not person_id or not meeting_id:
+            print '{{"success":false,"reason":"missing_parameters"}}'
+            return False
+            
+        # Clean any comma-separated values
+        if ',' in str(person_id):
+            person_id = str(person_id).split(',')[0].strip()
+            
+        if ',' in str(meeting_id):
+            meeting_id = str(meeting_id).split(',')[0].strip()
+        
+        # Convert to integers
+        person_id_int = int(person_id)
+        meeting_id_int = int(meeting_id)
+        
+        # Perform the check-in directly
+        try:
+            # Try to completely isolate the API call
+            check_result = check_in_manager.model.EditPersonAttendance(meeting_id_int, person_id_int, True)
+            success = "Success" in str(check_result)
+            
+            # Only output clean JSON response
+            print '{{"success":true}}'
+            
+            # Force refresh of stats for next page load
+            check_in_manager.last_check_in_time = check_in_manager.model.DateTime
+            
+            return True
+        except Exception as inner_e:
+            # Isolate any exceptions from the API call
+            print '{{"success":false,"reason":"api_error"}}'
+            return False
+            
+    except Exception as outer_e:
+        # Catch-all for any other exceptions
+        print '{{"success":false,"reason":"general_error"}}'
+        return False
+
+    # Final fallback
+    return False
+
 
 def render_fastlane_check_in(check_in_manager):
     """Render the FastLane check-in page with fixed alignment and branding"""
@@ -1555,7 +1605,7 @@ def render_fastlane_check_in(check_in_manager):
                 
             # Start the HTML for this person
             item_html = """
-            <div style="padding:8px; background-color:#fff; border:1px solid #ddd; border-radius:4px;">
+            <div id="person-{0}" class="person-card" style="padding:8px; background-color:#fff; border:1px solid #ddd; border-radius:4px;">
                 <div style="display:flex; align-items:center; justify-content:space-between;">
                     <div style="flex:1; overflow:hidden; text-overflow:ellipsis;">
                         <div style="font-size:15px;">{1}{2}</div>
@@ -1658,7 +1708,7 @@ def render_fastlane_check_in(check_in_manager):
             # For not-checked-in people, show "check in" button with individual meeting buttons
             # Create a container for this person
             item_html = """
-            <div style="padding:8px; background-color:#fff; border:1px solid #ddd; border-radius:4px;">
+            <div id="person-{0}" class="person-card" style="padding:8px; background-color:#fff; border:1px solid #ddd; border-radius:4px;">
                 <div style="display:flex; align-items:center; justify-content:space-between;">
                     <div style="flex:1; overflow:hidden; text-overflow:ellipsis;">
                         <div style="font-size:15px;">{1}{2}</div>
@@ -1708,23 +1758,94 @@ def render_fastlane_check_in(check_in_manager):
                 
                 print "<!-- Adding check-in button for meeting ID: {0} ({1}) -->".format(meeting_id, meeting_name)
                 
-                # Create a single check-in button for this specific meeting
+                # Create an inline AJAX check-in button
                 item_html += """
-                <form method="post" action="/PyScriptForm/{4}" style="margin:0; padding:0;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
-                    <input type="hidden" name="step" value="check_in">
-                    <input type="hidden" name="action" value="single_direct_check_in">
-                    <input type="hidden" name="person_id" value="{0}">
-                    <input type="hidden" name="person_name" value="{1}">
-                    <input type="hidden" name="meeting_id" value="{5}">
-                    <input type="hidden" name="view_mode" value="not_checked_in">
-                    <input type="hidden" name="alpha_filter" value="{6}">
-                    <input type="hidden" name="search_term" value="{7}">
-                    <input type="hidden" name="page" value="{8}">
-                    <button type="submit" style="padding:3px 8px; font-size:12px; background-color:#28a745; color:#fff; border:1px solid #28a745; border-radius:3px; cursor:pointer; min-width:60px; height:28px; vertical-align:middle;">{9}</button>
-                </form>
+                <button onclick="(function(personId, meetingId, personName) {{
+                    // Mark this person's card as processing
+                    var personCard = document.getElementById('person-' + personId);
+                    if (personCard) {{
+                        personCard.style.opacity = '0.7';
+                        personCard.style.backgroundColor = '#f1f8ff';
+                    }}
+                    
+                    // Create and show mini flash message
+                    var miniFlash = document.createElement('div');
+                    miniFlash.style.position = 'fixed';
+                    miniFlash.style.bottom = '20px';
+                    miniFlash.style.right = '20px';
+                    miniFlash.style.backgroundColor = 'rgba(40,167,69,0.9)';
+                    miniFlash.style.color = 'white';
+                    miniFlash.style.padding = '10px 15px';
+                    miniFlash.style.borderRadius = '4px';
+                    miniFlash.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
+                    miniFlash.style.zIndex = '9999';
+                    miniFlash.style.transition = 'opacity 0.3s ease';
+                    miniFlash.innerHTML = '<span>Processing...</span>';
+                    document.body.appendChild(miniFlash);
+                    
+                    // Prepare form data
+                    var formData = new FormData();
+                    formData.append('step', 'check_in');
+                    formData.append('action', 'ajax_check_in');
+                    formData.append('person_id', personId);
+                    formData.append('person_name', personName);
+                    formData.append('meeting_id', meetingId);
+                    
+                    // Create XMLHttpRequest
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('POST', '/PyScriptForm/{4}', true);
+                    
+                    xhr.onload = function() {{
+                        // Always hide the card if status is 200 - regardless of the response content
+                        if (xhr.status === 200) {{
+                            // Hide the person card immediately
+                            if (personCard) {{
+                                personCard.style.display = 'none';
+                            }}
+                            
+                            // Show success message
+                            miniFlash.innerHTML = '<span>' + personName + ' checked in!</span>';
+                            
+                            // Update the stats
+                            var checkedInEl = document.getElementById('stat-checked-in');
+                            var notCheckedInEl = document.getElementById('stat-not-checked-in');
+                            
+                            if (checkedInEl && notCheckedInEl) {{
+                                var checkedIn = parseInt(checkedInEl.innerText || '0');
+                                var notCheckedIn = parseInt(notCheckedInEl.innerText || '0');
+                                
+                                checkedInEl.innerText = (checkedIn + 1).toString();
+                                notCheckedInEl.innerText = Math.max(0, notCheckedIn - 1).toString();
+                            }}
+                        }} else {{
+                            // Only show error if HTTP status is not 200
+                            miniFlash.style.backgroundColor = 'rgba(220,53,69,0.9)';
+                            miniFlash.innerHTML = '<span>Error checking in ' + personName + '</span>';
+                            
+                            // Reset the person card
+                            if (personCard) {{
+                                personCard.style.opacity = '1';
+                                personCard.style.backgroundColor = '#fff';
+                            }}
+                        }}
+                        
+                        // Remove flash after 1.5 seconds
+                        setTimeout(function() {{
+                            miniFlash.style.opacity = '0';
+                            setTimeout(function() {{
+                                if (document.body.contains(miniFlash)) {{
+                                    document.body.removeChild(miniFlash);
+                                }}
+                            }}, 300);
+                        }}, 1500);
+                    }};
+                    
+                    xhr.send(formData);
+                    return false;
+                }})('{0}', '{5}', '{1}'); return false;" style="padding:3px 8px; font-size:12px; background-color:#28a745; color:#fff; border:1px solid #28a745; border-radius:3px; cursor:pointer; min-width:60px; height:28px; vertical-align:middle;">{9}</button>
                 """.format(
                     person.people_id,  # {0}
-                    person.name,       # {1}
+                    person.name.replace("'", "\\'").replace('"', '\\"'),  # {1} - escape quotes for JavaScript
                     "",                # {2} - not used
                     "",                # {3} - not used
                     script_name,       # {4}
@@ -1749,9 +1870,9 @@ def render_fastlane_check_in(check_in_manager):
     # Create the compact stats bar
     stats_bar = """
     <div style="display:flex; justify-content:space-between; background-color:#f8f9fa; border:1px solid #dee2e6; border-radius:4px; padding:8px; margin-bottom:10px; font-size:13px;">
-        <div><strong style="color:#28a745;">{0}</strong> Checked In</div>
-        <div><strong style="color:#007bff;">{1}</strong> Not Checked In</div>
-        <div><strong>{2}</strong> Total</div>
+        <div><strong id="stat-checked-in" style="color:#28a745;">{0}</strong> Checked In</div>
+        <div><strong id="stat-not-checked-in" style="color:#007bff;">{1}</strong> Not Checked In</div>
+        <div><strong id="stat-total">{2}</strong> Total</div>
     </div>
     """.format(stats["checked_in"], stats["not_checked_in"], stats["total"])
     
@@ -1782,6 +1903,37 @@ def render_fastlane_check_in(check_in_manager):
 <head>
     <title>FastLane Check-In</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        .person-card {{
+            transition: all 0.3s ease;
+        }}
+        .person-card.processing {{
+            opacity: 0.7;
+            background-color: #f1f8ff !important;
+        }}
+        .person-card.checked-in {{
+            transform: translateX(100%);
+            opacity: 0;
+        }}
+        .mini-flash {{
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: rgba(40,167,69,0.9);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 4px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 9999;
+            transition: opacity 0.3s ease;
+        }}
+        .mini-flash .success {{
+            color: white;
+        }}
+        .mini-flash .error {{
+            color: #ffcccc;
+        }}
+    </style>
 </head>
 <body style="font-family:Arial,sans-serif; margin:0; padding:10px; color:#333; background-color:#f5f5f5;">
     <div id="loadingIndicator" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(255,255,255,0.8); z-index:1000; text-align:center; padding-top:20%;">
@@ -1944,6 +2096,14 @@ try:
     model.Data.cleaned_person_id = clean_person_id
     model.Data.cleaned_meeting_id = clean_meeting_id
     model.Data.selected_org_ids = selected_org_ids
+
+    # Check for AJAX request
+    if clean_action == 'ajax_check_in':
+        # This is an AJAX request, handle it and exit early
+        process_ajax_check_in(check_in_manager)
+        # Exit early using import sys; sys.exit() instead of return
+        import sys
+        sys.exit()  # This will stop execution of the rest of the script
     
     # Process different actions
     if clean_action == 'single_direct_check_in':
