@@ -13,9 +13,9 @@ Automatically create QCD and Grant letters that you can print out and add to eac
 
 | Feature | Preview |
 |---------|---------|
-| Date Selection | <a href="#"><img src="https://github.com/username/repo/raw/main/images/small-icon.png" width="100" title="Click to enlarge" alt="Date Selection"><img src="https://github.com/username/repo/raw/main/images/profile-icon.png" width="0"></a> |
-| Grant Letter | <a href="#"><img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/small-grant.png" width="100" title="Click to enlarge" alt="Grant Letter"><img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/GrantLetter.png" width="0"></a> |
-| QCD Letter | <a href="#"><img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/small-qcd.png" width="100" title="Click to enlarge" alt="QCD Letter"><img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDLetteer.png" width="0"></a> |
+| Date Selection | <details><summary>📅 Preview</summary><img src="https://github.com/username/repo/raw/main/images/profile-icon.png" width="500"></details> |
+| Grant Letter | <details><summary>📄 Preview</summary><img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/GrantLetter.png" width="500"></details> |
+| QCD Letter | <details><summary>📄 Preview</summary><img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDLetteer.png" width="500"></details> |
 
 ### 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/Finance/Weekly%20Contribution%20Report)
 This is the primary tool our finance team tracks, reports, and works through finances each week.
