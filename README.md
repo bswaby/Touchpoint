@@ -1,6 +1,5 @@
-# 🏛️ Church Dashboard Suite
-
-A collection of tools and dashboards designed to support church operations, communication, and data analysis for Touchpoint
+TPxi Tools
+<img src="https://raw.githubusercontent.com/bswaby/Touchpoint/main/logo.svg" alt="TPxi Logo" width="60" style="vertical-align: middle;"> A collection of tools and dashboards designed to support church operations, communication, and data analysis for Touchpoint
 
 ## 📋 Overview
 
