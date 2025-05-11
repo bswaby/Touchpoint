@@ -13,14 +13,15 @@ Automatically create QCD and Grant letters that you can print out and add to eac
 
 <details>
 <summary><strong>Date Selection</strong></summary>
-<p>The date selection interface allows users to easily choose dates from a calendar view.</p>
+<p>The date selection interface allows users to choose dates from a calendar view easily.  It also allow to upload a note to each persons record.</p>
 <p align="center">
-  <img src="https://github.com/username/repo/raw/main/images/profile-icon.png" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/GrantLetter.png" width="700">
 </p>
 </details>
 
 <details>
 <summary><strong>Grant Letter</strong></summary>
+<p>When a grant letter is detected, it will use the grant letter template and create a letter for each person made for a printable windowed envelope</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/GrantLetter.png" width="700">
 </p>
@@ -28,6 +29,7 @@ Automatically create QCD and Grant letters that you can print out and add to eac
 
 <details>
 <summary><strong>QCD Letter</strong></summary>
+<p>When a QCD letter is detected, it will use the QCD letter template and create a letter for each person made for a printable windowed envelope</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDLetteer.png" width="700">
 </p>
