@@ -12,21 +12,22 @@ It breaks down fees by program and accounting code so accounting can use it to b
 Automatically create QCD and Grant letters that you can print out and add to each person's notes.
 
 <details>
-<summary><strong>Date Selection</strong> - Click to expand</summary>
+<summary><strong>Date Selection</strong></summary>
+<p>The date selection interface allows users to easily choose dates from a calendar view.</p>
 <p align="center">
   <img src="https://github.com/username/repo/raw/main/images/profile-icon.png" width="700">
 </p>
 </details>
 
 <details>
-<summary><strong>Grant Letter</strong> - Click to expand</summary>
+<summary><strong>Grant Letter</strong></summary>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/GrantLetter.png" width="700">
 </p>
 </details>
 
 <details>
-<summary><strong>QCD Letter</strong> - Click to expand</summary>
+<summary><strong>QCD Letter</strong></summary>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDLetteer.png" width="700">
 </p>
