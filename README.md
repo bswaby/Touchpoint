@@ -15,7 +15,7 @@ Automatically create QCD and Grant letters that you can print out and add to eac
 <summary><strong>Date Selection</strong></summary>
 <p>The date selection interface allows users to choose dates from a calendar view easily.  It also allow to upload a note to each persons record.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/GrantLetter.png" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDGrantScreenShot.png" width="700">
 </p>
 </details>
 
