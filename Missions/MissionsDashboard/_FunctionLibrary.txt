@@ -1,0 +1,965 @@
+#-----------------------------
+#Show Meetings
+#-----------------------------
+# -> this is a text file that missions dashboard calls
+
+def get_meetings(OrgId=None):
+
+    sqlMeetingCount = '''
+    SELECT 
+        COUNT(CASE WHEN MeetingDate < GETDATE() THEN 1 END) AS PastMeetings,
+        COUNT(CASE WHEN MeetingDate >= GETDATE() THEN 1 END) AS FutureMeetings
+    FROM Meetings
+    WHERE OrganizationId = {0}
+    '''
+
+    sqlMeetings = '''
+    
+        Select 
+        	 MeetingDate
+        	,OrganizationId
+        	,NumPresent
+        	,Location
+        	,Description
+        From Meetings 
+        WHERE OrganizationId = {0}
+            AND MeetingDate {1} '{2}'
+        Order by MeetingDate
+    '''
+    #<button onclick="history.back()">Go Back</button>
+    html = ""
+    html += """
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+        <style type="text/css">
+            /* Fallback if image fails */
+            .image-container {
+              background-image: url('fallback-image.jpg');
+            }
+            .collapsible-section {
+                margin-bottom: 20px;
+            }
+            .collapsible-header {
+                cursor: pointer;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 5px 10px;
+                background-color: #f5f5f5;
+                border-radius: 4px;
+            }
+            .collapsible-header h3 {
+                margin: 0;
+            }
+            .arrow {
+                transition: transform 0.3s;
+            }
+            .collapsible-content {
+                overflow: hidden;
+                max-height: 1000px;
+                transition: max-height 0.3s ease-out;
+            }
+            .collapsed .collapsible-content {
+                max-height: 0;
+            }
+            .collapsed .arrow {
+                transform: rotate(-90deg);
+            }
+            .calendar-buttons {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-top: 8px;
+            }
+            .calendar-btn {
+                background-color: #4CAF50;
+                border: none;
+                color: white;
+                padding: 8px 12px;
+                text-align: center;
+                text-decoration: none;
+                display: inline-block;
+                font-size: 14px;
+                cursor: pointer;
+                border-radius: 4px;
+            }
+            .ios-btn {
+                background-color: #007AFF; /* iOS blue */
+            }
+            .calendar-btn:hover {
+                opacity: 0.9;
+            }
+            /* Hide iOS button on non-iOS devices */
+            .ios-btn {
+                display: none;
+            }
+            /* Show iOS button on iOS devices */
+            @supports (-webkit-touch-callout: none) {
+                .ios-btn {
+                    display: inline-block;
+                }
+            }
+        </style>
+        
+        <script type="text/javascript">
+            // Function to toggle collapsible sections
+            function toggleCollapsible(element) {
+                var parent = element.parentElement;
+                parent.classList.toggle("collapsed");
+            }
+            
+            // Initialize all collapsible sections as collapsed
+            document.addEventListener("DOMContentLoaded", function() {
+                var collapsibles = document.getElementsByClassName("collapsible-section");
+                for(var i = 0; i < collapsibles.length; i++) {
+                    collapsibles[i].classList.add("collapsed");
+                }
+                
+                // Check if it's an iOS device and show the iOS buttons
+                var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+                if (isIOS) {
+                    var iosButtons = document.getElementsByClassName("ios-btn");
+                    for(var i = 0; i < iosButtons.length; i++) {
+                        iosButtons[i].style.display = "inline-block";
+                    }
+                }
+            });
+            
+            // Format date for iCalendar format
+            function formatDateForICS(dateString) {
+                // This function handles different date formats by trying to parse them
+                var date = new Date(dateString);
+                
+                if (isNaN(date.getTime())) {
+                    // If standard parsing fails, try a custom approach
+                    // Assuming format like "2023-01-01 14:30:00" or similar
+                    var parts = dateString.split(/[- :]/);
+                    if (parts.length >= 6) {
+                        date = new Date(parts[0], parts[1]-1, parts[2], parts[3], parts[4], parts[5]);
+                    } else {
+                        // Return current date + 1 hour as fallback
+                        date = new Date();
+                        date.setHours(date.getHours() + 1);
+                    }
+                }
+                
+                // Format date for iCalendar (YYYYMMDDTHHMMSS)
+                // Note: iOS prefers local time without Z suffix
+                var pad = function(num) { return ('00' + num).slice(-2); };
+                return date.getFullYear() + 
+                       pad(date.getMonth() + 1) + 
+                       pad(date.getDate()) + 'T' + 
+                       pad(date.getHours()) + 
+                       pad(date.getMinutes()) + 
+                       pad(date.getSeconds());
+            }
+            
+            // iOS-specific calendar function using webcal:// protocol
+            function addiOSCalendar(id, dateString, title, location) {
+                try {
+                    // Create start date from the provided date string
+                    var startDate = formatDateForICS(dateString);
+                    
+                    // Create end date (default to 1 hour after start)
+                    var endDate = new Date(dateString);
+                    if (isNaN(endDate.getTime())) {
+                        var parts = dateString.split(/[- :]/);
+                        if (parts.length >= 6) {
+                            endDate = new Date(parts[0], parts[1]-1, parts[2], parts[3], parts[4], parts[5]);
+                        } else {
+                            endDate = new Date();
+                        }
+                    }
+                    endDate.setHours(endDate.getHours() + 1);
+                    
+                    // Format end date
+                    var endDateFormatted = formatDateForICS(endDate);
+                    
+                    // Current timestamp for DTSTAMP
+                    var now = formatDateForICS(new Date());
+                    
+                    // Create unique identifier
+                    var uid = id + "@" + window.location.hostname;
+                    
+                    // Build iCalendar data
+                    var icsData = "BEGIN:VCALENDAR\\r\\n" +
+                        "VERSION:2.0\\r\\n" +
+                        "PRODID:-//Meeting Calendar//NONSGML v1.0//EN\\r\\n" +
+                        "METHOD:PUBLISH\\r\\n" +
+                        "CALSCALE:GREGORIAN\\r\\n" +
+                        "BEGIN:VEVENT\\r\\n" +
+                        "UID:" + uid + "\\r\\n" +
+                        "DTSTAMP:" + now + "\\r\\n" +
+                        "DTSTART:" + startDate + "\\r\\n" +
+                        "DTEND:" + endDateFormatted + "\\r\\n" +
+                        "SUMMARY:" + title + "\\r\\n" +
+                        "LOCATION:" + location + "\\r\\n" +
+                        "STATUS:CONFIRMED\\r\\n" +
+                        "TRANSP:OPAQUE\\r\\n" +
+                        "END:VEVENT\\r\\n" +
+                        "END:VCALENDAR";
+                    
+                    // Create data URI for the calendar
+                    var encodedData = encodeURIComponent(icsData);
+                    
+                    // Create webcal URL (iOS specific)
+                    var webcalURL = "webcal:" + window.location.hostname + "/calendar.ics?" + encodedData;
+                    
+                    // Use a more compatible approach - create a "data:text/calendar" URI
+                    var dataUri = "data:text/calendar;charset=utf8," + encodedData;
+                    
+                    // Open the calendar URL
+                    window.location.href = dataUri;
+                } catch (error) {
+                    console.error("Error creating iOS calendar event:", error);
+                    alert("There was a problem creating the calendar event for iOS. Please try using the desktop button instead.");
+                }
+            }
+            
+            // Standard calendar function for desktop browsers
+            function addToCalendar(id, dateString, title, location) {
+                try {
+                    // Create start date from the provided date string
+                    var startDate = formatDateForICS(dateString);
+                    
+                    // Create end date (default to 1 hour after start)
+                    var endDate = new Date(dateString);
+                    if (isNaN(endDate.getTime())) {
+                        var parts = dateString.split(/[- :]/);
+                        if (parts.length >= 6) {
+                            endDate = new Date(parts[0], parts[1]-1, parts[2], parts[3], parts[4], parts[5]);
+                        } else {
+                            endDate = new Date();
+                        }
+                    }
+                    endDate.setHours(endDate.getHours() + 1);
+                    
+                    // Format end date using our formatting function
+                    var endDateFormatted = formatDateForICS(endDate);
+                    
+                    // Current timestamp for DTSTAMP
+                    var now = formatDateForICS(new Date());
+                    
+                    // Create unique identifier
+                    var uid = id + "@" + window.location.hostname;
+                    
+                    // Build iCalendar data with proper line endings for iOS
+                    var icsData = [
+                        "BEGIN:VCALENDAR",
+                        "VERSION:2.0",
+                        "PRODID:-//Meeting Calendar//NONSGML v1.0//EN",
+                        "METHOD:PUBLISH",
+                        "CALSCALE:GREGORIAN",
+                        "BEGIN:VEVENT",
+                        "UID:" + uid,
+                        "DTSTAMP:" + now,
+                        "DTSTART:" + startDate,
+                        "DTEND:" + endDateFormatted,
+                        "SUMMARY:" + title,
+                        "LOCATION:" + location,
+                        "STATUS:CONFIRMED",
+                        "TRANSP:OPAQUE",
+                        "END:VEVENT",
+                        "END:VCALENDAR"
+                    ].join("\\r\\n");
+                    
+                    // Replace JavaScript line endings with proper CRLF
+                    icsData = icsData.replace(/\\r\\n|\\r|\\n/g, "\\r\\n");
+                    
+                    // Create a Blob containing the iCalendar data
+                    var blob = new Blob([icsData], { type: "text/calendar;charset=utf-8" });
+                    
+                    // Create a filename based on meeting title (sanitized)
+                    var filename = "meeting.ics";
+                    if (title) {
+                        filename = title.replace(/[^a-z0-9]/gi, '_').substring(0, 30) + ".ics";
+                    }
+                    
+                    // Create a link element and trigger a download
+                    var link = document.createElement("a");
+                    link.href = URL.createObjectURL(blob);
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                } catch (error) {
+                    console.error("Error creating calendar event:", error);
+                    alert("There was a problem creating the calendar event. Please try again.");
+                }
+            }
+        </script>
+    """ 
+
+    # Get current date and time
+    now = datetime.datetime.now()
+    
+    # Format it as a string in SQL-friendly format
+    sql_datetime = now.strftime('%Y-%m-%d %H:%M:%S')
+    
+    
+    rsqlMeetingCount = q.QuerySql(sqlMeetingCount.format(str(OrgId)))
+    for mc in rsqlMeetingCount:
+        if mc.PastMeetings == 0 and mc.FutureMeetings == 0:
+            html += '<h3>No Meetings Scheduled</h3><hr>'
+        
+        if mc.PastMeetings > 0:
+            # Add collapsible section with toggle button for Past Meetings
+            html += '''
+            <div class="collapsible-section">
+                <div class="collapsible-header" onclick="toggleCollapsible(this)">
+                    <h3>Past Meetings ({})</h3>
+                    <span class="arrow">▼</span>
+                </div>
+                <div class="collapsible-content">
+            '''.format(mc.PastMeetings)
+            
+            rsqlMeetings = q.QuerySql(sqlMeetings.format(str(OrgId), '<', sql_datetime))
+            for rm in rsqlMeetings:
+                html += '''<div class="timeline-item">
+                            <div class="timeline-content">
+                                <h4>{3}</h4>
+                                <p class="timeline-date">📅 {0}</p>
+                                <p>📍 {2}</p>
+                            </div>
+                        </div>'''.format(rm.MeetingDate,rm.NumPresent,rm.Location,rm.Description)
+            
+            html += '''
+                </div>
+            </div>
+            '''
+            
+        if mc.FutureMeetings > 0:
+            html += '''<h3>Upcoming Meetings</h3>'''
+    
+            rsqlMeetings = q.QuerySql(sqlMeetings.format(str(OrgId), '>', sql_datetime))
+            for rm in rsqlMeetings:
+                # Create unique ID for each meeting
+                meeting_id = "meeting_" + str(hash(str(rm.MeetingDate) + str(rm.Location) + str(rm.Description)) & 0xffffffff)
+                
+                # Make sure to escape any quotes in the data
+                safe_date = str(rm.MeetingDate).replace('"', '\\"').replace("'", "\\'")
+                safe_location = str(rm.Location).replace('"', '\\"').replace("'", "\\'")
+                safe_description = str(rm.Description).replace('"', '\\"').replace("'", "\\'")
+                
+                html += '''<div class="timeline-item">
+                            <div class="timeline-content">
+                                <h4>{3}</h4>
+                                <p class="timeline-date">📅 {0}</p>
+                                <p>📍 {2}</p>
+                                <button class="calendar-btn" onclick="addToCalendar('{4}', '{0}', '{3}', '{2}')">
+                                    📅 Add to Calendar
+                                </button>
+                            </div>
+                        </div>'''.format(
+                            safe_date,
+                            rm.NumPresent,
+                            safe_location,
+                            safe_description,
+                            meeting_id
+                        )
+    
+    return html
+    
+
+def generate_html_table(data, expanded_list=None, match_column=None, title=None, hide_columns=None, url_columns=None, 
+                        bold_columns=None, column_order=None, divider_after_column=None, sum_columns=None, 
+                        date_columns=None, column_widths=None, table_width="100%", remove_borders=False,
+                        remove_header_borders=False, header_padding="5px", content_padding="5px", header_font_size="14px", 
+                        content_font_size="12px", header_bg_color="#f4f4f4", slanted_headers=None, slant_angle=45, 
+                        row_colors=None, header_rename=None, column_alignment=None, export_to_csv=False):  
+    
+    if not data:
+        return "<p>No data available.</p>"
+    
+    hide_columns = hide_columns or []
+    url_columns = url_columns or {}
+    bold_columns = bold_columns or []
+    column_order = column_order or []
+    sum_columns = sum_columns or []
+    date_columns = date_columns or []
+    column_widths = column_widths or {}
+    slanted_headers = slanted_headers or []
+    row_colors = row_colors or ["#ffffff", "#f9f9f9"]
+    header_rename = header_rename or {}
+    column_alignment = column_alignment or {}
+    
+    from datetime import datetime
+    
+    html = ""
+    html += """
+        <style>
+            th.rotate {
+              height: 140px;
+              white-space: nowrap;
+              position: relative;
+            }
+            
+            th.rotate > div {
+              transform: translate(15px, 35px) rotate(315deg); 
+              width: 100%;
+              position: absolute;
+              top: 50%;
+              left: 0;
+            }
+            
+            th.rotate > div > span {
+              border-bottom: 1px solid #ccc;
+              padding: 5px 10px;
+            }
+            
+            table {
+                width: 100%;
+                table-layout: fixed;  /* Ensures widths are respected */
+                border-collapse: collapse;
+            }
+            
+            th, td {
+                word-wrap: break-word;
+                overflow: hidden;
+                white-space: normal;
+            }
+
+        </style>
+        """
+    # Add export button if enabled
+    if export_to_csv:
+        html += """
+            <!-- Unicode download icon -->
+            <span onclick="exportToCSV()" 
+                  style="cursor: pointer; font-size: 20px; color: #007BFF;" 
+                  title="Download CSV">
+                ⬇️
+            </span>
+            
+            <script>
+                function exportToCSV() {
+                    var table = document.getElementById('generatedTable');
+                    var rows = table.getElementsByTagName('tr');
+                    var csvContent = '';
+            
+                    // Extract headers from the first row
+                    var headerCells = rows[0].getElementsByTagName('th');
+                    var headerRow = [];
+                    for (var i = 0; i < headerCells.length; i++) {
+                        var cellText = headerCells[i].innerText.replace(/"/g, '""');
+                        headerRow.push('"' + cellText + '"');
+                    }
+                    csvContent += headerRow.join(',') + '\\n';
+            
+                    // Extract row data
+                    for (var i = 1; i < rows.length; i++) {
+                        var cells = rows[i].getElementsByTagName('td');
+                        var row = [];
+                        for (var j = 0; j < cells.length; j++) {
+                            var cellText = cells[j].innerText.replace(/"/g, '""');
+                            row.push('"' + cellText + '"');
+                        }
+                        csvContent += row.join(',') + '\\n';
+                    }
+            
+                    // Create and trigger the download
+                    var blob = new Blob([csvContent], { type: 'text/csv' });
+                    var url = window.URL.createObjectURL(blob);
+                    var a = document.createElement('a');
+                    a.setAttribute('href', url);
+                    a.setAttribute('download', 'export.csv');
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                }
+            </script>
+        """
+
+    if title:
+        html += "<h2>{}</h2>\n".format(title)
+    
+    headers = data[0].keys()
+    
+    if column_order:
+        headers = [h for h in column_order if h in headers] + [h for h in headers if h not in column_order]
+    
+    # old table_style = "width: {}; border-collapse: collapse;".format(table_width)
+    table_style = "width: {}; border-collapse: collapse; table-layout: fixed;".format(table_width)
+
+    if remove_borders:
+        table_style += " border: none;"
+    
+    html += '<table id="generatedTable" style="{}">\n'.format(table_style)
+    
+    html += "    <tr>\n"
+    
+    for h in headers:
+        if h not in hide_columns:
+            th_style = "text-align: {}; vertical-align: bottom; white-space: nowrap;"
+            th_style = th_style.format(column_alignment.get(h, "center"))  # Align header as per column_alignment
+            th_style += " padding: {}; font-size: {}; background-color: {};".format(header_padding, header_font_size, header_bg_color)
+            
+            if h in slanted_headers:
+                th_style = "text-align: {}; vertical-align: bottom; white-space: nowrap; padding: {}; font-size: {};".format(column_alignment.get(h, "center"), header_padding, header_font_size)
+            
+            header_display_name = header_rename.get(h, h)
+            
+            if remove_header_borders and h not in slanted_headers:
+                th_style += " border: none;"
+            elif not remove_borders and h not in slanted_headers:
+                th_style += " border: 1px solid #ddd;"
+            
+            #if h in column_widths:
+            #    th_style += " width: {} !important;".format(column_widths[h])  
+            #    # oldth_style += " width: {};".format(column_widths[h])
+            
+            if h in column_widths:
+                th_style += " width: {}; min-width: {}; max-width: {};".format(column_widths[h], column_widths[h], column_widths[h])
+            else:
+                th_style += " width: auto;"  # Allow other columns to size dynamically
+
+    
+            if h in slanted_headers:
+                html += "<th class='rotate' style='{}'><div><span>{}</span></div></th>\n".format(th_style, header_display_name)
+            else:
+                html += "<th style='{}'>{}</th>\n".format(th_style, header_display_name)
+
+    html += "    </tr>\n"
+    
+    expanded_rows = {}
+    if expanded_list:
+        expanded_rows = {row[match_column]: row for row in expanded_list}
+    
+    for idx, row in enumerate(data):
+        row_color = row_colors[idx % len(row_colors)]  # Alternate row colors
+        
+        html += "    <tr style='background-color: {};'>\n".format(row_color)
+        for h in headers:
+            if h not in hide_columns:
+                cell_value = row.get(h, "")
+                
+                # Apply header renaming to date_columns
+                if h in header_rename:
+                    h = header_rename[h]  # Rename the header
+                
+                for column in date_columns:
+                    if h == column:
+                        if cell_value:
+                            cell_value = str(cell_value)  # Ensure it's a string
+                            cell_value = cell_value.split(" ")[0]  # Take only the date part
+                        else:
+                            cell_value = ""  # Handle None values
+
+                if cell_value is None:
+                    cell_value = ""
+                if h in bold_columns:
+                    cell_value = "<b>{}</b>".format(cell_value)
+                if h in url_columns and cell_value:
+                    url_format = url_columns[h]
+                    url_value = url_format.format(**row)
+                    cell_value = '<a href="{}" target="_blank" style="color: #1e90ff; text-decoration: none;">{}</a>'.format(url_value, cell_value)
+                
+                alignment = column_alignment.get(h, "left")
+                td_style = "text-align: {}; padding: {}; font-size: {};".format(alignment, content_padding, content_font_size)
+                if h in column_widths:
+                    td_style += " width: {} !important;".format(column_widths[h])
+                    # oldtd_style += " width: {};".format(column_widths[h])
+                if not remove_borders:
+                    td_style += " border: 1px solid #ddd;"
+                html += "<td style='{}'>{}</td>\n".format(td_style, cell_value)
+        html += "    </tr>\n"
+        
+        if expanded_list and row[match_column] in expanded_rows:
+            expanded_row = expanded_rows[row[match_column]]
+            html += "    <tr style='background-color: #e0e0e0;'>\n"
+            for h in headers:
+                if h not in hide_columns:
+                    cell_value = expanded_row.get(h, "")
+                    td_style = "padding-left: 20px; text-align: {}; font-size: {};".format(column_alignment.get(h, "left"), content_font_size)
+                    html += "<td style='{}'>{}</td>\n".format(td_style, cell_value)
+            html += "    </tr>\n"
+        
+    if sum_columns:
+        sums = {col: 0 for col in sum_columns}
+        for row in data:
+            for col in sum_columns:
+                if isinstance(row.get(col), (int, float)):
+                    sums[col] += row[col]
+
+        html += "    <tr>\n"
+        for h in headers:
+            if h not in hide_columns:
+                if h in sum_columns:
+                    html += "<td style='padding: 3px 4px; text-align: left; font-weight: bold; border: none;'>{}</td>\n".format(sums[h])
+                else:
+                    html += "<td style='padding: 3px 4px; text-align: left; border: none;'>&nbsp;</td>\n"
+        html += "    </tr>\n"
+    
+    html += "</table>\n"
+    return html
+
+#-----------------------------
+#update currency
+#-----------------------------
+def format_currency(amount, show_dollar=True, use_comma=True):
+    # Don't always.  If amount is a string, remove "$" and "," before converting to float
+    if isinstance(amount, str):
+        amount = re.sub(r'[^\d.-]', '', amount)  # Remove non-numeric characters except "." and "-"
+    
+    amount = float(amount)  
+
+    # Return "-" for zero values
+    if amount == 0.00:
+        return "-"
+
+    # Determine decimal places.  this is just to help save column space when there is no cents
+    # probably don't need to do the whole $10 thing, but I'm coding it and doing it anyway  ;0)
+    if amount % 1 != 0 or (1 <= amount < 10):
+        formatted = "%.2f" % amount  # Show cents
+    else:
+        formatted = "%.0f" % amount  # No cents for whole numbers ($10+)
+
+    # Add thousands separators manually if needed
+    if use_comma:
+        parts = formatted.split(".")  # Split whole number and decimal parts
+        parts[0] = "{:,}".format(int(parts[0]))  # Add commas to the whole number part
+        formatted = ".".join(parts)  # Reassemble
+
+    return ("$" + formatted) if show_dollar else formatted
+
+#---------------------------------------------------
+#Date format options
+#---------------------------------------------------
+
+def format_date(date_input, format_type=None):
+    from datetime import datetime
+
+    if not date_input:  # Handle None or empty input
+        return 'N/A'
+
+    try:
+        # Format DateTime it directly
+        if hasattr(date_input, 'strftime'):
+            date_string = date_input.strftime('%m/%d/%Y %H:%M:%S')  # Including time
+
+        # Clean and parse string
+        elif isinstance(date_input, str) and date_input.strip():
+            date_input = date_input.strip()  # Remove whitespace
+            
+            # Try to parse it assuming it has a time (this handles both date and time)
+            try:
+                date_string = datetime.strptime(date_input, "%Y-%m-%d %H:%M:%S").strftime('%m/%d/%Y %H:%M:%S')
+            except ValueError:
+                try:
+                    date_string = datetime.strptime(date_input, "%Y-%m-%d").strftime('%m/%d/%Y')  # Only date
+                except ValueError:
+                    date_string = date_input.split(' ')[0]  # Remove time if it's a non-standard format
+
+        else:
+            return 'N/A'  # Unsupported format
+
+        # Extract components
+        month, day, year = date_string.split('/')[:3]
+        day = str(int(day))  # Remove leading zeros
+        hour = None
+        minute = None
+        second = None
+
+        if len(date_string.split(' ')) > 1:
+            time_parts = date_string.split(' ')[1].split(':')
+            hour, minute, second = time_parts[0], time_parts[1], time_parts[2]
+
+        # Month and day names
+        month_names = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
+                       'August', 'September', 'October', 'November', 'December']
+        
+        day_names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+        # Calculate the day of the week using Zeller's Congruence
+        m = int(month)
+        y = int(year)
+        if m < 3:
+            m += 12
+            y -= 1
+        k = y % 100
+        j = y // 100
+        day_of_week = (int(day) + ((13 * (m + 1)) // 5) + k + (k // 4) + (j // 4) + (5 * j)) % 7
+        day_name = day_names[(day_of_week + 6) % 7]
+        
+        month_name = month_names[int(month) - 1]
+        
+        # Format options
+        if format_type == 'short':
+            return '{} {}, {}'.format(day_name, month_name[:3], day)  # Mon, Jun 23
+        elif format_type == 'long':
+            return '{} {}, {}'.format(day_name, month_name, day)  # Monday, June 23
+        elif format_type == 'numeric':
+            return '{}/{}/{}'.format(month, day, year)  # 6/23/2025
+        elif format_type == 'full':
+            return '{} {}, {} {}'.format(day_name, month_name, day, year)  # Mon, June 23, 2025
+        elif format_type == 'iso':
+            return '{}-{}-{}'.format(year, month, day)  # 2025-06-23
+        elif format_type == 'month_name':
+            return month_name  # June
+        elif format_type == 'day_name':
+            return day_name  # Mon
+        elif format_type == 'yyyy-mm-dd':
+            return '{}-{}-{}'.format(year, month, day)  # 2025-06-23
+        elif format_type == 'dd-mm-yyyy':
+            return '{}-{}-{}'.format(day, month, year)  # 23-06-2025
+        elif format_type == 'yyyy/dd/mm':
+            return '{}-{}-{}'.format(year, day, month)  # 2025-23-06
+        elif format_type == 'mm_dd_yyyy':
+            return '{}_{}_{}'.format(month, day, year)  # 06_23_2025
+        elif format_type == 'yyyy_mm_dd':
+            return '{}_{}_{}'.format(year, month, day)  # 2025_06_23
+        elif format_type == 'yyyy.mm.dd':
+            return '{}.{}.{}'.format(year, month, day)  # 2025.06.23
+        elif format_type == 'yyyy/mm/dd':
+            return '{}/{}/{}'.format(year, month, day)  # 2025/06/23
+        elif format_type == 'mm/yy':
+            return '{}/{}'.format(month, year[-2:])  # 06/25
+        elif format_type == 'mm/yyyy':
+            return '{}/{}'.format(month, year)  # 06/2025
+        elif format_type == 'time':
+            if hour is not None:
+                return '{}:{}:{}'.format(hour, minute, second)  # 12:34:56
+            else:
+                return 'N/A'
+        elif format_type == 'full_with_time':
+            if hour is not None:
+                return '{} {}, {} {}:{}:{}'.format(day_name, month_name, day, year, hour, minute, second)
+            else:
+                return '{} {}, {} {}'.format(day_name, month_name, day, year)  # Mon, June 23, 2025
+        else:
+            return 'Invalid format type'
+    
+    except Exception as e:
+        return 'N/A'  # Return N/A if date parsing fails
+
+
+#---------------------------------------------------
+#this is to help with displaying TP resource content
+#---------------------------------------------------
+
+def get_resources(ResourceName=None,OrgId=None,InvType=None):
+    if OrgId:
+        OrgId = " OR ro.OrganizationId = {0}".format(OrgId)
+    if InvType:
+        InvType = " OR ot.Code = '{0}'".format(InvType)
+    if ResourceName:
+        ResourceName = " AND rt.Name = '{0}'".format(ResourceName)
+    ResourceName = "(VisibleToEveryone = 1 {0} {1}) {2}".format(OrgId,InvType,ResourceName) 
+    #if ResourceName and OrgId:
+    #    ResourceName = "(VisibleToEveryone = 1 {0} {2}) AND rt.Name = '{1}'".format(OrgId, ResourceName, InvType)
+    #elif ResourceName:
+    #    ResourceName = "rt.Name = '{0}'".format(ResourceName)
+    #elif OrgId:
+    #    ResourceName = "(VisibleToEveryone = 1 OR ro.OrganizationId = {0})".format(OrgId)
+    #else:
+    #    ResourceName = ""
+
+    
+    sql = '''
+        SELECT 
+            rmt.Description AS ResourceType,
+            rt.Name AS ResourceTypeName,
+            rc.Name AS ResourceGroup,
+            r.Name AS Resource,
+            r.ResourceDescription,
+            r.Description,
+            r.ResourceId,
+            r.ResourceUrl,
+        COALESCE(
+            r.Description, 
+            r.ResourceUrl, 
+            ''
+        ) + 
+        COALESCE(
+            CASE 
+                WHEN r.ResourceTypeId = 2 AND Attachments.DocumentLinks IS NOT NULL 
+                THEN '<br>' + Attachments.DocumentLinks 
+                ELSE '' 
+            END, 
+            ''
+        ) AS Content,
+        
+            r.*,
+            rt.*,
+            ro.*
+        FROM [Resource] r
+        LEFT JOIN ResourceCategory rc ON rc.ResourceCategoryId = r.ResourceCategoryId
+        LEFT JOIN ResourceType rt ON rt.ResourceTypeId = r.ResourceTypeId
+        LEFT JOIN ResourceOrganization ro ON ro.ResourceId = r.ResourceId
+        LEFT JOIN Lookup.ResourceMediaType rmt ON rmt.Id = r.ResourceMediaTypeId
+        LEFT JOIN ResourceOrganizationType rot ON rot.ResourceId = r.ResourceId
+        LEFT JOIN lookup.OrganizationType ot ON ot.Id = rot.OrganizationTypeId
+        
+        -- Join attachments, but only for ResourceTypeId = 2
+        LEFT JOIN (
+            SELECT 
+                ra.ResourceId,
+                STRING_AGG(
+                    '<a href="' + ra.FilePath + '" target="_blank">' + ra.Name + '</a>', '<br>'
+                ) WITHIN GROUP (ORDER BY ra.DisplayOrder) AS DocumentLinks
+            FROM ResourceAttachment ra
+            GROUP BY ra.ResourceId
+        ) AS Attachments ON Attachments.ResourceId = r.ResourceId
+        
+        WHERE {0}
+        
+        ORDER BY rt.Name, rc.Name, r.DisplayOrder
+
+    '''
+    
+    rsql = q.QuerySql(sql.format(ResourceName))
+    resource = ''
+    
+    for r in rsql:
+        resource += generate_embedded_html(r.ResourceGroup, r.Resource, r.ResourceType, r.Content)
+    
+    return resource
+    
+    
+def generate_embedded_html(resource_group, resource_name, content_type, content):
+    unique_id = resource_name.replace(" ", "_") + "_content"
+
+    # Start building HTML with resource group and name
+    html = """
+    <style>
+        .dropdowncss-container {
+            margin-bottom: 10px;
+        }
+        .dropdowncss-header {
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #007BFF;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start; /* Align to left */
+            gap: 5px; /* Add space between arrow and text */
+        }
+        .dropdowncss-arrow {
+            transition: transform 0.3s ease;
+        }
+        .dropdowncss-content {
+            display: none;
+            padding: 5px;
+            border: 1px solid #ccc;
+            margin-top: 5px;
+            background-color: #f9f9f9;
+        }
+    </style>
+
+    <div class="dropdowncss-container">
+        <div class="dropdowncss-header" onclick="toggleDropdown('%s')">
+            <span class="dropdowncss-arrow" id="%s_arrow">▶</span> 
+            <strong>%s:</strong> %s
+        </div>
+        <div id="%s" class="dropdowncss-content">
+    """ % (unique_id, unique_id, resource_group, resource_name, unique_id)
+
+    # Handle different content types
+    if content_type == "PDF":
+        html += """
+        <p>
+            <a href="%s" target="_blank" style="font-size:16px; color:#007BFF; text-decoration:none;">
+                Download PDF: %s
+            </a>
+        </p>
+        """ % (content, resource_name)
+
+    elif content_type == "Freeform":
+        html += content
+
+    elif content_type == "Audio":
+        html += """
+        <audio controls style="width:100%%;">
+            <source src="%s" type="audio/mpeg">
+            Your browser does not support the audio element.
+        </audio>
+        """ % content
+
+    elif content_type == "Video":
+        if content.endswith(".m3u8"):
+            html += """
+            <video id="hls-video-%s" controls style="width:100%%; height:450px;"></video>
+            <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+            <script>
+                document.addEventListener("DOMContentLoaded", function() {
+                    var video = document.getElementById("hls-video-%s");
+                    if (Hls.isSupported()) {
+                        var hls = new Hls();
+                        hls.loadSource('%s');
+                        hls.attachMedia(video);
+                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        video.src = '%s';
+                    }
+                });
+            </script>
+            """ % (unique_id, unique_id, content, content)
+
+        elif content.endswith(".mp4"):
+            html += """
+            <video controls style="width:100%%; height:450px;">
+                <source src="%s" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+            """ % content
+
+        elif "youtube.com" in content or "youtu.be" in content:
+            video_id = content.split("v=")[-1].split("&")[0] if "v=" in content else content.split("/")[-1]
+            html += """
+            <iframe width="100%%" height="450" 
+                    src="https://www.youtube.com/embed/%s" 
+                    frameborder="0" allow="autoplay; encrypted-media" 
+                    allowfullscreen>
+            </iframe>
+            """ % video_id
+
+        elif "vimeo.com" in content:
+            video_id = content.split("/")[-1]
+            html += """
+            <iframe width="100%%" height="450" 
+                    src="https://player.vimeo.com/video/%s" 
+                    frameborder="0" allow="autoplay; fullscreen" 
+                    allowfullscreen>
+            </iframe>
+            """ % video_id
+
+        else:
+            html += "<p>Unsupported video format.</p>"
+
+    elif content_type == "Weblink":
+        html += """
+        <a href="%s" target="_blank" style="font-size:16px; color:#007BFF; text-decoration:none;">
+            Open Link
+        </a>
+        """ % content
+
+    elif content_type == "Individual Course":
+        html += """
+        <a href="%s" target="_blank" style="font-size:16px; color:#007BFF; text-decoration:none;">
+            View Course
+        </a>
+        """ % content
+
+    else:
+        html += "<p>Unsupported content type.</p>"
+
+    html += "</div></div>"
+
+    # JavaScript for toggling dropdowns
+    html += """
+    <script>
+        function toggleDropdown(id) {
+            var content = document.getElementById(id);
+            var arrow = document.getElementById(id + "_arrow");
+            if (content.style.display === "none" || content.style.display === "") {
+                content.style.display = "block";
+                arrow.style.transform = "rotate(90deg)";
+            } else {
+                content.style.display = "none";
+                arrow.style.transform = "rotate(0deg)";
+            }
+        }
+    </script>
+    """
+
+    return html
