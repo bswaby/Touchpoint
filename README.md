@@ -315,6 +315,30 @@ This is a streamlined check-in interface for large (100-2500+) events. It is mad
 ### 🗺️ [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Geographic%20Distribution%20Map)
 This is a blue toolbar that visualizes the geographic spread of members or activities in google maps. It similar to Touchpoint's map tool, but has three advantages over Touchpoint. First, you can overlay demographic data from the census. Second, you can click on the image to get info on the person similar to how James Kurtz is doing it, and Third, you can draw around a city, neighborhood, etc.. and tag and/or export to CSV those within that selection area.
 
+<details>
+<summary><strong>Tag Areas</strong></summary>
+<p>Ability to draw around a parameter and tag the results.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Geographic%20Distribution%20Map/GDM-Tag.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Census Demographc Overlay</strong></summary>
+<p>Overlay US census data.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Geographic%20Distribution%20Map/GDM-Demographics.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Pop-Up</strong></summary>
+<p>Click an icon to see info about the person.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Geographic%20Distribution%20Map/GDM-PopUp.png" width="700">
+</p>
+</details>
+
 ### 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator)
 This is an admin-only tool that helps you create a pre-authenticated link that will automagically log a person into a direct link. This can help with troubleshooting or getting a person to where you need them.
 
