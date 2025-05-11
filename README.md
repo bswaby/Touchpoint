@@ -40,6 +40,13 @@ Dashboard to start to understand TaskNote activity, who has open assignments, ke
 ### ✅ [Weekly Attendance](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Weekly%20Attendance)
 This builds on Week at a Glance (WAAG) but introduces many new concepts for tracking metrics with various comparisons.  
 
+## 🔧 Programs
+
+### 🌍 [Missions Dashbaord](https://github.com/bswaby/Touchpoint/tree/main/Missions/MissionsDashboard)
+Mission's program is a tool to help the mission pastor and mission leaders oversee the trips. This tool has many features. Mission pastors can easily manage outstanding payments, background checks, passports, upcoming meetings, see who the leaders are, and more. Mission leaders can easily see their team, contact information, emergency contact information, payment status of each person, and training resources.  Their access to this is dynamically given through the mission widget that lives in their dashboard.
+
+Note:  This is highly configured for our environment.  It is possible to use it, but time will need to be put in to configure it for another environment.
+
 ## 🛠️ Tools
 
 ### 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
