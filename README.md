@@ -70,13 +70,11 @@ This is the primary tool our finance team tracks, reports, and works through fin
 </p>
 </details>
 
+---
 ## 📈 Reports
 
 ### 📅 [Anniversaries](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Anniversaries)
 It is designed to be a widget on your dashboard that tracks member anniversaries (marriage, work, and birthdays, primarily, but it can be expanded as well).
-
-
-
 
 <details>
 <summary><strong>Anniversary Main Screen</strong></summary>
@@ -97,6 +95,46 @@ It is designed to be a widget on your dashboard that tracks member anniversaries
 ### 📱 [Communication Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Communication%20Dashboard)
 Centralized dashboard for viewing and analyzing communications.
 
+<details>
+<summary><strong>Dashboard Overview</strong></summary>
+<p>Summary of outgoing Email and SMS with a few KPI's</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Communication%20Dashboard/CD-DashboardOverview.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Email Status</strong></summary>
+<p>Shows overall delivery performance of email, failure type breakdown top issues, and recent email campaigns that's going out.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Communication%20Dashboard/CD-EmailStats.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>SMS Stats</strong></summary>
+<p>Shows KPI's, failures, and top senders around SMS messages</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Communication%20Dashboard/CD-SMSStats.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Top Sendeers</strong></summary>
+<p>List of top email and SMS senders.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Communication%20Dashboard/CD-TopSenders.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Program Stats</strong></summary>
+<p>Top Emails by Program</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Communication%20Dashboard/CD-ProgramStats.png" width="700">
+</p>
+</details>
+
 ### 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Data%20Quality%20Dashboard)
 Monitors the completeness of database demographics.
 
@@ -115,6 +153,7 @@ Dashboard to start to understand TaskNote activity, who has open assignments, ke
 ### ✅ [Weekly Attendance](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Weekly%20Attendance)
 This builds on Week at a Glance (WAAG) but introduces many new concepts for tracking metrics with various comparisons.  
 
+---
 ## 🔧 Programs
 
 ### 🌍 [Missions Dashbaord](https://github.com/bswaby/Touchpoint/tree/main/Missions/MissionsDashboard)
@@ -122,6 +161,7 @@ Mission's program is a tool to help the mission pastor and mission leaders overs
 
 Note:  This is highly configured for our environment.  It is possible to use it, but time will need to be put in to configure it for another environment.
 
+---
 ## 🛠️ Tools
 
 ### 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
@@ -152,7 +192,7 @@ Quick-access widgets for frequently used tools and dashboards. These have permis
 </p>
 </details>
 
-
+---
 ## 🔍 Getting Started
 
 ### ⚙️ Prerequisites
@@ -163,17 +203,20 @@ Quick-access widgets for frequently used tools and dashboards. These have permis
 ### 📥 Installation
 Most of the code snippets have a few variables up top to configure.  From there, it's just a matter of copying and pasting it as a new script under Admin ~ Advanced ~ Special Content. 
 
+---
 ## 👥 Contributing
 Contributions are welcome! If you have ideas for improvements or have created your tools that might benefit others, please:
 1. Fork the repository
 2. Create a new branch for your feature
 3. Submit a pull request with a clear description of your changes
 
+---
 ## 📞 Support
 If you need assistance implementing any of these tools, please:
 - Open an issue in this repository
 - Contact me through [contact information]
 
+---
 ## 🙏 Acknowledgments
 - Thanks to the Touchpoint team for creating an extensible platform
 - Special thanks to all the churches who have tested and provided feedback on these tools
