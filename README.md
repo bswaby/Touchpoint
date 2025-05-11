@@ -36,7 +36,39 @@ Automatically create QCD and Grant letters that you can print out and add to eac
 </details>
 
 ### 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/Finance/Weekly%20Contribution%20Report)
-This is the primary tool our finance team tracks, reports, and works through finances each week.
+This is the primary tool our finance team tracks, reports, and works through finances each week.  
+
+<details>
+<summary><strong>KPI's</strong></summary>
+<p>Main KPI's showing overall summaries.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Weekly%20Attendance/WCMainKPIs.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Enrollment Metrics</strong></summary>
+<p>Enrollment and attendance go hand-in-hand, with this showing where the group as a whole and each division stands.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Weekly%20Attendance/WCEnrollmentMetrics.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Program Summary</strong></summary>
+<p>Summary of all programs configured for the report and how they stand overall in comparison to previous time periods.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Weekly%20Attendance/WCProgramSummary.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Program Breakdown</strong></summary>
+<p>Breakdown on how each program and it's respective divisions is doing.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Weekly%20Attendance/WCConnectGroupAttendance.png" width="700">
+</p>
+</details>
 
 ## 📈 Reports
 
