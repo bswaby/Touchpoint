@@ -49,7 +49,7 @@ A quick way to get fail prints, today's print stats, login failures, and more
 A tool to make it easier to download documents uploaded to an Involvement
 
 ### 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/tree/main/TPxi/FastLaneCheckIn)
-This is a streamlined check-in interface for large events. It is made for a person to hold their phone/iPad/tablet to get people checked in quickly. Note: this doesn't print as those modules are not exposed for use.
+This is a streamlined check-in interface for large (100-2500+) events. It is made for a person to hold their phone/iPad/tablet to get people checked in quickly. Note: this doesn't print as those modules are not exposed for use.
 
 ### 🗺️ [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Geographic%20Distribution%20Map)
 This is a blue toolbar that visualizes the geographic spread of members or activities in google maps. It similar to Touchpoint's map tool, but has three advantages over Touchpoint. First, you can overlay demographic data from the census. Second, you can click on the image to get info on the person similar to how James Kurtz is doing it, and Third, you can draw around a city, neighborhood, etc.. and tag and/or export to CSV those within that selection area.
