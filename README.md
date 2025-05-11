@@ -170,57 +170,6 @@ This like Kenny Rogers of tools in that it helps you know "when to hold them" an
 
 <details>
 <summary><strong>Overview</strong></summary>
-<p>Recommended actions with ability to export list to csv.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>Recommended Actions</strong></summary>
-<p>Recommended actions with ability to export list to csv.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>Recommended Actions</strong></summary>
-<p>Recommended actions with ability to export list to csv.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>Recommended Actions</strong></summary>
-<p>Recommended actions with ability to export list to csv.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>Recommended Actions</strong></summary>
-<p>Recommended actions with ability to export list to csv.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>Recommended Actions</strong></summary>
-<p>Recommended actions with ability to export list to csv.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
-</p>
-</details>
-
-### 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure)
-Displays the hierarchy of program, division, organization, and organization type.
-
-<details>
-<summary><strong>Overview</strong></summary>
 <p>Overall metrics for involvement activity that can be filtered down by program/division.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Activity%20Dashboard/IA-Overview.png" width="700">
@@ -266,6 +215,11 @@ Displays the hierarchy of program, division, organization, and organization type
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Activity%20Dashboard/IA-InactiveInvolvements.png" width="700">
 </p>
 </details>
+
+### 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure)
+Displays the hierarchy of program, division, organization, and organization type.
+
+
 
 ### 📤 [Registration Export](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export)
 Exports event or class registration data in structured formats.
