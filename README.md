@@ -54,6 +54,9 @@ This is a streamlined check-in interface for large (100-2500+) events. It is mad
 ### 🗺️ [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Geographic%20Distribution%20Map)
 This is a blue toolbar that visualizes the geographic spread of members or activities in google maps. It similar to Touchpoint's map tool, but has three advantages over Touchpoint. First, you can overlay demographic data from the census. Second, you can click on the image to get info on the person similar to how James Kurtz is doing it, and Third, you can draw around a city, neighborhood, etc.. and tag and/or export to CSV those within that selection area.
 
+### 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator)
+This is an admin-only tool that helps you create a pre-authenticated link that will automagically log a person into a direct link. This can help with troubleshooting or getting a person to where you need them.
+
 ### ⚡ [Widget QuickLinks](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Widget%20QuickLinks)
 Quick-access widgets for frequently used tools and dashboards. These have permission, counts, and categories for displaying access links.
 
