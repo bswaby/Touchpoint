@@ -11,11 +11,26 @@ It breaks down fees by program and accounting code so accounting can use it to b
 ### 📜 [QCD-GrantLetters](https://github.com/bswaby/Touchpoint/blob/main/Finance/QCD-GrantLetters)
 Automatically create QCD and Grant letters that you can print out and add to each person's notes.
 
-| Feature | Preview |
-|---------|---------|
-| Date Selection | <details><summary>📅 Preview</summary><img src="https://github.com/username/repo/raw/main/images/profile-icon.png" width="500"></details> |
-| Grant Letter | <details><summary>📄 Preview</summary><img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/GrantLetter.png" width="500"></details> |
-| QCD Letter | <details><summary>📄 Preview</summary><img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDLetteer.png" width="500"></details> |
+<details>
+<summary><strong>Date Selection</strong> - Click to expand</summary>
+<p align="center">
+  <img src="https://github.com/username/repo/raw/main/images/profile-icon.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Grant Letter</strong> - Click to expand</summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/GrantLetter.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>QCD Letter</strong> - Click to expand</summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDLetteer.png" width="700">
+</p>
+</details>
 
 ### 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/Finance/Weekly%20Contribution%20Report)
 This is the primary tool our finance team tracks, reports, and works through finances each week.
