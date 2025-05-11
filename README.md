@@ -120,7 +120,7 @@ Centralized dashboard for viewing and analyzing communications.
 </details>
 
 <details>
-<summary><strong>Top Sendeers</strong></summary>
+<summary><strong>Top Senders</strong></summary>
 <p>List of top email and SMS senders.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Communication%20Dashboard/CD-TopSenders.png" width="700">
@@ -137,6 +137,33 @@ Centralized dashboard for viewing and analyzing communications.
 
 ### 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Data%20Quality%20Dashboard)
 Monitors the completeness of database demographics.
+
+<details>
+<summary><strong>Overview</strong></summary>
+<p>Shows record count and percentages of missing data areas.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityOverview1.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityOverview2.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Problem Records</strong></summary>
+<p>Good way to see data missing as it's changed.  This can reveal forms or methods that are not capturing data you might need.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityProblemRecords.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Recommended Actions</strong></summary>
+<p>Recommended actions with ability to export list to csv./p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
+</p>
+</details>
 
 ### 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Activity%20Dashboard)
 It's like Kenny Rogers in that it helps you know "when to hold them" and "when to fold them" when it comes to your Involvements.
