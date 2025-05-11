@@ -43,6 +43,25 @@ This is the primary tool our finance team tracks, reports, and works through fin
 ### 📅 [Anniversaries](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Anniversaries)
 It is designed to be a widget on your dashboard that tracks member anniversaries (marriage, work, and birthdays, primarily, but it can be expanded as well).
 
+
+
+
+<details>
+<summary><strong>Anniversary Main Screen</strong></summary>
+<p>You can click through months shows past and upcoming annivesaries.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Anniversaries/Anniversaries%20Main%20Screen.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Quick Kudo Email Send</strong></summary>
+<p>Clicking the email icon pops up a quick kudo message that people can send</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Anniversaries/Anniversaries%20Pop-Up.png" width="700">
+</p>
+</details>
+
 ### 📱 [Communication Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Communication%20Dashboard)
 Centralized dashboard for viewing and analyzing communications.
 
