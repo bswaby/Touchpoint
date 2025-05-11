@@ -13,9 +13,9 @@ Automatically create QCD and Grant letters that you can print out and add to eac
 
 | Feature | Preview |
 |---------|---------|
-| Date Selection | [![Date Selection](https://github.com/username/repo/raw/main/images/profile-icon.png) |
-| Grant Letter | [![Grant Letter](https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/GrantLetter.png)|
-| QCD Letter | [![QCD Letter](https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDLetteer.png)|
+| Date Selection | [Date Selection](https://github.com/username/repo/raw/main/images/profile-icon.png) |
+| Grant Letter | [Grant Letter](https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/GrantLetter.png)|
+| QCD Letter | [QCD Letter](https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDLetteer.png)|
 
 ### 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/Finance/Weekly%20Contribution%20Report)
 This is the primary tool our finance team tracks, reports, and works through finances each week.
