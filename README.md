@@ -306,11 +306,75 @@ Note:  This is highly configured for our environment.  It is possible to use it,
 ### 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
 A quick way to get fail prints, today's print stats, login failures, and more
 
-### 🔗 [Attachment Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator)
-A tool to make it easier to download documents uploaded to an Involvement
+<details>
+<summary><strong>Print Jobs</strong></summary>
+<p>Show counts and print issues.  <i>Note:  TP clears print stats nightly.</i></p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Python%20Scripts/TechStatus/TS-PrintJobs.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Login Activity</strong></summary>
+<p>Get additional information about login activity problems.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Python%20Scripts/TechStatus/TS-LoginActivity.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Script Activity</strong></summary>
+<p>See what scripts are firing off.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Python%20Scripts/TechStatus/TS-ScriptActivity.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>User Accounts</strong></summary>
+<p>View, filter, and sort user accounts</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Python%20Scripts/TechStatus/TS-UserAccounts.png" width="700">
+</p>
+</details>
+
+### 🔗 [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator)
+A tool to make it easier to download documents that are uploaded to an Involvement during sign-up
+
+<details>
+<summary><strong>Download attachments</strong></summary>
+<p>Download attachments in bulk, individually, or selected.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Attachment%20Link%20Generator/ALG-Download.png" width="700">
+</p>
+</details>
 
 ### 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/tree/main/TPxi/FastLaneCheckIn)
-This is a streamlined check-in interface for large (100-2500+) events. It is made for a person to hold their phone/iPad/tablet to get people checked in quickly. Note: this doesn't print as those modules are not exposed for use.
+This is a streamlined check-in interface for large (100-2500+) events. It is made for a person to hold their phone/iPad/tablet to get people checked in quickly. Note: this does not print as those modules are not exposed for use.
+
+<details>
+<summary><strong>Select Groups</strong></summary>
+<p>Select 1 or more involvements.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/FastLaneCheckIn/FLC-SelectGroups.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Check-In</strong></summary>
+<p>Click Check in to quickly check-in each person.  Notice that alpha limitation and searching are also option when you segment group lines for multiple check-in clerks.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/FastLaneCheckIn/FLC-CheckIn.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Check-Out</strong></summary>
+<p>Switch to the checked in page and correct any mistakes.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/FastLaneCheckIn/FLC-CheckOut.png" width="700">
+</p>
+</details>
 
 ### 🗺️ [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Geographic%20Distribution%20Map)
 This is a blue toolbar that visualizes the geographic spread of members or activities in google maps. It similar to Touchpoint's map tool, but has three advantages over Touchpoint. First, you can overlay demographic data from the census. Second, you can click on the image to get info on the person similar to how James Kurtz is doing it, and Third, you can draw around a city, neighborhood, etc.. and tag and/or export to CSV those within that selection area.
@@ -341,6 +405,30 @@ This is a blue toolbar that visualizes the geographic spread of members or activ
 
 ### 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator)
 This is an admin-only tool that helps you create a pre-authenticated link that will automagically log a person into a direct link. This can help with troubleshooting or getting a person to where you need them.
+
+<details>
+<summary><strong>Person Selection</strong></summary>
+<p>Quickly find and select a person.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Link%20Generator/LG-SelectPerson.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Quick Selection</strong></summary>
+<p>Choose from one of the many predefined selections.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Link%20Generator/LG-QuickSelection.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Custom URL</strong></summary>
+<p>Create your own link by using the custom URL option.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Link%20Generator/LG-CustomURL.png" width="700">
+</p>
+</details>
 
 ## 🧩 Widgets
 
