@@ -8,7 +8,7 @@ A collection of tools and dashboards designed to support church operations, comm
 This repository is the work of one guy who loves Jesus, loves clean data, and loves seeing people come to Christ — so I built a bunch of tools to help make ministry smoother, more informed, reduce overhead, and help reach others.
 ---
 
-## Finance Modules
+## Finance
 
 ### [FortisFees](https://github.com/bswaby/Touchpoint/blob/main/Finance/FortisFees)
 It breaks down fees by program and accounting code so accounting can use it to back charge. The biggest note is that the fees will be close to 99% but not 100% due to the disconnect of certain charges and reversals getting back to Touchpoint.  
@@ -47,7 +47,7 @@ This builds on Week at a Glance (WAAG) but introduces many new concepts for trac
 
 ## Tools
 
-## {TechStatus}(https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
+## [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
 A quick way to get fail prints, today's print stats, login failures, and more
 
 ### 🔗 [Attachment Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator)
