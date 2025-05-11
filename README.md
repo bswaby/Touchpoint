@@ -1,6 +1,3 @@
-TPxi Tools
-A collection of tools and dashboards designed to support church operations, communication, and data analysis for Touchpoint
-
 ## 📋 Overview
 
 This repository is the work of one guy who loves Jesus, loves clean data, and loves seeing people come to Christ — so I built a bunch of tools to help make ministry smoother, more informed, reduce overhead, and help reach others.
