@@ -132,6 +132,7 @@ class CheckInManager:
             LEFT JOIN OrganizationStructure os ON m.OrganizationId = os.OrgId
             WHERE CONVERT(date, m.MeetingDate) = CONVERT(date, GETDATE())
             AND m.DidNotMeet = 0
+            AND o.DivisionId = os.DivId
             ORDER BY o.OrganizationName
         """
         sql_results = self.q.QuerySql(sql)
@@ -2042,13 +2043,17 @@ def render_fastlane_check_in(check_in_manager):
         alpha_filter,             # {4}
         search_term,              # {5}
         meeting_id_inputs,        # {6}
-        "checked_in" if view_mode == "not_checked_in" else "not_checked_in", # {7} - opposite mode for toggle
-        "Checked In List" if view_mode == "not_checked_in" else "Check-In Page", # {8} - toggle button text
+        # Check for both not_checked_in and the displayed text
+        "checked_in" if (view_mode == "not_checked_in" or view_mode == "") else "not_checked_in", # {7} - opposite mode for toggle
+        # Check for both not_checked_in and the displayed text
+        "Checked In List" if (view_mode == "not_checked_in" or view_mode == "") else "Check-In Page", # {8} - toggle button text
+        #"checked_in" if view_mode == "not_checked_in" else "not_checked_in", # {7} - opposite mode for toggle
+        #"Checked In List" if view_mode == "not_checked_in" else "Check-In Page", # {8} - toggle button text
         alpha_filters_html,       # {9}
         "\n".join(people_list_html), # {10}
         pagination                # {11}
     )
-    
+    print """<!-- DEBUG: view_mode_raw='{0}' -->""".format(view_mode)
     return True  # Indicate successful rendering
 
 
