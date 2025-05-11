@@ -64,27 +64,23 @@ Quick-access widgets for frequently used tools and dashboards. These have permis
 
 ### ⚙️ Prerequisites
 - Active Touchpoint account with administrative access
-- Basic understanding of HTML/CSS/JavaScript for customization
+- Basic understanding of how to copy, paste, and set variables for customization
+- Advanced understanding of HTML/CSS/Javascript/SQL to customize the interface
 
 ### 📥 Installation
-1. Clone this repository
-2. Follow the individual setup instructions in each tool's directory
-3. Configure your Touchpoint settings as specified
+Most of the code snippets have a few variables up top to configure.  From there, it's just a matter of copying and pasting it as a new script under Admin ~ Advanced ~ Special Content. 
 
 ## 👥 Contributing
-
-Contributions are welcome! If you have ideas for improvements or have created your own tools that might benefit others, please:
+Contributions are welcome! If you have ideas for improvements or have created your tools that might benefit others, please:
 1. Fork the repository
 2. Create a new branch for your feature
 3. Submit a pull request with a clear description of your changes
 
 ## 📞 Support
-
 If you need assistance implementing any of these tools, please:
 - Open an issue in this repository
 - Contact me through [contact information]
 
 ## 🙏 Acknowledgments
-
 - Thanks to the Touchpoint team for creating an extensible platform
 - Special thanks to all the churches who have tested and provided feedback on these tools
