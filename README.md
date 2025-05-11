@@ -26,10 +26,10 @@ Monitors the completeness of database demographics.
 This is a streamlined check-in interface for large events. It is made for a person to hold their phone/iPad/tablet to get people checked in quickly. Note:  this doesn't print as those modules are not exposed for use.
 
 ### 🗺️ TPxi Geographic Distribution Map
-This is a blue toolbar that visualizes the geographic spread of members or activities. It has two advantages over Touchpoint. First, you can overlay demographic data from the census. Second, you can draw around a section of location and tag it to the blue toolbar or export to CSV.
+This is a blue toolbar that visualizes the geographic spread of members or activities in google maps. It similar to Touchpoint's map tool, but has three advantages over Touchpoint. First, you can overlay demographic data from the census.  Second, you can click on the image to get info on the person similar to how James Kurtz is doing it, and Third, you can draw around a city, neighborhood, etc.. and tag and/or export to CSV those within that selection area.
 
 ### 🧑‍🤝‍🧑 TPxi Involvement Activity Dashboard
-It tracks involvement activity, and it's like Kenny Rogers in that it helps you know when to hold them and when to fold them.
+It's like Kenny Rogers in that it helps you know "when to hold them" and "when to fold them" when it comes to your Involvements.
 
 ### 🏛️ TPxi Ministry Structure
 Displays the hierarchy of program, division, organization, and organization type.
@@ -38,7 +38,7 @@ Displays the hierarchy of program, division, organization, and organization type
 Exports event or class registration data in structured formats.
 
 ### 📝 TPxi TaskNote Activity Dashboard
-Dashboard to start to understand TaskNote activity, who has open assignment, keyword trends, and more.
+Dashboard to start to understand TaskNote activity, who has open assignments, keyword trends, and more.
 
 ### ✅ TPxi Weekly Attendance
 This builds on Week at a Glance (WAAG) but introduces many new concepts for tracking metrics with various comparisons.  
