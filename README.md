@@ -11,6 +11,12 @@ It breaks down fees by program and accounting code so accounting can use it to b
 ### 📜 [QCD-GrantLetters](https://github.com/bswaby/Touchpoint/blob/main/Finance/QCD-GrantLetters)
 Automatically create QCD and Grant letters that you can print out and add to each person's notes.
 
+| Feature | Preview |
+|---------|---------|
+| Date Selection | [![Date Selection]([https://github.com/username/repo/raw/main/images/profile-icon.png](https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDGrantScreenShot.png))]([https://github.com/username/repo/raw/main/images/profile-full.png](https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDGrantScreenShot.png)) |
+| Grant Letter | [![Grant Letter](https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/GrantLetter.png)](https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/GrantLetter.png) |
+| QCD Letter | [![QCD Letter]([https://github.com/username/repo/raw/main/images/settings-icon.png](https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDLetteer.png))]([https://github.com/username/repo/raw/main/images/settings-full.png](https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDLetteer.png)) |
+
 ### 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/Finance/Weekly%20Contribution%20Report)
 This is the primary tool our finance team tracks, reports, and works through finances each week.
 
