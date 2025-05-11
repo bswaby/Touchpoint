@@ -88,8 +88,19 @@ This is a blue toolbar that visualizes the geographic spread of members or activ
 ### 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator)
 This is an admin-only tool that helps you create a pre-authenticated link that will automagically log a person into a direct link. This can help with troubleshooting or getting a person to where you need them.
 
+## 🧩 Widget 
+
 ### ⚡ [Widget QuickLinks](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Widget%20QuickLinks)
 Quick-access widgets for frequently used tools and dashboards. These have permission, counts, and categories for displaying access links.
+
+<details>
+<summary><strong>QCD Letter</strong></summary>
+<p>The tool implementation is intermediate level, but not overly difficult</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/WidgetQuickLink.png" width="700">
+</p>
+</details>
+
 
 ## 🔍 Getting Started
 
