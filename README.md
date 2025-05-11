@@ -219,13 +219,59 @@ This like Kenny Rogers of tools in that it helps you know "when to hold them" an
 ### 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure)
 Displays the hierarchy of program, division, organization, and organization type.
 
-
+<details>
+<summary><strong>Main Screen</strong></summary>
+<p>Gives you a structural breakdown of your involvements.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Ministry%20Structure/MinistryStructure.png" width="700">
+</p>
+</details>
 
 ### 📤 [Registration Export](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export)
 Exports event or class registration data in structured formats.
 
 ### 📝 [TaskNote Activity Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/TaskNote%20Activity%20Dashboard)
 Dashboard to start to understand TaskNote activity, who has open assignments, keyword trends, and more.
+
+<details>
+<summary><strong>Overview</strong></summary>
+<p>Overall view of Task and Notes</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TaskNote%20Activity%20Dashboard/TN-Overview.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Keyword Trends</strong></summary>
+<p>Way to see trends of keywords being used.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TaskNote%20Activity%20Dashboard/TN-KeywordTrends.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Completed KPI's</strong></summary>
+<p>Completion ratio of tasks</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TaskNote%20Activity%20Dashboard/TN-CompletionKPIs.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Analytics</strong></summary>
+<p>Analytics of Tasks and Notes</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TaskNote%20Activity%20Dashboard/TN-Analytics.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Team Workload</strong></summary>
+<p>Way to see each team member's workload.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TaskNote%20Activity%20Dashboard/TN-TeamWorkload.png" width="700">
+</p>
+</details>
 
 ### ✅ [Weekly Attendance](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Weekly%20Attendance)
 This builds on Week at a Glance (WAAG) but introduces many new concepts for tracking metrics with various comparisons.  
@@ -237,6 +283,22 @@ This builds on Week at a Glance (WAAG) but introduces many new concepts for trac
 Mission's program is a tool to help the mission pastor and mission leaders oversee the trips. This tool has many features. Mission pastors can easily manage outstanding payments, background checks, passports, upcoming meetings, see who the leaders are, and more. Mission leaders can easily see their team, contact information, emergency contact information, payment status of each person, and training resources.  Their access to this is dynamically given through the mission widget that lives in their dashboard.
 
 Note:  This is highly configured for our environment.  It is possible to use it, but time will need to be put in to configure it for another environment.
+
+<details>
+<summary><strong>Dashboard</strong></summary>
+<p>Gives missions pastor a single painted glass for all his active mission trips.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Missions/MissionsDashboard/MissionsDashboard.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Leaders Page</strong></summary>
+<p>Leaders have a single page to look at all the materials, status on team payments, verification of data, and easy way to contact.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Missions/MissionsDashboard/MissionsLeaderPage.png" width="700">
+</p>
+</details>
 
 ---
 ## 🛠️ Tools
