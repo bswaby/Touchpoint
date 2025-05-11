@@ -159,17 +159,113 @@ Monitors the completeness of database demographics.
 
 <details>
 <summary><strong>Recommended Actions</strong></summary>
-<p>Recommended actions with ability to export list to csv./p>
+<p>Recommended actions with ability to export list to csv.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
 </p>
 </details>
 
 ### 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Activity%20Dashboard)
-It's like Kenny Rogers in that it helps you know "when to hold them" and "when to fold them" when it comes to your Involvements.
+This like Kenny Rogers of tools in that it helps you know "when to hold them" and "when to fold them" when it comes to your Involvements.
+
+<details>
+<summary><strong>Overview</strong></summary>
+<p>Recommended actions with ability to export list to csv.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Recommended Actions</strong></summary>
+<p>Recommended actions with ability to export list to csv.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Recommended Actions</strong></summary>
+<p>Recommended actions with ability to export list to csv.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Recommended Actions</strong></summary>
+<p>Recommended actions with ability to export list to csv.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Recommended Actions</strong></summary>
+<p>Recommended actions with ability to export list to csv.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Recommended Actions</strong></summary>
+<p>Recommended actions with ability to export list to csv.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
+</p>
+</details>
 
 ### 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure)
 Displays the hierarchy of program, division, organization, and organization type.
+
+<details>
+<summary><strong>Overview</strong></summary>
+<p>Overall metrics for involvement activity that can be filtered down by program/division.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Activity%20Dashboard/IA-Overview.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Programs & Divisions</strong></summary>
+<p>Activity level by program / division.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Activity%20Dashboard/IA-ProgramsAndDivisions.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Activity Metrics</strong></summary>
+<p>Using a scoring system to help break down the activity level of each involvement to show most --> to least active.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Activity%20Dashboard/IA-ActivityMetrics.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Meetings</strong></summary>
+<p>Meeting activity across programs..</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Activity%20Dashboard/IA-Meetings.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Member Changes</strong></summary>
+<p>Activity level of changes across involvements</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Activity%20Dashboard/IA-MemberChanges.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Inactive Involvements</strong></summary>
+<p>Report showing involvements that have a low or no activity level.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Activity%20Dashboard/IA-InactiveInvolvements.png" width="700">
+</p>
+</details>
 
 ### 📤 [Registration Export](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export)
 Exports event or class registration data in structured formats.
