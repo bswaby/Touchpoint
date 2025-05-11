@@ -94,7 +94,7 @@ This is an admin-only tool that helps you create a pre-authenticated link that w
 Quick-access widgets for frequently used tools and dashboards. These have permission, counts, and categories for displaying access links.
 
 <details>
-<summary><strong>QCD Letter</strong></summary>
+<summary><strong>Example</strong></summary>
 <p>The tool implementation is intermediate level, but not overly difficult</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/WidgetQuickLink.png" width="700">
