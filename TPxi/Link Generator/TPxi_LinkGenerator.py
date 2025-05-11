@@ -519,7 +519,28 @@ try:
         # Display search interface
         print """
         <div class="search-container">
-            <h2>Authenticated Link Generator</h2>
+            <h2>Authenticated Link Generator<svg xmlns="http://www.w3.org/2000/svg" viewBox="85 75 230 130" style="width: 60px; height: 30px; margin-left: -4px; vertical-align: middle;">
+                    <!-- Text portion - TP -->
+                    <text x="100" y="120" font-family="Arial, sans-serif" font-weight="bold" font-size="60" fill="#333333">TP</text>
+                    
+                    <!-- Circular element -->
+                    <g transform="translate(190, 107)">
+                      <!-- Outer circle -->
+                      <circle cx="0" cy="0" r="13.5" fill="#0099FF"/>
+                      
+                      <!-- White middle circle -->
+                      <circle cx="0" cy="0" r="10.5" fill="white"/>
+                      
+                      <!-- Inner circle -->
+                      <circle cx="0" cy="0" r="7.5" fill="#0099FF"/>
+                      
+                      <!-- X crossing through the circles -->
+                      <path d="M-9 -9 L9 9 M-9 9 L9 -9" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+                    </g>
+                    
+                    <!-- Single "i" letter to the right -->
+                    <text x="206" y="105" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#0099FF">si</text>
+                  </svg></h2>
             <p>Search for a person to generate authenticated links for TouchPoint features</p>
             
             <div class="security-warning">
