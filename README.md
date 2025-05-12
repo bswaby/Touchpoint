@@ -377,7 +377,7 @@ This is a streamlined check-in interface for large (100-2500+) events. It is mad
 </details>
 
 ### 🗺️ [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Geographic%20Distribution%20Map)
-This is a blue toolbar that visualizes the geographic spread of members or activities in google maps. It similar to Touchpoint's map tool, but has three advantages over Touchpoint. First, you can overlay demographic data from the census. Second, you can click on the image to get info on the person similar to how James Kurtz is doing it, and Third, you can draw around a city, neighborhood, etc.. and tag and/or export to CSV those within that selection area.
+This is a blue toolbar that visualizes the geographic spread of members or activities in google maps. It similar to Touchpoint's map tool, but has three advantages over Touchpoint. First, you can overlay demographic data from the census. Second, you can click on the image to get info on the person similar to how James Kurtz is doing it, and Third, you can draw around a city, neighborhood, etc.. to tag and/or export to CSV those for that selection area.
 
 <details>
 <summary><strong>Tag Areas</strong></summary>
