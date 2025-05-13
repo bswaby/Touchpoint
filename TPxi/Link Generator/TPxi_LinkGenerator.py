@@ -216,28 +216,19 @@ try:
     
     # Get query parameters
     try:
-        # Check for search term
-        if hasattr(model.Data, "q") and model.Data.q:  # Added check for non-empty value
+        if hasattr(model.Data, "q"):
             search_term = str(model.Data.q)
-
-        # Check for AJAX mode
         if hasattr(model.Data, "ajax") and model.Data.ajax == "1":
             ajax_mode = True
-
-        # Check for person ID
-        if hasattr(model.Data, "person_id") and model.Data.person_id:
+        if hasattr(model.Data, "person_id"):
             selected_person_id = int(model.Data.person_id)
-
-        # Check for URL authentication request
-        if (hasattr(model.Data, "url") and model.Data.url and 
-            hasattr(model.Data, "pid") and model.Data.pid):
+        if hasattr(model.Data, "url") and hasattr(model.Data, "pid") and model.Data.url and model.Data.pid:
             get_auth_url = True
             url_to_auth = str(model.Data.url)
             pid_for_auth = str(model.Data.pid)
     except Exception as e:
         print "<!-- Error processing parameters: " + str(e) + " -->"
     
-
     # Set page title
     model.Header = "Authenticated Link Generator"
     
@@ -245,47 +236,13 @@ try:
     if get_auth_url:
         try:
             auth_url = model.GetAuthenticatedUrl(int(pid_for_auth), url_to_auth, True)
-            print """
-                <div class="link-option" style="margin: 20px;">
-                    <div class="link-label">Generated Authenticated Link:</div>
-                    <div class="link-value" style="word-break: break-all; font-family: monospace; padding: 10px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; margin: 10px 0;">
-                        {0}
-                    </div>
-                    <button class="copy-link-btn" data-link="{0}" onclick="copyToClipboard('{0}')">
-                        Copy Link
-                    </button>
-                    <a href="{0}" target="_blank" class="open-link-btn">
-                        <i class="fa fa-user-secret"></i> Open in Incognito
-                    </a>
-                </div>
-                <script>
-                function copyToClipboard(text) {{
-                    var tempInput = document.createElement('textarea');
-                    tempInput.value = text;
-                    document.body.appendChild(tempInput);
-                    tempInput.select();
-                    
-                    try {{
-                        var successful = document.execCommand('copy');
-                        if (successful) {{
-                            alert('Link copied to clipboard!');
-                        }} else {{
-                            alert('Failed to copy link');
-                        }}
-                    }} catch (err) {{
-                        alert('Failed to copy link: ' + err);
-                    }}
-                    
-                    document.body.removeChild(tempInput);
-                }}
-                </script>
-            """.format(auth_url)
+            print "Authenticated URL:<br>"
+            print auth_url
+            # Don't use 'return' outside a function - instead just handle this case
+            # and skip the rest of the script using an else clause later
         except Exception as e:
-            print """
-                <div class="error-message" style="margin: 20px; padding: 10px; background: #fee; border: 1px solid #fcc; border-radius: 4px;">
-                    Error generating authenticated URL: {0}
-                </div>
-            """.format(str(e))
+            print "<div class='error-message'>Error generating authenticated URL: {0}</div>".format(str(e))
+            print "<pre class='error-details'>{0}</pre>".format(traceback.format_exc())
     # Continue with the rest of the script ONLY if we're not in get_auth_url mode
     elif ajax_mode and search_term:
         people = PeopleSearch.search_people(search_term)
@@ -528,49 +485,19 @@ try:
                 <div class="link-section">
                     <h4>Custom URL</h4>
                     <div class="custom-url-form">
-                        <form action="" method="get" id="customUrlForm">
-                            <input type="hidden" name="pid" value="{0}" />
-                            <div class="url-input-group">
-                                <input type="text" 
-                                       name="url" 
-                                       id="customUrl" 
-                                       class="custom-url-input"
-                                       placeholder="Enter full TouchPoint URL (e.g., https://myfbch.com/Person2/123)" />
-                                <button type="submit" class="generate-link-btn">
-                                    Generate Link
-                                </button>
-                            </div>
-                        </form>
+                        <input type="text" id="customUrl" placeholder="Enter URL path (e.g., /Settings)" />
+                        <button id="generateCustomLink">Generate Link</button>
                     </div>
                     
-                    <div class="custom-url-tip">
-                        <i class="fa fa-info-circle"></i> Paste the complete TouchPoint URL that you want to generate an authenticated link for.
+                    <div id="customLinkResult" class="link-option" style="display: none;">
+                        <div class="link-label">Custom Link</div>
+                        <div class="link-value" id="customLinkValue"></div>
+                        <button class="copy-link-btn" data-link="" id="customCopyBtn">Copy Link</button>
+                        <a href="#" target="_blank" class="open-link-btn" id="customOpenBtn"><i class="fa fa-user-secret"></i> Open in Incognito</a>
                     </div>
-                """.format(selected_person_id)
-
-                # Check if we have URL parameters to generate a link
-                if hasattr(model.Data, 'url') and hasattr(model.Data, 'pid') and model.Data.url and model.Data.pid:
-                    try:
-                        auth_url = model.GetAuthenticatedUrl(int(model.Data.pid), model.Data.url, True)
-                        print """
-                            <div class="link-option" style="margin-top: 20px;">
-                                <div class="link-label">Generated Authenticated Link:</div>
-                                <div class="link-value" style="word-break: break-all; font-family: monospace; padding: 10px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; margin: 10px 0;">
-                                    {0}
-                                </div>
-                                <button class="copy-link-btn" data-link="{0}">Copy Link</button>
-                                <a href="{0}" target="_blank" class="open-link-btn">
-                                    <i class="fa fa-user-secret"></i> Open in Incognito
-                                </a>
-                            </div>
-                        """.format(auth_url)
-                    except Exception as e:
-                        print """
-                            <div class="error-message" style="margin-top: 20px; padding: 10px; background: #fee; border: 1px solid #fcc; border-radius: 4px;">
-                                Error generating authenticated URL: {0}
-                            </div>
-                        """.format(str(e))
-
+                </div>
+                """
+                
                 print """
                 </div>  <!-- End link-generation -->
                 
@@ -659,6 +586,8 @@ try:
             margin: 0 auto;
             font-family: Arial, sans-serif;
             padding: 20px;
+            width: 100%;
+            box-sizing: border-box;
         }}
         .security-warning {{
             background-color: #fff3cd;
@@ -682,6 +611,8 @@ try:
         .search-box {{
             position: relative;
             margin-bottom: 20px;
+            width: 100%;
+            box-sizing: border-box;
         }}
         .search-input {{
             width: 100%;
@@ -690,6 +621,7 @@ try:
             border: 1px solid #ccc;
             border-radius: 4px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            box-sizing: border-box;
         }}
         .search-button {{
             position: absolute;
@@ -924,46 +856,6 @@ try:
             display: none;
             box-shadow: 0 2px 10px rgba(0,0,0,0.2);
         }}
-        
-        .url-input-group {{
-            display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
-            width: 100%;
-        }}
-        .custom-url-input {{
-            flex: 1;
-            padding: 12px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            font-size: 14px;
-            min-width: 400px;  /* Set minimum width */
-            width: 75%;        /* Take up more space */
-        }}
-        .generate-link-btn {{
-            padding: 12px 20px;
-            background: #0B3D4C;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            white-space: nowrap;
-            font-size: 14px;
-            width: 150px;      /* Fixed width for button */
-        }}
-        .generate-link-btn:hover {{
-            background: #0a2933;
-        }}
-        .custom-url-tip {{
-            margin-top: 8px;
-            font-size: 13px;
-            color: #666;
-            padding-left: 4px;
-        }}
-        .custom-url-form {{
-            margin-top: 15px;
-            width: 100%;       /* Ensure form takes full width */
-        }}
         </style>
         
         <div id="toastNotification" class="toast"></div>
@@ -1001,14 +893,6 @@ try:
             document.body.removeChild(tempInput);
         }}
         
-        // Add debug logging function
-        function debugLog(message, data) {{
-            var debugDiv = document.createElement('div');
-            debugDiv.style.cssText = 'background: #f8f9fa; border: 1px solid #ddd; padding: 10px; margin: 10px 0; font-family: monospace; white-space: pre-wrap;';
-            debugDiv.innerHTML = '<strong>' + message + '</strong>\\n' + JSON.stringify(data, null, 2);
-            document.getElementById('resultsContainer').insertBefore(debugDiv, document.getElementById('resultsContainer').firstChild);
-        }}
-        
         // Function to perform search
         function performSearch() {{
             var searchTerm = document.getElementById('searchInput').value.trim();
@@ -1026,56 +910,46 @@ try:
             resultsContainer.innerHTML = '<div class="loading-message">Searching...</div>';
             
             // Make AJAX request
-                    var xhr = new XMLHttpRequest();
-                    xhr.open('GET', requestUrl, true);
-                    xhr.onreadystatechange = function() {{
-                        if (xhr.readyState === 4) {{
-                            // Show raw response
-                            var responseDebugDiv = document.createElement('div');
-                            responseDebugDiv.style.cssText = 'background: #f8f9fa; border: 1px solid #ddd; padding: 10px; margin: 10px 0; font-family: monospace; white-space: pre-wrap;';
-                            responseDebugDiv.innerHTML = 'Server Response:\\n' + xhr.responseText;
-                            debugContainer.insertBefore(responseDebugDiv, debugContainer.firstChild);
-
-                            if (xhr.status === 200) {{
-                                // Get the last line of the response (should be the URL)
-                                var lines = xhr.responseText.split('\\n');
-                                var authUrl = lines[lines.length - 1].trim();
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', window.location.pathname + '?q=' + encodeURIComponent(searchTerm) + '&ajax=1', true);
+            xhr.onreadystatechange = function() {{
+                if (xhr.readyState === 4) {{
+                    searchLoading.style.display = 'none';
+                    
+                    if (xhr.status === 200) {{
+                        resultsContainer.innerHTML = xhr.responseText;
+                        
+                        // Attach click handlers to select buttons
+                        var selectButtons = document.querySelectorAll('.select-person-btn');
+                        for (var i = 0; i < selectButtons.length; i++) {{
+                            selectButtons[i].addEventListener('click', function() {{
+                                var personItem = this.closest('.result-item');
+                                var personId = personItem.getAttribute('data-person-id');
+                                var personName = personItem.getAttribute('data-person-name');
                                 
-                                // Show what we extracted
-                                var extractDebugDiv = document.createElement('div');
-                                extractDebugDiv.style.cssText = 'background: #e6ffe6; border: 1px solid #ddd; padding: 10px; margin: 10px 0; font-family: monospace; white-space: pre-wrap;';
-                                extractDebugDiv.innerHTML = 'Extracted URL: ' + authUrl;
-                                debugContainer.insertBefore(extractDebugDiv, debugContainer.firstChild);
-                                
-                                if (authUrl && authUrl.startsWith('http')) {{
-                                    // Update the UI
-                                    customLinkValue.textContent = authUrl;
-                                    customCopyBtn.setAttribute('data-link', authUrl);
-                                    customOpenBtn.setAttribute('href', authUrl);
-                                    customLinkResult.style.display = 'block';
-                                    
-                                    // Re-enable buttons
-                                    customCopyBtn.disabled = false;
-                                    customOpenBtn.style.pointerEvents = 'auto';
-                                    
-                                    // Add click handler for the copy button
-                                    customCopyBtn.onclick = function() {{
-                                        copyToClipboard(authUrl);
-                                    }};
-                                }} else {{
-                                    customLinkValue.textContent = 'Error: Invalid URL format';
-                                    var errorDiv = document.createElement('div');
-                                    errorDiv.style.cssText = 'background: #ffe6e6; border: 1px solid #ddd; padding: 10px; margin: 10px 0; font-family: monospace; white-space: pre-wrap;';
-                                    errorDiv.innerHTML = 'Error: URL is not in expected format\\nReceived: ' + authUrl;
-                                    debugContainer.insertBefore(errorDiv, debugContainer.firstChild);
-                                }}
-                            }} else {{
-                                customLinkValue.textContent = 'Error generating link';
-                                showToast('Error: Server returned status ' + xhr.status, 3000);
-                            }}
+                                // Navigate to the link generation page for this person
+                                window.location.href = window.location.pathname + '?person_id=' + personId;
+                            }});
                         }}
-                    }};
-                    xhr.send();
+                        
+                        // Attach click handlers to result items for easier selection
+                        var resultItems = document.querySelectorAll('.result-item');
+                        for (var i = 0; i < resultItems.length; i++) {{
+                            resultItems[i].addEventListener('click', function(e) {{
+                                // Don't trigger if clicking on the button (it has its own handler)
+                                if (!e.target.classList.contains('select-person-btn') && 
+                                    !e.target.parentElement.classList.contains('select-person-btn')) {{
+                                    var personId = this.getAttribute('data-person-id');
+                                    window.location.href = window.location.pathname + '?person_id=' + personId;
+                                }}
+                            }});
+                        }}
+                    }} else {{
+                        resultsContainer.innerHTML = '<div class="error-message">An error occurred while searching. Please try again.</div>';
+                    }}
+                }}
+            }};
+            xhr.send();
         }}
         
         // Document ready
@@ -1153,95 +1027,46 @@ try:
             var customOpenBtn = document.getElementById('customOpenBtn');
             
             if (generateCustomLinkBtn && customUrlInput) {{
-                generateCustomLinkBtn.addEventListener('click', function(event) {{
-                    // Prevent form submission and page reload
-                    event.preventDefault();
-                    event.stopPropagation();
-                    
+                generateCustomLinkBtn.addEventListener('click', function() {{
                     var urlPath = customUrlInput.value.trim();
                     
                     if (!urlPath) {{
-                        showToast('Please enter a URL', 2000);
+                        showToast('Please enter a URL path', 2000);
                         return;
+                    }}
+                    
+                    // Ensure URL starts with a slash
+                    if (!urlPath.startsWith('/')) {{
+                        urlPath = '/' + urlPath;
                     }}
                     
                     // Get the person ID from the URL
                     var urlParams = new URLSearchParams(window.location.search);
                     var personId = urlParams.get('person_id');
                     
-                    // Show loading state
-                    customLinkValue.textContent = 'Generating link...';
-                    customLinkResult.style.display = 'block';
-                    customCopyBtn.disabled = true;
-                    customOpenBtn.style.pointerEvents = 'none';
-                    
-                    // Create debug container if it doesn't exist
-                    var debugContainer = document.getElementById('debugContainer');
-                    if (!debugContainer) {{
-                        debugContainer = document.createElement('div');
-                        debugContainer.id = 'debugContainer';
-                        customLinkResult.parentNode.insertBefore(debugContainer, customLinkResult);
-                    }}
-                    
                     // Generate the authenticated URL using AJAX
-                    var requestUrl = window.location.pathname + '?url=' + encodeURIComponent(urlPath) + '&pid=' + personId;
-                    
-                    // Add request debug info
-                    var debugDiv = document.createElement('div');
-                    debugDiv.style.cssText = 'background: #f8f9fa; border: 1px solid #ddd; padding: 10px; margin: 10px 0; font-family: monospace; white-space: pre-wrap;';
-                    debugDiv.innerHTML = 'Request Details:\\n' +
-                        'URL Path: ' + urlPath + '\\n' +
-                        'Person ID: ' + personId + '\\n' +
-                        'Full Request URL: ' + requestUrl;
-                    debugContainer.insertBefore(debugDiv, debugContainer.firstChild);
-                    
                     var xhr = new XMLHttpRequest();
-                    xhr.open('GET', requestUrl, true);
-                    
-                    // Add header to indicate this is an AJAX request
-                    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-                    
+                    xhr.open('GET', window.location.pathname + '?url=' + encodeURIComponent(urlPath) + '&pid=' + personId, true);
                     xhr.onreadystatechange = function() {{
-                        if (xhr.readyState === 4) {{
-                            if (xhr.status === 200) {{
-                                // The response should be just the authenticated URL
-                                var authUrl = xhr.responseText.trim();
+                        if (xhr.readyState === 4 && xhr.status === 200) {{
+                            // Look for the authenticated URL in the response
+                            var responseText = xhr.responseText;
+                            var matches = responseText.match(/Authenticated URL:<br>([^<]+)/);
+                            
+                            if (matches && matches[1]) {{
+                                var authUrl = matches[1].trim();
                                 
-                                // Debug the response
-                                var responseDebugDiv = document.createElement('div');
-                                responseDebugDiv.style.cssText = 'background: #e6ffe6; border: 1px solid #ddd; padding: 10px; margin: 10px 0; font-family: monospace; white-space: pre-wrap;';
-                                responseDebugDiv.innerHTML = 'Response:\\n' + authUrl;
-                                debugContainer.insertBefore(responseDebugDiv, debugContainer.firstChild);
-                                
-                                if (authUrl.startsWith('http')) {{
-                                    // Update the UI
-                                    customLinkValue.textContent = authUrl;
-                                    customCopyBtn.setAttribute('data-link', authUrl);
-                                    customOpenBtn.setAttribute('href', authUrl);
-                                    customLinkResult.style.display = 'block';
-                                    
-                                    // Re-enable buttons
-                                    customCopyBtn.disabled = false;
-                                    customOpenBtn.style.pointerEvents = 'auto';
-                                    
-                                    // Add click handler for the copy button
-                                    customCopyBtn.onclick = function() {{
-                                        copyToClipboard(authUrl);
-                                    }};
-                                }} else {{
-                                    customLinkValue.textContent = 'Error: Invalid URL generated';
-                                    showToast('Error: Invalid URL format received', 3000);
-                                }}
+                                // Update the UI
+                                customLinkValue.textContent = authUrl;
+                                customCopyBtn.setAttribute('data-link', authUrl);
+                                customOpenBtn.setAttribute('href', authUrl);
+                                customLinkResult.style.display = 'block';
                             }} else {{
-                                customLinkValue.textContent = 'Error generating link';
-                                showToast('Error: Server returned status ' + xhr.status, 3000);
+                                showToast('Error generating authenticated URL', 3000);
                             }}
                         }}
                     }};
                     xhr.send();
-                    
-                    // Prevent form submission
-                    return false;
                 }});
             }}
         }});
