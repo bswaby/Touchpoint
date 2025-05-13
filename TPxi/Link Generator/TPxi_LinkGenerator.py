@@ -17,7 +17,7 @@
 
 # Written by: Ben Swaby
 # Email: bswaby@fbchtn.org
-# Last updated: 05/10/2025
+# Last updated: 05/12/2025
 
 import sys
 import traceback
@@ -204,15 +204,29 @@ class LinkGenerator:
             print "<!-- Error in get_person_leader_orgs: " + str(e) + " -->"
             return []
 
+# Helper function to get script name from URL
+def get_script_name():
+    """Get the current script name from the URL or use a default"""
+    script_name = "TPxi_LinkGenerator"  # Default name
+    try:
+        if hasattr(model.Data, "PATH_INFO"):
+            path_parts = model.Data.PATH_INFO.split('/')
+            if len(path_parts) > 2 and path_parts[1] == "PyScript":
+                script_name = path_parts[2]
+    except:
+        pass  # Use default name if we can't extract from PATH_INFO
+    return script_name
+
 # Main script logic starts here
 try:
-    # Initialize search term and ajax mode flags
+    # Initialize parameters
     search_term = ""
     ajax_mode = False
     selected_person_id = None
     get_auth_url = False
     url_to_auth = ""
     pid_for_auth = ""
+    auth_url_result = None
     
     # Get query parameters
     try:
@@ -220,31 +234,33 @@ try:
             search_term = str(model.Data.q)
         if hasattr(model.Data, "ajax") and model.Data.ajax == "1":
             ajax_mode = True
-        if hasattr(model.Data, "person_id"):
+        if hasattr(model.Data, "person_id") and model.Data.person_id:
             selected_person_id = int(model.Data.person_id)
-        if hasattr(model.Data, "url") and hasattr(model.Data, "pid") and model.Data.url and model.Data.pid:
-            get_auth_url = True
+        if hasattr(model.Data, "url") and model.Data.url:
             url_to_auth = str(model.Data.url)
+        if hasattr(model.Data, "pid") and model.Data.pid:
             pid_for_auth = str(model.Data.pid)
+            
+        # Check if we have both URL and PID parameters
+        if url_to_auth and pid_for_auth:
+            get_auth_url = True
+            
+            # Generate authenticated URL
+            try:
+                auth_url_result = LinkGenerator.get_authenticated_url(int(pid_for_auth), url_to_auth, True)
+            except Exception as e:
+                print "<div class='error-message'>Error generating authenticated URL: {0}</div>".format(str(e))
     except Exception as e:
-        print "<!-- Error processing parameters: " + str(e) + " -->"
+        print "<div class='error-message'>Error processing parameters: {0}</div>".format(str(e))
     
     # Set page title
     model.Header = "Authenticated Link Generator"
     
-    # If direct URL authentication request, handle it
-    if get_auth_url:
-        try:
-            auth_url = model.GetAuthenticatedUrl(int(pid_for_auth), url_to_auth, True)
-            print "Authenticated URL:<br>"
-            print auth_url
-            # Don't use 'return' outside a function - instead just handle this case
-            # and skip the rest of the script using an else clause later
-        except Exception as e:
-            print "<div class='error-message'>Error generating authenticated URL: {0}</div>".format(str(e))
-            print "<pre class='error-details'>{0}</pre>".format(traceback.format_exc())
-    # Continue with the rest of the script ONLY if we're not in get_auth_url mode
-    elif ajax_mode and search_term:
+    # Get script name for form submission
+    script_name = get_script_name()
+    
+    # AJAX mode - search results
+    if ajax_mode and search_term:
         people = PeopleSearch.search_people(search_term)
         
         # Helper function to format phone numbers
@@ -485,20 +501,34 @@ try:
                 <div class="link-section">
                     <h4>Custom URL</h4>
                     <div class="custom-url-form">
-                        <input type="text" id="customUrl" placeholder="Enter URL path (e.g., /Settings)" />
-                        <button id="generateCustomLink">Generate Link</button>
+                        <form method="get" action="/PyScript/{0}">
+                            <input type="hidden" name="person_id" value="{1}" />
+                            <input type="hidden" name="pid" value="{1}" />
+                            <div class="input-group">
+                                <input type="text" id="customUrl" name="url" placeholder="Enter URL path (e.g., /Settings)" 
+                                       class="custom-url-input" required />
+                                <button type="submit" class="custom-url-button">Generate Link</button>
+                            </div>
+                            <div class="form-help" style="margin-top: 5px; font-size: 12px; color: #666;">
+                                Enter a full URL (e.g., https://myfbch.com/Person2/12345) or just a path (e.g., /Person2/12345)
+                            </div>
+                        </form>
                     </div>
-                    
-                    <div id="customLinkResult" class="link-option" style="display: none;">
-                        <div class="link-label">Custom Link</div>
-                        <div class="link-value" id="customLinkValue"></div>
-                        <button class="copy-link-btn" data-link="" id="customCopyBtn">Copy Link</button>
-                        <a href="#" target="_blank" class="open-link-btn" id="customOpenBtn"><i class="fa fa-user-secret"></i> Open in Incognito</a>
+                """.format(script_name, selected_person_id)
+                
+                # If we have a custom URL result to show
+                if get_auth_url and auth_url_result and str(selected_person_id) == pid_for_auth:
+                    print """
+                    <div id="customLinkResult" class="link-option" style="margin-top: 15px;">
+                        <div class="link-label">Custom Link for: {0}</div>
+                        <div class="link-value">{1}</div>
+                        <button class="copy-link-btn" data-link="{1}">Copy Link</button>
+                        <a href="{1}" target="_blank" class="open-link-btn"><i class="fa fa-user-secret"></i> Open in Incognito</a>
                     </div>
-                </div>
-                """
+                    """.format(url_to_auth, auth_url_result)
                 
                 print """
+                </div>  <!-- End custom URL section -->
                 </div>  <!-- End link-generation -->
                 
                 <div class="back-section">
@@ -514,7 +544,51 @@ try:
             print "<pre class='error-details'>{0}</pre>".format(traceback.format_exc())
             print "<div class='back-section'><button id='backToSearch'>← Back to Search</button></div>"
     
-    # Main search interface
+    # If just URL and PID but no person selected, show the authenticated URL result
+    elif get_auth_url and auth_url_result:
+        print """
+        <div style="max-width: 800px; margin: 0 auto; padding: 20px;">
+            <h2>Authenticated URL Generated</h2>
+            
+            <div style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 4px;">
+                <div style="font-weight: bold; margin-bottom: 10px;">URL Path: {0}</div>
+                <div style="font-family: monospace; padding: 10px; background: white; border: 1px solid #ddd; border-radius: 4px; word-break: break-all; margin-bottom: 15px;">{1}</div>
+                
+                <div>
+                    <button onclick="copyToClipboard('{1}')" style="padding: 8px 15px; background: #0B3D4C; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">Copy Link</button>
+                    <a href="{1}" target="_blank" style="padding: 8px 15px; background: #4CAF50; color: white; text-decoration: none; display: inline-block; border-radius: 4px;"><i class="fa fa-user-secret"></i> Open in Incognito</a>
+                </div>
+            </div>
+            
+            <div style="margin-top: 20px;">
+                <button onclick="window.history.back()" style="padding: 10px 20px; background: #f0f0f0; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">← Back</button>
+            </div>
+        </div>
+        
+        <script>
+        function copyToClipboard(text) {{
+            var tempInput = document.createElement('textarea');
+            tempInput.value = text;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            
+            try {{
+                var successful = document.execCommand('copy');
+                if (successful) {{
+                    alert('Link copied to clipboard!');
+                }} else {{
+                    alert('Failed to copy link');
+                }}
+            }} catch (err) {{
+                alert('Failed to copy link: ' + err);
+            }}
+            
+            document.body.removeChild(tempInput);
+        }}
+        </script>
+        """.format(url_to_auth, auth_url_result)
+    
+    # Main search interface (default view)
     else:
         # Display search interface
         print """
@@ -796,16 +870,23 @@ try:
             background: #3e8e41;
         }}
         .custom-url-form {{
-            display: flex;
             margin-bottom: 15px;
         }}
-        .custom-url-form input {{
+        .custom-url-form form {{
+            width: 100%;
+        }}
+        .input-group {{
+            display: flex;
+            width: 100%;
+        }}
+        .custom-url-input {{
             flex: 1;
             padding: 10px;
             border: 1px solid #ccc;
             border-radius: 4px 0 0 4px;
+            font-size: 14px;
         }}
-        .custom-url-form button {{
+        .custom-url-button {{
             padding: 10px 15px;
             background: #0B3D4C;
             color: white;
@@ -855,6 +936,14 @@ try:
             z-index: 1000;
             display: none;
             box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }}
+        .incognito-tip {{
+            background-color: #e7f3ff;
+            border: 1px solid #b3d7ff;
+            border-radius: 4px;
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            color: #004085;
         }}
         </style>
         
@@ -1015,58 +1104,6 @@ try:
                 copyButtons[i].addEventListener('click', function() {{
                     var link = this.getAttribute('data-link');
                     copyToClipboard(link);
-                }});
-            }}
-            
-            // Custom URL generator
-            var customUrlInput = document.getElementById('customUrl');
-            var generateCustomLinkBtn = document.getElementById('generateCustomLink');
-            var customLinkResult = document.getElementById('customLinkResult');
-            var customLinkValue = document.getElementById('customLinkValue');
-            var customCopyBtn = document.getElementById('customCopyBtn');
-            var customOpenBtn = document.getElementById('customOpenBtn');
-            
-            if (generateCustomLinkBtn && customUrlInput) {{
-                generateCustomLinkBtn.addEventListener('click', function() {{
-                    var urlPath = customUrlInput.value.trim();
-                    
-                    if (!urlPath) {{
-                        showToast('Please enter a URL path', 2000);
-                        return;
-                    }}
-                    
-                    // Ensure URL starts with a slash
-                    if (!urlPath.startsWith('/')) {{
-                        urlPath = '/' + urlPath;
-                    }}
-                    
-                    // Get the person ID from the URL
-                    var urlParams = new URLSearchParams(window.location.search);
-                    var personId = urlParams.get('person_id');
-                    
-                    // Generate the authenticated URL using AJAX
-                    var xhr = new XMLHttpRequest();
-                    xhr.open('GET', window.location.pathname + '?url=' + encodeURIComponent(urlPath) + '&pid=' + personId, true);
-                    xhr.onreadystatechange = function() {{
-                        if (xhr.readyState === 4 && xhr.status === 200) {{
-                            // Look for the authenticated URL in the response
-                            var responseText = xhr.responseText;
-                            var matches = responseText.match(/Authenticated URL:<br>([^<]+)/);
-                            
-                            if (matches && matches[1]) {{
-                                var authUrl = matches[1].trim();
-                                
-                                // Update the UI
-                                customLinkValue.textContent = authUrl;
-                                customCopyBtn.setAttribute('data-link', authUrl);
-                                customOpenBtn.setAttribute('href', authUrl);
-                                customLinkResult.style.display = 'block';
-                            }} else {{
-                                showToast('Error generating authenticated URL', 3000);
-                            }}
-                        }}
-                    }};
-                    xhr.send();
                 }});
             }}
         }});
