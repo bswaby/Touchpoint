@@ -304,11 +304,11 @@ Note:  This is highly configured for our environment.  It is possible to use it,
 ## 🛠️ Tools
 
 ### 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
-A quick way to get fail prints, today's print stats, login failures, and more
+Provides a quick method to see owners of involvements to help with auditing or leader/staff change over.
 
 <details>
 <summary><strong>Involvement Owner Audit Tool</strong></summary>
-<p>Provides a quick method to see owners of involvements to help with auditing or leader/staff change over.</i></p>
+<p><i>You can search by all, involvement, or person.</i></p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Notification%20Audit%20Tool/InvAuditTool.png" width="700">
 </p>
