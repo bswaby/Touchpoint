@@ -6,13 +6,13 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 ## 💰 Finance
 
 ### 💳 [FortisFees](https://github.com/bswaby/Touchpoint/blob/main/Finance/FortisFees)
-It breaks down fees by program and accounting code so accounting can use it to back charge. The biggest note is that the fees will be close to 99% but not 100% due to the disconnect of certain charges and reversals getting back to Touchpoint.  
+It breaks down fees by program and accounting code so accounting can use it to back-charge. The biggest note is that the fees will be close to 99% but not 100% due to the disconnect of certain charges and reversals getting back to Touchpoint.  This script took a 4-6hrs process and took it down to a 15-minute process to run the report and get it into the account system.
 
 - ⚙️ **Implementation Level: Easy-Moderate
 - 🧩 **Installation: Paste in code and change the fee percentages
 
 ### 📜 [QCD-GrantLetters](https://github.com/bswaby/Touchpoint/blob/main/Finance/QCD-GrantLetters)
-Automatically create QCD and Grant letters that you can print out and add to each person's notes.
+Automatically creates QCD and Grant letters that you can print out and stuff into windowed envelopes.  In addition, you can upload these as a secure not to each persons record.  On an average week for us, it saved the finance team 2-3 hours compared to how it was done prior.  
 
 - ⚙️ **Implementation Level: Moderate-Advanced
 - 🧩 **Installation: This script is built on the basis that Grant and QCD are on separate batch types.  Updating the letter information will require basic knowledge of HTML, but it should be easy to implement if you follow the pattern.  The advanced side is that this is set up to print on windowed envelopes and it can tricky based on your environment and printer settings to get aligned.
@@ -42,7 +42,7 @@ Automatically create QCD and Grant letters that you can print out and add to eac
 </details>
 
 ### 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/Finance/Weekly%20Contribution%20Report)
-This is the primary tool our finance team tracks, reports, and works through finances each week.  It has greatly helped us move forward together as a team and get away from Excel.
+This is the primary tool our finance team that tracks, reports, and works through finances each week.  It has greatly helped our financial team move forward as a team, working through contributions. 
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: The Script is pasted and go. Once you are in the UI, you will complete all the configuration in the UI for you financial setup.
@@ -51,10 +51,10 @@ This is the primary tool our finance team tracks, reports, and works through fin
 ## 📈 Reports
 
 ### 📅 [Anniversaries](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Anniversaries)
-It is designed to be a widget on your dashboard that tracks member anniversaries (marriage, work, and birthdays, primarily, but it can be expanded as well).
+It is designed to be a widget on your dashboard that tracks member anniversaries such as marriage, work, and birthdays.  We use it to track staff anniversaries, but it could easily be used for any group as it's based on a saved search.
 
 - ⚙️ **Implementation Level: Moderate
-- 🧩 **Installation: Weddings and birthdays are tracked naturally in the system and uses a "saved search" to pull the list from. Extra anniversaries are tracked using an extra value field under a user's profile, but are not required.  To install, you first create a saved search in Touchpoint and then write down the name of it.  Then, paste the code, set the parameters, add the word widget to content keywords, and then save it.  From there, you need to go into Admin ~ Advanced ~ HomePage widget and add this as a widget to have it show up on the homepage.
+- 🧩 **Installation: Weddings and birthdays are tracked naturally in the system and uses a "saved search" to pull the list from. Extra anniversaries are tracked using an extra value field under a user's profile, but are not required.  To install, you first create a saved search in Touchpoint and then write down the name of it.  Then, paste the code, set the parameters, add the word widget to content keywords, and save it.  From there, you need to go into Admin ~ Advanced ~ HomePage widget and add this as a widget to have it appear on the homepage.
 
 <details>
 <summary><strong>Anniversary Main Screen</strong></summary>
@@ -73,7 +73,7 @@ It is designed to be a widget on your dashboard that tracks member anniversaries
 </details>
 
 ### 📱 [Communication Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Communication%20Dashboard)
-Centralized dashboard for viewing and analyzing communications.
+Centralized dashboard for viewing and analyzing email and SMS communications.  This has helped us further understand who is sending messages out, find issues with SMS, and allowed us to work through some strategic communication methods, such as parents getting multiple emails from various age-grade pastors covering similar subjects.
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
@@ -119,7 +119,7 @@ Centralized dashboard for viewing and analyzing communications.
 </details>
 
 ### 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Data%20Quality%20Dashboard)
-Monitors the completeness of the database demographics.
+Monitors the completeness of the database demographics and what might be missing as data comes in.
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
@@ -152,7 +152,7 @@ Monitors the completeness of the database demographics.
 </details>
 
 ### 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Activity%20Dashboard)
-This like Kenny Rogers of tools in that it helps you know "when to hold them" and "when to fold them" when it comes to your Involvements.
+This is like Kenny Rogers of tools in that it helps you know "when to hold them" and "when to fold them" regarding your Involvements.  Overall, this shows you things like  most active to dormant involvements, helping you ensure a involvement setup.
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
