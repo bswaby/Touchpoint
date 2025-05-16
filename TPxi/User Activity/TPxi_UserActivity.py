@@ -210,13 +210,14 @@ class ActivityAnalyzer:
     def get_activity_stats_by_period(self, days=30, period_type='daily'):
         """Get activity statistics grouped by time period."""
         if period_type == 'daily':
-            date_part = "CONVERT(date, ActivityDate)"
+            # Use a format that will show date only (MM/DD/YYYY)
+            date_part = "CONVERT(varchar(10), ActivityDate, 101)"
         elif period_type == 'weekly':
-            date_part = "DATEADD(day, -DATEPART(weekday, ActivityDate)+1, CONVERT(date, ActivityDate))"
+            date_part = "CONVERT(varchar(10), DATEADD(day, -DATEPART(weekday, ActivityDate)+1, CONVERT(date, ActivityDate)), 101)"
         elif period_type == 'monthly':
             date_part = "CONVERT(varchar(7), ActivityDate, 120)"
         else:
-            date_part = "CONVERT(date, ActivityDate)"
+            date_part = "CONVERT(varchar(10), ActivityDate, 101)"
             
         sql = """
             SELECT 
@@ -250,7 +251,7 @@ class ActivityAnalyzer:
         """Get the most active users in the last X days."""
         try:
             sql = """
-                SELECT TOP 20
+                SELECT 
                     al.UserId,
                     u.Username,
                     u.Name,
@@ -262,6 +263,7 @@ class ActivityAnalyzer:
                 JOIN Users u ON u.UserId = al.UserId
                 WHERE DATEDIFF(day, al.ActivityDate, GETDATE()) <= {0}
                 GROUP BY al.UserId, u.Username, u.Name
+                HAVING COUNT(*) > 0
                 ORDER BY ActivityCount DESC
             """.format(days)
             
@@ -1636,6 +1638,8 @@ def render_overview_page(form_handler, analyzer, renderer):
     try:
         days = form_handler.get_int_param('days', 30)
         
+
+        
         # Get summary metrics
         recent_activity = analyzer.get_activity_stats_by_period(days, 'daily')
         most_active_users = analyzer.get_most_active_users(days)
@@ -1663,7 +1667,8 @@ def render_overview_page(form_handler, analyzer, renderer):
                     unique_users.add(user.UserId)
                 except (AttributeError, TypeError):
                     pass  # Skip if UserId doesn't exist or isn't hashable
-            active_users = len(unique_users)
+            # Calculate active users 
+            active_users = len(list(most_active_users)) if most_active_users else 0
         
         html = renderer.render_page_header("User Activity Analysis", "Overview Dashboard")
         html += renderer.render_navigation('overview')
@@ -2027,6 +2032,7 @@ def render_user_list_page(form_handler, analyzer, renderer):
                         u.LastActivityDate, p.EmailAddress
                     FROM Users u
                     JOIN People p ON p.PeopleId = u.PeopleId
+                    WHERE u.LastLoginDate IS NOT NULL
                     ORDER BY u.LastActivityDate DESC
                 """
                 users = analyzer.query.QuerySql(sql)
@@ -2593,9 +2599,13 @@ def render_user_detail_page(form_handler, analyzer, renderer):
             """
             
             # Sort days by date (newest first)
+            #sorted_days = list(daily_activity.keys())
+            #sorted_days.sort(reverse=True)  # Sort in descending order
+
+            # Sort by date components (MM/DD/YYYY format)
             sorted_days = list(daily_activity.keys())
-            sorted_days.sort(reverse=True)  # Sort in descending order
-            
+            sorted_days.sort(key=lambda d: tuple(map(int, d.split('/')[0:3])) if len(d.split('/')) >= 3 else (0,0,0), reverse=True)
+
             for day_key in sorted_days:
                 day_data = daily_activity[day_key]
                 
