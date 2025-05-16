@@ -5,6 +5,15 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 
 ## 💰 Finance
 
+<div style="display: flex; flex-wrap: wrap; gap: 20px;">
+  <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; width: 300px;">
+    <h3>💳 FortisFees</h3>
+    <p>It breaks down fees by program and accounting code...</p>
+    <img src="path/to/image.png" width="100%">
+  </div>
+  <!-- More cards -->
+</div>
+
 ### 💳 [FortisFees](https://github.com/bswaby/Touchpoint/blob/main/Finance/FortisFees)
 It breaks down fees by program and accounting code so accounting can use it to back charge. The biggest note is that the fees will be close to 99% but not 100% due to the disconnect of certain charges and reversals getting back to Touchpoint.  
 
