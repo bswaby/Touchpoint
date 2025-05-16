@@ -5,13 +5,6 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 
 ## 💰 Finance
 
-## 📈 Reports
-  - 📅 [Anniversaries](link)
-  - 📱 [Communication Dashboard](link)
-    - Email Reports
-    - SMS Analytics
-  - 🧹 [Data Quality Dashboard](link)
-
 ### 💳 [FortisFees](https://github.com/bswaby/Touchpoint/blob/main/Finance/FortisFees)
 It breaks down fees by program and accounting code so accounting can use it to back charge. The biggest note is that the fees will be close to 99% but not 100% due to the disconnect of certain charges and reversals getting back to Touchpoint.  
 
