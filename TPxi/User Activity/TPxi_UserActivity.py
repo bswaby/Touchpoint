@@ -2267,7 +2267,7 @@ def render_user_detail_page(form_handler, analyzer, renderer):
                 SELECT 
                     CONVERT(date, ActivityDate) AS ActivityDay,
                     SUM(CASE WHEN Mobile = 1 THEN 1 ELSE 0 END) AS MobileCount,
-                    SUM(CASE WHEN ClientIp IN ({2}) THEN 1 ELSE 0 END) AS OfficeCount,
+                    SUM(CASE WHEN ClientIp IN ({2}) AND Mobile = 0 THEN 1 ELSE 0 END) AS OfficeCount,
                     SUM(CASE WHEN Mobile = 0 AND (ClientIp NOT IN ({2}) OR ClientIp IS NULL) THEN 1 ELSE 0 END) AS RemoteCount
                 FROM ActivityLog
                 WHERE UserId = {0}
@@ -2285,18 +2285,18 @@ def render_user_detail_page(form_handler, analyzer, renderer):
             for day_data in daily_counts:
                 # Format the day as a string, but only keep the date part
                 if hasattr(day_data.ActivityDay, 'strftime'):
-                    # Use a date-only format
-                    day_str = day_data.ActivityDay.strftime('%m/%d/%Y')  # Format as MM/DD/YYYY
+                    # Use a date-only format MM/DD/YYYY
+                    day_str = day_data.ActivityDay.strftime('%m/%d/%Y')
                 else:
                     # If we can't use strftime, try to get just the date part
-                    day_str = str(day_data.ActivityDay).split(' ')[0]  # Split at first space to get just the date
+                    date_parts = str(day_data.ActivityDay).split(' ')[0].split('-')
+                    if len(date_parts) >= 3:
+                        day_str = "{0}/{1}/{2}".format(date_parts[1], date_parts[2], date_parts[0])
+                    else:
+                        day_str = str(day_data.ActivityDay).split(' ')[0]
                 
-                # Extract just the date part (e.g., "May 8, 2025")
-                day_parts = day_str.split()
-                day_key = " ".join(day_parts[:3]) if len(day_parts) >= 3 else day_str
-                
-                daily_activity[day_key] = {
-                    'date': day_key,
+                daily_activity[day_str] = {
+                    'date': day_str,
                     'count': day_data.ActivityCount,
                     'office': 0,
                     'remote': 0,
@@ -2305,14 +2305,20 @@ def render_user_detail_page(form_handler, analyzer, renderer):
             
             # Now add the location data
             for day_data in daily_locations:
-                day_str = renderer.render_date(day_data.ActivityDay)
-                day_parts = day_str.split()
-                day_key = " ".join(day_parts[:3]) if len(day_parts) >= 3 else day_str
+                # Format the day consistently with the counts data
+                if hasattr(day_data.ActivityDay, 'strftime'):
+                    day_str = day_data.ActivityDay.strftime('%m/%d/%Y')
+                else:
+                    date_parts = str(day_data.ActivityDay).split(' ')[0].split('-')
+                    if len(date_parts) >= 3:
+                        day_str = "{0}/{1}/{2}".format(date_parts[1], date_parts[2], date_parts[0])
+                    else:
+                        day_str = str(day_data.ActivityDay).split(' ')[0]
                 
-                if day_key in daily_activity:
-                    daily_activity[day_key]['office'] = day_data.OfficeCount
-                    daily_activity[day_key]['remote'] = day_data.RemoteCount
-                    daily_activity[day_key]['mobile'] = day_data.MobileCount
+                if day_str in daily_activity:
+                    daily_activity[day_str]['office'] = day_data.OfficeCount
+                    daily_activity[day_str]['remote'] = day_data.RemoteCount
+                    daily_activity[day_str]['mobile'] = day_data.MobileCount
         
         except Exception as e:
             print "<div style='display:none'>Error grouping activities by day using SQL: {0}</div>".format(str(e))
@@ -2322,21 +2328,24 @@ def render_user_detail_page(form_handler, analyzer, renderer):
             
             # Manually process each activity
             for activity in activity_list:
-                date_str = renderer.render_date(activity.ActivityDate)
-                # Extract just date part (first three components)
-                date_parts = date_str.split()
-                
-                if len(date_parts) >= 3:
-                    # Use first three components: Month Day, Year
-                    day_key = " ".join(date_parts[:3])
-                else:
-                    # Fallback
-                    day_key = "Unknown Date"
+                date_str = ""
+                try:
+                    # Try to format the date consistently
+                    if hasattr(activity.ActivityDate, 'strftime'):
+                        date_str = activity.ActivityDate.strftime('%m/%d/%Y')
+                    else:
+                        date_parts = str(activity.ActivityDate).split(' ')[0].split('-')
+                        if len(date_parts) >= 3:
+                            date_str = "{0}/{1}/{2}".format(date_parts[1], date_parts[2], date_parts[0])
+                        else:
+                            date_str = str(activity.ActivityDate).split(' ')[0]
+                except:
+                    date_str = "Unknown Date"
                     
                 # Initialize if not exists
-                if day_key not in daily_activity:
-                    daily_activity[day_key] = {
-                        'date': day_key,
+                if date_str not in daily_activity:
+                    daily_activity[date_str] = {
+                        'date': date_str,
                         'count': 0,
                         'office': 0,
                         'remote': 0,
@@ -2344,23 +2353,23 @@ def render_user_detail_page(form_handler, analyzer, renderer):
                     }
                     
                 # Count this activity
-                daily_activity[day_key]['count'] += 1
+                daily_activity[date_str]['count'] += 1
                 
                 # Count by location
                 try:
                     if hasattr(activity, 'Mobile') and activity.Mobile:
-                        daily_activity[day_key]['mobile'] += 1
+                        daily_activity[date_str]['mobile'] += 1
                     elif hasattr(activity, 'ClientIp'):
                         client_ip = str(activity.ClientIp) if activity.ClientIp else ''
                         if client_ip in OFFICE_IP_ADDRESSES:
-                            daily_activity[day_key]['office'] += 1
+                            daily_activity[date_str]['office'] += 1
                         else:
-                            daily_activity[day_key]['remote'] += 1
+                            daily_activity[date_str]['remote'] += 1
                     else:
-                        daily_activity[day_key]['remote'] += 1
+                        daily_activity[date_str]['remote'] += 1
                 except:
                     # Default to remote if there's an error
-                    daily_activity[day_key]['remote'] += 1
+                    daily_activity[date_str]['remote'] += 1
         
         # ==================================================================
         # Calculate estimated hours from daily activity first
@@ -2396,7 +2405,7 @@ def render_user_detail_page(form_handler, analyzer, renderer):
             est_hours = min(8.0, est_mins / 60.0)  # Cap at 8 hours per day
             
             # Store the estimated hours in the day data
-            daily_activity[day_key]['est_hours'] = est_hours
+            day_data['est_hours'] = est_hours
             
             # Add to total estimated hours
             daily_estimated_hours += est_hours
@@ -2420,8 +2429,7 @@ def render_user_detail_page(form_handler, analyzer, renderer):
                 avg_session_minutes = (estimated_work_hours * 60) / estimated_sessions
             else:
                 avg_session_minutes = 0
-
-
+        
         # Activity statistics panel
         # Convert values to appropriate types to avoid formatting issues
         days_str = str(days)
@@ -2487,13 +2495,7 @@ def render_user_detail_page(form_handler, analyzer, renderer):
                 </div>
             </div>
         </div>
-        """.format(
-            days,
-            total_activities,
-            int(estimated_sessions),  # Explicitly cast to int to avoid float format issues
-            estimated_work_hours,
-            avg_session_minutes
-        )
+        """
         
         # Calculate location percentages and hours based on the daily activity totals
         location_total = float(office_total + remote_total + mobile_total)
@@ -2511,17 +2513,16 @@ def render_user_detail_page(form_handler, analyzer, renderer):
             office_pct = remote_pct = mobile_pct = 0
             office_hours = remote_hours = mobile_hours = 0
 
-        # Convert all values to floats to ensure proper formatting
-        office_hours = float(office_hours)
-        office_pct = float(office_pct)
-        remote_hours = float(remote_hours)
-        remote_pct = float(remote_pct)
-        mobile_hours = float(mobile_hours)
-        mobile_pct = float(mobile_pct)
-
+        # Convert all values to floats and format outside the string
+        office_hours_str = "{:.1f}".format(float(office_hours))
+        office_pct_str = "{:.1f}".format(float(office_pct))
+        remote_hours_str = "{:.1f}".format(float(remote_hours))
+        remote_pct_str = "{:.1f}".format(float(remote_pct))
+        mobile_hours_str = "{:.1f}".format(float(mobile_hours))
+        mobile_pct_str = "{:.1f}".format(float(mobile_pct))
 
         # Work Location Summary panel
-        # Work Location Summary panel with explicit string formatting
+        # Work Location Summary panel with %s placeholders instead of .format()
         work_location_html = """
         <div class="row">
             <div class="col-md-12">
@@ -2534,7 +2535,7 @@ def render_user_detail_page(form_handler, analyzer, renderer):
                             <div class="col-md-4">
                                 <div class="panel panel-primary">
                                     <div class="panel-heading text-center">
-                                        <h4>""" + "{:.1f}".format(office_hours) + """ hrs (""" + "{:.1f}".format(office_pct) + """%)</h4>
+                                        <h4>%s hrs (%s%%)</h4>
                                         <p>Office Work</p>
                                     </div>
                                 </div>
@@ -2542,7 +2543,7 @@ def render_user_detail_page(form_handler, analyzer, renderer):
                             <div class="col-md-4">
                                 <div class="panel panel-warning">
                                     <div class="panel-heading text-center">
-                                        <h4>""" + "{:.1f}".format(remote_hours) + """ hrs (""" + "{:.1f}".format(remote_pct) + """%)</h4>
+                                        <h4>%s hrs (%s%%)</h4>
                                         <p>Remote Work</p>
                                     </div>
                                 </div>
@@ -2550,7 +2551,7 @@ def render_user_detail_page(form_handler, analyzer, renderer):
                             <div class="col-md-4">
                                 <div class="panel panel-info">
                                     <div class="panel-heading text-center">
-                                        <h4>""" + "{:.1f}".format(mobile_hours) + """ hrs (""" + "{:.1f}".format(mobile_pct) + """%)</h4>
+                                        <h4>%s hrs (%s%%)</h4>
                                         <p>Mobile Work</p>
                                     </div>
                                 </div>
@@ -2560,7 +2561,11 @@ def render_user_detail_page(form_handler, analyzer, renderer):
                 </div>
             </div>
         </div>
-        """
+        """ % (
+            office_hours_str, office_pct_str,
+            remote_hours_str, remote_pct_str,
+            mobile_hours_str, mobile_pct_str
+        )
         
         html += work_location_html
         
@@ -2578,9 +2583,9 @@ def render_user_detail_page(form_handler, analyzer, renderer):
                                 <tr>
                                     <th>Date</th>
                                     <th>Total Activities</th>
-                                    <th>Office Activities</th>
-                                    <th>Remote Activities</th>
-                                    <th>Mobile Activities</th>
+                                    <th>Office</th>
+                                    <th>Remote</th>
+                                    <th>Mobile</th>
                                     <th>Estimated Hours</th>
                                 </tr>
                             </thead>
@@ -2595,31 +2600,38 @@ def render_user_detail_page(form_handler, analyzer, renderer):
                 day_data = daily_activity[day_key]
                 
                 # Calculate percentages
-                office_pct = 0
-                remote_pct = 0 
-                mobile_pct = 0
+                day_office_pct = 0
+                day_remote_pct = 0 
+                day_mobile_pct = 0
                 
                 if day_data['count'] > 0:
-                    office_pct = (day_data['office'] * 100.0) / day_data['count']
-                    remote_pct = (day_data['remote'] * 100.0) / day_data['count']
-                    mobile_pct = (day_data['mobile'] * 100.0) / day_data['count']
+                    day_office_pct = (day_data['office'] * 100.0) / day_data['count']
+                    day_remote_pct = (day_data['remote'] * 100.0) / day_data['count']
+                    day_mobile_pct = (day_data['mobile'] * 100.0) / day_data['count']
                 
+                # Format percentages separately
+                day_office_pct_str = "{:.1f}".format(float(day_office_pct))
+                day_remote_pct_str = "{:.1f}".format(float(day_remote_pct))
+                day_mobile_pct_str = "{:.1f}".format(float(day_mobile_pct))
+                day_est_hours_str = "{:.1f}".format(float(day_data['est_hours']))
+                
+                # Use string formatting with %s placeholders
                 html += """
                 <tr>
-                    <td>{0}</td>
-                    <td>{1}</td>
-                    <td>{2} ({3:.1f}%)</td>
-                    <td>{4} ({5:.1f}%)</td>
-                    <td>{6} ({7:.1f}%)</td>
-                    <td>{8:.1f} hrs</td>
+                    <td>%s</td>
+                    <td>%s</td>
+                    <td>%s (%s%%)</td>
+                    <td>%s (%s%%)</td>
+                    <td>%s (%s%%)</td>
+                    <td>%s hrs</td>
                 </tr>
-                """.format(
+                """ % (
                     day_data['date'],
                     day_data['count'],
-                    day_data['office'], office_pct,
-                    day_data['remote'], remote_pct,
-                    day_data['mobile'], mobile_pct,
-                    day_data['est_hours']
+                    day_data['office'], day_office_pct_str,
+                    day_data['remote'], day_remote_pct_str,
+                    day_data['mobile'], day_mobile_pct_str,
+                    day_est_hours_str
                 )
                 
             html += """
@@ -2674,13 +2686,15 @@ def render_user_detail_page(form_handler, analyzer, renderer):
         if sorted_categories:
             for category, count in sorted_categories:
                 percentage = (count * 100.0 / total_categorized) if total_categorized > 0 else 0
+                percentage_str = "{:.1f}".format(float(percentage))
+                
                 html += """
                 <tr>
-                    <td>{0}</td>
-                    <td>{1}</td>
-                    <td>{2:.1f}%</td>
+                    <td>%s</td>
+                    <td>%s</td>
+                    <td>%s%%</td>
                 </tr>
-                """.format(category, count, percentage)
+                """ % (category, count, percentage_str)
         else:
             html += """
             <tr>
@@ -2702,7 +2716,7 @@ def render_user_detail_page(form_handler, analyzer, renderer):
         html += """
         <div class="panel panel-default">
             <div class="panel-heading">
-                <h3 class="panel-title">Recent Activity <small>{0} total activities</small></h3>
+                <h3 class="panel-title">Recent Activity <small>%s total activities</small></h3>
             </div>
             <div class="panel-body">
                 <div style="max-height: 600px; overflow-y: auto;">
@@ -2717,7 +2731,7 @@ def render_user_detail_page(form_handler, analyzer, renderer):
                             </tr>
                         </thead>
                         <tbody>
-        """.format(activity_count)
+        """ % activity_count
         
         if activity_list:
             # Use all activities instead of limiting to 20
@@ -2756,49 +2770,61 @@ def render_user_detail_page(form_handler, analyzer, renderer):
                     if len(activity_details) > 100:
                         details_text += '...'
                     
-                    html += """
+                    # Prepare HTML for this activity row
+                    activity_row = """
                     <tr>
-                        <td>{0}</td>
-                        <td><strong>{1}</strong></td>
-                        <td>{2}</td>
-                        <td><span class="label label-{4}">{3}</span></td>
+                        <td>%s</td>
+                        <td><strong>%s</strong></td>
+                        <td>%s</td>
+                        <td><span class="label label-%s">%s</span></td>
                         <td>
-                    """.format(
+                    """ % (
                         activity_date,
                         activity_type,
                         details_text,
-                        location,
-                        location_badge
+                        location_badge,
+                        location
                     )
                     
                     # Add links for related data
+                    links = []
+                    
+                    # Add organization link if available
                     org_id = None
                     if hasattr(activity, 'OrgId'):
                         if not isinstance(activity.OrgId, slice):
                             org_id = activity.OrgId
                     
                     if org_id:
-                        html += '<a href="/Org/{0}" target="_blank" class="btn btn-xs btn-info">Org</a> '.format(org_id)
+                        links.append('<a href="/Org/%s" target="_blank" class="btn btn-xs btn-info">Org</a>' % org_id)
                     
+                    # Add person link if available
                     people_id = None
                     if hasattr(activity, 'PeopleId'):
                         if not isinstance(activity.PeopleId, slice):
                             people_id = activity.PeopleId
                     
                     if people_id:
-                        html += '<a href="/Person2/{0}" target="_blank" class="btn btn-xs btn-primary">Person</a> '.format(people_id)
+                        links.append('<a href="/Person2/%s" target="_blank" class="btn btn-xs btn-primary">Person</a>' % people_id)
                     
+                    # Add URL link if available
                     page_url = None
                     if hasattr(activity, 'PageUrl') and activity.PageUrl:
                         page_url = str(activity.PageUrl)
                     
                     if page_url:
-                        html += '<a href="{0}" target="_blank" class="btn btn-xs btn-default">URL</a>'.format(page_url)
+                        links.append('<a href="%s" target="_blank" class="btn btn-xs btn-default">URL</a>' % page_url)
                     
-                    html += """
+                    # Add links to the row
+                    activity_row += ' '.join(links)
+                    
+                    # Complete the row
+                    activity_row += """
                         </td>
                     </tr>
                     """
+                    
+                    html += activity_row
                 except Exception as e:
                     print "<div style='display:none'>Error rendering activity: {0}</div>".format(str(e))
         else:
@@ -2824,18 +2850,9 @@ def render_user_detail_page(form_handler, analyzer, renderer):
         <div class='alert alert-danger'>
             Error rendering user details: {0}
             <br>
-            <pre>{1}
-            office_hours:{2}<br>
-            office_pct:{3}<br>
-            remote_hours:{4}<br>
-            remote_pct:{5}<br>
-            mobile_hours:{6}<br>
-            mobile_pct:{7}<br>
-            </pre>
+            <pre>{1}</pre>
         </div>
-        """.format(str(e), error_trace, office_hours, office_pct,
-            remote_hours, remote_pct,
-            mobile_hours, mobile_pct)
+        """.format(str(e), error_trace)
 
 def render_stale_accounts_page(form_handler, analyzer, renderer):
     """Render the stale accounts page."""
