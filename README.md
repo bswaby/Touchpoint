@@ -303,52 +303,6 @@ Note:  This is highly configured for our environment.  It is possible to use it,
 ---
 ## 🛠️ Tools
 
-### 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
-Provides a quick method to see owners of involvements to help with auditing or leader/staff change over.
-
-<details>
-<summary><strong>Involvement Owner Audit Tool</strong></summary>
-<p><i>You can search by all, involvement, or person.</i></p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Notification%20Audit%20Tool/InvAuditTool.png" width="700">
-</p>
-</details>
-
-### 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
-A quick way to get fail prints, today's print stats, login failures, and more
-
-<details>
-<summary><strong>Print Jobs</strong></summary>
-<p>Show counts and print issues.  <i>Note:  TP clears print stats nightly.</i></p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/Python%20Scripts/TechStatus/TS-PrintJobs.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>Login Activity</strong></summary>
-<p>Get additional information about login activity problems.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/Python%20Scripts/TechStatus/TS-LoginActivity.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>Script Activity</strong></summary>
-<p>See what scripts are firing off.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/Python%20Scripts/TechStatus/TS-ScriptActivity.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>User Accounts</strong></summary>
-<p>View, filter, and sort user accounts</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/Python%20Scripts/TechStatus/TS-UserAccounts.png" width="700">
-</p>
-</details>
-
 ### 🔗 [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator)
 A tool to make it easier to download documents that are uploaded to an Involvement during sign-up
 
@@ -414,6 +368,17 @@ This is a blue toolbar that visualizes the geographic spread of members or activ
 </p>
 </details>
 
+### 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
+Provides a quick method to see owners of involvements to help with auditing or leader/staff change over.
+
+<details>
+<summary><strong>Involvement Owner Audit Tool</strong></summary>
+<p><i>You can search by all, involvement, or person.</i></p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Notification%20Audit%20Tool/InvAuditTool.png" width="700">
+</p>
+</details>
+
 ### 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator)
 This is an admin-only tool that helps you create a pre-authenticated link that will automagically log a person into a direct link. This can help with troubleshooting or getting a person to where you need them.
 
@@ -440,6 +405,77 @@ This is an admin-only tool that helps you create a pre-authenticated link that w
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Link%20Generator/LG-CustomURL.png" width="700">
 </p>
 </details>
+
+### 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
+A quick way to get fail prints, today's print stats, login failures, and more
+
+<details>
+<summary><strong>Print Jobs</strong></summary>
+<p>Show counts and print issues.  <i>Note:  TP clears print stats nightly.</i></p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Python%20Scripts/TechStatus/TS-PrintJobs.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Login Activity</strong></summary>
+<p>Get additional information about login activity problems.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Python%20Scripts/TechStatus/TS-LoginActivity.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Script Activity</strong></summary>
+<p>See what scripts are firing off.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Python%20Scripts/TechStatus/TS-ScriptActivity.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>User Accounts</strong></summary>
+<p>View, filter, and sort user accounts</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Python%20Scripts/TechStatus/TS-UserAccounts.png" width="700">
+</p>
+</details>
+
+### 🗺️ [User Activity](https://github.com/bswaby/Touchpoint/tree/main/TPxi/User%20Activity)
+This is to help get an idea of user activity levels based on the activity log table. 
+
+<details>
+<summary><strong>Overview/strong></summary>
+<p>Gives an overview of the number of changes in the database and who are the top active users.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-Overview.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>User Activity</strong></summary>
+<p>Gives and overview of the level of activity, estimated time they are spending, and what areas they are working on.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-UserActivity.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Stale Accounts</strong></summary>
+<p>Accounts that have seen a level of inactivity.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-StaleAccounts.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Password Resets</strong></summary>
+<p>Report of accounts that have recently completed a password reset.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-PasswordResets.png" width="700">
+</p>
+</details>
+
 
 ## 🧩 Widgets
 
