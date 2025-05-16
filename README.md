@@ -8,14 +8,14 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 ### 💳 [FortisFees](https://github.com/bswaby/Touchpoint/blob/main/Finance/FortisFees)
 It breaks down fees by program and accounting code so accounting can use it to back charge. The biggest note is that the fees will be close to 99% but not 100% due to the disconnect of certain charges and reversals getting back to Touchpoint.  
 
-Implementation Level: Easy-Moderate
-Installation: Paste in code and change the fee percentages
+- ⚙️ **Implementation Level: Easy-Moderate
+- 🧩 **Installation: Paste in code and change the fee percentages
 
 ### 📜 [QCD-GrantLetters](https://github.com/bswaby/Touchpoint/blob/main/Finance/QCD-GrantLetters)
 Automatically create QCD and Grant letters that you can print out and add to each person's notes.
 
-Implementation Level: Moderate-Advanced
-Installation: This script is built on the basis that Grant and QCD are on separate batch types.  Updating the letter information will require basic knowledge of HTML, but it should be easy to implement if you follow the pattern.  The advanced side is that this is set up to print on windowed envelopes and it can tricky based on your environment and printer settings to get aligned.
+- ⚙️ **Implementation Level: Moderate-Advanced
+- 🧩 **Installation: This script is built on the basis that Grant and QCD are on separate batch types.  Updating the letter information will require basic knowledge of HTML, but it should be easy to implement if you follow the pattern.  The advanced side is that this is set up to print on windowed envelopes and it can tricky based on your environment and printer settings to get aligned.
 
 <details>
 <summary><strong>Date Selection</strong></summary>
@@ -44,8 +44,8 @@ Installation: This script is built on the basis that Grant and QCD are on separa
 ### 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/Finance/Weekly%20Contribution%20Report)
 This is the primary tool our finance team tracks, reports, and works through finances each week.  It has greatly helped us move forward together as a team and get away from Excel.
 
-Implementation Level: Easy
-Installation: The Script is pasted and go. Once you are in the UI, you will complete all the configuration in the UI for you financial setup.
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: The Script is pasted and go. Once you are in the UI, you will complete all the configuration in the UI for you financial setup.
 
 ---
 ## 📈 Reports
@@ -53,8 +53,8 @@ Installation: The Script is pasted and go. Once you are in the UI, you will comp
 ### 📅 [Anniversaries](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Anniversaries)
 It is designed to be a widget on your dashboard that tracks member anniversaries (marriage, work, and birthdays, primarily, but it can be expanded as well).
 
-Implementation Level: Moderate
-Installation: Weddings and birthdays are tracked naturally in the system and uses a "saved search" to pull the list from. Extra anniversaries are tracked using an extra value field under a user's profile, but are not required.  To install, you first create a saved search in Touchpoint and then write down the name of it.  Then, paste the code, set the parameters, add the word widget to content keywords, and then save it.  From there, you need to go into Admin ~ Advanced ~ HomePage widget and add this as a widget to have it show up on the homepage.
+- ⚙️ **Implementation Level: Moderate
+- 🧩 **Installation: Weddings and birthdays are tracked naturally in the system and uses a "saved search" to pull the list from. Extra anniversaries are tracked using an extra value field under a user's profile, but are not required.  To install, you first create a saved search in Touchpoint and then write down the name of it.  Then, paste the code, set the parameters, add the word widget to content keywords, and then save it.  From there, you need to go into Admin ~ Advanced ~ HomePage widget and add this as a widget to have it show up on the homepage.
 
 <details>
 <summary><strong>Anniversary Main Screen</strong></summary>
@@ -75,8 +75,8 @@ Installation: Weddings and birthdays are tracked naturally in the system and use
 ### 📱 [Communication Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Communication%20Dashboard)
 Centralized dashboard for viewing and analyzing communications.
 
-Implementation Level: Easy
-Installation: This is a paste-and-go Python script with no configuration needed.  
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
 
 <details>
 <summary><strong>Dashboard Overview</strong></summary>
@@ -121,8 +121,8 @@ Installation: This is a paste-and-go Python script with no configuration needed.
 ### 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Data%20Quality%20Dashboard)
 Monitors the completeness of the database demographics.
 
-Implementation Level: Easy
-Installation:  There are a couple of configuration options, but this is a paste-and-go script.
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
 
 <details>
 <summary><strong>Overview</strong></summary>
@@ -154,8 +154,8 @@ Installation:  There are a couple of configuration options, but this is a paste-
 ### 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Activity%20Dashboard)
 This like Kenny Rogers of tools in that it helps you know "when to hold them" and "when to fold them" when it comes to your Involvements.
 
-Implementation Level: Easy
-Installation:  There are a couple of configuration options, but this is a paste-and-go script.
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
 
 <details>
 <summary><strong>Overview</strong></summary>
@@ -208,8 +208,8 @@ Installation:  There are a couple of configuration options, but this is a paste-
 ### 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure)
 Displays the hierarchy of program, division, organization, and organization type.
 
-Implementation Level: Easy
-Installation: This is a paste-and-go Python script with no configuration needed.  
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
 
 <details>
 <summary><strong>Main Screen</strong></summary>
@@ -225,8 +225,8 @@ Exports event or class registration data in structured formats.
 ### 📝 [TaskNote Activity Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/TaskNote%20Activity%20Dashboard)
 Dashboard to start to understand TaskNote activity, who has open assignments, keyword trends, and more.
 
-Implementation Level: Easy
-Installation: This is a paste-and-go Python script with no configuration needed.  
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
 
 <details>
 <summary><strong>Overview</strong></summary>
@@ -271,8 +271,8 @@ Installation: This is a paste-and-go Python script with no configuration needed.
 ### ✅ [Weekly Attendance](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Weekly%20Attendance)
 This builds on Week at a Glance (WAAG) but introduces many new concepts for tracking metrics with various comparisons.  
 
-Implementation Level: Easy-Moderate
-Installation: Most items of this script works, but is still being developed and might contain a few bugs.  Installation is fairly easy, but with the amount of options it can make it seem overwhelming.  
+- ⚙️ **Implementation Level: Easy-Moderate
+- 🧩 **Installation: Most items of this script works, but is still being developed and might contain a few bugs.  Installation is fairly easy, but with the amount of options it can make it seem overwhelming.  
 
 <details>
 <summary><strong>KPI's</strong></summary>
@@ -312,8 +312,8 @@ Installation: Most items of this script works, but is still being developed and 
 ### 🌍 [Missions Dashbaord](https://github.com/bswaby/Touchpoint/tree/main/Missions/MissionsDashboard)
 Mission's program is a tool to help the mission pastor and mission leaders oversee the trips. This tool has many features. Mission pastors can easily manage outstanding payments, background checks, passports, upcoming meetings, see who the leaders are, and more. Mission leaders can easily see their team, contact information, emergency contact information, payment status of each person, and training resources.  Their access to this is dynamically given through the mission widget that lives in their dashboard.
 
-Implementation Level: Advanced
-Installation:  This is highly configured for our environment.  It is possible to use it, but several hard-coded areas throughout the script will need to be considered.  I am evaluating whether I can make this easier to implement in other environments, but it will be awhile before I add any focus back on it.
+- ⚙️ **Implementation Level: Advanced
+- 🧩 **Installation:  This is highly configured for our environment.  It is possible to use it, but several hard-coded areas throughout the script will need to be considered.  I am evaluating whether I can make this easier to implement in other environments, but it will be awhile before I add any focus back on it.
 
 <details>
 <summary><strong>Dashboard</strong></summary>
@@ -337,8 +337,8 @@ Installation:  This is highly configured for our environment.  It is possible to
 ### 🔗 [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator)
 A tool to make it easier to download documents that are uploaded to an Involvement during sign-up
 
-Implementation Level: Easy
-Installation: This is a paste-and-go Python script with no configuration needed.  
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
 
 <details>
 <summary><strong>Download attachments</strong></summary>
@@ -351,8 +351,8 @@ Installation: This is a paste-and-go Python script with no configuration needed.
 ### 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/tree/main/TPxi/FastLaneCheckIn)
 This is a streamlined check-in interface for large (100-2500+) events. It is made for a person to hold their phone/iPad/tablet to get people checked in quickly. Note: this does not print as those modules are not exposed for use.
 
-Implementation Level: Easy
-Installation: This script has had basic testing but hasn't gone through a production run yet. We plan on pushing this through a production run next month with our Preteen camp.
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This script has had basic testing but hasn't gone through a production run yet. We plan on pushing this through a production run next month with our Preteen camp.
 
 <details>
 <summary><strong>Select Groups</strong></summary>
@@ -381,8 +381,8 @@ Installation: This script has had basic testing but hasn't gone through a produc
 ### 🗺️ [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Geographic%20Distribution%20Map)
 This is a blue toolbar that visualizes the geographic spread of members or activities in google maps. It similar to Touchpoint's map tool, but has three advantages over Touchpoint. First, you can overlay demographic data from the census. Second, you can click on the image to get info on the person similar to how James Kurtz is doing it, and Third, you can draw around a city, neighborhood, etc.. to tag and/or export to CSV those for that selection area.
 
-Implementation Level: Easy-Moderate
-Installation: This is an easy script to implement. The most complicated parts are getting Google Maps and Census API keys.
+- ⚙️ **Implementation Level: Easy-Moderate
+- 🧩 **Installation: This is an easy script to implement. The most complicated parts are getting Google Maps and Census API keys.
 
 <details>
 <summary><strong>Tag Areas</strong></summary>
@@ -411,8 +411,8 @@ Installation: This is an easy script to implement. The most complicated parts ar
 ### 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
 Provides a quick method to see owners of involvements to help with auditing or leader/staff changeover.
 
-Implementation Level: Easy
-Installation: This is a paste-and-go Python script with no configuration needed.  
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
 
 <details>
 <summary><strong>Involvement Owner Audit Tool</strong></summary>
@@ -425,8 +425,8 @@ Installation: This is a paste-and-go Python script with no configuration needed.
 ### 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator)
 This is an admin-only tool that helps you create a pre-authenticated link that will automagically log a person into a direct link. This can help with troubleshooting or getting a person to where you need them.
 
-Implementation Level: Easy
-Installation: This is a paste-and-go Python script with no configuration needed.  
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
 
 <details>
 <summary><strong>Person Selection</strong></summary>
@@ -455,8 +455,8 @@ Installation: This is a paste-and-go Python script with no configuration needed.
 ### 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
 A quick way to get fail prints, today's print stats, login failures, and more
 
-Implementation Level: Easy
-Installation: This is a paste-and-go Python script with no configuration needed.  
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
 
 <details>
 <summary><strong>Print Jobs</strong></summary>
@@ -493,8 +493,8 @@ Installation: This is a paste-and-go Python script with no configuration needed.
 ### 🗺️ [User Activity](https://github.com/bswaby/Touchpoint/tree/main/TPxi/User%20Activity)
 This is to help get an idea of user activity levels based on the activity log table. 
 
-Implementation Level: Easy
-Installation: This is a paste-and-go Python script with only one configuration option that you might want to consider: OFFICE_IP_ADDRESSES configuration option determines if people are working in the office or outside the office if you configure it with your network ip addresses.  
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This is a paste-and-go Python script with only one configuration option that you might want to consider: OFFICE_IP_ADDRESSES configuration option determines if people are working in the office or outside the office if you configure it with your network ip addresses.  
 
 <details>
 <summary><strong>Overview/strong></summary>
@@ -534,8 +534,8 @@ Installation: This is a paste-and-go Python script with only one configuration o
 ### ⚡ [Widget QuickLinks](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Widget%20QuickLinks)
 Quick-access widgets for frequently used tools and dashboards. These have permission, counts, and categories for displaying access links.  
 
-Implementation Level: Moderate-Advanced
-Installation: While the overall implementation is not overly complicated, using the count overlay and understanding how some of the configuration parameters go in can take moderate to advanced knowledge. 
+- ⚙️ **Implementation Level: Moderate-Advanced
+- 🧩 **Installation: While the overall implementation is not overly complicated, using the count overlay and understanding how some of the configuration parameters go in can take moderate to advanced knowledge. 
 
 <details>
 <summary><strong>Example</strong></summary>
