@@ -6,7 +6,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 ## 💰 Finance
 
 ### 💳 [FortisFees](https://github.com/bswaby/Touchpoint/blob/main/Finance/FortisFees)
-It breaks down fees by program and accounting code so accounting can use it to back-charge. The biggest note is that the fees will be close to 99% but not 100% due to the disconnect of certain charges and reversals getting back to Touchpoint.  This script took a 4-6hrs process and took it down to a 15-minute process to run the report and get it into the account system.
+It breaks down fees by program and accounting code so accounting can use it to back-charge. The biggest note is that the fees will be close to 99% but not 100% due to the disconnect of certain charges and reversals getting back to Touchpoint.  The most prominent mention of this script is how much time it saved our finance team. Prior, it would take 6-8 hours a month to figure out the backcharges.  Now, with this script, they may spend 15 minutes.
 
 - ⚙️ **Implementation Level: Easy-Moderate
 - 🧩 **Installation: Paste in code and change the fee percentages
@@ -42,7 +42,7 @@ Automatically creates QCD and Grant letters that you can print out and stuff int
 </details>
 
 ### 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/Finance/Weekly%20Contribution%20Report)
-This is the primary tool our finance team that tracks, reports, and works through finances each week.  It has greatly helped our financial team move forward as a team, working through contributions. 
+Our finance team uses this primary tool to track, report, and work through finances each week.  It has greatly helped our financial team move forward, working through contributions.  One of the biggest items is that it started showing us that we weren't taking advantage of some of the new features that had come out, such as account grouping.  
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: The Script is pasted and go. Once you are in the UI, you will complete all the configuration in the UI for you financial setup.
@@ -119,7 +119,7 @@ Centralized dashboard for viewing and analyzing email and SMS communications.  T
 </details>
 
 ### 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Data%20Quality%20Dashboard)
-Monitors the completeness of the database demographics and what might be missing as data comes in.
+Monitors the completeness of the database demographics and what might be missing as data comes in.  
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
@@ -152,7 +152,7 @@ Monitors the completeness of the database demographics and what might be missing
 </details>
 
 ### 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Activity%20Dashboard)
-This is like Kenny Rogers of tools in that it helps you know "when to hold them" and "when to fold them" regarding your Involvements.  Overall, this shows you things like  most active to dormant involvements, helping you ensure a involvement setup.
+This is like Kenny Rogers of tools in that it helps you know "when to hold them" and "when to fold them" regarding your Involvements.  Overall, this shows you active to dormant involvements and helps you improve the cleanliness of your database. 
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
@@ -206,7 +206,7 @@ This is like Kenny Rogers of tools in that it helps you know "when to hold them"
 </details>
 
 ### 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure)
-Displays the hierarchy of program, division, organization, and organization type.
+This is one of my favorite tools for understanding the structure of programs, divisions, involvements, and involvement types, as it provides a simple and effective means of laying out the structure.
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
@@ -223,7 +223,7 @@ Displays the hierarchy of program, division, organization, and organization type
 Exports event or class registration data in structured formats.
 
 ### 📝 [TaskNote Activity Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/TaskNote%20Activity%20Dashboard)
-Dashboard to start to understand TaskNote activity, who has open assignments, keyword trends, and more.
+I developed this to understand TaskNote activity, who has open assignments, keyword trends, and more.  We are week in some of these areas and this is proving to help us develope and monitor our processes.
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
@@ -269,7 +269,7 @@ Dashboard to start to understand TaskNote activity, who has open assignments, ke
 </details>
 
 ### ✅ [Weekly Attendance](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Weekly%20Attendance)
-This builds on Week at a Glance (WAAG) but introduces many new concepts for tracking metrics with various comparisons.  
+This report is still being built, but it is basically Week at a Glance (WAAG) 2.0. The most significant changes is that it compares previous periods and introduces new concepts for tracking metrics with various comparisons.  One of the new concepts for WAAG 2.0 is enrollment vs attendance metrics for our connect groups (Sunday School).  
 
 - ⚙️ **Implementation Level: Easy-Moderate
 - 🧩 **Installation: Most items of this script works, but is still being developed and might contain a few bugs.  Installation is fairly easy, but with the amount of options it can make it seem overwhelming.  
