@@ -269,7 +269,7 @@ I developed this to understand TaskNote activity, who has open assignments, keyw
 </details>
 
 ### ✅ [Weekly Attendance](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Weekly%20Attendance)
-This report is still being built, but it is basically Week at a Glance (WAAG) 2.0. The most significant changes is that it compares previous periods and introduces new concepts for tracking metrics with various comparisons.  One of the new concepts for WAAG 2.0 is enrollment vs attendance metrics for our connect groups (Sunday School).  
+This report is still being built, but it is Week at a Glance (WAAG) 2.0 for at least us. The most significant changes are that it compares previous periods and introduces new concepts for tracking metrics with various comparisons.  One of the concepts for WAAG 2.0 is enrollment vs attendance metrics for our connect groups (Sunday School).  This allows us to track the need for outreach or inreach for each ministry area.  Another one is tracking total attendance for either the configured fiscal year or calendar year to the previous period, which helps determine as a whole if you are are up/down.
 
 - ⚙️ **Implementation Level: Easy-Moderate
 - 🧩 **Installation: Most items of this script works, but is still being developed and might contain a few bugs.  Installation is fairly easy, but with the amount of options it can make it seem overwhelming.  
@@ -310,7 +310,7 @@ This report is still being built, but it is basically Week at a Glance (WAAG) 2.
 ## 🔧 Programs
 
 ### 🌍 [Missions Dashbaord](https://github.com/bswaby/Touchpoint/tree/main/Missions/MissionsDashboard)
-Mission's program is a tool to help the mission pastor and mission leaders oversee the trips. This tool has many features. Mission pastors can easily manage outstanding payments, background checks, passports, upcoming meetings, see who the leaders are, and more. Mission leaders can easily see their team, contact information, emergency contact information, payment status of each person, and training resources.  Their access to this is dynamically given through the mission widget that lives in their dashboard.
+The mission's program is a tool that helps the mission pastor and mission leaders oversee the trips. This tool has many features. Mission pastors can easily manage outstanding payments, background checks, passports, upcoming meetings, see who the leaders are, and more. Mission leaders can easily see their team, contact information, emergency contact information, payment status of each person, and training resources.  Their access to this is dynamically given through the mission widget that lives in their dashboard.
 
 - ⚙️ **Implementation Level: Advanced
 - 🧩 **Installation:  This is highly configured for our environment.  It is possible to use it, but several hard-coded areas throughout the script will need to be considered.  I am evaluating whether I can make this easier to implement in other environments, but it will be awhile before I add any focus back on it.
@@ -335,7 +335,7 @@ Mission's program is a tool to help the mission pastor and mission leaders overs
 ## 🛠️ Tools
 
 ### 🔗 [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator)
-A tool to make it easier to download documents that are uploaded to an Involvement during sign-up
+Simple download tool allows you to download all documents from an involvement registration easily. 
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
@@ -349,10 +349,14 @@ A tool to make it easier to download documents that are uploaded to an Involveme
 </details>
 
 ### 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/tree/main/TPxi/FastLaneCheckIn)
-This is a streamlined check-in interface for large (100-2500+) events. It is made for a person to hold their phone/iPad/tablet to get people checked in quickly. Note: this does not print as those modules are not exposed for use.
+This is a streamlined check-in interface for large (100-2500+) events that is built around the concepts of first and foremost being fast for large crowds, secondly it always works towards zero, and the last is that communicates well.  The app is not flashy and is meant for a person or alpha section groups (A-F, G-L, etc..) lines to focus on their area and get people checked-in.  In this setup, it you can select 1 or more involvements that have an active meeting for that day.  
+
+Items 1 and 2 are implemented in the current version, and item 3 for communication is currently in the queue to be completed before our preteen camp in June.  The goal of #3 with communication is to confirm check-in and provide other opportunities for the pastors to share other things. For example, if this is a camp, the pastor can share a prayer guide, contact, itinerary, etc.
+
+Note: this does not print as those modules are not exposed for use.
 
 - ⚙️ **Implementation Level: Easy
-- 🧩 **Installation: This script has had basic testing but hasn't gone through a production run yet. We plan on pushing this through a production run next month with our Preteen camp.
+- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
 
 <details>
 <summary><strong>Select Groups</strong></summary>
@@ -379,7 +383,12 @@ This is a streamlined check-in interface for large (100-2500+) events. It is mad
 </details>
 
 ### 🗺️ [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Geographic%20Distribution%20Map)
-This is a blue toolbar that visualizes the geographic spread of members or activities in google maps. It similar to Touchpoint's map tool, but has three advantages over Touchpoint. First, you can overlay demographic data from the census. Second, you can click on the image to get info on the person similar to how James Kurtz is doing it, and Third, you can draw around a city, neighborhood, etc.. to tag and/or export to CSV those for that selection area.
+This blue toolbar visualizes the geographic spread of members or activities in Google Maps. It is similar to Touchpoint's map tool but has three advantages over Touchpoint. 
+
+Advantages
+1. You can overlay demographic data from the US Census.
+2. You can click on the image to get info on the person, similar to how James Kurtz is doing it.
+3. You can draw around a city, neighborhood, etc., and tag or export those people for the selected area
 
 - ⚙️ **Implementation Level: Easy-Moderate
 - 🧩 **Installation: This is an easy script to implement. The most complicated parts are getting Google Maps and Census API keys.
@@ -409,7 +418,7 @@ This is a blue toolbar that visualizes the geographic spread of members or activ
 </details>
 
 ### 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
-Provides a quick method to see owners of involvements to help with auditing or leader/staff changeover.
+Provides a quick method to see owners of involvements to help with auditing or a leader/staff changeover. 
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
@@ -423,7 +432,7 @@ Provides a quick method to see owners of involvements to help with auditing or l
 </details>
 
 ### 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator)
-This is an admin-only tool that helps you create a pre-authenticated link that will automagically log a person into a direct link. This can help with troubleshooting or getting a person to where you need them.
+This admin-only tool helps you create a pre-authenticated link that will "automagically" log a person into a direct link. This can help troubleshoot or get a person to where you need them.
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
@@ -453,7 +462,7 @@ This is an admin-only tool that helps you create a pre-authenticated link that w
 </details>
 
 ### 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
-A quick way to get fail prints, today's print stats, login failures, and more
+This is a quick way to get failed prints, today's print stats, login failures, and more. If I get a question about whether we are having an issue with something like printing, I will pull this up to see what printed and what might be stuck in the queue.  
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
@@ -491,7 +500,7 @@ A quick way to get fail prints, today's print stats, login failures, and more
 </details>
 
 ### 🗺️ [User Activity](https://github.com/bswaby/Touchpoint/tree/main/TPxi/User%20Activity)
-This is to help get an idea of user activity levels based on the activity log table. 
+This is to help get an idea of user activity levels based on the activity log table.   You can even search a single person with this and see how much they worked at the church, home, mobile and an estimated amount of time they worked in the system.
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with only one configuration option that you might want to consider: OFFICE_IP_ADDRESSES configuration option determines if people are working in the office or outside the office if you configure it with your network ip addresses.  
@@ -532,7 +541,7 @@ This is to help get an idea of user activity levels based on the activity log ta
 ## 🧩 Widgets
 
 ### ⚡ [Widget QuickLinks](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Widget%20QuickLinks)
-Quick-access widgets for frequently used tools and dashboards. These have permission, counts, and categories for displaying access links.  
+This provides quick-access links for users to get to things quickly.  The links are permission-based and only show links if they have permission to it.  You can categorize your links into groups to help give focus to the link types.  Lastly, there is an advanced feature to add a count on top of the icon to give some level of need for the link.   
 
 - ⚙️ **Implementation Level: Moderate-Advanced
 - 🧩 **Installation: While the overall implementation is not overly complicated, using the count overlay and understanding how some of the configuration parameters go in can take moderate to advanced knowledge. 
