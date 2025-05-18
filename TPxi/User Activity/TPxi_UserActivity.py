@@ -1,3 +1,5 @@
+#roles=Admin
+
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
@@ -49,6 +51,14 @@ MIN_EVENTS_FOR_SESSION = 3
 
 # Office IP addresses - used to determine if activity is from office or remote
 OFFICE_IP_ADDRESSES = ['12.23.240.162', '173.166.241.105']
+
+# Organization filtering for Work Location Summary
+# Set to None or empty list to include all users
+# Examples:
+# WORK_LOCATION_FILTER_ORGS = None  # Include all users
+# WORK_LOCATION_FILTER_ORGS = [852]  # Filter to only Organization 852
+# WORK_LOCATION_FILTER_ORGS = [852, 901, 1024]  # Filter to multiple organizations
+WORK_LOCATION_FILTER_ORGS = [852]
 
 # ==========================================
 # Helper Classes
@@ -291,6 +301,60 @@ class ActivityAnalyzer:
                 categories[activity_type] = 1
                 
         return categories
+        
+    def get_activity_categories_summary(self, days=30):
+        """Get top activity categories across all users."""
+        try:
+            sql = """
+                SELECT 
+                    LEFT(Activity, CHARINDEX(':', Activity + ':') - 1) AS ActivityType,
+                    COUNT(*) AS Count
+                FROM ActivityLog
+                WHERE DATEDIFF(day, ActivityDate, GETDATE()) <= {0}
+                    AND Activity IS NOT NULL 
+                    AND Activity != ''
+                GROUP BY LEFT(Activity, CHARINDEX(':', Activity + ':') - 1)
+                ORDER BY COUNT(*) DESC
+            """.format(days)
+            
+            return self.query.QuerySql(sql)
+        except Exception as e:
+            print "<div style='display:none'>Error in get_activity_categories_summary: {0}</div>".format(str(e))
+            return []
+    
+    def get_work_location_summary(self, days=30):
+        """Get work location summary across all users or filtered by organization."""
+        try:
+            office_ips = "'" + "','".join(OFFICE_IP_ADDRESSES) + "'"
+            
+            # Build organization filter if specified
+            org_filter = ""
+            if WORK_LOCATION_FILTER_ORGS:
+                org_ids = ",".join(str(org_id) for org_id in WORK_LOCATION_FILTER_ORGS)
+                org_filter = """
+                    AND al.UserId IN (
+                        SELECT DISTINCT u.UserId 
+                        FROM Users u
+                        JOIN OrganizationMembers om ON u.PeopleId = om.PeopleId
+                        WHERE om.OrganizationId IN ({0})
+                    )
+                """.format(org_ids)
+            
+            sql = """
+                SELECT 
+                    SUM(CASE WHEN al.Mobile = 1 THEN 1 ELSE 0 END) AS MobileCount,
+                    SUM(CASE WHEN al.ClientIp IN ({1}) AND al.Mobile = 0 THEN 1 ELSE 0 END) AS OfficeCount,
+                    SUM(CASE WHEN al.Mobile = 0 AND (al.ClientIp NOT IN ({1}) OR al.ClientIp IS NULL) THEN 1 ELSE 0 END) AS RemoteCount,
+                    COUNT(*) AS TotalCount
+                FROM ActivityLog al
+                WHERE DATEDIFF(day, al.ActivityDate, GETDATE()) <= {0}
+                {2}
+            """.format(days, office_ips, org_filter)
+            
+            return self.query.QuerySqlTop1(sql)
+        except Exception as e:
+            print "<div style='display:none'>Error in get_work_location_summary: {0}</div>".format(str(e))
+            return None
     
     def analyze_user_location_stats(self, user_id, days=30):
         """Analyze a user's activity locations (office, remote, mobile)."""
@@ -351,6 +415,33 @@ class ActivityAnalyzer:
                 'remote_pct': 0,
                 'mobile_pct': 0
             }
+
+    def get_organization_names(self, org_ids):
+        """Get organization names for the given IDs."""
+        try:
+            if not org_ids:
+                return {}
+                
+            # Convert list to comma-separated string for SQL
+            org_ids_str = ",".join(str(org_id) for org_id in org_ids)
+            
+            sql = """
+                SELECT OrganizationId, OrganizationName
+                FROM Organizations
+                WHERE OrganizationId IN ({0})
+            """.format(org_ids_str)
+            
+            results = self.query.QuerySql(sql)
+            
+            # Convert to dictionary for easy lookup
+            org_names = {}
+            for result in results:
+                org_names[result.OrganizationId] = result.OrganizationName
+                
+            return org_names
+        except Exception as e:
+            print "<div style='display:none'>Error in get_organization_names: {0}</div>".format(str(e))
+            return {}
     
     def analyze_user_sessions(self, user_id, days=30):
         """
@@ -1717,6 +1808,107 @@ def render_overview_page(form_handler, analyzer, renderer):
             len(stale_accounts) if stale_accounts else 0
         )
         
+        # Work Location Summary section  
+        work_location_data = analyzer.get_work_location_summary(days)
+        
+        # Get organization names right after work_location_data
+        org_names = {}
+        if WORK_LOCATION_FILTER_ORGS:
+            org_names = analyzer.get_organization_names(WORK_LOCATION_FILTER_ORGS)
+        
+        # Build title with organization filter info
+        work_location_title = "Work Location Summary"
+        if WORK_LOCATION_FILTER_ORGS:
+            if len(WORK_LOCATION_FILTER_ORGS) == 1:
+                org_id = WORK_LOCATION_FILTER_ORGS[0]
+                org_name = org_names.get(org_id, "Organization {0}".format(org_id))
+                work_location_title += " ({0} Members Only)".format(org_name)
+            else:
+                # Build list of organization names
+                org_name_list = []
+                for org_id in WORK_LOCATION_FILTER_ORGS:
+                    org_name = org_names.get(org_id, "Organization {0}".format(org_id))
+                    org_name_list.append(org_name)
+                work_location_title += " ({0} Members Only)".format(", ".join(org_name_list))
+        
+        html += """
+        <div class="row">
+            <div class="col-md-12">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h3 class="panel-title">{0}</h3>
+                    </div>
+                    <div class="panel-body">
+                        <div class="row">
+        """.format(work_location_title)
+        
+        # Calculate location percentages and estimated hours
+        if work_location_data:
+            try:
+                office_count = getattr(work_location_data, 'OfficeCount', 0)
+                remote_count = getattr(work_location_data, 'RemoteCount', 0)
+                mobile_count = getattr(work_location_data, 'MobileCount', 0)
+                total_loc_count = getattr(work_location_data, 'TotalCount', 0)
+                
+                if total_loc_count > 0:
+                    office_pct = (office_count * 100.0) / total_loc_count
+                    remote_pct = (remote_count * 100.0) / total_loc_count
+                    mobile_pct = (mobile_count * 100.0) / total_loc_count
+                    
+                    # Estimate hours (assuming 3 minutes per activity)
+                    total_estimated_hours = (total_loc_count * 3) / 60.0
+                    office_hours = (total_estimated_hours * office_count) / total_loc_count
+                    remote_hours = (total_estimated_hours * remote_count) / total_loc_count
+                    mobile_hours = (total_estimated_hours * mobile_count) / total_loc_count
+                else:
+                    office_pct = remote_pct = mobile_pct = 0
+                    office_hours = remote_hours = mobile_hours = 0
+            except Exception as e:
+                print "<div style='display:none'>Error calculating location stats: {0}</div>".format(str(e))
+                office_pct = remote_pct = mobile_pct = 0
+                office_hours = remote_hours = mobile_hours = 0
+        else:
+            office_pct = remote_pct = mobile_pct = 0
+            office_hours = remote_hours = mobile_hours = 0
+        
+        html += """
+                            <div class="col-md-4">
+                                <div class="panel panel-primary">
+                                    <div class="panel-heading text-center">
+                                        <h4>%.1f hrs (%.1f%%)</h4>
+                                        <p>Office Work</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="panel panel-warning">
+                                    <div class="panel-heading text-center">
+                                        <h4>%.1f hrs (%.1f%%)</h4>
+                                        <p>Remote Work</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="panel panel-info">
+                                    <div class="panel-heading text-center">
+                                        <h4>%.1f hrs (%.1f%%)</h4>
+                                        <p>Mobile Work</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """ % (
+            office_hours, office_pct,
+            remote_hours, remote_pct,
+            mobile_hours, mobile_pct
+        )
+        
+        # Now the activity trends chart starts here...
+        
         # Add activity chart - implemented directly instead of calling render_activity_stats_chart
         # Prepare data for chart
         labels = []
@@ -1936,7 +2128,68 @@ def render_overview_page(form_handler, analyzer, renderer):
             </div>
         </div>
         """
+
+        # Get activity categories and work location data
+        activity_categories = analyzer.get_activity_categories_summary(days)
+
+        # Activity Categories section
+        html += """
+        <div class="row">
+            <div class="col-md-6">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h3 class="panel-title">Top 10 Activity Categories</h3>
+                    </div>
+                    <div class="panel-body">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Activity Type</th>
+                                    <th>Count</th>
+                                    <th>Percentage</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+        """
         
+        # Calculate categories (keep this part the same)
+        if activity_categories:
+            categories_list = list(activity_categories)
+            total_activities_cat = sum(getattr(cat, 'Count', 0) for cat in categories_list)
+            
+            # Show top 10 categories
+            for i, category in enumerate(categories_list[:10]):
+                try:
+                    count = getattr(category, 'Count', 0)
+                    activity_type = getattr(category, 'ActivityType', 'Unknown')
+                    percentage = (count * 100.0 / total_activities_cat) if total_activities_cat > 0 else 0
+                    
+                    html += """
+                    <tr>
+                        <td>%s</td>
+                        <td>%s</td>
+                        <td>%.1f%%</td>
+                    </tr>
+                    """ % (activity_type, count, percentage)
+                except Exception as e:
+                    print "<div style='display:none'>Error rendering category: {0}</div>".format(str(e))
+        else:
+            html += """
+            <tr>
+                <td colspan="3" class="text-center">No activity categories available</td>
+            </tr>
+            """
+        
+        html += """
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """
+        
+
         return html
     except Exception as e:
         import traceback
