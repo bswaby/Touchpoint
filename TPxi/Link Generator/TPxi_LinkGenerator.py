@@ -347,7 +347,7 @@ try:
                 leader_orgs = LinkGenerator.get_person_leader_orgs(selected_person_id)
                 
                 # Generate profile link
-                profile_url = "/Person2/{0}".format(selected_person_id)
+                profile_url = "/Person2/{0}#tab-personal".format(selected_person_id)
                 profile_link = LinkGenerator.get_authenticated_url(selected_person_id, profile_url)
                 
                 # Generate dashboard link
@@ -355,7 +355,7 @@ try:
                 dashboard_link = LinkGenerator.get_authenticated_url(selected_person_id, dashboard_url)
                 
                 # Generate giving link
-                giving_url = "/OnlineReg/GiveNow?PeopleId={0}".format(selected_person_id)
+                giving_url = "/Give".format(selected_person_id)
                 giving_link = LinkGenerator.get_authenticated_url(selected_person_id, giving_url)
                 
                 # Output person details and link generation form
@@ -468,33 +468,33 @@ try:
                 
                 print "</div>"  # End leadership section
                 
-                # All organizations section
-                print """
-                <div class="link-section">
-                    <h4>All Organizations</h4>
-                """
+                # # All organizations section
+                # print """
+                # <div class="link-section">
+                #     <h4>All Organizations</h4>
+                # """
                 
-                if orgs and len(orgs) > 0:
-                    for org in orgs:
-                        org_url = "/Org/{0}".format(org.OrganizationId)
-                        org_link = LinkGenerator.get_authenticated_url(selected_person_id, org_url)
+                # if orgs and len(orgs) > 0:
+                #     for org in orgs:
+                #         org_url = "/Org/{0}".format(org.OrganizationId)
+                #         org_link = LinkGenerator.get_authenticated_url(selected_person_id, org_url)
                         
-                        print """
-                        <div class="link-option">
-                            <div class="link-label">{0} - {1}</div>
-                            <div class="link-value">{2}</div>
-                            <button class="copy-link-btn" data-link="{2}">Copy Link</button>
-                            <a href="{2}" target="_blank" class="open-link-btn"><i class="fa fa-user-secret"></i> Open in Incognito</a>
-                        </div>
-                        """.format(
-                            org.OrganizationName,
-                            org.MemberType,
-                            org_link
-                        )
-                else:
-                    print "<p>No organizations found.</p>"
+                #         print """
+                #         <div class="link-option">
+                #             <div class="link-label">{0} - {1}</div>
+                #             <div class="link-value">{2}</div>
+                #             <button class="copy-link-btn" data-link="{2}">Copy Link</button>
+                #             <a href="{2}" target="_blank" class="open-link-btn"><i class="fa fa-user-secret"></i> Open in Incognito</a>
+                #         </div>
+                #         """.format(
+                #             org.OrganizationName,
+                #             org.MemberType,
+                #             org_link
+                #         )
+                # else:
+                #     print "<p>No organizations found.</p>"
                 
-                print "</div>"  # End all orgs section
+                # print "</div>"  # End all orgs section
                 
                 # Custom URL section
                 print """
