@@ -129,7 +129,7 @@ class PeopleSearch:
 # Class for generating authenticated links
 class LinkGenerator:
     @staticmethod
-    def get_authenticated_url(people_id, url, include_host=True):
+    def get_authenticated_url(people_id, url, include_host=False):
         """Generate an authenticated URL for the given people ID and URL"""
         try:
             return model.GetAuthenticatedUrl(int(people_id), url, include_host)
@@ -247,7 +247,7 @@ try:
             
             # Generate authenticated URL
             try:
-                auth_url_result = LinkGenerator.get_authenticated_url(int(pid_for_auth), url_to_auth, True)
+                auth_url_result = LinkGenerator.get_authenticated_url(int(pid_for_auth), url_to_auth)
             except Exception as e:
                 print "<div class='error-message'>Error generating authenticated URL: {0}</div>".format(str(e))
     except Exception as e:
@@ -505,12 +505,12 @@ try:
                             <input type="hidden" name="person_id" value="{1}" />
                             <input type="hidden" name="pid" value="{1}" />
                             <div class="input-group">
-                                <input type="text" id="customUrl" name="url" placeholder="Enter URL path (e.g., /Settings)" 
+                                <input type="text" id="customUrl" name="url" placeholder="Enter URL path (e.g., https://myfbch.com/Person2/12345)" 
                                        class="custom-url-input" required />
                                 <button type="submit" class="custom-url-button">Generate Link</button>
                             </div>
                             <div class="form-help" style="margin-top: 5px; font-size: 12px; color: #666;">
-                                Enter a full URL (e.g., https://myfbch.com/Person2/12345) or just a path (e.g., /Person2/12345)
+                                Enter a full URL (e.g., https://myfbch.com/Person2/12345) 
                             </div>
                         </form>
                     </div>
@@ -1000,7 +1000,7 @@ try:
             
             // Make AJAX request
             var xhr = new XMLHttpRequest();
-            xhr.open('GET', window.location.pathname + '?q=' + encodeURIComponent(searchTerm) + '&ajax=1', true);
+            xhr.open('GET', window.location.pathname + '?q=' + encodeURIComponent(searchTerm) + '&ajax=1');
             xhr.onreadystatechange = function() {{
                 if (xhr.readyState === 4) {{
                     searchLoading.style.display = 'none';
