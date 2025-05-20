@@ -41,6 +41,44 @@ Automatically creates QCD and Grant letters that you can print out and stuff int
 </p>
 </details>
 
+### 📜 [Payment Manager](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Payment%20Manager)
+The payment manager was built to help make our lives easier by letting us know what is outstanding across programs and then dive in to make payments with receipts for cash and check, send a quick digital pay link, or resend receipts.   The biggest note is that this was coded for our environment, and while it should work, I am not 100% sure what you will run into.
+
+- ⚙️ **Implementation Level: Easy-Moderate
+- 🧩 **Installation: There are a few config items on top of the script.  Most do not need to be edited, but at a minimum, I would say you need to edit the DEFAULT_EMAIL_SENDER.  
+
+<details>
+<summary><strong>Program Outstanding</strong></summary>
+<p>Shows outstanding payments at a payment level and can either immediately show people outstanding from there or dive into a division/involvement view.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Payment%20Manager/PM_Programs.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Division View</strong></summary>
+<p>Shows a breakdown of how much is owed per divison/involvement.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Payment%20Manager/PM_Divisions.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>User Fees</strong></summary>
+<p>Breakdown of user fees with some actionable steps</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Payment%20Manager/PM_UserFees.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Payment</strong></summary>
+<p>Make a cash/check payment that sends the person a receipt.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Payment%20Manager/PM_Payment.png" width="700">
+</p>
+</details>
+
 ### 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/Finance/Weekly%20Contribution%20Report)
 Our finance team uses this primary tool to track, report, and work through finances each week.  It has greatly helped our financial team move forward, working through contributions.  One of the biggest items is that it started showing us that we weren't taking advantage of some of the new features that had come out, such as account grouping.  
 
