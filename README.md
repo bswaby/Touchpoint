@@ -6,20 +6,20 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 ## 💰 Finance
 
 ### 💳 [FortisFees](https://github.com/bswaby/Touchpoint/blob/main/Finance/FortisFees)
-It breaks down fees by program and accounting code so accounting can use it to back-charge. The biggest note is that the fees will be close to 99% but not 100% due to the disconnect of certain charges and reversals getting back to Touchpoint.  The most prominent mention of this script is how much time it saved our finance team. Prior, it would take 6-8 hours a month to figure out the backcharges.  Now, with this script, they may spend 15 minutes.
+It breaks down fees by program and accounting code so accounting can use it to back-charge. The biggest note is that the fees will be close to 99% but not 100% due to the disconnect of certain charges and reversals getting back to Touchpoint.  The most prominent mention of this script is how much time it saved our finance team. Before this, it would have taken 6-8 hours a month to figure out the backcharges.  Now, with this script, they may spend 15 minutes.
 
 - ⚙️ **Implementation Level: Easy-Moderate
 - 🧩 **Installation: Paste in code and change the fee percentages
 
 ### 📜 [QCD-GrantLetters](https://github.com/bswaby/Touchpoint/blob/main/Finance/QCD-GrantLetters)
-Automatically creates QCD and Grant letters that you can print out and stuff into windowed envelopes.  In addition, you can upload these as a secure not to each persons record.  On an average week for us, it saved the finance team 2-3 hours compared to how it was done prior.  
+It automatically creates QCD and Grant letters that you can print out and stuff into windowed envelopes. In addition, you can upload these as a secure note to each person's record.  On an average week for us, it saved the finance team 2-3 hours compared to how it was done prior.  
 
 - ⚙️ **Implementation Level: Moderate-Advanced
-- 🧩 **Installation: This script is built on the basis that Grant and QCD are on separate batch types.  Updating the letter information will require basic knowledge of HTML, but it should be easy to implement if you follow the pattern.  The advanced side is that this is set up to print on windowed envelopes and it can tricky based on your environment and printer settings to get aligned.
+- 🧩 **Installation: This script is built around the fact that you have a separate batch type for Grant and QCD.  Updating the letter information will require basic knowledge of HTML, but it should be easy to implement if you follow the pattern.  The advanced side is that this is set up to print on windowed envelopes, and it can be tricky (not terrible) to get aligned based on your environment and printer settings.
 
 <details>
 <summary><strong>Date Selection</strong></summary>
-<p>The date selection interface allows users to choose dates from a calendar view easily.  It also allow to upload a note to each persons record.</p>
+<p>The date selection interface allows users to choose dates to pull letters from.  Once you have pulled the letters, it allows you to upload a note to each persons record.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDGrantScreenShot.png" width="700">
 </p>
@@ -42,7 +42,7 @@ Automatically creates QCD and Grant letters that you can print out and stuff int
 </details>
 
 ### 📜 [Payment Manager](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Payment%20Manager)
-The payment manager was built to help make our lives easier by letting us know what is outstanding across programs and then dive in to make payments with receipts for cash and check, send a quick digital pay link, or resend receipts.   The biggest note is that this was coded for our environment, and while it should work, I am not 100% sure what you will run into.
+The payment manager was built to help us identify outstanding payments across programs and then dive into each. When you dive in, you can make payments with receipts for cash and check, send a quick digital pay link, or resend receipts.   The biggest note is that this was coded for our environment, and while it should work, I am not 100% sure what you will run into as I haven't done any testing outside our environment for this one.
 
 - ⚙️ **Implementation Level: Easy-Moderate
 - 🧩 **Installation: There are a few config items on top of the script.  Most do not need to be edited, but at a minimum, I would say you need to edit the DEFAULT_EMAIL_SENDER.  
@@ -80,7 +80,7 @@ The payment manager was built to help make our lives easier by letting us know w
 </details>
 
 ### 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/Finance/Weekly%20Contribution%20Report)
-Our finance team uses this primary tool to track, report, and work through finances each week.  It has greatly helped our financial team move forward, working through contributions.  One of the biggest items is that it started showing us that we weren't taking advantage of some of the new features that had come out, such as account grouping.  
+Our finance team uses this primary tool to track, report, and work through finances each week.  By using the system as their process and reporting mechanism, they have helped ensure the system is right to move forward and remove some of the hocus pocus potential of changing numbers outside the system. One of the pleasant surprises for us is that it revealed some newer features in Touchpoint that we were not taking advantage of.  This helped us to start to take advantage of those and further organize/define our financial data.  
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: The Script is pasted and go. Once you are in the UI, you will complete all the configuration in the UI for you financial setup.
@@ -89,14 +89,14 @@ Our finance team uses this primary tool to track, report, and work through finan
 ## 📈 Reports
 
 ### 📅 [Anniversaries](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Anniversaries)
-It is designed to be a widget on your dashboard that tracks member anniversaries such as marriage, work, and birthdays.  We use it to track staff anniversaries, but it could easily be used for any group as it's based on a saved search.
+It is designed as a widget on your dashboard that tracks member anniversaries, such as marriage, work, and birthdays.  We use it to track staff anniversaries, but it could easily be used for any group as it's based on a saved search.
 
 - ⚙️ **Implementation Level: Moderate
 - 🧩 **Installation: Weddings and birthdays are tracked naturally in the system and uses a "saved search" to pull the list from. Extra anniversaries are tracked using an extra value field under a user's profile, but are not required.  To install, you first create a saved search in Touchpoint and then write down the name of it.  Then, paste the code, set the parameters, add the word widget to content keywords, and save it.  From there, you need to go into Admin ~ Advanced ~ HomePage widget and add this as a widget to have it appear on the homepage.
 
 <details>
 <summary><strong>Anniversary Main Screen</strong></summary>
-<p>You can click through months shows past and upcoming annivesaries.</p>
+<p>You can click through months to show past and upcoming anniversaries.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Anniversaries/Anniversaries%20Main%20Screen.png" width="700">
 </p>
@@ -261,7 +261,7 @@ This is one of my favorite tools for understanding the structure of programs, di
 Exports event or class registration data in structured formats.
 
 ### 📝 [TaskNote Activity Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/TaskNote%20Activity%20Dashboard)
-I developed this to understand TaskNote activity, who has open assignments, keyword trends, and more.  We are week in some of these areas and this is proving to help us develope and monitor our processes.
+I developed this to understand TaskNote activity, who has open assignments, keyword trends, and more.  Believe it or not, we are weak in digital process for Touchpoint items, so this is a stepping stone for me to start to monitor and understand what we are currently doing.
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
