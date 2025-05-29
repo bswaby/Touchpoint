@@ -43,9 +43,6 @@
 # 3. Adjust the schedule and script name as needed
 #--Upload Instructions End--
 
-#Written By: Ben Swaby
-#Email: bswaby@fbchtn.org
-
 import traceback
 import re
 
@@ -610,7 +607,7 @@ def render_main_menu():
                     <!-- Single "i" letter to the right -->
                     <text x="206" y="105" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#0099FF">si</text>
                   </svg></h2>
-        <p style="font-size: 16px; color: #666; margin-bottom: 30px;">Synchronize members and subgroups between involvements</p>
+        <p style="font-size: 16px; color: #666; margin-bottom: 30px;">Synchronize members and subgroups from primary --> secondary involvement.</p>
         
         <div style="display: flex; gap: 20px; margin-bottom: 30px;">
             <div style="flex: 1;">
