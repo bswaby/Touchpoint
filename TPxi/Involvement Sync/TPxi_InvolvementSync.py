@@ -43,6 +43,9 @@
 # 3. Adjust the schedule and script name as needed
 #--Upload Instructions End--
 
+#Written By: Ben Swaby
+#Email: bswaby@fbchtn.org
+
 import traceback
 import re
 
