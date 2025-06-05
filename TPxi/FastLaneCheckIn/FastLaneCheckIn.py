@@ -11,14 +11,15 @@ Features:
 - One-click check-in process
 - Real-time stats and metrics
 - Check-in correction functionality
+- Parent email notifications for attendees under 18
 
-NOTE: this does not print as those options are not exposed for me to access
+NOTE: this does not print badges as those options are not exposed for me to access
 
 --Upload Instructions Start--
 To upload code to Touchpoint, use the following steps:
 1. Click Admin ~ Advanced ~ Special Content ~ Python
 2. Click New Python Script File
-3. Name the Python FastLaneCheckIn (case sensitive) and paste all this code.  If you name it something else, then just update variabl below.
+3. Name the Python FastLaneCheckIn (case sensitive) and paste all this code.  If you name it something else, then just update variable below.
 4. Test and optionally add to menu
 --Upload Instructions End--
 
@@ -35,7 +36,7 @@ from System import DateTime
 from System.Collections.Generic import List
 
 # Constants and configuration
-Script_Name = "FastLaneCheckIn"
+Script_Name = "FastLaneCheckIn2"
 PAGE_SIZE = 500  # Number of people to show per page - smaller for faster loading
 DATE_FORMAT = "M/d/yyyy"
 ATTEND_FLAG = 1  # Present flag for attendance
@@ -43,6 +44,28 @@ ALPHA_BLOCKS = [
     "A-C", "D-F", "G-I", "J-L", "M-O", "P-R", "S-U", "V-Z", "All"
 ]
 
+# Email configuration constants
+PARENT_EMAIL_DELAY = False  # Set to True to queue emails for batch processing
+DEFAULT_EMAIL_TEMPLATE = "CheckInParentNotification2"  # Default email template name
+
+"""
+Email Template Variables
+Use standard TouchPoint replacement codes plus one custom addition:
+
+{CheckInPerson} - Name of the person who checked in (CUSTOM - works for both adults and children)
+
+All other standard TouchPoint variables work normally:
+{name} - Recipient's name (parent for parent emails, adult for adult emails)  
+{first} - Recipient's first name
+{orgname} - Organization/meeting name
+{today} - Today's date
+{ChurchName}, {ChurchAddress}, {ChurchPhone} - Church info from settings
+
+Example template that works for both parents and adults:
+"Dear {name}, {CheckInPerson} has been checked in to {orgname} at {today}."
+"""
+
+# ::START:: Helper Functions
 # Helper functions - defined first to avoid syntax errors
 def get_script_name():
     """Get the current script name from the URL"""
@@ -88,6 +111,7 @@ def render_alpha_filters(current_filter):
         </div>
     """.format("\n".join(buttons))
 
+# ::START:: Helper Classes
 # Helper classes
 class MeetingInfo:
     """Class to store and manage meeting information"""
@@ -101,13 +125,321 @@ class MeetingInfo:
 
 class PersonInfo:
     """Class to store person information for check-in"""
-    def __init__(self, people_id, name, family_id=None, org_ids=None, checked_in=False):
+    def __init__(self, people_id, name, family_id=None, org_ids=None, checked_in=False, age=None):
         self.people_id = people_id
         self.name = name
         self.family_id = family_id
         self.org_ids = org_ids or []
         self.checked_in = checked_in
+        self.age = age  # Added age field
 
+# ::START:: Email Manager Class
+class EmailManager:
+    """Manages email notifications for check-ins"""
+    
+    def __init__(self, model, q):
+        self.model = model
+        self.q = q
+        self.email_queue = []  # Store emails to send in batch
+        
+    def get_available_email_templates(self):
+        """Get list of available email templates for parent notifications"""
+        # ::STEP:: Query for email templates
+        sql = """
+            SELECT Name, Title
+            FROM Content
+            WHERE TypeID IN (2,7)  -- Email templates
+            AND (Name LIKE '%CheckedIn%')-- OR Name LIKE '%Parent%' OR Title LIKE '%Check%')
+            ORDER BY Name
+        """
+        try:
+            results = self.q.QuerySql(sql)
+            templates = []
+            for result in results:
+                templates.append({
+                    'name': result.Name,
+                    'title': result.Title or result.Name
+                })
+            return templates
+        except:
+            # Return default template if query fails
+            return [{'name': DEFAULT_EMAIL_TEMPLATE, 'title': 'Check-In Parent Notification'}]
+            
+    
+    def get_parent_emails(self, people_id, age):
+        """Get parent email addresses for a person under 18"""
+        # ::STEP:: Check age and get parent emails
+        print "<!-- DEBUG: Getting parent emails for person {0}, age {1} -->".format(people_id, age)
+        
+        if age >= 18:
+            print "<!-- DEBUG: Person is 18 or older, no parent email needed -->"
+            return []
+            
+        sql = """
+            SELECT DISTINCT p2.EmailAddress, p2.Name, p2.PeopleId
+            FROM People p1
+            JOIN People p2 ON p1.FamilyId = p2.FamilyId
+            WHERE p1.PeopleId = {0}
+            AND p2.PositionInFamilyId IN (10, 20)  -- Primary and Secondary Adults
+            AND p2.EmailAddress IS NOT NULL
+            AND p2.EmailAddress != ''
+            AND (p2.DoNotMailFlag IS NULL OR p2.DoNotMailFlag = 0)
+        """.format(people_id)
+        
+        try:
+            results = self.q.QuerySql(sql)
+            parents = []
+            for result in results:
+                print "<!-- DEBUG: Found parent: {0} ({1}) -->".format(result.Name, result.EmailAddress)
+                parents.append({
+                    'email': result.EmailAddress,
+                    'name': result.Name
+                })
+            
+            if not parents:
+                print "<!-- DEBUG: No parents found with valid emails -->"
+                
+            return parents
+        except Exception as e:
+            print "<!-- DEBUG: Error getting parent emails: {0} -->".format(str(e))
+            return []
+    
+    def queue_parent_email(self, people_id, person_name, age, meeting_name, template_name):
+        """Queue a parent email notification"""
+        # ::STEP:: Add email to queue
+        if age >= 18:
+            return False
+            
+        parents = self.get_parent_emails(people_id, age)
+        if parents:
+            self.email_queue.append({
+                'people_id': people_id,
+                'person_name': person_name,
+                'meeting_name': meeting_name,
+                'parents': parents,
+                'template': template_name
+            })
+            return True
+        return False
+        
+    def send_parent_email(self, parent_email, parent_name, child_name, meeting_name, template_name):
+        try:
+            print "<!-- DEBUG: NEW send_parent_email called for {0} -->".format(parent_name)
+            
+            # Get parent's PeopleId
+            sql = "SELECT TOP 1 PeopleId FROM People WHERE EmailAddress = '{0}'".format(parent_email.replace("'", "''"))
+            result = self.q.QuerySqlTop1(sql)
+            
+            if not result or not hasattr(result, 'PeopleId'):
+                print "<!-- DEBUG: ERROR - Could not find parent in database! -->".format()
+                return False
+                
+            parent_people_id = result.PeopleId
+            print "<!-- DEBUG: Parent PeopleId: {0} -->".format(parent_people_id)
+            
+            # For parents, we need the child's name in the email
+            # Since TouchPoint's {name} will be the parent's name, we need a workaround
+            
+            if template_name and template_name != 'generic':
+                print "<!-- DEBUG: Creating custom parent email -->".format()
+                
+                try:
+                    # Create a custom email for parents since we need child's name
+                    subject = "Check-In Notification"
+                    
+                    # Get organization name for the email
+                    org_name = meeting_name
+                    current_time = self.model.DateTime.ToString("h:mm tt")
+                    current_date = self.model.DateTime.ToString("MMMM d, yyyy")
+                    church_name = self.model.Setting('ChurchName', 'Our Church')
+                    
+                    # Create email body with child's name
+                    body = """
+                    <p>Dear {0},</p>
+                    
+                    <p>{1} has been successfully checked in for {2}.</p>
+                    
+                    <p>This week:</p>
+                    <p>Be in prayer</p>
+                    <p>Here is the agenda</p>
+                    <p>Watch for notifications</p>
+                    
+                    <p>If you have any questions or concerns, please contact the children's ministry team.</p>
+                    
+                    <p>Thank you,</p>
+                    <p>{3} Children's Ministry</p>
+                    """.format(
+                        parent_name,
+                        child_name,  # This is what we needed - the child's name
+                        org_name,
+                        church_name
+                    )
+                    
+                    self.model.Email(
+                        "peopleids={0}".format(parent_people_id),
+                        parent_people_id,
+                        parent_email,
+                        parent_name,
+                        subject,
+                        body
+                    )
+                    
+                    print "<!-- DEBUG: Custom parent email sent with child name -->".format()
+                    return True
+                    
+                except Exception as e:
+                    print "<!-- DEBUG: Custom parent email failed: {0} -->".format(str(e))
+                    # Fall through to generic email
+            
+            # Send generic email as fallback
+            print "<!-- DEBUG: Sending generic parent email -->".format()
+            subject = "Check-In Notification"
+            body = """
+            <p>Dear {0},</p>
+            <p>Your child {1} has been checked in to {2} at {3}.</p>
+            <p>Thank you,<br>
+            Church Check-In System</p>
+            """.format(
+                parent_name,
+                child_name,
+                meeting_name,
+                self.model.DateTime.ToString("h:mm tt")
+            )
+            
+            self.model.Email(
+                "peopleids={0}".format(parent_people_id),
+                parent_people_id,
+                parent_email,
+                parent_name,
+                subject,
+                body
+            )
+            
+            print "<!-- DEBUG: Generic parent email sent -->".format()
+            return True
+            
+        except Exception as e:
+            print "<!-- DEBUG: Parent email completely failed: {0} -->".format(str(e))
+            return False
+        
+    def send_adult_email(self, person_email, person_name, meeting_name, template_name):
+        """Send email notification to an adult who checked in"""
+        try:
+            print "<!-- DEBUG: NEW send_adult_email called -->"
+            print "<!-- DEBUG: To: {0} ({1}), Template: {2} -->".format(person_name, person_email, template_name)
+            
+            # Get the person's PeopleId
+            sql = "SELECT TOP 1 PeopleId FROM People WHERE EmailAddress = '{0}'".format(person_email.replace("'", "''"))
+            result = self.q.QuerySqlTop1(sql)
+            
+            if not result or not hasattr(result, 'PeopleId'):
+                print "<!-- DEBUG: ERROR - Could not find person in database! -->"
+                return False
+                
+            person_people_id = result.PeopleId
+            print "<!-- DEBUG: Person PeopleId: {0} -->".format(person_people_id)
+            
+            if template_name and template_name != 'generic':
+                print "<!-- DEBUG: Sending TouchPoint email for adult -->".format()
+                
+                try:
+                    # Use TouchPoint's standard email system
+                    # The template should use {CheckInPerson} and we'll tell the user to change it to {name}
+                    self.model.EmailContent(
+                        "peopleids={0}".format(person_people_id),
+                        person_people_id,
+                        person_email,
+                        person_name,
+                        template_name
+                    )
+                    
+                    print "<!-- DEBUG: Standard TouchPoint adult email sent -->".format()
+                    return True
+                    
+                except Exception as e:
+                    print "<!-- DEBUG: TouchPoint adult email failed: {0} -->".format(str(e))
+                    # Fall through to generic email
+            
+            # Send generic email as fallback
+            print "<!-- DEBUG: Sending generic adult email -->".format()
+            subject = "Check-In Confirmation"
+            body = """
+            <p>Dear {0},</p>
+            <p>You have been successfully checked in to {1} at {2}.</p>
+            <p>Thank you,<br>
+            Church Check-In System</p>
+            """.format(
+                person_name,
+                meeting_name,
+                self.model.DateTime.ToString("h:mm tt")
+            )
+            
+            self.model.Email(
+                "peopleids={0}".format(person_people_id),
+                person_people_id,
+                person_email,
+                person_name,
+                subject,
+                body
+            )
+            
+            print "<!-- DEBUG: Generic adult email sent -->".format()
+            return True
+            
+        except Exception as e:
+            print "<!-- DEBUG: Adult email completely failed: {0} -->".format(str(e))
+            return False
+    
+    def queue_adult_email(self, people_id, person_name, person_email, meeting_name, template_name):
+        """Queue an adult email notification"""
+        # ::STEP:: Add adult email to queue
+        self.email_queue.append({
+            'people_id': people_id,
+            'person_name': person_name,
+            'person_email': person_email,
+            'meeting_name': meeting_name,
+            'template': template_name,
+            'type': 'adult'
+        })
+        return True
+    
+    def send_queued_emails(self):
+        """Send all queued emails (both parent and adult)"""
+        # ::STEP:: Process email queue
+        if not self.email_queue:
+            return 0
+            
+        sent_count = 0
+        for email_data in self.email_queue:
+            try:
+                if email_data.get('type') == 'adult':
+                    # Send to adult
+                    if self.send_adult_email(
+                        email_data['person_email'],
+                        email_data['person_name'],
+                        email_data['meeting_name'],
+                        email_data['template']
+                    ):
+                        sent_count += 1
+                else:
+                    # Send to parents
+                    for parent in email_data['parents']:
+                        if self.send_parent_email(
+                            parent['email'],
+                            parent['name'],
+                            email_data['person_name'],
+                            email_data['meeting_name'],
+                            email_data['template']
+                        ):
+                            sent_count += 1
+            except Exception as e:
+                print "<!-- DEBUG: Error sending queued email: {0} -->".format(str(e))
+                
+        # Clear the queue
+        self.email_queue = []
+        return sent_count
+    
+# ::START:: Check-In Manager Class
 class CheckInManager:
     """Manages check-in operations and state"""
     
@@ -118,9 +450,11 @@ class CheckInManager:
         self.selected_meetings = []
         self.all_meetings_today = []
         self.last_check_in_time = None  # Track last check-in time for stats refresh
+        self.email_manager = EmailManager(model, q)  # Initialize email manager
         
     def get_todays_meetings(self):
         """Get all meetings scheduled for today including program information"""
+        # ::STEP:: Query today's meetings
         today = self.model.DateTime.Date
         
         # First approach: Try using SQL directly to ensure we can find meetings
@@ -152,9 +486,70 @@ class CheckInManager:
         
         self.all_meetings_today = meetings
         return meetings
+        
+    def debug_meeting_and_org_info(self, people_id, meeting_id):
+        """Debug function to see meeting and organization details"""
+        print "<!-- === DEBUG MEETING AND ORG INFO === -->"
+        
+        # Get meeting details
+        meeting_sql = """
+            SELECT m.MeetingId, m.OrganizationId, m.MeetingDate, m.DidNotMeet,
+                   o.OrganizationName, o.OrganizationStatusId
+            FROM Meetings m
+            JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+            WHERE m.MeetingId = {0}
+        """.format(meeting_id)
+        
+        meeting_info = self.q.QuerySqlTop1(meeting_sql)
+        if meeting_info:
+            print "<!-- Meeting: ID={0}, OrgID={1}, Date={2}, DidNotMeet={3}, OrgName='{4}', OrgStatus={5} -->".format(
+                meeting_info.MeetingId, meeting_info.OrganizationId, meeting_info.MeetingDate,
+                meeting_info.DidNotMeet, meeting_info.OrganizationName, meeting_info.OrganizationStatusId)
+        else:
+            print "<!-- ERROR: No meeting found with ID {0} -->".format(meeting_id)
+            return
+        
+        # Check person's membership in this organization
+        membership_sql = """
+            SELECT om.PeopleId, om.OrganizationId, om.MemberTypeId, om.EnrollmentDate, om.InactiveDate,
+                   p.Name, mt.Description as MemberType
+            FROM OrganizationMembers om
+            JOIN People p ON om.PeopleId = p.PeopleId
+            LEFT JOIN lookup.MemberType mt ON om.MemberTypeId = mt.Id
+            WHERE om.PeopleId = {0} AND om.OrganizationId = {1}
+        """.format(people_id, meeting_info.OrganizationId)
+        
+        membership_info = self.q.QuerySqlTop1(membership_sql)
+        if membership_info:
+            print "<!-- Membership: Person='{0}', MemberType='{1}', Enrolled={2}, Inactive={3} -->".format(
+                membership_info.Name, membership_info.MemberType, 
+                membership_info.EnrollmentDate, membership_info.InactiveDate)
+        else:
+            print "<!-- ERROR: Person {0} is NOT a member of organization {1} -->".format(people_id, meeting_info.OrganizationId)
+        
+        # Check current user permissions
+        print "<!-- Current User: {0} -->".format(self.model.UserName)
+        
+        print "<!-- === END DEBUG === -->"
+    
+    def get_person_age(self, people_id):
+        """Get a person's age"""
+        # ::STEP:: Query person's age
+        sql = """
+            SELECT Age FROM People WHERE PeopleId = {0}
+        """.format(people_id)
+        
+        try:
+            result = self.q.QuerySqlTop1(sql)
+            if result and hasattr(result, 'Age') and result.Age is not None:
+                return int(result.Age)
+        except:
+            pass
+        return 99  # Default to adult if age unknown
     
     def get_people_by_filter(self, alpha_filter, search_term="", meeting_ids=None, page=1, page_size=PAGE_SIZE):
         """Get people by alpha filter or search term who are members of the selected orgs"""
+        # ::STEP:: Filter and retrieve people
         if not meeting_ids:
             print "<!-- DEBUG: No meeting IDs provided to get_people_by_filter -->"
             return [], 0
@@ -217,9 +612,9 @@ class CheckInManager:
         count_result = self.q.QuerySqlTop1(count_sql)
         total_count = count_result.TotalCount if hasattr(count_result, 'TotalCount') else 0
         
-        # Start building the SQL query for the actual data
+        # Start building the SQL query for the actual data - NOW INCLUDING AGE
         sql = """
-            SELECT DISTINCT p.PeopleId, p.Name, p.FamilyId, p.LastName, p.FirstName
+            SELECT DISTINCT p.PeopleId, p.Name, p.FamilyId, p.LastName, p.FirstName, p.Age
             FROM People p
             JOIN OrganizationMembers om ON p.PeopleId = om.PeopleId
             WHERE om.OrganizationId IN ({0})
@@ -263,11 +658,16 @@ class CheckInManager:
             # Get the organizations this person is a member of
             person_org_ids = self.get_person_org_ids(result.PeopleId, org_ids)
             
+            # Get age, defaulting to 99 if not available
+            age = result.Age if hasattr(result, 'Age') and result.Age is not None else 99
+            
             person = PersonInfo(
                 result.PeopleId,
                 result.Name,
                 result.FamilyId,
-                person_org_ids
+                person_org_ids,
+                False,  # not checked in
+                age
             )
             people.append(person)
             
@@ -275,6 +675,7 @@ class CheckInManager:
             
     def get_people_by_meeting_ids(self, meeting_ids, alpha_filter="All", search_term="", page=1, page_size=PAGE_SIZE):
         """Alternative method to get people directly by meeting IDs when org mapping fails"""
+        # ::STEP:: Get people by meeting IDs
         if not meeting_ids:
             return [], 0
                 
@@ -328,9 +729,9 @@ class CheckInManager:
             print "<div style='color:gray;'>SQL: " + count_sql + "</div>"
             total_count = 0
         
-        # FIX: When using DISTINCT, include ORDER BY columns in the SELECT list
+        # FIX: When using DISTINCT, include ORDER BY columns in the SELECT list - NOW INCLUDING AGE
         sql = """
-            SELECT DISTINCT p.PeopleId, p.Name, p.FamilyId, p.LastName, p.FirstName
+            SELECT DISTINCT p.PeopleId, p.Name, p.FamilyId, p.LastName, p.FirstName, p.Age
             FROM People p
             JOIN OrganizationMembers om ON p.PeopleId = om.PeopleId
             JOIN Meetings m ON m.OrganizationId = om.OrganizationId
@@ -401,12 +802,17 @@ class CheckInManager:
                 # Get the organizations this person is a member of
                 person_org_ids = self.get_person_org_ids(result.PeopleId, all_org_ids)
                 
+                # Get age, defaulting to 99 if not available
+                age = result.Age if hasattr(result, 'Age') and result.Age is not None else 99
+                
                 if person_org_ids:  # Only include if they're a member of at least one org
                     person = PersonInfo(
                         result.PeopleId,
                         result.Name,
                         result.FamilyId,
-                        person_org_ids
+                        person_org_ids,
+                        False,  # not checked in
+                        age
                     )
                     people.append(person)
             except Exception as e:
@@ -442,7 +848,7 @@ class CheckInManager:
         org_ids_str = ",".join([str(oid) for oid in org_ids])
         
         sql = """
-            SELECT DISTINCT p.PeopleId, p.Name
+            SELECT DISTINCT p.PeopleId, p.Name, p.Age
             FROM People p
             JOIN OrganizationMembers om ON p.PeopleId = om.PeopleId
             WHERE p.FamilyId = {0}
@@ -468,11 +874,16 @@ class CheckInManager:
             # Get the organizations this person is a member of
             person_org_ids = self.get_person_org_ids(result.PeopleId, org_ids)
             
+            # Get age, defaulting to 99 if not available
+            age = result.Age if hasattr(result, 'Age') and result.Age is not None else 99
+            
             person = PersonInfo(
                 result.PeopleId,
                 result.Name,
                 family_id,
-                person_org_ids
+                person_org_ids,
+                False,  # not checked in
+                age
             )
             family_members.append(person)
             
@@ -503,43 +914,209 @@ class CheckInManager:
     # EditPersonAttendance API to check-in 
     def check_in_person(self, people_id, meeting_id):
         """Simplified direct check-in using just people_id and meeting_id"""
+        # ::STEP:: Perform check-in
         try:
+            print "<!-- check_in_person START: people_id={0}, meeting_id={1} -->".format(people_id, meeting_id)
+            
             # Convert IDs to integers
             people_id_int = int(people_id)
             meeting_id_int = int(meeting_id)
             
-            # Direct API call
+            print "<!-- check_in_person: Converted to integers: people_id={0}, meeting_id={1} -->".format(people_id_int, meeting_id_int)
+            
+            # Check attendance BEFORE the API call
+            pre_check_sql = """
+                SELECT AttendanceFlag
+                FROM Attend 
+                WHERE PeopleId = {0} AND MeetingId = {1}
+                AND AttendanceFlag = 1
+            """.format(people_id_int, meeting_id_int)
+            
+            pre_result = self.q.QuerySqlTop1(pre_check_sql)
+            already_checked_in = pre_result is not None
+            
+            print "<!-- Pre-check: Already checked in = {0} -->".format(already_checked_in)
+            
+            # Make the API call
+            print "<!-- Calling model.EditPersonAttendance({0}, {1}, True) -->".format(meeting_id_int, people_id_int)
+            
             result = self.model.EditPersonAttendance(meeting_id_int, people_id_int, True)
             
-            # Check if successful
-            return "Success" in str(result)
+            print "<!-- EditPersonAttendance raw result: '{0}' -->".format(str(result))
+            print "<!-- Result type: {0} -->".format(type(result).__name__)
+            
+            # Check attendance AFTER the API call to see if it worked
+            post_check_sql = """
+                SELECT AttendanceFlag, CreatedDate
+                FROM Attend 
+                WHERE PeopleId = {0} AND MeetingId = {1}
+                AND AttendanceFlag = 1
+            """.format(people_id_int, meeting_id_int)
+            
+            post_result = self.q.QuerySqlTop1(post_check_sql)
+            now_checked_in = post_result is not None
+            
+            print "<!-- Post-check: Now checked in = {0} -->".format(now_checked_in)
+            
+            if post_result:
+                print "<!-- Attendance record: Flag={0}, Created={1} -->".format(
+                    post_result.AttendanceFlag, post_result.CreatedDate)
+            
+            # Determine success based on actual database state, not API response string
+            if now_checked_in:
+                if already_checked_in:
+                    print "<!-- SUCCESS: Person was already checked in -->".format()
+                else:
+                    print "<!-- SUCCESS: Person was successfully checked in -->".format()
+                return True
+            else:
+                print "<!-- FAILURE: Person is still not checked in after API call -->".format()
+                
+                # Try to understand why it failed by checking the result string
+                result_str = str(result).lower()
+                if 'already' in result_str:
+                    print "<!-- API says already checked in, but database doesn't show it -->".format()
+                elif 'error' in result_str or 'fail' in result_str:
+                    print "<!-- API returned error: {0} -->".format(result_str)
+                else:
+                    print "<!-- Unknown API response: {0} -->".format(result_str)
+                
+                return False
+            
         except Exception as e:
-            print "<div style='color:red'>Error checking in person: " + str(e) + "</div>"
+            print "<!-- ERROR in check_in_person: {0} -->".format(str(e))
+            import traceback
+            print "<!-- TRACEBACK: {0} -->".format(traceback.format_exc().replace('\n', ' | '))
+            return False
+    
+    def check_in_person_with_email(self, people_id, meeting_id, person_name, email_template):
+        """Check in a person and send appropriate email notification"""
+        # ::STEP:: Check-in with notification
+        try:
+            print "<!-- check_in_person_with_email START -->"
+            
+            # Add this debug call
+            self.debug_meeting_and_org_info(people_id, meeting_id)
+            
+            # Perform the check-in
+            success = self.check_in_person(people_id, meeting_id)
+            print "<!-- Parameters: people_id={0}, meeting_id={1}, person_name={2}, email_template={3} -->".format(
+                people_id, meeting_id, person_name, email_template)
+            
+            # Perform the check-in
+            success = self.check_in_person(people_id, meeting_id)
+            print "<!-- Check-in API result: {0} -->".format(success)
+            
+            if not success:
+                print "<!-- Check-in failed, not sending email -->"
+                return False
+                
+            # Check if we should send email - CRITICAL CHECK
+            if not email_template or email_template == 'none':
+                print "<!-- No email template selected (template='{0}'), skipping email -->".format(email_template)
+                return success
+                
+            print "<!-- Email template is '{0}', proceeding with email -->".format(email_template)
+            
+            # Get person's details
+            sql = """
+                SELECT 
+                    PeopleId,
+                    Name,
+                    Age,
+                    EmailAddress,
+                    FamilyId,
+                    DATEDIFF(hour, BDate, GETDATE())/8766.0 AS CalculatedAge
+                FROM People 
+                WHERE PeopleId = {0}
+            """.format(people_id)
+            
+            person_result = self.q.QuerySqlTop1(sql)
+            
+            if not person_result:
+                print "<!-- ERROR: Could not find person with ID {0} -->".format(people_id)
+                return success
+                
+            # Get age and email
+            age = 99  # Default to adult
+            if hasattr(person_result, 'Age') and person_result.Age is not None:
+                age = int(person_result.Age)
+            elif hasattr(person_result, 'CalculatedAge') and person_result.CalculatedAge is not None:
+                age = int(person_result.CalculatedAge)
+                
+            person_email = person_result.EmailAddress if hasattr(person_result, 'EmailAddress') else None
+            
+            print "<!-- Person details: Age={0}, Email={1}, FamilyId={2} -->".format(
+                age, person_email, person_result.FamilyId if hasattr(person_result, 'FamilyId') else 'None')
+            
+            # Get meeting name
+            meeting_name = "the event"
+            for meeting in self.all_meetings_today:
+                if str(meeting.meeting_id) == str(meeting_id):
+                    meeting_name = meeting.org_name
+                    break
+            
+            print "<!-- Meeting name: {0} -->".format(meeting_name)
+            
+            # Determine who to send email to
+            email_sent = False
+            
+            if age < 18:
+                print "<!-- Person is UNDER 18 (age={0}), looking for parents -->".format(age)
+                
+                # Get parents
+                parents = self.email_manager.get_parent_emails(people_id, age)
+                print "<!-- Found {0} parents with email addresses -->".format(len(parents))
+                
+                if not parents:
+                    print "<!-- No parents found with valid email addresses -->".format()
+                else:
+                    # Send to each parent
+                    for i, parent in enumerate(parents):
+                        print "<!-- Sending to parent {0}: {1} ({2}) -->".format(
+                            i+1, parent['name'], parent['email'])
+                        
+                        if self.email_manager.send_parent_email(
+                            parent['email'],
+                            parent['name'],
+                            person_name,
+                            meeting_name,
+                            email_template
+                        ):
+                            email_sent = True
+                            print "<!-- Email successfully sent to parent -->".format()
+                        else:
+                            print "<!-- Failed to send email to parent -->".format()
+            else:
+                print "<!-- Person is 18+ (age={0}), sending to them directly -->".format(age)
+                
+                if not person_email:
+                    print "<!-- ERROR: Adult has no email address -->".format()
+                else:
+                    print "<!-- Sending email to: {0} ({1}) -->".format(person_name, person_email)
+                    
+                    if self.email_manager.send_adult_email(
+                        person_email,
+                        person_name,
+                        meeting_name,
+                        email_template
+                    ):
+                        email_sent = True
+                        print "<!-- Email successfully sent to adult -->".format()
+                    else:
+                        print "<!-- Failed to send email to adult -->".format()
+            
+            print "<!-- check_in_person_with_email COMPLETE - email_sent={0} -->".format(email_sent)
+            return success
+            
+        except Exception as e:
+            print "<!-- ERROR in check_in_person_with_email: {0} -->".format(str(e))
+            import traceback
+            print "<!-- Traceback: {0} -->".format(traceback.format_exc().replace('\n', ' '))
             return False
     
     def remove_check_in(self, people_id, meeting_ids):
         """Remove check-in for a person using the Meeting API"""
-        if not people_id or not meeting_ids:
-            return False
-            
-        success = True
-        
-        # Use direct approach
-        for meeting_id in meeting_ids:
-            try:
-                # CRITICAL FIX: Cast to integers
-                result = self.model.EditPersonAttendance(int(meeting_id), int(people_id), False)
-                print "DEBUG: Remove check-in result: " + str(result) 
-                if "Success" not in str(result):
-                    success = False
-            except Exception as e:
-                success = False
-                print "DEBUG: Remove check-in error: " + str(e) 
-                        
-        return success
-
-    def remove_check_in(self, people_id, meeting_ids):
-        """Remove check-in for a person using the Meeting API with improved stats refresh"""
         if not people_id or not meeting_ids:
             return False
             
@@ -564,6 +1141,7 @@ class CheckInManager:
     
     def get_check_in_stats(self, meeting_ids):
         """Get check-in statistics for selected meetings with forced refresh"""
+        # ::STEP:: Calculate statistics
         if not meeting_ids:
             return {"checked_in": 0, "not_checked_in": 0, "total": 0}
             
@@ -642,9 +1220,9 @@ class CheckInManager:
         count_result = self.q.QuerySqlTop1(count_sql)
         total_count = count_result.TotalCount if hasattr(count_result, 'TotalCount') else 0
         
-        # Then get paginated data
+        # Then get paginated data - NOW INCLUDING AGE
         sql = """
-            SELECT DISTINCT p.PeopleId, p.Name, p.FamilyId, p.LastName, p.FirstName
+            SELECT DISTINCT p.PeopleId, p.Name, p.FamilyId, p.LastName, p.FirstName, p.Age
             FROM People p
             JOIN Attend a ON p.PeopleId = a.PeopleId
             WHERE a.MeetingId IN ({0})
@@ -672,12 +1250,16 @@ class CheckInManager:
             # Get the organizations this person is checked into
             person_org_ids = self.get_person_attended_org_ids(result.PeopleId, org_ids)
             
+            # Get age, defaulting to 99 if not available
+            age = result.Age if hasattr(result, 'Age') and result.Age is not None else 99
+            
             person = PersonInfo(
                 result.PeopleId,
                 result.Name,
                 result.FamilyId,
                 person_org_ids,
-                True
+                True,  # checked in
+                age
             )
             people.append(person)
             
@@ -720,76 +1302,15 @@ class CheckInManager:
             print "<div style='color:red;'>Check-in error: " + str(e) + "</div>"
             return False
 
-    # Add this to your CheckInManager class to enable stats refresh after actions
-    def __init__(self, model, q):
-        self.model = model
-        self.q = q
-        self.today = self.model.DateTime.Date
-        self.selected_meetings = []
-        self.all_meetings_today = []
-        self.last_check_in_time = None  # Track last check-in time for stats refresh
-    
-    # Modify the get_check_in_stats method to use the latest data
-    def get_check_in_stats(self, meeting_ids):
-        """Get up-to-date check-in statistics for selected meetings"""
-        if not meeting_ids:
-            return {"checked_in": 0, "not_checked_in": 0, "total": 0}
-            
-        # Make sure meetings are loaded
-        if not self.all_meetings_today:
-            self.get_todays_meetings()
-            
-        meeting_ids_str = ",".join([str(m) for m in meeting_ids])
-        
-        # Get organization IDs for the meetings
-        sql = """
-            SELECT DISTINCT OrganizationId
-            FROM Meetings
-            WHERE MeetingId IN ({0})
-        """.format(meeting_ids_str)
-        
-        org_results = self.q.QuerySql(sql)
-        org_ids = [str(r.OrganizationId) for r in org_results]
-        
-        if not org_ids:
-            return {"checked_in": 0, "not_checked_in": 0, "total": 0}
-            
-        org_ids_str = ",".join(org_ids)
-        
-        # Get total eligible members (fast count query)
-        sql = """
-            SELECT COUNT(DISTINCT p.PeopleId) AS TotalCount
-            FROM People p
-            JOIN OrganizationMembers om ON p.PeopleId = om.PeopleId
-            WHERE om.OrganizationId IN ({0})
-            AND (p.IsDeceased IS NULL OR p.IsDeceased = 0)
-            AND (om.InactiveDate IS NULL OR om.InactiveDate > GETDATE())
-        """.format(org_ids_str)
-        
-        total_result = self.q.QuerySqlTop1(sql)
-        total = total_result.TotalCount if hasattr(total_result, 'TotalCount') else 0
-        
-        # Get checked-in count (directly from meetings)
-        sql = """
-            SELECT COUNT(DISTINCT a.PeopleId) AS CheckedInCount
-            FROM Attend a
-            WHERE a.MeetingId IN ({0})
-            AND a.AttendanceFlag = 1
-        """.format(meeting_ids_str)
-        
-        checked_in_result = self.q.QuerySqlTop1(sql)
-        checked_in = checked_in_result.CheckedInCount if hasattr(checked_in_result, 'CheckedInCount') else 0
-        
-        return {
-            "checked_in": checked_in,
-            "not_checked_in": total - checked_in,
-            "total": total
-        }
-
+# ::START:: Rendering Functions
 # Rendering functions
 def render_meeting_selection(check_in_manager):
-    """Render the meeting selection page"""
+    """Render the meeting selection page with email template selection"""
+    # ::STEP:: Display meeting selection UI
     meetings = check_in_manager.get_todays_meetings()
+    
+    # Get available email templates
+    email_templates = check_in_manager.email_manager.get_available_email_templates()
     
     # Get the current script name from the URL
     script_name = get_script_name()
@@ -806,6 +1327,9 @@ def render_meeting_selection(check_in_manager):
     
     # Get selected program filter if any
     selected_program = getattr(check_in_manager.model.Data, 'program_filter', '')
+    
+    # Get selected email template
+    selected_email_template = getattr(check_in_manager.model.Data, 'email_template', DEFAULT_EMAIL_TEMPLATE)
     
     # Start the page with modern styling
     print """<!DOCTYPE html>
@@ -996,6 +1520,23 @@ def render_meeting_selection(check_in_manager):
                 0% {{ transform: rotate(0deg); }}
                 100% {{ transform: rotate(360deg); }}
             }
+            .email-template-section {
+                background-color: #f0f8ff;
+                border: 1px solid #b0d4ff;
+                border-radius: 4px;
+                padding: 15px;
+                margin-bottom: 20px;
+            }
+            .email-template-section h4 {
+                margin-top: 0;
+                color: #0066cc;
+            }
+            .help-text {
+                font-size: 12px;
+                color: #666;
+                margin-top: 5px;
+                font-style: italic;
+            }
         </style>
     </head>
     <body>
@@ -1036,27 +1577,6 @@ def render_meeting_selection(check_in_manager):
     </div>
     """
     
-    # # Add debug checkbox to switch date for testing
-    # print """
-    # <div class="well">
-    #     <form method="post" action="/PyScriptForm/{0}" onsubmit="showLoading()">
-    #         <input type="hidden" name="step" value="choose_meetings">
-    #         <div class="form-group">
-    #             <label for="test_date">Select a different date:</label>
-    #             <input type="date" class="form-control" id="test_date" name="test_date">
-    #         </div>
-    #         <button type="submit" class="btn btn-sm btn-default">Use Alternative Date</button>
-    #     </form>
-    # </div>
-    # """.format(script_name)
-    
-    # if hasattr(check_in_manager.model.Data, 'test_date') and check_in_manager.model.Data.test_date:
-    #     print """
-    #     <div class="alert alert-info">
-    #         <strong>Testing Mode:</strong> Using date {0} for meetings
-    #     </div>
-    #     """.format(check_in_manager.model.Data.test_date)
-    
     if not meetings:
         print """
         <div class="alert alert-warning">
@@ -1068,7 +1588,6 @@ def render_meeting_selection(check_in_manager):
                 <li>Check that organizations hosting the meetings are Active</li>
                 <li>Verify the meetings are not marked as "Did Not Meet"</li>
             </ul>
-            <p>You can use the date picker above to test with another date where you know meetings exist.</p>
         </div>
         """
         print """
@@ -1106,7 +1625,40 @@ def render_meeting_selection(check_in_manager):
         <form method="post" action="/PyScriptForm/{0}" onsubmit="showLoading()">
             <input type="hidden" name="step" value="check_in">
             
-            <h4>Available Meetings for {1}</h4>
+            <!-- Email Template Selection Section -->
+            <div class="email-template-section">
+                <h4>Parent Email Notifications</h4>
+                <div class="form-group">
+                    <label for="email_template">Email Template for Parents (when checking in children under 18):</label>
+                    <select class="form-control" id="email_template" name="email_template">
+                        <option value="none" {1}>No Email Notification</option>
+                        <option value="generic" {2}>Generic Email (System Generated)</option>
+    """.format(script_name, 
+              'selected="selected"' if selected_email_template == 'none' else '',
+              'selected="selected"' if selected_email_template == 'generic' else '')
+    
+    # Add available email templates
+    for template in email_templates:
+        selected = 'selected="selected"' if template['name'] == selected_email_template else ''
+        print '<option value="{0}" {2}>{1}</option>'.format(
+            template['name'], 
+            template['title'],
+            selected
+        )
+    
+    print """
+                    </select>
+                    <div class="help-text">
+                        Notifications will be sent automatically when checking in:
+                        <ul style="margin:5px 0; padding-left:20px;">
+                            <li>For children (under 18): Email sent to parents/guardians</li>
+                            <li>For adults (18+): Email sent directly to them</li>
+                        </ul>
+                    </div>                      
+                </div>
+            </div>
+            
+            <h4>Available Meetings for {0}</h4>
             
             <p>
                 <button type="button" class="btn btn-sm btn-primary" id="selectAllBtn">Select All</button>
@@ -1114,7 +1666,7 @@ def render_meeting_selection(check_in_manager):
             </p>
             
             <div class="row" style="max-height: 400px; overflow-y: auto;">
-    """.format(script_name, check_in_manager.today.ToString(DATE_FORMAT))
+    """.format(check_in_manager.today.ToString(DATE_FORMAT))
     
     # Group meetings by organization for cleaner display
     org_groups = {}
@@ -1225,6 +1777,10 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
     for meeting_id in meeting_ids:
         meeting_id_inputs += '<input type="hidden" name="meeting_id" value="{0}">'.format(meeting_id)
     
+    # Get email template selection
+    email_template = getattr(model.Data, 'email_template', 'none')
+    email_template_input = '<input type="hidden" name="email_template" value="{0}">'.format(email_template)
+    
     # Build pagination HTML with proper styling
     pagination = ['<div class="pagination" style="display: inline-block;">']
     
@@ -1238,9 +1794,10 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
             '<input type="hidden" name="alpha_filter" value="{3}">'
             '<input type="hidden" name="search_term" value="{4}">'
             '{5}'
+            '{6}'
             '<button type="submit" style="padding:6px 12px; border:1px solid #ddd; background-color:#f8f9fa; border-radius:4px; cursor:pointer; margin:0;" onclick="showLoading()">&laquo;</button>'
             '</form>'.format(
-                script_name, page - 1, view_mode, alpha_filter, search_term, meeting_id_inputs
+                script_name, page - 1, view_mode, alpha_filter, search_term, meeting_id_inputs, email_template_input
             )
         )
     else:
@@ -1262,9 +1819,10 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
             '<input type="hidden" name="alpha_filter" value="{2}">'
             '<input type="hidden" name="search_term" value="{3}">'
             '{4}'
+            '{5}'
             '<button type="submit" style="padding:6px 12px; border:1px solid #ddd; background-color:#f8f9fa; border-radius:4px; cursor:pointer; margin:0;" onclick="showLoading()">1</button>'
             '</form>'.format(
-                script_name, view_mode, alpha_filter, search_term, meeting_id_inputs
+                script_name, view_mode, alpha_filter, search_term, meeting_id_inputs, email_template_input
             )
         )
         if start_page > 2:
@@ -1287,9 +1845,10 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
                 '<input type="hidden" name="alpha_filter" value="{3}">'
                 '<input type="hidden" name="search_term" value="{4}">'
                 '{5}'
+                '{6}'
                 '<button type="submit" style="padding:6px 12px; border:1px solid #ddd; background-color:#f8f9fa; border-radius:4px; cursor:pointer; margin:0;" onclick="showLoading()">{1}</button>'
                 '</form>'.format(
-                    script_name, i, view_mode, alpha_filter, search_term, meeting_id_inputs
+                    script_name, i, view_mode, alpha_filter, search_term, meeting_id_inputs, email_template_input
                 )
             )
             
@@ -1307,9 +1866,10 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
             '<input type="hidden" name="alpha_filter" value="{3}">'
             '<input type="hidden" name="search_term" value="{4}">'
             '{5}'
+            '{6}'
             '<button type="submit" style="padding:6px 12px; border:1px solid #ddd; background-color:#f8f9fa; border-radius:4px; cursor:pointer; margin:0;" onclick="showLoading()">{1}</button>'
             '</form>'.format(
-                script_name, total_pages, view_mode, alpha_filter, search_term, meeting_id_inputs
+                script_name, total_pages, view_mode, alpha_filter, search_term, meeting_id_inputs, email_template_input
             )
         )
         
@@ -1323,9 +1883,10 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
             '<input type="hidden" name="alpha_filter" value="{3}">'
             '<input type="hidden" name="search_term" value="{4}">'
             '{5}'
+            '{6}'
             '<button type="submit" style="padding:6px 12px; border:1px solid #ddd; background-color:#f8f9fa; border-radius:4px; cursor:pointer; margin:0;" onclick="showLoading()">&raquo;</button>'
             '</form>'.format(
-                script_name, page + 1, view_mode, alpha_filter, search_term, meeting_id_inputs
+                script_name, page + 1, view_mode, alpha_filter, search_term, meeting_id_inputs, email_template_input
             )
         )
     else:
@@ -1336,18 +1897,24 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
     pagination.append('</div>')
     return "\n".join(pagination)
 
-# Function to process AJAX check-in requests
+# ::START:: AJAX Processing
 def process_ajax_check_in(check_in_manager):
     """Process AJAX check-in requests without full page reload"""
+    # ::STEP:: Handle AJAX check-in request
     try:
         # Get parameters
         person_id = getattr(check_in_manager.model.Data, 'person_id', None)
         meeting_id = getattr(check_in_manager.model.Data, 'meeting_id', None)
+        person_name = getattr(check_in_manager.model.Data, 'person_name', '')
+        email_template = getattr(check_in_manager.model.Data, 'email_template', 'none')
+        
+        print "<!-- DEBUG AJAX: person_id={0}, meeting_id={1}, email_template={2} -->".format(
+            person_id, meeting_id, email_template)
         
         # Validate parameters
         if not person_id or not meeting_id:
             print '{{"success":false,"reason":"missing_parameters"}}'
-            return False
+            return True  # Return True to indicate AJAX was handled
             
         # Clean any comma-separated values
         if ',' in str(person_id):
@@ -1360,35 +1927,43 @@ def process_ajax_check_in(check_in_manager):
         person_id_int = int(person_id)
         meeting_id_int = int(meeting_id)
         
-        # Perform the check-in directly
-        try:
-            # Try to completely isolate the API call
-            check_result = check_in_manager.model.EditPersonAttendance(meeting_id_int, person_id_int, True)
-            success = "Success" in str(check_result)
-            
-            # Only output clean JSON response
+        print "<!-- DEBUG AJAX: Calling check_in_person_with_email -->".format()
+        
+        # Perform the check-in with email notification
+        success = check_in_manager.check_in_person_with_email(
+            person_id_int, 
+            meeting_id_int, 
+            person_name, 
+            email_template
+        )
+        
+        print "<!-- DEBUG AJAX: check_in_person_with_email returned: {0} -->".format(success)
+        
+        # Force refresh of statistics
+        check_in_manager.last_check_in_time = check_in_manager.model.DateTime
+        
+        # Process any queued emails if batch mode
+        if PARENT_EMAIL_DELAY:
+            sent_count = check_in_manager.email_manager.send_queued_emails()
+            print "<!-- DEBUG AJAX: Sent {0} queued emails -->".format(sent_count)
+        
+        if success:
             print '{{"success":true}}'
+        else:
+            print '{{"success":false,"reason":"check_in_failed"}}'
             
-            # Force refresh of stats for next page load
-            check_in_manager.last_check_in_time = check_in_manager.model.DateTime
+        return True  # Return True to indicate AJAX was handled
             
-            return True
-        except Exception as inner_e:
-            # Isolate any exceptions from the API call
-            print '{{"success":false,"reason":"api_error"}}'
-            return False
-            
-    except Exception as outer_e:
-        # Catch-all for any other exceptions
+    except Exception as e:
+        print "<!-- ERROR AJAX: {0} -->".format(str(e))
+        import traceback
+        print "<!-- TRACEBACK AJAX: {0} -->".format(traceback.format_exc().replace('\n', ' '))
         print '{{"success":false,"reason":"general_error"}}'
-        return False
-
-    # Final fallback
-    return False
-
+        return True  # Return True to indicate AJAX was handled
 
 def render_fastlane_check_in(check_in_manager):
     """Render the FastLane check-in page with fixed alignment and branding"""
+    # ::STEP:: Display check-in UI
     # Get the current script name
     script_name = get_script_name()
     
@@ -1408,6 +1983,7 @@ def render_fastlane_check_in(check_in_manager):
     alpha_filter = getattr(check_in_manager.model.Data, 'alpha_filter', 'All')
     search_term = getattr(check_in_manager.model.Data, 'search_term', '')
     view_mode = getattr(check_in_manager.model.Data, 'view_mode', 'not_checked_in')
+    email_template = getattr(check_in_manager.model.Data, 'email_template', 'none')
     
     # Handle page
     try:
@@ -1428,6 +2004,10 @@ def render_fastlane_check_in(check_in_manager):
     for meeting_id in meeting_ids:
         meeting_id_inputs += '<input type="hidden" name="meeting_id" value="{0}">'.format(meeting_id)
     
+    # Add email template input
+    email_template_input = '<input type="hidden" name="email_template" value="{0}">'.format(email_template)
+    
+    # ::STEP:: Process form actions
     # Process form submission and prepare flash message
     success_message = ""
     flash_message = ""
@@ -1452,19 +2032,27 @@ def render_fastlane_check_in(check_in_manager):
                     meeting_id = str(meeting_id).split(',')[0].strip()
                     print "<!-- DEBUG: Using first meeting ID instead: {0} -->".format(meeting_id)
                 
-                # Direct API call - simplified for reliability
+                # Direct API call with email notification
                 try:
                     # Force refresh of statistics
                     check_in_manager.last_check_in_time = check_in_manager.model.DateTime
                     
-                    result = check_in_manager.model.EditPersonAttendance(int(meeting_id), int(person_id), True)
-                    success = "Success" in str(result)
+                    result = check_in_manager.check_in_person_with_email(
+                        int(person_id), 
+                        int(meeting_id), 
+                        person_name,
+                        email_template
+                    )
                     
-                    print "<!-- DEBUG: EditPersonAttendance result: {0} -->".format(result)
-                    
-                    if success:
+                    if result:
                         flash_message = "Successfully checked in"
                         flash_name = person_name
+                        
+                        # Process any queued emails if batch mode
+                        if PARENT_EMAIL_DELAY:
+                            sent_count = check_in_manager.email_manager.send_queued_emails()
+                            if sent_count > 0:
+                                flash_message += " (parent notified)"
                 except Exception as e:
                     flash_message = "Error checking in: {0}".format(str(e))
                     print "<!-- DEBUG: Check-in error: {0} -->".format(str(e))
@@ -1490,6 +2078,7 @@ def render_fastlane_check_in(check_in_manager):
                 except Exception as e:
                     flash_message = "Error removing check-in: {0}".format(str(e))
     
+    # ::STEP:: Get people list
     # Get people based on view mode
     people = []
     total_count = 0
@@ -1505,6 +2094,7 @@ def render_fastlane_check_in(check_in_manager):
     # Create pagination controls
     pagination = create_pagination(current_page, total_pages, script_name, meeting_ids, view_mode, alpha_filter, search_term)
     
+    # ::STEP:: Render alpha filters
     # Render alpha filters - compact version
     alpha_filters_html = """
     <div style="margin-bottom:10px;">
@@ -1524,7 +2114,8 @@ def render_fastlane_check_in(check_in_manager):
             <input type="hidden" name="alpha_filter" value="{2}">
             <input type="hidden" name="search_term" value="{3}">
             {4}
-            <button type="submit" style="padding:4px 8px; font-size:12px; color:{5}; background-color:{6}; border:1px solid #dee2e6; border-radius:3px; cursor:pointer; min-width:42px;">{2}</button>
+            {5}
+            <button type="submit" style="padding:4px 8px; font-size:12px; color:{6}; background-color:{7}; border:1px solid #dee2e6; border-radius:3px; cursor:pointer; min-width:42px;">{2}</button>
         </form>
         """.format(
             script_name,        # {0}
@@ -1532,8 +2123,9 @@ def render_fastlane_check_in(check_in_manager):
             alpha_block,        # {2}
             search_term,        # {3}
             meeting_id_inputs,  # {4}
-            color,              # {5}
-            bg_color            # {6}
+            email_template_input, # {5}
+            color,              # {6}
+            bg_color            # {7}
         )
     
     alpha_filters_html += """
@@ -1541,6 +2133,7 @@ def render_fastlane_check_in(check_in_manager):
     </div>
     """
     
+    # ::STEP:: Generate people list
     # Generate the people list HTML - more compact layout with inline check buttons
     people_list_html = []
     
@@ -1564,6 +2157,11 @@ def render_fastlane_check_in(check_in_manager):
         org_display = ""
         if person_org_names:
             org_display = '<div style="font-size:12px; color:#666; margin-top:2px;">' + ', '.join(person_org_names) + '</div>'
+        
+        # Show age indicator for minors
+        age_indicator = ""
+        if hasattr(person, 'age') and person.age is not None and person.age < 18:
+            age_indicator = '<span style="font-size:11px; color:#ff6b6b; margin-left:8px;">(Age: {0})</span>'.format(person.age)
         
         # For disambiguation in case of duplicate names
         unique_identifier = ""
@@ -1609,14 +2207,15 @@ def render_fastlane_check_in(check_in_manager):
             <div id="person-{0}" class="person-card" style="padding:8px; background-color:#fff; border:1px solid #ddd; border-radius:4px;">
                 <div style="display:flex; align-items:center; justify-content:space-between;">
                     <div style="flex:1; overflow:hidden; text-overflow:ellipsis;">
-                        <div style="font-size:15px;">{1}{2}</div>
-                        {3}
+                        <div style="font-size:15px;">{1}{2}{3}</div>
+                        {4}
                     </div>
             """.format(
                 person.people_id,       # {0}
                 person.name,            # {1}
                 unique_identifier,      # {2}
-                org_display,            # {3}
+                age_indicator,          # {3}
+                org_display,            # {4}
             )
             
             # If we have multiple attended meetings, show a button for each
@@ -1641,29 +2240,32 @@ def render_fastlane_check_in(check_in_manager):
                     
                     # Add the remove button
                     item_html += """
-                    <form method="post" action="/PyScriptForm/{4}" style="margin:0; padding:0;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
+                    <form method="post" action="/PyScriptForm/{5}" style="margin:0; padding:0;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
                         <input type="hidden" name="step" value="check_in">
                         <input type="hidden" name="action" value="remove_check_in">
                         <input type="hidden" name="person_id" value="{0}">
                         <input type="hidden" name="person_name" value="{1}">
-                        <input type="hidden" name="meeting_id" value="{5}">
+                        <input type="hidden" name="meeting_id" value="{6}">
                         <input type="hidden" name="view_mode" value="checked_in">
-                        <input type="hidden" name="alpha_filter" value="{6}">
-                        <input type="hidden" name="search_term" value="{7}">
-                        <input type="hidden" name="page" value="{8}">
-                        <button type="submit" style="padding:3px 8px; font-size:12px; background-color:#dc3545; color:#fff; border:1px solid #dc3545; border-radius:3px; cursor:pointer; min-width:60px; height:28px; vertical-align:middle;">{9}</button>
+                        <input type="hidden" name="alpha_filter" value="{7}">
+                        <input type="hidden" name="search_term" value="{8}">
+                        <input type="hidden" name="page" value="{9}">
+                        {10}
+                        <button type="submit" style="padding:3px 8px; font-size:12px; background-color:#dc3545; color:#fff; border:1px solid #dc3545; border-radius:3px; cursor:pointer; min-width:60px; height:28px; vertical-align:middle;">{11}</button>
                     </form>
                     """.format(
                         person.people_id,       # {0}
                         person.name,            # {1}
                         "",                     # {2} - not used
                         "",                     # {3} - not used
-                        script_name,            # {4}
-                        meeting_id,             # {5}
-                        alpha_filter,           # {6}
-                        search_term,            # {7}
-                        current_page,           # {8}
-                        button_label            # {9}
+                        "",                     # {4} - not used
+                        script_name,            # {5}
+                        meeting_id,             # {6}
+                        alpha_filter,           # {7}
+                        search_term,            # {8}
+                        current_page,           # {9}
+                        email_template_input,   # {10}
+                        button_label            # {11}
                     )
                     
                 # Close the container
@@ -1675,16 +2277,17 @@ def render_fastlane_check_in(check_in_manager):
                 meeting_id = attended_meeting_ids[0] if attended_meeting_ids else (meeting_ids[0] if meeting_ids else "")
                 
                 item_html += """
-                    <form method="post" action="/PyScriptForm/{4}" style="margin:0; padding:0; flex-shrink:0;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
+                    <form method="post" action="/PyScriptForm/{5}" style="margin:0; padding:0; flex-shrink:0;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
                         <input type="hidden" name="step" value="check_in">
                         <input type="hidden" name="action" value="remove_check_in">
                         <input type="hidden" name="person_id" value="{0}">
                         <input type="hidden" name="person_name" value="{1}">
-                        <input type="hidden" name="meeting_id" value="{5}">
+                        <input type="hidden" name="meeting_id" value="{6}">
                         <input type="hidden" name="view_mode" value="checked_in">
-                        <input type="hidden" name="alpha_filter" value="{6}">
-                        <input type="hidden" name="search_term" value="{7}">
-                        <input type="hidden" name="page" value="{8}">
+                        <input type="hidden" name="alpha_filter" value="{7}">
+                        <input type="hidden" name="search_term" value="{8}">
+                        <input type="hidden" name="page" value="{9}">
+                        {10}
                         <button type="submit" style="padding:3px 8px; font-size:12px; background-color:#dc3545; color:#fff; border:1px solid #dc3545; border-radius:3px; cursor:pointer; min-width:60px; height:28px; vertical-align:middle;">Remove</button>
                     </form>
                 """.format(
@@ -1692,11 +2295,13 @@ def render_fastlane_check_in(check_in_manager):
                     person.name,            # {1}
                     "",                     # {2} - not used
                     "",                     # {3} - not used
-                    script_name,            # {4}
-                    meeting_id,             # {5}
-                    alpha_filter,           # {6}
-                    search_term,            # {7}
-                    current_page            # {8}
+                    "",                     # {4} - not used
+                    script_name,            # {5}
+                    meeting_id,             # {6}
+                    alpha_filter,           # {7}
+                    search_term,            # {8}
+                    current_page,           # {9}
+                    email_template_input    # {10}
                 )
             
             # Close the containers
@@ -1712,15 +2317,16 @@ def render_fastlane_check_in(check_in_manager):
             <div id="person-{0}" class="person-card" style="padding:8px; background-color:#fff; border:1px solid #ddd; border-radius:4px;">
                 <div style="display:flex; align-items:center; justify-content:space-between;">
                     <div style="flex:1; overflow:hidden; text-overflow:ellipsis;">
-                        <div style="font-size:15px;">{1}{2}</div>
-                        {3}
+                        <div style="font-size:15px;">{1}{2}{3}</div>
+                        {4}
                     </div>
                     <div style="display:flex; flex-wrap:wrap; justify-content:flex-end; gap:5px;">
             """.format(
                 person.people_id,       # {0}
                 person.name,            # {1}
                 unique_identifier,      # {2}
-                org_display,            # {3}
+                age_indicator,          # {3}
+                org_display,            # {4}
             )
         
             # Debug information
@@ -1759,9 +2365,9 @@ def render_fastlane_check_in(check_in_manager):
                 
                 print "<!-- Adding check-in button for meeting ID: {0} ({1}) -->".format(meeting_id, meeting_name)
                 
-                # Create an inline AJAX check-in button
+                # Create an inline AJAX check-in button with email support
                 item_html += """
-                <button onclick="(function(personId, meetingId, personName) {{
+                <button onclick="(function(personId, meetingId, personName, emailTemplate) {{
                     // Mark this person's card as processing
                     var personCard = document.getElementById('person-' + personId);
                     if (personCard) {{
@@ -1791,10 +2397,11 @@ def render_fastlane_check_in(check_in_manager):
                     formData.append('person_id', personId);
                     formData.append('person_name', personName);
                     formData.append('meeting_id', meetingId);
+                    formData.append('email_template', emailTemplate);
                     
                     // Create XMLHttpRequest
                     var xhr = new XMLHttpRequest();
-                    xhr.open('POST', '/PyScriptForm/{4}', true);
+                    xhr.open('POST', '/PyScriptForm/{5}', true);
                     
                     xhr.onload = function() {{
                         // Always hide the card if status is 200 - regardless of the response content
@@ -1843,18 +2450,19 @@ def render_fastlane_check_in(check_in_manager):
                     
                     xhr.send(formData);
                     return false;
-                }})('{0}', '{5}', '{1}'); return false;" style="padding:3px 8px; font-size:12px; background-color:#28a745; color:#fff; border:1px solid #28a745; border-radius:3px; cursor:pointer; min-width:60px; height:28px; vertical-align:middle;">{9}</button>
+                }})('{0}', '{6}', '{1}', '{10}'); return false;" style="padding:3px 8px; font-size:12px; background-color:#28a745; color:#fff; border:1px solid #28a745; border-radius:3px; cursor:pointer; min-width:60px; height:28px; vertical-align:middle;">{9}</button>
                 """.format(
                     person.people_id,  # {0}
                     person.name.replace("'", "\\'").replace('"', '\\"'),  # {1} - escape quotes for JavaScript
                     "",                # {2} - not used
                     "",                # {3} - not used
-                    script_name,       # {4}
-                    meeting_id,        # {5} - specific meeting ID
-                    alpha_filter,      # {6}
-                    search_term,       # {7}
-                    current_page,      # {8}
-                    meeting_name       # {9} - button label
+                    "",                # {4} - not used
+                    script_name,       # {5}
+                    meeting_id,        # {6} - specific meeting ID
+                    alpha_filter,      # {7}
+                    search_term,       # {8}
+                    meeting_name,      # {9} - button label
+                    email_template     # {10} - email template selection
                 )
             
             # Close the containers
@@ -1868,6 +2476,7 @@ def render_fastlane_check_in(check_in_manager):
     
     people_list_html.append("</div>")
     
+    # ::STEP:: Create stats bar
     # Create the compact stats bar
     stats_bar = """
     <div style="display:flex; justify-content:space-between; background-color:#f8f9fa; border:1px solid #dee2e6; border-radius:4px; padding:8px; margin-bottom:10px; font-size:13px;">
@@ -1898,6 +2507,7 @@ def render_fastlane_check_in(check_in_manager):
         </script>
         """.format(flash_name, flash_message)
     
+    # ::STEP:: Render HTML page
     # Simple HTML with FastLane branding and compact layout
     print """<!DOCTYPE html>
 <html>
@@ -1994,6 +2604,7 @@ def render_fastlane_check_in(check_in_manager):
                     <input type="hidden" name="alpha_filter" value="{4}">
                     <input type="hidden" name="search_term" value="{5}">
                     {6}
+                    {13}
                     <button type="submit" style="padding:4px 8px; font-size:12px; color:#fff; background-color:#007bff; border:1px solid #007bff; border-radius:3px;">
                         Switch to {8}
                     </button>
@@ -2007,6 +2618,7 @@ def render_fastlane_check_in(check_in_manager):
                 <input type="hidden" name="step" value="check_in">
                 <input type="hidden" name="view_mode" value="{3}">
                 {6}
+                {13}
                 <div style="display:flex;">
                     <input type="text" name="search_term" value="{5}" placeholder="Search by name..." style="flex-grow:1; height:36px; padding:4px 10px; border:1px solid #ddd; border-radius:4px 0 0 4px; font-size:14px;">
                     <button type="submit" style="height:36px; padding:0 12px; background-color:#007bff; color:white; border:1px solid #007bff; border-radius:0 4px 4px 0; cursor:pointer; white-space:nowrap;" onclick="document.getElementById('loadingIndicator').style.display='block';">
@@ -2018,12 +2630,15 @@ def render_fastlane_check_in(check_in_manager):
             <!-- Alpha filters - compact -->
             {9}
             
-            <!-- People grid layout with fixed alignment -->
+            <!-- Parent email notification indicator -->
             {10}
+            
+            <!-- People grid layout with fixed alignment -->
+            {11}
             
             <!-- Pagination -->
             <div style="text-align:center;">
-                {11}
+                {12}
             </div>
         </div>
     </div>
@@ -2047,176 +2662,210 @@ def render_fastlane_check_in(check_in_manager):
         "checked_in" if (view_mode == "not_checked_in" or view_mode == "") else "not_checked_in", # {7} - opposite mode for toggle
         # Check for both not_checked_in and the displayed text
         "Checked In List" if (view_mode == "not_checked_in" or view_mode == "") else "Check-In Page", # {8} - toggle button text
-        #"checked_in" if view_mode == "not_checked_in" else "not_checked_in", # {7} - opposite mode for toggle
-        #"Checked In List" if view_mode == "not_checked_in" else "Check-In Page", # {8} - toggle button text
         alpha_filters_html,       # {9}
-        "\n".join(people_list_html), # {10}
-        pagination                # {11}
+        # Parent email notification indicator
+        '<div style="background-color:#e7f5ff; border:1px solid #4dabf7; border-radius:3px; padding:5px 8px; margin-bottom:10px; font-size:12px;"><strong>Parent Notifications:</strong> ' + (email_template if email_template != 'none' else 'Disabled') + '</div>' if email_template != 'none' else '', # {10}
+        "\n".join(people_list_html), # {11}
+        pagination,               # {12}
+        email_template_input      # {13}
     )
     print """<!-- DEBUG: view_mode_raw='{0}' -->""".format(view_mode)
+    
+    # Send any queued parent emails if in batch mode
+    if PARENT_EMAIL_DELAY and check_in_manager.email_manager.email_queue:
+        sent_count = check_in_manager.email_manager.send_queued_emails()
+        if sent_count > 0:
+            print "<!-- DEBUG: Sent {0} parent notification emails -->".format(sent_count)
+    
     return True  # Indicate successful rendering
-
 
 def render_checked_in_view(check_in_manager):
     """Render the checked-in people view"""
     # Similar to render_check_in_page but displays already checked-in people
     # This allows removing individual check-ins if needed
-    return render_check_in_page(check_in_manager)
-    
+    return render_fastlane_check_in(check_in_manager)
 
-    
+# ::START:: Updated Main Function
+def main():
+    """Main entry point for the FastLane Check-In system"""
+    try:
+        # ::STEP:: Initialize system
+        check_in_manager = CheckInManager(model, q)
+        
+        # ::STEP:: Clean input data
+        clean_step = getattr(model.Data, 'step', 'choose_meetings')
+        if ',' in str(clean_step):
+            clean_step = str(clean_step).split(',')[0].strip()
+            
+        clean_action = getattr(model.Data, 'action', None)
+        if clean_action and ',' in str(clean_action):
+            clean_action = str(clean_action).split(',')[0].strip()
+            
+        clean_person_id = getattr(model.Data, 'person_id', None)
+        if clean_person_id and ',' in str(clean_person_id):
+            clean_person_id = str(clean_person_id).split(',')[0].strip()
+            
+        clean_meeting_id = getattr(model.Data, 'meeting_id', None)
+        if clean_meeting_id and ',' in str(clean_meeting_id):
+            clean_meeting_id = str(clean_meeting_id).split(',')[0].strip()
+        
+        # Get email template selection
+        email_template = getattr(model.Data, 'email_template', 'none')
+        
+        # Store cleaned values
+        model.Data.cleaned_step = clean_step
+        model.Data.cleaned_action = clean_action
+        model.Data.cleaned_person_id = clean_person_id
+        model.Data.cleaned_meeting_id = clean_meeting_id
+        model.Data.email_template = email_template
 
-# Main execution
-try:
-    # Set up the check-in manager
-    check_in_manager = CheckInManager(model, q)
-    
-    # Clean input data to handle duplicated values in form submission
-    clean_step = getattr(model.Data, 'step', 'choose_meetings')
-    if ',' in str(clean_step):
-        clean_step = str(clean_step).split(',')[0].strip()
+        # ::STEP:: Handle AJAX requests - FIXED VERSION
+        # Check for AJAX request and handle it, then return early
+        if clean_action == 'ajax_check_in':
+            ajax_handled = process_ajax_check_in(check_in_manager)
+            if ajax_handled:
+                return  # Exit normally without sys.exit()
         
-    clean_action = getattr(model.Data, 'action', None)
-    if clean_action and ',' in str(clean_action):
-        clean_action = str(clean_action).split(',')[0].strip()
-        
-    clean_person_id = getattr(model.Data, 'person_id', None)
-    if clean_person_id and ',' in str(clean_person_id):
-        clean_person_id = str(clean_person_id).split(',')[0].strip()
-        
-    clean_meeting_id = getattr(model.Data, 'meeting_id', None)
-    if clean_meeting_id and ',' in str(clean_meeting_id):
-        clean_meeting_id = str(clean_meeting_id).split(',')[0].strip()
-    
-    # New: Handle selected_org_ids for multi-meeting check-in
-    selected_org_ids = []
-    if hasattr(model.Data, 'selected_org_ids'):
-        org_ids_str = str(model.Data.selected_org_ids)
-        if org_ids_str:
-            selected_org_ids = org_ids_str.split(',')
-    
-    # Store cleaned values
-    model.Data.cleaned_step = clean_step
-    model.Data.cleaned_action = clean_action
-    model.Data.cleaned_person_id = clean_person_id
-    model.Data.cleaned_meeting_id = clean_meeting_id
-    model.Data.selected_org_ids = selected_org_ids
-
-    # Check for AJAX request
-    if clean_action == 'ajax_check_in':
-        # This is an AJAX request, handle it and exit early
-        process_ajax_check_in(check_in_manager)
-        # Exit early using import sys; sys.exit() instead of return
-        import sys
-        sys.exit()  # This will stop execution of the rest of the script
-    
-    # Process different actions
-    if clean_action == 'single_direct_check_in':
-        # Do direct API call
-        if clean_person_id and clean_meeting_id:
-            try:
-                # Direct API call
-                result = check_in_manager.model.EditPersonAttendance(int(clean_meeting_id), int(clean_person_id), True)
-                # Update last check-in time to force stats refresh
-                check_in_manager.last_check_in_time = check_in_manager.model.DateTime
-            except Exception as e:
-                print "Error: " + str(e) + ""
-    
-    # New action type for multi-meeting check-in
-    elif clean_action == 'multi_direct_check_in':
-        # Get person ID
-        if not clean_person_id:
-            print "<div style='color:red;'>Error: No person ID provided</div>"
-        else:
-            try:
-                # Simple approach: Just use the meeting IDs directly from the form
-                success = True
-                check_in_count = 0
-                
-                # Get all meetings selected on the meetings page
-                all_selected_meeting_ids = []
-                if hasattr(model.Data, 'meeting_id'):
-                    if isinstance(model.Data.meeting_id, list):
-                        all_selected_meeting_ids = [m for m in model.Data.meeting_id if m]  # Filter out empty values
-                    elif model.Data.meeting_id:  # Check if not empty
-                        all_selected_meeting_ids = [model.Data.meeting_id]
-                
-                print "<!-- DEBUG: Person ID: {0}, Meeting IDs: {1} -->".format(clean_person_id, all_selected_meeting_ids)
-                
-                # Check person into each meeting directly
-                for meeting_id in all_selected_meeting_ids:
-                    if meeting_id:  # Skip empty meeting IDs
-                        try:
-                            # Convert to integers and use direct API call
-                            person_id_int = int(clean_person_id)
-                            meeting_id_int = int(meeting_id)
-                            
-                            # Skip if zeros to prevent SQL errors
-                            if person_id_int <= 0 or meeting_id_int <= 0:
-                                continue
-                                
-                            result = model.EditPersonAttendance(meeting_id_int, person_id_int, True)
-                            
-                            if "Success" in str(result):
-                                check_in_count += 1
-                            else:
-                                print "<!-- DEBUG: Check-in failed: {0} -->".format(result)
-                                success = False
-                        except Exception as e:
-                            print "<!-- DEBUG: Check-in error for meeting {0}: {1} -->".format(meeting_id, str(e))
-                            success = False
-                
-                # Update last check-in time to force stats refresh
-                check_in_manager.last_check_in_time = check_in_manager.model.DateTime
-                
-                if check_in_count > 0:
-                    print "<!-- DEBUG: Successfully checked in to {0} meetings -->".format(check_in_count)
-                else:
-                    print "<div style='color:red;'>No check-ins were completed. Please try again.</div>"
+        # ::STEP:: Process other form actions (rest of your existing code)
+        if clean_action == 'single_direct_check_in':
+            # Do direct API call with email notification
+            if clean_person_id and clean_meeting_id:
+                try:
+                    person_name = getattr(model.Data, 'person_name', '')
+                    # Direct API call with email
+                    result = check_in_manager.check_in_person_with_email(
+                        int(clean_person_id), 
+                        int(clean_meeting_id), 
+                        person_name,
+                        email_template
+                    )
+                    # Update last check-in time to force stats refresh
+                    check_in_manager.last_check_in_time = check_in_manager.model.DateTime
                     
-            except Exception as e:
-                print "<div style='color:red;'>Error during check-in: " + str(e) + "</div>"
-                import traceback
-                print "<!-- DEBUG: Full error details: " + traceback.format_exc() + " -->"
-    
-    # Handle check-in removal
-    elif clean_action == 'remove_check_in':
-        if clean_person_id and hasattr(model.Data, 'meeting_id'):
-            success = True
-            try:
-                meeting_id = model.Data.meeting_id
-                if isinstance(meeting_id, list):
-                    for mid in meeting_id:
-                        result = check_in_manager.model.EditPersonAttendance(int(mid), int(clean_person_id), False)
+                    # Process any queued emails if batch mode
+                    if PARENT_EMAIL_DELAY:
+                        check_in_manager.email_manager.send_queued_emails()
+                except Exception as e:
+                    print "<div style='color:red;'>Error: " + str(e) + "</div>"
+        
+        # New action type for multi-meeting check-in
+        elif clean_action == 'multi_direct_check_in':
+            # Get person ID
+            if not clean_person_id:
+                print "<div style='color:red;'>Error: No person ID provided</div>"
+            else:
+                try:
+                    # Simple approach: Just use the meeting IDs directly from the form
+                    success = True
+                    check_in_count = 0
+                    person_name = getattr(model.Data, 'person_name', '')
+                    
+                    # Get all meetings selected on the meetings page
+                    all_selected_meeting_ids = []
+                    if hasattr(model.Data, 'meeting_id'):
+                        if isinstance(model.Data.meeting_id, list):
+                            all_selected_meeting_ids = [m for m in model.Data.meeting_id if m]  # Filter out empty values
+                        elif model.Data.meeting_id:  # Check if not empty
+                            all_selected_meeting_ids = [model.Data.meeting_id]
+                    
+                    print "<!-- DEBUG: Person ID: {0}, Meeting IDs: {1} -->".format(clean_person_id, all_selected_meeting_ids)
+                    
+                    # Check person into each meeting directly
+                    for meeting_id in all_selected_meeting_ids:
+                        if meeting_id:  # Skip empty meeting IDs
+                            try:
+                                # Convert to integers and use direct API call
+                                person_id_int = int(clean_person_id)
+                                meeting_id_int = int(meeting_id)
+                                
+                                # Skip if zeros to prevent SQL errors
+                                if person_id_int <= 0 or meeting_id_int <= 0:
+                                    continue
+                                
+                                # Check in with email notification
+                                result = check_in_manager.check_in_person_with_email(
+                                    person_id_int, 
+                                    meeting_id_int, 
+                                    person_name,
+                                    email_template
+                                )
+                                
+                                if result:
+                                    check_in_count += 1
+                                else:
+                                    print "<!-- DEBUG: Check-in failed for meeting {0} -->".format(meeting_id)
+                                    success = False
+                            except Exception as e:
+                                print "<!-- DEBUG: Check-in error for meeting {0}: {1} -->".format(meeting_id, str(e))
+                                success = False
+                    
+                    # Update last check-in time to force stats refresh
+                    check_in_manager.last_check_in_time = check_in_manager.model.DateTime
+                    
+                    # Process any queued emails if batch mode
+                    if PARENT_EMAIL_DELAY:
+                        sent_count = check_in_manager.email_manager.send_queued_emails()
+                        if sent_count > 0:
+                            print "<!-- DEBUG: Sent {0} parent notification emails -->".format(sent_count)
+                    
+                    if check_in_count > 0:
+                        print "<!-- DEBUG: Successfully checked in to {0} meetings -->".format(check_in_count)
+                    else:
+                        print "<div style='color:red;'>No check-ins were completed. Please try again.</div>"
+                        
+                except Exception as e:
+                    print "<div style='color:red;'>Error during check-in: " + str(e) + "</div>"
+                    import traceback
+                    print "<!-- DEBUG: Full error details: " + traceback.format_exc() + " -->"
+        
+        # Handle check-in removal
+        elif clean_action == 'remove_check_in':
+            if clean_person_id and hasattr(model.Data, 'meeting_id'):
+                success = True
+                try:
+                    meeting_id = model.Data.meeting_id
+                    if isinstance(meeting_id, list):
+                        for mid in meeting_id:
+                            result = check_in_manager.model.EditPersonAttendance(int(mid), int(clean_person_id), False)
+                            if "Success" not in str(result):
+                                success = False
+                    else:
+                        result = check_in_manager.model.EditPersonAttendance(int(meeting_id), int(clean_person_id), False)
                         if "Success" not in str(result):
                             success = False
-                else:
-                    result = check_in_manager.model.EditPersonAttendance(int(meeting_id), int(clean_person_id), False)
-                    if "Success" not in str(result):
-                        success = False
-                
-                # Update last check-in time to force stats refresh
-                check_in_manager.last_check_in_time = check_in_manager.model.DateTime
-                
-                if not success:
-                    print "<div style='color:red;'>Some check-in removals failed</div>"
-            except Exception as e:
-                print "<div style='color:red;'>Error: " + str(e) + "</div>"
-    
-    # Determine which page to render
-    if clean_step == 'check_in':
-        render_fastlane_check_in(check_in_manager)
-    else:
-        render_meeting_selection(check_in_manager)
+                    
+                    # Update last check-in time to force stats refresh
+                    check_in_manager.last_check_in_time = check_in_manager.model.DateTime
+                    
+                    if not success:
+                        print "<div style='color:red;'>Some check-in removals failed</div>"
+                except Exception as e:
+                    print "<div style='color:red;'>Error: " + str(e) + "</div>"
         
-except Exception as e:
-    # Print any errors
-    import traceback
-    print "Error"
-    print "An error occurred: {0}".format(str(e))
-    print ""
-    traceback.print_exc()
-    print ""
-    
-    # Link to go back
-    print ("""Back to Check-In""")
+        # ::STEP:: Render appropriate page
+        # Determine which page to render
+        if clean_step == 'check_in':
+            render_fastlane_check_in(check_in_manager)
+        else:
+            render_meeting_selection(check_in_manager)
+            
+    except Exception as e:
+        # ::STEP:: Handle errors
+        import traceback
+        print "<h2>Error</h2>"
+        print "<p>An error occurred: {0}</p>".format(str(e))
+        print "<pre>"
+        traceback.print_exc()
+        print "</pre>"
+        
+        # Link to go back
+        script_name = get_script_name()
+        print '<a href="/PyScript/{0}">Back to Check-In</a>'.format(script_name)
+
+# ::START:: Script Entry Point
+# Call the main function when the script runs
+if __name__ == "__main__":
+    main()
+else:
+    # TouchPoint doesn't use __main__, so always call main()
+    main()
