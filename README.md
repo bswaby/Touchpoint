@@ -387,18 +387,18 @@ Simple download tool allows you to download all documents from an involvement re
 </details>
 
 ### 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/tree/main/TPxi/FastLaneCheckIn)
-This is a streamlined check-in interface for large (100-2500+) events that is built around the concepts of first and foremost being fast for large crowds, secondly it always works towards zero, and the last is that communicates well.  The app is not flashy and is meant for a person or alpha section groups (A-F, G-L, etc..) lines to focus on their area and get people checked-in.  In this setup, it you can select 1 or more involvements that have an active meeting for that day.  
+This is a streamlined check-in interface for large (100-2500+) events that is built around the concepts of first and foremost being fast for large crowds, secondly, it always works towards zero, and lastly, it communicates well.  The app is not flashy and is meant for a person or alpha section groups (A-F, G-L, etc) lines to focus on their area and get people checked in.  In this setup, you can select one or more involvements that have an active meeting for that day.  
 
-Items 1 and 2 are implemented in the current version, and item 3 for communication is currently in the queue to be completed before our preteen camp in June.  The goal of #3 with communication is to confirm check-in and provide other opportunities for the pastors to share other things. For example, if this is a camp, the pastor can share a prayer guide, contact, itinerary, etc.
+Update 6/5/2025:  We have added an email capability that will email the person if they are 18+ or their parents if they are below 17. This uses the email templates built into the system; you just need to include the word "CheckedIn" somewhere in the template name.
 
-Note: this does not print as those modules are not exposed for use.
+Note: This does not print a badge as those modules are not exposed for use.
 
 - ⚙️ **Implementation Level: Easy
-- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
+- 🧩 **Installation: This is a paste-and-go Python script with just a couple of configuration items
 
 <details>
 <summary><strong>Select Groups</strong></summary>
-<p>Select 1 or more involvements.</p>
+<p>Filter by program, select email notification if needed, and then 1 or more groups.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/FastLaneCheckIn/FLC-SelectGroups.png" width="700">
 </p>
