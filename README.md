@@ -389,9 +389,11 @@ Simple download tool allows you to download all documents from an involvement re
 ### 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/tree/main/TPxi/FastLaneCheckIn)
 This is a streamlined check-in interface for large (100-2500+) events that is built around the concepts of first and foremost being fast for large crowds, secondly, it always works towards zero, and lastly, it communicates well.  The app is not flashy and is meant for a person or alpha section groups (A-F, G-L, etc) lines to focus on their area and get people checked in.  In this setup, you can select one or more involvements that have an active meeting for that day.  
 
-Update 6/5/2025:  We have added an email capability that will email the person if they are 18+ or their parents if they are below 17. This uses the email templates built into the system; you just need to include the word "CheckedIn" somewhere in the template name.
+Update 6/5/2025:  Email capability has been added to immediately email the person checking in if they are 18+ or the parents/guardians if the are less than 18 as soon as they are checked in.  The nice thing is that this is built off the email templates in the system and just needs to include "CheckedIn" somewhere in the name for it to show up.
 
-Note: This does not print a badge as those modules are not exposed for use.
+Future:  Currently working on including options to flag for outstanding payments and other information (bus #, cabin #, missing forms, etc..) that helps with checking in for camps.   
+
+Note: This will not print badges as those modules from TP are not exposed.
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with just a couple of configuration items
