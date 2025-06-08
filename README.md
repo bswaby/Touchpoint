@@ -390,7 +390,7 @@ Simple download tool allows you to download all documents from an involvement re
 This streamlined check-in interface is designed for large events (100–2500+ attendees). The core goals are:
 
 1️⃣ Be fast for large crowds
-2️⃣ Always work towards a <b>zero</b>
+2️⃣ Always work towards <b>zero</b>
 3️⃣ Communicate clearly with both staff and attendees.
 
 The app is intentionally minimal and is optimized for use by individuals or teams handling alphabetically segmented lines (A–F, G–L, etc). Users can select one or more Involvements with an active meeting for the day.
