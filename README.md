@@ -403,6 +403,7 @@ The app is intentionally minimal and is optimized for use by individuals or team
 - 6/7/2025:
   - Feature 1: Ability to show specific Groups during check-in (e.g. Bus assignments, Cabin groups, Subgroups). Useful for quick communication.
   - Feature 2: Added an Outstanding Payment flag during check-in to clearly indicate unpaid balances.
+  - Feature 3: Added alphabet grouping options in the UI so it no longer needs to be a configuration change.
 
 
 3️⃣ Badge Limitation Note
