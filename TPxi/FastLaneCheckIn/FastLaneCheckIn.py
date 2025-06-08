@@ -48,7 +48,6 @@ from System.Collections.Generic import List
 
 # ::START:: Configuration and Constants
 # Configuration constants - modify these for your church's needs
-Script_Name = "FastLaneCheckIn2"
 PAGE_SIZE = 500  # Number of people to show per page - smaller for faster loading
 DATE_FORMAT = "M/d/yyyy"
 ATTEND_FLAG = 1  # Present flag for attendance
@@ -1951,6 +1950,16 @@ def render_meeting_selection(check_in_manager):
     <title>FastLane Check-In System</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     {0}
+    <script>
+        // Define global helper functions
+        function getPyScriptAddress() {{
+            var path = window.location.pathname;
+            return path.replace("/PyScript/", "/PyScriptForm/");
+        }}
+        function showLoading() {{
+            document.getElementById('loadingIndicator').style.display = 'block';
+        }}
+    </script>
 </head>
 <body>
     <div class="{1}-container" style="padding: 20px;">
@@ -2854,6 +2863,20 @@ def render_fastlane_check_in(check_in_manager):
                         break
                 
                 item_html += """
+                <script type="text/javascript">
+                    // Define helper functions in global scope
+                    function getPyScriptAddress() {{
+                        var path = window.location.pathname;
+                        return path.replace("/PyScript/", "/PyScriptForm/");
+                    }}
+                    
+                    function showLoading() {{
+                        var loadingEl = document.getElementById('loadingIndicator');
+                        if (loadingEl) {{
+                            loadingEl.style.display = 'block';
+                        }}
+                    }}
+                </script>
                 <button onclick="(function(personId, meetingId, personName, emailTemplate) {{
                     var personCard = document.getElementById('person-' + personId);
                     if (personCard) {{
@@ -2874,7 +2897,7 @@ def render_fastlane_check_in(check_in_manager):
                     formData.append('email_template', emailTemplate);
                     
                     var xhr = new XMLHttpRequest();
-                    xhr.open('POST', '/PyScriptForm/{4}', true);
+                    xhr.open('POST', getPyScriptAddress(), true);
                     
                     xhr.onload = function() {{
                         if (xhr.status === 200) {{
