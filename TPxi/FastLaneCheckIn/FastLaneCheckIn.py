@@ -48,14 +48,24 @@ from System.Collections.Generic import List
 
 # ::START:: Configuration and Constants
 # Configuration constants - modify these for your church's needs
+#Script_Name = "FastLaneCheckIn2"
 PAGE_SIZE = 500  # Number of people to show per page - smaller for faster loading
 DATE_FORMAT = "M/d/yyyy"
 ATTEND_FLAG = 1  # Present flag for attendance
 
-# Alpha filtering blocks for name search
-ALPHA_BLOCKS = [
-    "A-C", "D-F", "G-I", "J-L", "M-O", "P-R", "S-U", "V-Z", "All"
-]
+# Alpha filtering blocks for name search - all possible configurations
+ALPHA_BLOCKS_CONFIG = {
+    3: ["A-H", "I-P", "Q-Z", "All"],
+    4: ["A-F", "G-L", "M-R", "S-Z", "All"],
+    5: ["A-E", "F-J", "K-O", "P-T", "U-Z", "All"],
+    6: ["A-D", "E-H", "I-L", "M-P", "Q-T", "U-Z", "All"],
+    7: ["A-C", "D-F", "G-I", "J-M", "N-Q", "R-U", "V-Z", "All"],
+    8: ["A-C", "D-F", "G-I", "J-L", "M-O", "P-R", "S-U", "V-Z", "All"]
+}
+
+# Default alpha block configuration
+DEFAULT_ALPHA_BLOCK_COUNT = 4
+ALPHA_BLOCKS = ALPHA_BLOCKS_CONFIG[DEFAULT_ALPHA_BLOCK_COUNT]
 
 # Feature Configuration - Set to False to disable features
 ENABLE_SUBGROUP_FILTERING = True  # Set to False to disable subgroup features
@@ -116,11 +126,14 @@ def get_org_name(check_in_manager, org_id):
             return meeting.org_name
     return "Organization {0}".format(org_id)
     
-def render_alpha_filters(current_filter):
+def render_alpha_filters(current_filter, alpha_block_count=DEFAULT_ALPHA_BLOCK_COUNT):
     """Render the alpha filter buttons with scoped CSS"""
     # ::STEP:: Generate alpha filter buttons
+    # Get the appropriate alpha blocks based on selection
+    alpha_blocks = ALPHA_BLOCKS_CONFIG.get(alpha_block_count, ALPHA_BLOCKS_CONFIG[DEFAULT_ALPHA_BLOCK_COUNT])
+    
     buttons = []
-    for alpha_block in ALPHA_BLOCKS:
+    for alpha_block in alpha_blocks:
         active = '{0}-active'.format(CSS_PREFIX) if alpha_block == current_filter else ''
         buttons.append("""
             <label class="{0}-btn {0}-btn-default {1}">
@@ -1943,6 +1956,15 @@ def render_meeting_selection(check_in_manager):
     programs = sorted(list(programs))
     selected_email_template = getattr(check_in_manager.model.Data, 'email_template', DEFAULT_EMAIL_TEMPLATE)
     
+    # Get selected alpha block count
+    selected_alpha_count = getattr(check_in_manager.model.Data, 'alpha_block_count', DEFAULT_ALPHA_BLOCK_COUNT)
+    try:
+        selected_alpha_count = int(selected_alpha_count)
+        if selected_alpha_count not in ALPHA_BLOCKS_CONFIG:
+            selected_alpha_count = DEFAULT_ALPHA_BLOCK_COUNT
+    except:
+        selected_alpha_count = DEFAULT_ALPHA_BLOCK_COUNT
+    
     # Start HTML with scoped CSS
     print """<!DOCTYPE html>
 <html>
@@ -2000,11 +2022,11 @@ def render_meeting_selection(check_in_manager):
     # Main meeting selection form
     print """
     <div class="{0}-well">
-        <form method="post" action="" onsubmit="this.action = getPyScriptAddress(); showLoading();" onsubmit="showLoading()">
+        <form method="post" action="" onsubmit="this.action = getPyScriptAddress(); showLoading();">
             <input type="hidden" name="step" value="check_in">
             
             <!-- Program Filtering Section -->
-    """.format(CSS_PREFIX, script_name)
+    """.format(CSS_PREFIX)
     
     # Program filtering - client-side only
     if programs:
@@ -2056,6 +2078,29 @@ def render_meeting_selection(check_in_manager):
                             <li>For children (under 18): Email sent to parents/guardians</li>
                             <li>For adults (18+): Email sent directly to them</li>
                         </ul>
+                    </div>                      
+                </div>
+            </div>
+            
+            <!-- Alpha Filter Configuration Section -->
+            <div class="{0}-feature-section">
+                <h4 class="{0}-feature-title">Name Filter Configuration</h4>
+                <div class="{0}-form-group">
+                    <label for="alpha_block_count">Number of alphabet groups for filtering:</label>
+                    <select class="{0}-form-control" id="alpha_block_count" name="alpha_block_count">
+    """.format(CSS_PREFIX)
+    
+    # Add options for each configuration
+    for count in sorted(ALPHA_BLOCKS_CONFIG.keys()):
+        blocks = ALPHA_BLOCKS_CONFIG[count][:-1]  # Exclude "All" from display
+        preview = ", ".join(blocks)
+        selected = 'selected="selected"' if count == selected_alpha_count else ''
+        print '<option value="{0}" {2}>{0} groups ({1})</option>'.format(count, preview, selected)
+    
+    print """
+                    </select>
+                    <div class="{0}-help-text">
+                        Choose fewer groups for smaller congregations or more groups for larger ones.
                     </div>                      
                 </div>
             </div>
@@ -2158,12 +2203,6 @@ def render_meeting_selection(check_in_manager):
     </div>
     
     <script>
-        // Helper function to get the correct form submission URL
-        function getPyScriptAddress() {{
-            let path = window.location.pathname;
-            return path.replace("/PyScript/", "/PyScriptForm/");
-        }}    
-
         // Pre-loaded subgroups data
         var orgSubgroups = {1};
         
@@ -2327,7 +2366,7 @@ def render_meeting_selection(check_in_manager):
 </html>
 """.format(CSS_PREFIX, org_subgroups_json, "true" if ENABLE_SUBGROUP_FILTERING else "false")
 
-def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, alpha_filter, search_term):
+def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, alpha_filter, search_term, alpha_block_count=DEFAULT_ALPHA_BLOCK_COUNT):
     """Create a pagination control with scoped CSS"""
     # ::STEP:: Generate pagination controls
     if total_pages <= 1:
@@ -2341,6 +2380,9 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
     # Get email template selection
     email_template = getattr(model.Data, 'email_template', 'none')
     email_template_input = '<input type="hidden" name="email_template" value="{0}">'.format(email_template)
+    
+    # Add alpha block count input
+    alpha_block_count_input = '<input type="hidden" name="alpha_block_count" value="{0}">'.format(alpha_block_count)
     
     # Build pagination HTML with scoped styling
     pagination = ['<div class="{0}-pagination">'.format(CSS_PREFIX)]
@@ -2356,10 +2398,11 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
             '<input type="hidden" name="search_term" value="{4}">'
             '{5}'
             '{6}'
-            '<button type="submit" class="{7}-pagination-btn" onclick="showLoading()">&laquo;</button>'
+            '{8}'
+            '<button type="submit" class="{7}-pagination-btn">&laquo;</button>'
             '</form>'.format(
                 script_name, page - 1, view_mode, alpha_filter, search_term, 
-                meeting_id_inputs, email_template_input, CSS_PREFIX
+                meeting_id_inputs, email_template_input, CSS_PREFIX, alpha_block_count_input
             )
         )
     else:
@@ -2382,10 +2425,11 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
             '<input type="hidden" name="search_term" value="{3}">'
             '{4}'
             '{5}'
-            '<button type="submit" class="{6}-pagination-btn" onclick="showLoading()">1</button>'
+            '{7}'
+            '<button type="submit" class="{6}-pagination-btn">1</button>'
             '</form>'.format(
                 script_name, view_mode, alpha_filter, search_term, 
-                meeting_id_inputs, email_template_input, CSS_PREFIX
+                meeting_id_inputs, email_template_input, CSS_PREFIX, alpha_block_count_input
             )
         )
         if start_page > 2:
@@ -2409,10 +2453,11 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
                 '<input type="hidden" name="search_term" value="{4}">'
                 '{5}'
                 '{6}'
-                '<button type="submit" class="{7}-pagination-btn" onclick="showLoading()">{1}</button>'
+                '{8}'
+                '<button type="submit" class="{7}-pagination-btn">{1}</button>'
                 '</form>'.format(
                     script_name, i, view_mode, alpha_filter, search_term, 
-                    meeting_id_inputs, email_template_input, CSS_PREFIX
+                    meeting_id_inputs, email_template_input, CSS_PREFIX, alpha_block_count_input
                 )
             )
             
@@ -2431,10 +2476,11 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
             '<input type="hidden" name="search_term" value="{4}">'
             '{5}'
             '{6}'
-            '<button type="submit" class="{7}-pagination-btn" onclick="showLoading()">{1}</button>'
+            '{8}'
+            '<button type="submit" class="{7}-pagination-btn">{1}</button>'
             '</form>'.format(
                 script_name, total_pages, view_mode, alpha_filter, search_term, 
-                meeting_id_inputs, email_template_input, CSS_PREFIX
+                meeting_id_inputs, email_template_input, CSS_PREFIX, alpha_block_count_input
             )
         )
         
@@ -2449,10 +2495,11 @@ def create_pagination(page, total_pages, script_name, meeting_ids, view_mode, al
             '<input type="hidden" name="search_term" value="{4}">'
             '{5}'
             '{6}'
-            '<button type="submit" class="{7}-pagination-btn" onclick="showLoading()">&raquo;</button>'
+            '{8}'
+            '<button type="submit" class="{7}-pagination-btn">&raquo;</button>'
             '</form>'.format(
                 script_name, page + 1, view_mode, alpha_filter, search_term, 
-                meeting_id_inputs, email_template_input, CSS_PREFIX
+                meeting_id_inputs, email_template_input, CSS_PREFIX, alpha_block_count_input
             )
         )
     else:
@@ -2539,6 +2586,15 @@ def render_fastlane_check_in(check_in_manager):
     view_mode = getattr(check_in_manager.model.Data, 'view_mode', 'not_checked_in')
     email_template = getattr(check_in_manager.model.Data, 'email_template', 'none')
     
+    # Get alpha block count
+    alpha_block_count = getattr(check_in_manager.model.Data, 'alpha_block_count', DEFAULT_ALPHA_BLOCK_COUNT)
+    try:
+        alpha_block_count = int(alpha_block_count)
+        if alpha_block_count not in ALPHA_BLOCKS_CONFIG:
+            alpha_block_count = DEFAULT_ALPHA_BLOCK_COUNT
+    except:
+        alpha_block_count = DEFAULT_ALPHA_BLOCK_COUNT
+    
     # Handle page
     try:
         page_value = getattr(check_in_manager.model.Data, 'page', 1)
@@ -2559,6 +2615,9 @@ def render_fastlane_check_in(check_in_manager):
     
     # Add email template input
     email_template_input = '<input type="hidden" name="email_template" value="{0}">'.format(email_template)
+    
+    # Add alpha block count input
+    alpha_block_count_input = '<input type="hidden" name="alpha_block_count" value="{0}">'.format(alpha_block_count)
     
     # Add subgroup inputs if enabled
     subgroup_inputs = ""
@@ -2634,25 +2693,27 @@ def render_fastlane_check_in(check_in_manager):
     total_pages = (total_count + PAGE_SIZE - 1) // PAGE_SIZE
     
     # Create pagination controls
-    pagination = create_pagination(current_page, total_pages, script_name, meeting_ids, view_mode, alpha_filter, search_term)
+    pagination = create_pagination(current_page, total_pages, script_name, meeting_ids, view_mode, alpha_filter, search_term, alpha_block_count)
     
-    # Render alpha filters - compact version with scoped CSS
+    alpha_blocks = ALPHA_BLOCKS_CONFIG.get(alpha_block_count, ALPHA_BLOCKS_CONFIG[DEFAULT_ALPHA_BLOCK_COUNT])
+    
     alpha_filters_html = """
     <div class="{0}-alpha-filters">
         <div class="{0}-alpha-title">Filter:</div>
         <div class="{0}-alpha-buttons">
     """.format(CSS_PREFIX)
     
-    for alpha_block in ALPHA_BLOCKS:
+    for alpha_block in alpha_blocks:
         is_active = alpha_block == alpha_filter
         active_class = '{0}-alpha-active'.format(CSS_PREFIX) if is_active else ''
         
         alpha_filters_html += """
-        <form method="post" action="" onsubmit="this.action = getPyScriptAddress(); showLoading();" style="display:inline-block; margin:2px;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
+        <form method="post" action="" onsubmit="this.action = getPyScriptAddress(); showLoading();" style="display:inline-block; margin:2px;">
             <input type="hidden" name="step" value="check_in">
             <input type="hidden" name="view_mode" value="{1}">
             <input type="hidden" name="alpha_filter" value="{2}">
             <input type="hidden" name="search_term" value="{3}">
+            <input type="hidden" name="alpha_block_count" value="{9}">
             {4}
             {5}
             {6}
@@ -2667,7 +2728,8 @@ def render_fastlane_check_in(check_in_manager):
             email_template_input, # {5}
             subgroup_inputs,    # {6}
             CSS_PREFIX,         # {7}
-            active_class        # {8}
+            active_class,       # {8}
+            alpha_block_count   # {9}
         )
     
     alpha_filters_html += """
@@ -2785,7 +2847,7 @@ def render_fastlane_check_in(check_in_manager):
             meeting_id = attended_meeting_ids[0] if attended_meeting_ids else (meeting_ids[0] if meeting_ids else "")
                 
             item_html += """
-                <form method="post" action="" onsubmit="this.action = getPyScriptAddress(); showLoading();" class="{10}-person-buttons" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
+                <form method="post" action="" onsubmit="this.action = getPyScriptAddress(); showLoading();" class="{10}-person-buttons">
                     <input type="hidden" name="step" value="check_in">
                     <input type="hidden" name="action" value="remove_check_in">
                     <input type="hidden" name="person_id" value="{0}">
@@ -2797,6 +2859,7 @@ def render_fastlane_check_in(check_in_manager):
                     <input type="hidden" name="page" value="{9}">
                     {11}
                     {12}
+                    {13}
                     <button type="submit" class="{10}-btn {10}-btn-sm {10}-btn-danger">Remove</button>
                 </form>
             """.format(
@@ -2812,7 +2875,8 @@ def render_fastlane_check_in(check_in_manager):
                 current_page,           # {9}
                 CSS_PREFIX,             # {10}
                 email_template_input,   # {11}
-                subgroup_inputs         # {12}
+                subgroup_inputs,        # {12}
+                alpha_block_count_input # {13}
             )
             
             item_html += """
@@ -3049,7 +3113,7 @@ def render_fastlane_check_in(check_in_manager):
                 
                 <!-- Toggle switch for view mode -->
                 <div style="display:flex; align-items:center;">
-                    <form method="post" action="" onsubmit="this.action = getPyScriptAddress(); showLoading();" style="margin:0; padding:0;" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
+                    <form method="post" action="" onsubmit="this.action = getPyScriptAddress(); showLoading();" style="margin:0; padding:0;">
                         <input type="hidden" name="step" value="check_in">
                         <input type="hidden" name="view_mode" value="{7}">
                         <input type="hidden" name="alpha_filter" value="{6}">
@@ -3057,6 +3121,7 @@ def render_fastlane_check_in(check_in_manager):
                         {9}
                         {13}
                         {15}
+                        {18}
                         <button type="submit" class="{1}-toggle-button">
                             Switch to {10}
                         </button>
@@ -3066,15 +3131,16 @@ def render_fastlane_check_in(check_in_manager):
             
             <div class="{1}-content-body">
                 <!-- Search box -->
-                <form method="post" action="" onsubmit="this.action = getPyScriptAddress(); showLoading();" class="{1}-search-container" onsubmit="document.getElementById('loadingIndicator').style.display='block';">
+                <form method="post" action="" onsubmit="this.action = getPyScriptAddress(); showLoading();" class="{1}-search-container">
                     <input type="hidden" name="step" value="check_in">
                     <input type="hidden" name="view_mode" value="{5}">
                     {9}
                     {13}
                     {15}
+                    {18}
                     <div class="{1}-search-flex">
                         <input type="text" name="search_term" value="{8}" placeholder="Search by name..." class="{1}-search-input">
-                        <button type="submit" class="{1}-search-btn" onclick="document.getElementById('loadingIndicator').style.display='block';">
+                        <button type="submit" class="{1}-search-btn">
                             Search
                         </button>
                     </div>
@@ -3125,7 +3191,8 @@ def render_fastlane_check_in(check_in_manager):
         subgroup_filter_display,  # {14}
         subgroup_inputs,          # {15}
         "\n".join(people_list_html), # {16}
-        pagination                # {17}
+        pagination,                # {17}
+        alpha_block_count_input   # {18}
     )
     
     # Send any queued parent emails if in batch mode
@@ -3136,7 +3203,6 @@ def render_fastlane_check_in(check_in_manager):
     
     return True
 
-# ::START:: Updated Main Function
 # ::START:: Updated Main Function
 def main():
     """Main entry point for the FastLane Check-In system"""
