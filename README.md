@@ -387,12 +387,13 @@ Simple download tool allows you to download all documents from an involvement re
 </details>
 
 ### 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/tree/main/TPxi/FastLaneCheckIn)
-This is a streamlined check-in interface designed for large events (100–2500+ attendees). The core goals are:
+This streamlined check-in interface is designed for large events (100–2500+ attendees). The core goals are:
+
 1️⃣ Be fast for large crowds
-2️⃣ Always work towards a zero-error state
+2️⃣ Always work towards a <b>zero</b>
 3️⃣ Communicate clearly with both staff and attendees.
 
-The app is intentionally minimal and is optimized for use by individuals or teams handling alphabetically segmented lines (A–F, G–L, etc). Users can select one or more Involvements that have an active meeting for the day.
+The app is intentionally minimal and is optimized for use by individuals or teams handling alphabetically segmented lines (A–F, G–L, etc). Users can select one or more Involvements with an active meeting for the day.
 
 2️⃣ 🆕 Recent Updates
 - 6/5/2025: Added Email Notification feature. When a person checks in:
@@ -405,9 +406,8 @@ The app is intentionally minimal and is optimized for use by individuals or team
 
 
 3️⃣ Badge Limitation Note
-You might bold the important part:
 
-Note: This will not print badges, as those modules from TP are not exposed.
+Note: This will <b>not</b> print badges, as those modules from TP are not exposed.
 
 4️⃣ Implementation & Installation Section
 - ⚙️ **Implementation Level: Easy
