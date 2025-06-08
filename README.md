@@ -387,14 +387,29 @@ Simple download tool allows you to download all documents from an involvement re
 </details>
 
 ### 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/tree/main/TPxi/FastLaneCheckIn)
-This is a streamlined check-in interface for large (100-2500+) events that is built around the concepts of first and foremost being fast for large crowds, secondly, it always works towards zero, and lastly, it communicates well.  The app is not flashy and is meant for a person or alpha section groups (A-F, G-L, etc) lines to focus on their area and get people checked in.  In this setup, you can select one or more involvements that have an active meeting for that day.  
+This is a streamlined check-in interface designed for large events (100–2500+ attendees). The core goals are:
+1️⃣ Be fast for large crowds
+2️⃣ Always work towards a zero-error state
+3️⃣ Communicate clearly with both staff and attendees.
 
-Update 6/5/2025:  Email capability has been added to immediately email the person checking in if they are 18+ or the parents/guardians if the are less than 18 as soon as they are checked in.  The nice thing is that this is built off the email templates in the system and just needs to include "CheckedIn" somewhere in the name for it to show up.
+The app is intentionally minimal and is optimized for use by individuals or teams handling alphabetically segmented lines (A–F, G–L, etc). Users can select one or more Involvements that have an active meeting for the day.
 
-Future:  Currently working on including options to flag for outstanding payments and other information (bus #, cabin #, missing forms, etc..) that helps with checking in for camps.   
+2️⃣ 🆕 Recent Updates
+- 6/5/2025: Added Email Notification feature. When a person checks in:
+  - If 18+, an email is sent directly to them.
+  - If under 18, an email is sent to their parent/guardian.
+  - Uses existing system email templates (must include CheckedIn in the name).
+- 6/7/2025:
+  - Feature 1: Ability to show specific Groups during check-in (e.g. Bus assignments, Cabin groups, Subgroups). Useful for quick communication.
+  - Feature 2: Added an Outstanding Payment flag during check-in to clearly indicate unpaid balances.
 
-Note: This will not print badges as those modules from TP are not exposed.
 
+3️⃣ Badge Limitation Note
+You might bold the important part:
+
+Note: This will not print badges, as those modules from TP are not exposed.
+
+4️⃣ Implementation & Installation Section
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with just a couple of configuration items
 
