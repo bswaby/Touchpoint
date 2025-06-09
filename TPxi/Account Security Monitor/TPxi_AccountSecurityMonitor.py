@@ -1382,7 +1382,115 @@ class HighRiskUserMonitor:
                 
         except Exception as e:
             print_error("High-Risk User Overview Generation", e)
-    
+
+    def display_role_analysis_results(self, role_name, role_stats, lookback_days):
+        """Display results for a single role analysis"""
+        try:
+            total_users_with_role = getattr(role_stats, 'TotalUsersWithRole', 0)
+            users_with_failures = getattr(role_stats, 'UsersWithFailures', 0)
+            total_failures = getattr(role_stats, 'TotalFailures', 0)
+            unique_ips = getattr(role_stats, 'UniqueIPs', 0)
+            days_with_incidents = getattr(role_stats, 'DaysWithIncidents', 0)
+            currently_locked = getattr(role_stats, 'CurrentlyLockedUsers', 0)
+            recently_locked = getattr(role_stats, 'RecentlyLockedUsers', 0)
+            forced_resets = getattr(role_stats, 'ForcedPasswordResets', 0)
+            
+            # Calculate metrics
+            if users_with_failures > 0:
+                avg_failed_calc = float(total_failures) / float(users_with_failures)
+                avg_failed_str = "{:.1f}".format(avg_failed_calc)
+            else:
+                avg_failed_str = "0.0"
+            
+            # Calculate percentage of role users with security incidents
+            if total_users_with_role > 0:
+                incident_rate = float(users_with_failures) / float(total_users_with_role) * 100
+                incident_rate_str = "{:.1f}%".format(incident_rate)
+            else:
+                incident_rate_str = "0.0%"
+            
+            # Determine risk color based on multiple factors
+            if currently_locked > 0 or total_failures >= 20:
+                risk_color = '#dc3545'
+                risk_level = 'Critical Risk'
+            elif recently_locked > 0 or total_failures >= 10:
+                risk_color = '#ffc107'
+                risk_level = 'High Risk'
+            elif total_failures >= 5:
+                risk_color = '#fd7e14'
+                risk_level = 'Medium Risk'
+            else:
+                risk_color = '#28a745'
+                risk_level = 'Low Risk'
+            
+            print """
+            <div style="margin: 15px 0; padding: 15px; border: 1px solid {}; border-radius: 6px; background-color: #f8f9fa;">
+                <h4 style="color: {}; margin-top: 0;">
+                    {} Role Security Analysis
+                    <span style="float: right; background-color: {}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">
+                        {}
+                    </span>
+                </h4>
+                <div class="row">
+                    <div class="col-md-3">
+                        <strong>Total {} Users:</strong> {}
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Users with Incidents:</strong> {} ({})
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Security Events:</strong> {}
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Attack Sources:</strong> {}
+                    </div>
+                </div>
+                <div class="row" style="margin-top: 10px;">
+                    <div class="col-md-3">
+                        <strong>Currently Locked:</strong> <span style="color: {};">{}</span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Recently Locked:</strong> <span style="color: {};">{}</span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Forced Resets:</strong> <span style="color: {};">{}</span>
+                    </div>
+                    <div class="col-md-3">
+                        <strong>Avg Failed/Affected User:</strong> {}
+                    </div>
+                </div>
+                <div style="margin-top: 10px; padding: 8px; background-color: rgba(0,0,0,0.05); border-radius: 4px; font-size: 13px;">
+                    <strong>Period Analysis:</strong> Over the last {} days, {} out of {} {} users ({}) experienced security incidents, 
+                    generating {} total failed authentication attempts from {} unique IP sources across {} days.
+                </div>
+            </div>
+            """.format(
+                risk_color, risk_color, role_name,
+                risk_color, risk_level,
+                role_name, total_users_with_role,
+                users_with_failures, incident_rate_str,
+                total_failures, unique_ips,
+                '#dc3545' if currently_locked > 0 else '#28a745', currently_locked,
+                '#ffc107' if recently_locked > 0 else '#28a745', recently_locked,
+                '#fd7e14' if forced_resets > 0 else '#28a745', forced_resets,
+                avg_failed_str,
+                lookback_days, users_with_failures, total_users_with_role, role_name, incident_rate_str,
+                total_failures, unique_ips, days_with_incidents
+            )
+            
+        except Exception as e:
+            print """
+            <div style="margin: 15px 0; padding: 15px; border: 1px solid #dc3545; border-radius: 6px; background-color: #f8d7da;">
+                <h4 style="color: #721c24; margin-top: 0;">
+                    {} Role Analysis - Error
+                </h4>
+                <p style="color: #721c24; margin: 0;">
+                    Error displaying role analysis: {}
+                </p>
+            </div>
+            """.format(role_name, str(e)[:100])
+            
+
     def generate_highrisk_security_events(self, lookback_days, max_results, critical_threshold, monitored_roles):
         """Generate detailed security events analysis for high-risk users"""
         try:
@@ -1574,135 +1682,103 @@ class HighRiskUserMonitor:
             print """
     <div style="border: 2px solid #6f42c1; border-radius: 8px; margin: 20px 0; background-color: #ffffff; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
         <div style="background: linear-gradient(135deg, #e2d9f3 0%, #d6c7f0 100%); border-bottom: 1px solid #c7b3ed; padding: 15px 20px; border-radius: 6px 6px 0 0; font-weight: bold; font-size: 18px; color: #333333;">
-            <i class="fa fa-users-cog"></i> Role-Based Security Risk Analysis
+            <i class="fa fa-users-cog"></i> Role-Based Security Risk Analysis (Last {} Days)
         </div>
         <div style="padding: 20px;">
-            """
+            """.format(lookback_days)
             
-            for role in monitored_roles:
-                # ::STEP:: Corrected Query - simplified AVG calculation
-                sql_role = """
+            # ::STEP:: OPTIMIZED - Single query for all roles to avoid multiple table scans
+            if monitored_roles:
+                # Build role conditions for a single query
+                role_conditions = []
+                for role in monitored_roles:
+                    role_conditions.append("ul.Roles LIKE '%{}%'".format(role))
+                role_where = " OR ".join(role_conditions)
+                
+                sql_all_roles = """
                     SELECT 
-                        COUNT(DISTINCT ul.UserId) AS TotalUsers,
-                        COUNT(*) AS TotalFailures,
+                        -- Extract role name for grouping
+                        CASE 
+                            WHEN ul.Roles LIKE '%Admin%' THEN 'Admin'
+                            WHEN ul.Roles LIKE '%Finance%' THEN 'Finance' 
+                            WHEN ul.Roles LIKE '%FinanceAdmin%' THEN 'FinanceAdmin'
+                            WHEN ul.Roles LIKE '%Developer%' THEN 'Developer'
+                            WHEN ul.Roles LIKE '%ApiOnly%' THEN 'ApiOnly'
+                            ELSE 'Other'
+                        END AS RoleName,
+                        
+                        -- Count unique users with this role (total)
+                        COUNT(DISTINCT ul.UserId) AS TotalUsersWithRole,
+                        
+                        -- Count users with failures in the period
+                        COUNT(DISTINCT CASE WHEN al.ActivityDate IS NOT NULL THEN ul.UserId END) AS UsersWithFailures,
+                        
+                        -- Count total failures in the period
+                        COUNT(al.ActivityDate) AS TotalFailures,
+                        
+                        -- Count unique IPs attacking users with this role
                         COUNT(DISTINCT al.ClientIp) AS UniqueIPs,
+                        
+                        -- Count unique days with incidents
                         COUNT(DISTINCT CAST(al.ActivityDate AS DATE)) AS DaysWithIncidents,
-                        -- Add Users table data for enhanced analysis
-                        SUM(CASE WHEN u.IsLockedOut = 1 THEN 1 ELSE 0 END) AS CurrentlyLockedUsers,
-                        SUM(CASE WHEN u.LastLockedOutDate >= DATEADD(DAY, -{}, GETDATE()) THEN 1 ELSE 0 END) AS RecentlyLockedUsers,
-                        SUM(CASE WHEN u.MustChangePassword = 1 THEN 1 ELSE 0 END) AS ForcedPasswordResets
+                        
+                        -- Current account status (not time-limited)
+                        COUNT(DISTINCT CASE WHEN u.IsLockedOut = 1 THEN ul.UserId END) AS CurrentlyLockedUsers,
+                        COUNT(DISTINCT CASE WHEN u.LastLockedOutDate >= DATEADD(DAY, -{}, GETDATE()) THEN ul.UserId END) AS RecentlyLockedUsers,
+                        COUNT(DISTINCT CASE WHEN u.MustChangePassword = 1 THEN ul.UserId END) AS ForcedPasswordResets
+                        
                     FROM UserList ul
                     LEFT JOIN ActivityLog al ON ul.UserId = al.UserId 
                         AND al.Activity LIKE '%failed%'
                         AND al.ActivityDate >= DATEADD(DAY, -{}, GETDATE())
                     LEFT JOIN Users u ON ul.UserId = u.UserId
-                    WHERE ul.Roles LIKE '%{}%';
-                """.format(lookback_days, lookback_days, role)
+                    WHERE ({})
+                    GROUP BY 
+                        CASE 
+                            WHEN ul.Roles LIKE '%Admin%' THEN 'Admin'
+                            WHEN ul.Roles LIKE '%Finance%' THEN 'Finance'
+                            WHEN ul.Roles LIKE '%FinanceAdmin%' THEN 'FinanceAdmin' 
+                            WHEN ul.Roles LIKE '%Developer%' THEN 'Developer'
+                            WHEN ul.Roles LIKE '%ApiOnly%' THEN 'ApiOnly'
+                            ELSE 'Other'
+                        END
+                    ORDER BY TotalFailures DESC;
+                """.format(lookback_days, lookback_days, role_where)
                 
                 try:
-                    role_data = q.QuerySql(sql_role)
-                    if role_data:
-                        # Handle both iterator and direct object access
-                        if hasattr(role_data, '__iter__') and len(list(role_data)) > 0:
-                            role_data = q.QuerySql(sql_role)  # Re-query to reset iterator
-                            role_stats = list(role_data)[0]
-                        elif hasattr(role_data, 'TotalUsers'):
-                            role_stats = role_data
-                        else:
-                            continue
-                        
-                        total_users = getattr(role_stats, 'TotalUsers', 0)
-                        total_failures = getattr(role_stats, 'TotalFailures', 0)
-                        unique_ips = getattr(role_stats, 'UniqueIPs', 0)
-                        days_with_incidents = getattr(role_stats, 'DaysWithIncidents', 0)
-                        currently_locked = getattr(role_stats, 'CurrentlyLockedUsers', 0)
-                        recently_locked = getattr(role_stats, 'RecentlyLockedUsers', 0)
-                        forced_resets = getattr(role_stats, 'ForcedPasswordResets', 0)
-                        
-                        # Calculate average manually to avoid format issues
-                        if total_users > 0:
-                            avg_failed_calc = float(total_failures) / float(total_users)
-                            avg_failed_str = "{:.1f}".format(avg_failed_calc)
-                        else:
-                            avg_failed_str = "0.0"
-                        
-                        # Determine risk color based on multiple factors
-                        if currently_locked > 0 or total_failures >= 20:
-                            risk_color = '#dc3545'
-                            risk_level = 'Critical Risk'
-                        elif recently_locked > 0 or total_failures >= 10:
-                            risk_color = '#ffc107'
-                            risk_level = 'High Risk'
-                        elif total_failures >= 5:
-                            risk_color = '#fd7e14'
-                            risk_level = 'Medium Risk'
-                        else:
-                            risk_color = '#28a745'
-                            risk_level = 'Low Risk'
-                        
+                    role_data = q.QuerySql(sql_all_roles)
+                    if role_data and len(role_data) > 0:
+                        for role_stats in role_data:
+                            role_name = getattr(role_stats, 'RoleName', 'Unknown')
+                            
+                            # Skip if this role wasn't in our monitored list
+                            if role_name not in monitored_roles and role_name != 'Other':
+                                continue
+                                
+                            self.display_role_analysis_results(role_name, role_stats, lookback_days)
+                    else:
                         print """
-                        <div style="margin: 15px 0; padding: 15px; border: 1px solid {}; border-radius: 6px; background-color: #f8f9fa;">
-                            <h4 style="color: {}; margin-top: 0;">
-                                {} Role Analysis
-                                <span style="float: right; background-color: {}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">
-                                    {}
-                                </span>
-                            </h4>
-                            <div class="row">
-                                <div class="col-md-3">
-                                    <strong>Total Users:</strong> {}
-                                </div>
-                                <div class="col-md-3">
-                                    <strong>Security Events:</strong> {}
-                                </div>
-                                <div class="col-md-3">
-                                    <strong>Attack Sources:</strong> {}
-                                </div>
-                                <div class="col-md-3">
-                                    <strong>Incident Days:</strong> {}
-                                </div>
-                            </div>
-                            <div class="row" style="margin-top: 10px;">
-                                <div class="col-md-3">
-                                    <strong>Currently Locked:</strong> <span style="color: {};">{}</span>
-                                </div>
-                                <div class="col-md-3">
-                                    <strong>Recently Locked:</strong> <span style="color: {};">{}</span>
-                                </div>
-                                <div class="col-md-3">
-                                    <strong>Forced Resets:</strong> <span style="color: {};">{}</span>
-                                </div>
-                                <div class="col-md-3">
-                                    <strong>Avg Failed/User:</strong> {}
-                                </div>
-                            </div>
+                        <div style="margin: 15px 0; padding: 15px; border: 1px solid #28a745; border-radius: 6px; background-color: #d4edda; color: #155724;">
+                            <strong>No Security Incidents:</strong> No users with monitored roles experienced security incidents in the last {} days.
                         </div>
-                        """.format(
-                            risk_color, risk_color, role,
-                            risk_color, risk_level,
-                            total_users, total_failures, unique_ips, days_with_incidents,
-                            '#dc3545' if currently_locked > 0 else '#28a745', currently_locked,
-                            '#ffc107' if recently_locked > 0 else '#28a745', recently_locked,
-                            '#fd7e14' if forced_resets > 0 else '#28a745', forced_resets,
-                            avg_failed_str  # Using pre-formatted string instead of format specifier
-                        )
+                        """.format(lookback_days)
                 except Exception as role_error:
                     print """
                     <div style="margin: 15px 0; padding: 15px; border: 1px solid #dc3545; border-radius: 6px; background-color: #f8d7da;">
                         <h4 style="color: #721c24; margin-top: 0;">
-                            {} Role Analysis - Error
+                            Role Analysis Error
                         </h4>
                         <p style="color: #721c24; margin: 0;">
-                            Error analyzing role: {}
+                            Error analyzing roles: {}
                         </p>
                     </div>
-                    """.format(role, str(role_error)[:100])
-                    continue
-            
-            print """
-        </div>
-    </div>
-            """
+                    """.format(str(role_error)[:100])
+            else:
+                print """
+                <div style="margin: 15px 0; padding: 15px; border: 1px solid #ffc107; border-radius: 6px; background-color: #fff3cd;">
+                    <strong>No Roles Selected:</strong> No high-risk roles selected for monitoring.
+                </div>
+                """
             
         except Exception as e:
             print_error("Role-Based Analysis Generation", e)
@@ -2757,7 +2833,114 @@ class EnhancedSecurityDashboard:
             
         except Exception as e:
             self.print_error("Configuration Form Generation", e)
-    
+            
+    def generate_role_based_analysis(self, lookback_days, monitored_roles):
+        """Generate analysis by role type"""
+        try:
+            print """
+    <div style="border: 2px solid #6f42c1; border-radius: 8px; margin: 20px 0; background-color: #ffffff; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+        <div style="background: linear-gradient(135deg, #e2d9f3 0%, #d6c7f0 100%); border-bottom: 1px solid #c7b3ed; padding: 15px 20px; border-radius: 6px 6px 0 0; font-weight: bold; font-size: 18px; color: #333333;">
+            <i class="fa fa-users-cog"></i> Role-Based Security Risk Analysis (Last {} Days)
+        </div>
+        <div style="padding: 20px;">
+            """.format(lookback_days)
+            
+            # ::STEP:: OPTIMIZED - Single query for all roles to avoid multiple table scans
+            if monitored_roles:
+                # Build role conditions for a single query
+                role_conditions = []
+                for role in monitored_roles:
+                    role_conditions.append("ul.Roles LIKE '%{}%'".format(role))
+                role_where = " OR ".join(role_conditions)
+                
+                sql_all_roles = """
+                    SELECT 
+                        -- Extract role name for grouping
+                        CASE 
+                            WHEN ul.Roles LIKE '%Admin%' THEN 'Admin'
+                            WHEN ul.Roles LIKE '%Finance%' THEN 'Finance' 
+                            WHEN ul.Roles LIKE '%FinanceAdmin%' THEN 'FinanceAdmin'
+                            WHEN ul.Roles LIKE '%Developer%' THEN 'Developer'
+                            WHEN ul.Roles LIKE '%ApiOnly%' THEN 'ApiOnly'
+                            ELSE 'Other'
+                        END AS RoleName,
+                        
+                        -- Count unique users with this role (total)
+                        COUNT(DISTINCT ul.UserId) AS TotalUsersWithRole,
+                        
+                        -- Count users with failures in the period
+                        COUNT(DISTINCT CASE WHEN al.ActivityDate IS NOT NULL THEN ul.UserId END) AS UsersWithFailures,
+                        
+                        -- Count total failures in the period
+                        COUNT(al.ActivityDate) AS TotalFailures,
+                        
+                        -- Count unique IPs attacking users with this role
+                        COUNT(DISTINCT al.ClientIp) AS UniqueIPs,
+                        
+                        -- Count unique days with incidents
+                        COUNT(DISTINCT CAST(al.ActivityDate AS DATE)) AS DaysWithIncidents,
+                        
+                        -- Current account status (not time-limited)
+                        COUNT(DISTINCT CASE WHEN u.IsLockedOut = 1 THEN ul.UserId END) AS CurrentlyLockedUsers,
+                        COUNT(DISTINCT CASE WHEN u.LastLockedOutDate >= DATEADD(DAY, -{}, GETDATE()) THEN ul.UserId END) AS RecentlyLockedUsers,
+                        COUNT(DISTINCT CASE WHEN u.MustChangePassword = 1 THEN ul.UserId END) AS ForcedPasswordResets
+                        
+                    FROM UserList ul
+                    LEFT JOIN ActivityLog al ON ul.UserId = al.UserId 
+                        AND al.Activity LIKE '%failed%'
+                        AND al.ActivityDate >= DATEADD(DAY, -{}, GETDATE())
+                    LEFT JOIN Users u ON ul.UserId = u.UserId
+                    WHERE ({})
+                    GROUP BY 
+                        CASE 
+                            WHEN ul.Roles LIKE '%Admin%' THEN 'Admin'
+                            WHEN ul.Roles LIKE '%Finance%' THEN 'Finance'
+                            WHEN ul.Roles LIKE '%FinanceAdmin%' THEN 'FinanceAdmin' 
+                            WHEN ul.Roles LIKE '%Developer%' THEN 'Developer'
+                            WHEN ul.Roles LIKE '%ApiOnly%' THEN 'ApiOnly'
+                            ELSE 'Other'
+                        END
+                    ORDER BY TotalFailures DESC;
+                """.format(lookback_days, lookback_days, role_where)
+                
+                try:
+                    role_data = q.QuerySql(sql_all_roles)
+                    if role_data and len(role_data) > 0:
+                        for role_stats in role_data:
+                            role_name = getattr(role_stats, 'RoleName', 'Unknown')
+                            
+                            # Skip if this role wasn't in our monitored list
+                            if role_name not in monitored_roles and role_name != 'Other':
+                                continue
+                                
+                            self.display_role_analysis_results(role_name, role_stats, lookback_days)
+                    else:
+                        print """
+                        <div style="margin: 15px 0; padding: 15px; border: 1px solid #28a745; border-radius: 6px; background-color: #d4edda; color: #155724;">
+                            <strong>No Security Incidents:</strong> No users with monitored roles experienced security incidents in the last {} days.
+                        </div>
+                        """.format(lookback_days)
+                except Exception as role_error:
+                    print """
+                    <div style="margin: 15px 0; padding: 15px; border: 1px solid #dc3545; border-radius: 6px; background-color: #f8d7da;">
+                        <h4 style="color: #721c24; margin-top: 0;">
+                            Role Analysis Error
+                        </h4>
+                        <p style="color: #721c24; margin: 0;">
+                            Error analyzing roles: {}
+                        </p>
+                    </div>
+                    """.format(str(role_error)[:100])
+            else:
+                print """
+                <div style="margin: 15px 0; padding: 15px; border: 1px solid #ffc107; border-radius: 6px; background-color: #fff3cd;">
+                    <strong>No Roles Selected:</strong> No high-risk roles selected for monitoring.
+                </div>
+                """
+        
+        except Exception as e:
+            self.print_error("Configuration Form Generation", e)
+                
     def generate_security_report(self, params):
         """Generate comprehensive enhanced security report"""
         try:
@@ -3274,6 +3457,113 @@ class EnhancedSecurityDashboard:
                 </div>
                 """
             
+        except Exception as e:
+            self.print_error("Enhanced Critical Alerts Generation", e)
+            
+
+    def generate_role_based_analysis(self, lookback_days, monitored_roles):
+        """Generate analysis by role type"""
+        try:
+            print """
+    <div style="border: 2px solid #6f42c1; border-radius: 8px; margin: 20px 0; background-color: #ffffff; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+        <div style="background: linear-gradient(135deg, #e2d9f3 0%, #d6c7f0 100%); border-bottom: 1px solid #c7b3ed; padding: 15px 20px; border-radius: 6px 6px 0 0; font-weight: bold; font-size: 18px; color: #333333;">
+            <i class="fa fa-users-cog"></i> Role-Based Security Risk Analysis (Last {} Days)
+        </div>
+        <div style="padding: 20px;">
+            """.format(lookback_days)
+            
+            # ::STEP:: OPTIMIZED - Single query for all roles to avoid multiple table scans
+            if monitored_roles:
+                # Build role conditions for a single query
+                role_conditions = []
+                for role in monitored_roles:
+                    role_conditions.append("ul.Roles LIKE '%{}%'".format(role))
+                role_where = " OR ".join(role_conditions)
+                
+                sql_all_roles = """
+                    SELECT 
+                        -- Extract role name for grouping
+                        CASE 
+                            WHEN ul.Roles LIKE '%Admin%' THEN 'Admin'
+                            WHEN ul.Roles LIKE '%Finance%' THEN 'Finance' 
+                            WHEN ul.Roles LIKE '%FinanceAdmin%' THEN 'FinanceAdmin'
+                            WHEN ul.Roles LIKE '%Developer%' THEN 'Developer'
+                            WHEN ul.Roles LIKE '%ApiOnly%' THEN 'ApiOnly'
+                            ELSE 'Other'
+                        END AS RoleName,
+                        
+                        -- Count unique users with this role (total)
+                        COUNT(DISTINCT ul.UserId) AS TotalUsersWithRole,
+                        
+                        -- Count users with failures in the period
+                        COUNT(DISTINCT CASE WHEN al.ActivityDate IS NOT NULL THEN ul.UserId END) AS UsersWithFailures,
+                        
+                        -- Count total failures in the period
+                        COUNT(al.ActivityDate) AS TotalFailures,
+                        
+                        -- Count unique IPs attacking users with this role
+                        COUNT(DISTINCT al.ClientIp) AS UniqueIPs,
+                        
+                        -- Count unique days with incidents
+                        COUNT(DISTINCT CAST(al.ActivityDate AS DATE)) AS DaysWithIncidents,
+                        
+                        -- Current account status (not time-limited)
+                        COUNT(DISTINCT CASE WHEN u.IsLockedOut = 1 THEN ul.UserId END) AS CurrentlyLockedUsers,
+                        COUNT(DISTINCT CASE WHEN u.LastLockedOutDate >= DATEADD(DAY, -{}, GETDATE()) THEN ul.UserId END) AS RecentlyLockedUsers,
+                        COUNT(DISTINCT CASE WHEN u.MustChangePassword = 1 THEN ul.UserId END) AS ForcedPasswordResets
+                        
+                    FROM UserList ul
+                    LEFT JOIN ActivityLog al ON ul.UserId = al.UserId 
+                        AND al.Activity LIKE '%failed%'
+                        AND al.ActivityDate >= DATEADD(DAY, -{}, GETDATE())
+                    LEFT JOIN Users u ON ul.UserId = u.UserId
+                    WHERE ({})
+                    GROUP BY 
+                        CASE 
+                            WHEN ul.Roles LIKE '%Admin%' THEN 'Admin'
+                            WHEN ul.Roles LIKE '%Finance%' THEN 'Finance'
+                            WHEN ul.Roles LIKE '%FinanceAdmin%' THEN 'FinanceAdmin' 
+                            WHEN ul.Roles LIKE '%Developer%' THEN 'Developer'
+                            WHEN ul.Roles LIKE '%ApiOnly%' THEN 'ApiOnly'
+                            ELSE 'Other'
+                        END
+                    ORDER BY TotalFailures DESC;
+                """.format(lookback_days, lookback_days, role_where)
+                
+                try:
+                    role_data = q.QuerySql(sql_all_roles)
+                    if role_data and len(role_data) > 0:
+                        for role_stats in role_data:
+                            role_name = getattr(role_stats, 'RoleName', 'Unknown')
+                            
+                            # Skip if this role wasn't in our monitored list
+                            if role_name not in monitored_roles and role_name != 'Other':
+                                continue
+                                
+                            self.display_role_analysis_results(role_name, role_stats, lookback_days)
+                    else:
+                        print """
+                        <div style="margin: 15px 0; padding: 15px; border: 1px solid #28a745; border-radius: 6px; background-color: #d4edda; color: #155724;">
+                            <strong>No Security Incidents:</strong> No users with monitored roles experienced security incidents in the last {} days.
+                        </div>
+                        """.format(lookback_days)
+                except Exception as role_error:
+                    print """
+                    <div style="margin: 15px 0; padding: 15px; border: 1px solid #dc3545; border-radius: 6px; background-color: #f8d7da;">
+                        <h4 style="color: #721c24; margin-top: 0;">
+                            Role Analysis Error
+                        </h4>
+                        <p style="color: #721c24; margin: 0;">
+                            Error analyzing roles: {}
+                        </p>
+                    </div>
+                    """.format(str(role_error)[:100])
+            else:
+                print """
+                <div style="margin: 15px 0; padding: 15px; border: 1px solid #ffc107; border-radius: 6px; background-color: #fff3cd;">
+                    <strong>No Roles Selected:</strong> No high-risk roles selected for monitoring.
+                </div>
+                """
         except Exception as e:
             self.print_error("Enhanced Critical Alerts Generation", e)
     
