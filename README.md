@@ -386,6 +386,69 @@ Simple download tool allows you to download all documents from an involvement re
 </p>
 </details>
 
+### 🔗 [Account Security Monitor](https://github.com/bswaby/Touchpoint/blob/main/TPxi/Account%20Security%20Monitor/TPxi_AccountSecurityMonitor.py)
+This Python dashboard provides advanced security analytics, automated threat detection, and actionable intelligence for protecting your church's digital infrastructure.
+
+🛡️ Key Features
+
+
+
+
+
+
+
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
+
+<details>
+<summary><strong>🎯 Dashboard</strong></summary>
+- Real-time KPI Dashboard - 7-day security overview with critical metrics
+- Executive Summary - High-level security posture at a glance
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Account%20Security%20Monitor/Sec-Dashboard.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>🔍 High-Risk User Monitor</strong></summary>
+- Privileged Account Protection - Enhanced monitoring for Admin, Finance, Developer, and API accounts
+- Role-Based Risk Analysis - Automated classification by user privileges
+- Targeted Attack Detection - Identifies attacks specifically targeting high-value accounts
+- Account Compromise Detection - Behavioral analysis for potential breaches
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Account%20Security%20Monitor/Sec-HighSecurity1.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Account%20Security%20Monitor/Sec-HighSecurity2.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Account%20Security%20Monitor/Sec-HighSecurity3.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Account%20Security%20Monitor/Sec-HighSecurity4.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>📊 Enhanced Security Dashboard</strong></summary>
+- Advanced Threat Intelligence - Pattern recognition and attack classification
+- IP Reputation Analysis - Geographic tracking and threat attribution
+- Automated Risk Scoring - Dynamic threat level assessment
+- Compliance Reporting - Audit-ready security documentation
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Account%20Security%20Monitor/Sec-Enhanced1.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Account%20Security%20Monitor/Sec-Enhanced2.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Account%20Security%20Monitor/Sec-Enhanced3.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Account%20Security%20Monitor/Sec-Enhanced4.png" width="700">
+</p>
+</details>
+
 ### 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/tree/main/TPxi/FastLaneCheckIn)
 This streamlined check-in interface is designed for large events (100–2500+ attendees). The core goals are:
 
