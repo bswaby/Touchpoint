@@ -16,6 +16,9 @@
 #  3. Select New Python Script File, Name the File, and click submit
 #  4. Paste in the code, edit the charge variables below, and run
 #  5. Add to menu if needed
+#
+# written by: Ben Swaby
+# email: bswaby@fbchtn.org
 
 
 #####################################################################
@@ -36,6 +39,7 @@ CCPerTransaction = 0.50
 #AMEX Charges
 AmexPercent = 0.05 #Use numeric.  0.05 = 5%
 AmexPerTransaction = 0.50 
+
 
 #######################################################################
 ####START OF CODE.  No configuration should be needed beyond this point
@@ -79,7 +83,69 @@ def format_currency(amount, show_dollar=True, use_comma=True):
 
     return ("$" + formatted) if show_dollar else formatted
 
-sql = '''
+sql = """
+WITH FilteredTransactions AS (
+    SELECT 
+        t.*,
+        f.SettleDate,
+        f.AccountType,
+        f.FortisWebHookTransactionId
+    FROM [Transaction] t 
+    LEFT JOIN [FortisWebhookTransactions] f ON f.FortisWebHookTransactionId = t.TransactionId
+    WHERE 
+        (
+            -- For ACH transactions, use SettleDate
+            (t.PaymentType = '{4}' AND f.SettleDate BETWEEN '{0}' AND '{1} 23:59:59.999')
+            OR
+            -- For all other transactions, use settled date
+            (t.PaymentType <> '{4}' AND t.settled BETWEEN '{0}' AND '{1} 23:59:59.999')
+        )
+        AND t.TransactionId IS NOT NULL
+        AND t.voided IS NULL
+),
+ExtractedData AS (
+    SELECT 
+        pro.Name AS Program,
+        o.OrganizationId,
+        CASE 
+            WHEN o.RegAccountCodeId IS NOT NULL THEN CAST(o.RegAccountCodeId AS NVARCHAR(50))
+            ELSE o.RegSettingXML.value('(/Settings/Fees/AccountingCode)[1]', 'NVARCHAR(50)')
+        END AS AccountingCode,
+        ft.amt AS Amount,
+        CASE 
+            WHEN ft.PaymentType = '{7}' AND ft.AccountType <> 'amex'
+            THEN CEILING(((ft.amt * {5}) + {6} + 0.00001) * 100) / 100
+            ELSE 0 
+        END AS CCFees,
+        CASE 
+            WHEN ft.PaymentType = '{10}' AND ft.AccountType = 'amex'
+            THEN CEILING(((ft.amt * {8}) + {9} + 0.00001) * 100) / 100
+            ELSE 0 
+        END AS AmexFees,
+        CASE 
+            WHEN ft.PaymentType = '{4}' 
+            THEN CEILING(((ft.amt * {2}) + {3} + 0.00001) * 100) / 100
+            ELSE 0 
+        END AS ACHFees
+    FROM FilteredTransactions ft
+    LEFT JOIN Organizations o ON o.OrganizationId = ft.OrgId
+    LEFT JOIN Division d ON d.Id = o.DivisionId
+    LEFT JOIN Program pro ON pro.Id = d.ProgId
+)
+SELECT 
+    ed.Program,
+    CONCAT(ac.Description, ' (', ac.Code, ')') AS AccountingCode,
+    SUM(ed.Amount) AS Amount,
+    SUM(ed.CCFees) AS CCFees,
+    SUM(ed.AmexFees) AS AmexFees,
+    SUM(ed.ACHFees) AS ACHFees
+FROM ExtractedData ed
+LEFT JOIN lookup.AccountCode ac ON ac.Id = ed.AccountingCode
+GROUP BY ed.Program, ac.Code, ac.Description
+ORDER BY ed.Program;
+"""
+
+sqlold = '''
 WITH ExtractedData AS (
     SELECT 
         pro.Name AS Program,
@@ -89,7 +155,7 @@ WITH ExtractedData AS (
             WHEN o.RegAccountCodeId IS NOT NULL THEN CAST(o.RegAccountCodeId AS NVARCHAR(50))
             ELSE o.RegSettingXML.value('(/Settings/Fees/AccountingCode)[1]', 'NVARCHAR(50)')
         END AS AccountingCode, -- Check for RegAccountCodeId first
-	t.amt AS Amount,
+        t.amt AS Amount,
         CASE 
             WHEN t.PaymentType = '{7}' and f.AccountType <> 'amex'
             THEN CEILING(((t.amt * {5}) + {6} + 0.00001) * 100) / 100
@@ -113,7 +179,7 @@ WITH ExtractedData AS (
     WHERE 
         t.settled BETWEEN '{0}' AND '{1} 23:59:59.999'
         AND t.TransactionId IS NOT NULL
-        AND t.AuthCode IS NOT NULL
+        --AND t.AuthCode IS NOT NULL
         AND t.voided IS NULL
 )
 SELECT 
@@ -137,24 +203,142 @@ if eDate is not None:
 
 
 headerTemplate = '''
-    <form action="" method="GET">
-        <label for="sDate">Start:</label>
-        <input type="date" id="sDate" name="sDate" required {0}>
-        <label for="eDate">End:</label>
-        <input type="date" id="eDate" name="eDate" required {1}>
-        <input type="submit" value="Submit">
-    </form>
-    <br>
-    <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; text-align: left;">
-         <tr style="background-color: #f4f4f4; font-weight: bold;">
-            <td>Program</td>
-            <td>Accounting Code</td>
-            <td>Amount</td>
-            <td>CC Fees</td>
-            <td>Amex Fees</td>
-            <td>ACH Fees</td>
-            <td>Total Fees</td>
-        </tr>
+    <style>
+        .fortis-container {{
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }}
+        .form-container {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }}
+        .form-container label {{
+            color: white;
+            font-weight: 600;
+            margin-right: 10px;
+            font-size: 14px;
+        }}
+        .form-container input[type="date"] {{
+            padding: 8px 12px;
+            border: none;
+            border-radius: 6px;
+            margin: 0 15px 0 5px;
+            font-size: 14px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .form-container input[type="submit"] {{
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            margin-left: 10px;
+            transition: background 0.3s ease;
+        }}
+        .form-container input[type="submit"]:hover {{
+            background: #45a049;
+        }}
+        .report-table {{
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }}
+        .report-table th {{
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 15px 12px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        .report-table td {{
+            padding: 12px;
+            border-bottom: 1px solid #ecf0f1;
+            font-size: 14px;
+        }}
+        .report-table tr:hover {{
+            background-color: #f8f9fa;
+        }}
+        .amount-col {{ text-align: right; font-weight: 500; }}
+        .fee-col {{ 
+            text-align: right; 
+            font-weight: 500;
+            color: #e74c3c;
+        }}
+        .card-total-col {{ 
+            text-align: right; 
+            font-weight: 600;
+            color: #f39c12;
+            background-color: #fef9e7;
+        }}
+        .total-col {{ 
+            text-align: right; 
+            font-weight: 700;
+            color: #27ae60;
+            background-color: #eafaf1;
+        }}
+        .grand-total-row {{
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            font-weight: 700;
+        }}
+        .grand-total-row td {{
+            border-bottom: none;
+            padding: 15px 12px;
+        }}
+        .disclaimer {{
+            background: #f8f9fa;
+            border-left: 4px solid #17a2b8;
+            padding: 15px 20px;
+            margin-top: 20px;
+            border-radius: 0 8px 8px 0;
+            font-size: 13px;
+            color: #495057;
+            line-height: 1.5;
+        }}
+        .disclaimer-title {{
+            font-weight: 600;
+            color: #17a2b8;
+            margin-bottom: 8px;
+        }}
+    </style>
+    <div class="fortis-container">
+        <div class="form-container">
+            <form action="" method="GET">
+                <label for="sDate">Start Date:</label>
+                <input type="date" id="sDate" name="sDate" required {0}>
+                <label for="eDate">End Date:</label>
+                <input type="date" id="eDate" name="eDate" required {1}>
+                <input type="submit" value="Generate Report">
+            </form>
+        </div>
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>Program</th>
+                    <th>Accounting Code</th>
+                    <th>Transaction Amount</th>
+                    <th>CC Fees</th>
+                    <th>Amex Fees</th>
+                    <th>ACH Fees</th>
+                    <th style="background: #f39c12;">Card Fees Total</th>
+                    <th style="background: #27ae60;">All Fees Total</th>
+                </tr>
+            </thead>
+            <tbody>
 '''.format(optionsDate,optioneDate)
 
 rsql = q.QuerySql(sql.format(sDate,
@@ -168,64 +352,76 @@ rsql = q.QuerySql(sql.format(sDate,
                              AmexPercent,
                              AmexPerTransaction,
                              AmexPaymentType))
+                             
 
 bodyTemplate = '' 
 TotalFortis = 0
 TotalFortisCC = 0
 TotalFortisAmex = 0
 TotalFortisACH = 0
-TotalFortisFees = 0
+TotalFortisCardFees = 0  # CC + Amex total
+TotalFortisFees = 0     # All fees total
 
-#for f in rsql:
-    #ColumnTotal
-#    totalFees = f.CCFees + f.ACHFees + f.AmexFees
 
 for f in rsql:
-    # Column Total
-    totalFees = (f.CCFees if f.CCFees is not None else Decimal(0)) + \
-                (f.ACHFees if f.ACHFees is not None else Decimal(0)) + \
-                (f.AmexFees if f.AmexFees is not None else Decimal(0))  
+    # Column Totals
+    cardFees = (f.CCFees if f.CCFees is not None else Decimal(0)) + \
+               (f.AmexFees if f.AmexFees is not None else Decimal(0))
+    
+    totalFees = cardFees + (f.ACHFees if f.ACHFees is not None else Decimal(0))  
 
-    #Grand Total
+    #Grand Totals
     TotalFortis += f.Amount or 0
     TotalFortisCC += f.CCFees or 0
     TotalFortisAmex += f.AmexFees or 0
     TotalFortisACH += f.ACHFees or 0
+    TotalFortisCardFees += cardFees or 0
     TotalFortisFees += totalFees or 0
     
     bodyTemplate += '''
-        <tr>
-            <td>{0}</td>
-            <td>{1}</td>
-            <td>{2}</td>
-            <td>{3}</td>
-            <td>{4}</td>
-            <td>{5}</td>
-            <td>{6}</td>
-        </tr>
+                <tr>
+                    <td>{0}</td>
+                    <td>{1}</td>
+                    <td class="amount-col">{2}</td>
+                    <td class="fee-col">{3}</td>
+                    <td class="fee-col">{4}</td>
+                    <td class="fee-col">{5}</td>
+                    <td class="card-total-col">{6}</td>
+                    <td class="total-col">{7}</td>
+                </tr>
     '''.format(f.Program if f.Program is not None else "",
                f.AccountingCode if f.AccountingCode is not None else "",
                format_currency(f.Amount if f.Amount is not None else 0),
                format_currency(f.CCFees if f.CCFees is not None else 0),
                format_currency(f.AmexFees if f.AmexFees is not None else 0),
                format_currency(f.ACHFees if f.ACHFees is not None else 0),
+               format_currency(cardFees if cardFees is not None else 0),
                format_currency(totalFees if totalFees is not None else 0))
                
 
 bodyTemplate += '''
-    <tr>
-        <td></td>
-        <td></td>
-        <td><strong>{0}</strong></td>
-        <td><strong>{1}</strong></td>
-        <td><strong>{2}</strong></td>
-        <td><strong>{3}</strong></td>
-        <td><strong>{4}</strong></td>
-    </tr>
-    </table>'''.format(format_currency(TotalFortis),
+            </tbody>
+            <tfoot>
+                <tr class="grand-total-row">
+                    <td colspan="2"><strong>GRAND TOTALS</strong></td>
+                    <td style="text-align: right;"><strong>{0}</strong></td>
+                    <td style="text-align: right;"><strong>{1}</strong></td>
+                    <td style="text-align: right;"><strong>{2}</strong></td>
+                    <td style="text-align: right;"><strong>{3}</strong></td>
+                    <td style="text-align: right;"><strong>{4}</strong></td>
+                    <td style="text-align: right;"><strong>{5}</strong></td>
+                </tr>
+            </tfoot>
+        </table>
+        <div class="disclaimer">
+            <div class="disclaimer-title">Important Note:</div>
+            This report is based on transaction data within TouchPoint. Please note that credit card update feature fees and some reversals may not be reflected back to TouchPoint, which could result in slight discrepancies between this report and actual processing fees charged by Fortis.
+        </div>
+    </div>'''.format(format_currency(TotalFortis),
                        format_currency(TotalFortisCC),
                        format_currency(TotalFortisAmex),
                        format_currency(TotalFortisACH),
+                       format_currency(TotalFortisCardFees),
                        format_currency(TotalFortisFees))
 
 
