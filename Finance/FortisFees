@@ -16,74 +16,115 @@
 #  3. Select New Python Script File, Name the File, and click submit
 #  4. Paste in the code, edit the charge variables below, and run
 #  5. Add to menu if needed
-#
-# written by: Ben Swaby
+
+# written by: Ben SWaby
 # email: bswaby@fbchtn.org
 
+#####################################################################
+#### WORKFLOW OVERVIEW
+#####################################################################
+# ::WORKFLOW::
+# 1. Initialize Configuration & Imports
+# 2. Setup Fee Calculation Variables  
+# 3. Define Currency Formatting Function
+# 4. Build Dynamic SQL Query with CTEs
+# 5. Generate HTML Form & Table Headers
+# 6. Execute Query & Process Results
+# 7. Calculate Row-Level Totals
+# 8. Generate HTML Output with Styling
+# 9. Display Final Report with Disclaimer
 
 #####################################################################
 ####USER CONFIG FIELDS
 #####################################################################
-#These are defined variables that are required for the report to run.
+# ::START:: Configuration Setup
+# This section defines all user-configurable variables for fee calculations
 
 model.Header = 'Fortis Fees' #Page Name
 
-#ACH Charge
+# ::STEP:: ACH Fee Configuration
+# Define percentage and per-transaction fees for ACH payments
 ACHPercent = 0.05 #Use numeric.  0.05 = 5%
 ACHPerTransaction = 0.50 
 
-#CC Charge
+# ::STEP:: Credit Card Fee Configuration  
+# Define percentage and per-transaction fees for standard CC payments
 CCPercent = 0.05 #Use numeric.  0.05 = 5%
 CCPerTransaction = 0.50 
 
-#AMEX Charges
+# ::STEP:: American Express Fee Configuration
+# Define percentage and per-transaction fees for Amex payments (typically higher)
 AmexPercent = 0.05 #Use numeric.  0.05 = 5%
 AmexPerTransaction = 0.50 
-
+# ::END:: Configuration Setup
 
 #######################################################################
 ####START OF CODE.  No configuration should be needed beyond this point
 #######################################################################
 #######################################################################
+
+# ::START:: System Initialization
+# Import required libraries and setup date handling
 import datetime
 from decimal import Decimal
 
-
+# ::STEP:: Date Processing
+# Get current date and extract user-provided date range from form submission
 current_date = datetime.date.today().strftime("%B %d, %Y")
-sDate = model.Data.sDate
-eDate = model.Data.eDate
+sDate = model.Data.sDate  # Start date from form
+eDate = model.Data.eDate  # End date from form
 
+# ::STEP:: Payment Type Mapping
+# Define payment type codes used in TouchPoint database
 ACHPaymentType = 'B' #This most likely won't need to change
 CCPaymentType = 'C' #This most likely won't need to change.
 AmexPaymentType = 'C' #This most likely won't need to change.
+# ::END:: System Initialization
 
-#update currency
+# ::START:: Currency Formatting Function
+# Handles display formatting for monetary values with proper symbols and decimals
 def format_currency(amount, show_dollar=True, use_comma=True):
-    # If amount is a string, remove "$" and "," before converting to float
+    """
+    Formats monetary amounts for display
+    - Handles string/numeric conversion
+    - Shows appropriate decimal places
+    - Adds thousands separators
+    - Returns "-" for zero values
+    """
+    # ::STEP:: Input Sanitization
+    # Convert string amounts to float, removing currency symbols
     if isinstance(amount, str):
         amount = re.sub(r'[^\d.-]', '', amount)  # Remove non-numeric characters except "." and "-"
     
     amount = float(amount)  # Convert to float
 
-    # Return "-" for zero values
+    # ::STEP:: Zero Value Handling
+    # Return dash for zero amounts to improve readability
     if amount == 0.00:
         return "-"
 
-    # Determine decimal places
+    # ::STEP:: Decimal Place Logic
+    # Show cents for small amounts, whole dollars for larger amounts
     if amount % 1 != 0 or (1 <= amount < 10):
         formatted = "%.2f" % amount  # Show cents
     else:
         formatted = "%.0f" % amount  # No cents for whole numbers ($10+)
 
-    # Add thousands separators manually if needed
+    # ::STEP:: Thousands Separator Addition
+    # Add commas for readability in large numbers
     if use_comma:
         parts = formatted.split(".")  # Split whole number and decimal parts
         parts[0] = "{:,}".format(int(parts[0]))  # Add commas to the whole number part
         formatted = ".".join(parts)  # Reassemble
 
     return ("$" + formatted) if show_dollar else formatted
+# ::END:: Currency Formatting Function
 
+# ::START:: SQL Query Construction
+# Build complex query with CTEs for filtered transactions and fee calculations
 sql = """
+-- ::CTE:: FilteredTransactions
+-- First CTE handles different date filtering logic for ACH vs other payment types
 WITH FilteredTransactions AS (
     SELECT 
         t.*,
@@ -94,34 +135,40 @@ WITH FilteredTransactions AS (
     LEFT JOIN [FortisWebhookTransactions] f ON f.FortisWebHookTransactionId = t.TransactionId
     WHERE 
         (
-            -- For ACH transactions, use SettleDate
+            -- For ACH transactions, use SettleDate from Fortis webhook
             (t.PaymentType = '{4}' AND f.SettleDate BETWEEN '{0}' AND '{1} 23:59:59.999')
             OR
-            -- For all other transactions, use settled date
+            -- For all other transactions, use standard settled date
             (t.PaymentType <> '{4}' AND t.settled BETWEEN '{0}' AND '{1} 23:59:59.999')
         )
         AND t.TransactionId IS NOT NULL
         AND t.voided IS NULL
 ),
+-- ::CTE:: ExtractedData  
+-- Second CTE calculates fees and extracts organization/program information
 ExtractedData AS (
     SELECT 
         pro.Name AS Program,
         o.OrganizationId,
+        -- Dynamic accounting code lookup (RegAccountCodeId takes precedence over XML)
         CASE 
             WHEN o.RegAccountCodeId IS NOT NULL THEN CAST(o.RegAccountCodeId AS NVARCHAR(50))
             ELSE o.RegSettingXML.value('(/Settings/Fees/AccountingCode)[1]', 'NVARCHAR(50)')
         END AS AccountingCode,
         ft.amt AS Amount,
+        -- CC Fee Calculation (non-Amex credit cards)
         CASE 
             WHEN ft.PaymentType = '{7}' AND ft.AccountType <> 'amex'
             THEN CEILING(((ft.amt * {5}) + {6} + 0.00001) * 100) / 100
             ELSE 0 
         END AS CCFees,
+        -- Amex Fee Calculation (separate rate for American Express)
         CASE 
             WHEN ft.PaymentType = '{10}' AND ft.AccountType = 'amex'
             THEN CEILING(((ft.amt * {8}) + {9} + 0.00001) * 100) / 100
             ELSE 0 
         END AS AmexFees,
+        -- ACH Fee Calculation (bank transfers)
         CASE 
             WHEN ft.PaymentType = '{4}' 
             THEN CEILING(((ft.amt * {2}) + {3} + 0.00001) * 100) / 100
@@ -132,6 +179,8 @@ ExtractedData AS (
     LEFT JOIN Division d ON d.Id = o.DivisionId
     LEFT JOIN Program pro ON pro.Id = d.ProgId
 )
+-- ::QUERY:: Final Results
+-- Group by program and accounting code, sum all amounts and fees
 SELECT 
     ed.Program,
     CONCAT(ac.Description, ' (', ac.Code, ')') AS AccountingCode,
@@ -144,7 +193,10 @@ LEFT JOIN lookup.AccountCode ac ON ac.Id = ed.AccountingCode
 GROUP BY ed.Program, ac.Code, ac.Description
 ORDER BY ed.Program;
 """
+# ::END:: SQL Query Construction
 
+# ::START:: Legacy SQL (Preserved for Reference)
+# Original query kept for comparison and rollback purposes
 sqlold = '''
 WITH ExtractedData AS (
     SELECT 
@@ -194,14 +246,19 @@ LEFT JOIN lookup.AccountCode ac ON ac.Id = ed.AccountingCode
 GROUP BY ed.Program, ac.Code, ac.Description
 ORDER BY ed.Program;
 '''
+# ::END:: Legacy SQL
 
+# ::START:: Form Date Value Processing
+# Handle pre-population of date fields from previous form submissions
 if sDate is not None:
     optionsDate = ' value="' + sDate + '"'
 
 if eDate is not None:
     optioneDate = ' value="' + eDate + '"'
+# ::END:: Form Date Value Processing
 
-
+# ::START:: HTML Header Template Generation
+# Create styled form and table header with responsive design
 headerTemplate = '''
     <style>
         .fortis-container {{
@@ -340,37 +397,48 @@ headerTemplate = '''
             </thead>
             <tbody>
 '''.format(optionsDate,optioneDate)
+# ::END:: HTML Header Template Generation
 
-rsql = q.QuerySql(sql.format(sDate,
-                             eDate,
-                             ACHPercent,
-                             ACHPerTransaction,
-                             ACHPaymentType,
-                             CCPercent,
-                             CCPerTransaction,
-                             CCPaymentType,
-                             AmexPercent,
-                             AmexPerTransaction,
-                             AmexPaymentType))
-                             
+# ::START:: SQL Query Execution
+# Execute the dynamic SQL query with all fee calculation parameters
+rsql = q.QuerySql(sql.format(sDate,              # {0} - Start Date
+                             eDate,              # {1} - End Date  
+                             ACHPercent,         # {2} - ACH Percentage
+                             ACHPerTransaction,  # {3} - ACH Per Transaction Fee
+                             ACHPaymentType,     # {4} - ACH Payment Type Code
+                             CCPercent,          # {5} - CC Percentage
+                             CCPerTransaction,   # {6} - CC Per Transaction Fee
+                             CCPaymentType,      # {7} - CC Payment Type Code
+                             AmexPercent,        # {8} - Amex Percentage
+                             AmexPerTransaction, # {9} - Amex Per Transaction Fee
+                             AmexPaymentType))   # {10} - Amex Payment Type Code
+# ::END:: SQL Query Execution
 
+# ::START:: Data Processing & HTML Generation
+# Process query results and build HTML table rows with calculated totals
 bodyTemplate = '' 
-TotalFortis = 0
-TotalFortisCC = 0
-TotalFortisAmex = 0
-TotalFortisACH = 0
-TotalFortisCardFees = 0  # CC + Amex total
-TotalFortisFees = 0     # All fees total
 
+# ::STEP:: Initialize Grand Total Variables
+# Track running totals across all rows for final summary
+TotalFortis = 0         # Total transaction amounts
+TotalFortisCC = 0       # Total CC fees
+TotalFortisAmex = 0     # Total Amex fees
+TotalFortisACH = 0      # Total ACH fees
+TotalFortisCardFees = 0 # Total card fees (CC + Amex)
+TotalFortisFees = 0     # Total all fees (CC + Amex + ACH)
 
+# ::STEP:: Process Each Result Row
+# Loop through query results to calculate row totals and build HTML
 for f in rsql:
-    # Column Totals
+    # ::SUBSTEP:: Calculate Row-Level Totals
+    # Compute card fees (CC + Amex) and total fees for this row
     cardFees = (f.CCFees if f.CCFees is not None else Decimal(0)) + \
                (f.AmexFees if f.AmexFees is not None else Decimal(0))
     
     totalFees = cardFees + (f.ACHFees if f.ACHFees is not None else Decimal(0))  
 
-    #Grand Totals
+    # ::SUBSTEP:: Update Grand Totals
+    # Add current row values to running totals
     TotalFortis += f.Amount or 0
     TotalFortisCC += f.CCFees or 0
     TotalFortisAmex += f.AmexFees or 0
@@ -378,6 +446,8 @@ for f in rsql:
     TotalFortisCardFees += cardFees or 0
     TotalFortisFees += totalFees or 0
     
+    # ::SUBSTEP:: Generate HTML Table Row
+    # Create formatted table row with styled columns for each data type
     bodyTemplate += '''
                 <tr>
                     <td>{0}</td>
@@ -397,8 +467,9 @@ for f in rsql:
                format_currency(f.ACHFees if f.ACHFees is not None else 0),
                format_currency(cardFees if cardFees is not None else 0),
                format_currency(totalFees if totalFees is not None else 0))
-               
 
+# ::STEP:: Generate Footer with Grand Totals
+# Add final row showing totals across all programs and accounting codes               
 bodyTemplate += '''
             </tbody>
             <tfoot>
@@ -423,8 +494,70 @@ bodyTemplate += '''
                        format_currency(TotalFortisACH),
                        format_currency(TotalFortisCardFees),
                        format_currency(TotalFortisFees))
+# ::END:: Data Processing & HTML Generation
 
-
+# ::START:: Final Report Assembly & Output
+# Combine header and body templates and render final report
 Report = model.RenderTemplate(headerTemplate)
 Report += model.RenderTemplate(bodyTemplate)
 print Report
+# ::END:: Final Report Assembly & Output
+
+#####################################################################
+#### WORKFLOW VISUALIZATION HELPER
+#####################################################################
+# ::START:: Workflow Outline Generator
+# Simple function to extract and display workflow structure from comments
+def show_workflow_outline():
+    """
+    Scans this file for ::WORKFLOW::, ::START::, ::STEP::, and ::END:: 
+    comments to build a visual outline of the process flow
+    """
+    outline = """
+FORTIS FEES REPORT - WORKFLOW OUTLINE
+=====================================
+
+1. INITIALIZATION PHASE
+   ├── Configuration Setup
+   │   ├── ACH Fee Configuration  
+   │   ├── Credit Card Fee Configuration
+   │   └── American Express Fee Configuration
+   ├── System Initialization
+   │   ├── Date Processing
+   │   └── Payment Type Mapping
+   └── Currency Formatting Function
+       ├── Input Sanitization
+       ├── Zero Value Handling  
+       ├── Decimal Place Logic
+       └── Thousands Separator Addition
+
+2. SQL CONSTRUCTION PHASE
+   ├── FilteredTransactions CTE (Date filtering logic)
+   ├── ExtractedData CTE (Fee calculations)
+   └── Final Results Query (Grouping & Sorting)
+
+3. HTML GENERATION PHASE
+   ├── Form Date Value Processing
+   ├── HTML Header Template Generation
+   └── CSS Styling Application
+
+4. DATA PROCESSING PHASE
+   ├── SQL Query Execution
+   ├── Initialize Grand Total Variables
+   ├── Process Each Result Row
+   │   ├── Calculate Row-Level Totals
+   │   ├── Update Grand Totals
+   │   └── Generate HTML Table Row
+   └── Generate Footer with Grand Totals
+
+5. OUTPUT PHASE
+   └── Final Report Assembly & Output
+
+DATA FLOW:
+TouchPoint Transaction Data → Date Filtering → Fee Calculations → HTML Formatting → Final Report
+"""
+    return outline
+
+# Uncomment the line below to see the workflow outline:
+# print show_workflow_outline()
+# ::END:: Workflow Outline Generator
