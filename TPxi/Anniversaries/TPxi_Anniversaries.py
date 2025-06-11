@@ -7,7 +7,7 @@
 #3. Add as a home page widget (Admin ~ Advanced ~ Homepage Widget) by selecting the script, 
 #   adding name, and setting permissions that can see it
 
-# written by: Ben Swaby
+# written by: Ben Swaby 
 # email: bswaby@fbchtn.org
 
 
@@ -18,6 +18,12 @@ title = '''Staff Anniversaries'''
 daysToLookOut = '30' #set to how many days you want to look out initially
 dataRange = '180' #set to how many days to load in each direction (pre-load 6 months)
 savedQuery = 'Dashboard_Birthday-Wedding' #Name of saved query
+
+# Display options - set to True to enable or False to disable
+show_birthdays = True
+show_weddings = True
+show_extra_value = True
+
 extraValueField = 'WorkAnniversary' #add extra value field name if you want to pull in another date
 extraValueFieldFriendlyName = 'Work' # just a friendly name of extra value
 
@@ -76,6 +82,14 @@ bDay AS (
 )
 
 SELECT * FROM (
+'''
+
+# Start building the UNION parts based on configuration
+unionParts = []
+
+# Add extra value field query if enabled
+if show_extra_value and extraValueField:
+    unionPart = '''
     SELECT DISTINCT
         p.PeopleId,
         Name,
@@ -91,9 +105,12 @@ SELECT * FROM (
     AND DATEADD(year, DATEPART(year, GETDATE()) - DATEPART(year, pe.DateValue), pe.DateValue) 
         BETWEEN CONVERT(datetime, DATEADD(day, -{1}, GETDATE()), 101)
         AND CONVERT(datetime, DATEADD(day, {1}, GETDATE()), 101)
-    
-    UNION ALL
-    
+    '''
+    unionParts.append(unionPart)
+
+# Add wedding date query if enabled
+if show_weddings:
+    unionPart = '''
     SELECT
         wd.PeopleId,
         wd.Name,
@@ -104,9 +121,12 @@ SELECT * FROM (
         wd.Email,
         wd.YearsCount
     FROM WeddingDate wd
-    
-    UNION ALL
-    
+    '''
+    unionParts.append(unionPart)
+
+# Add birthday query if enabled
+if show_birthdays:
+    unionPart = '''
     SELECT
         bd.PeopleId,
         bd.Name,
@@ -117,6 +137,18 @@ SELECT * FROM (
         bd.Email,
         bd.YearsCount
     FROM bDay bd
+    '''
+    unionParts.append(unionPart)
+
+# Join all enabled parts with UNION ALL
+if unionParts:
+    sql += "\n    UNION ALL\n    ".join(unionParts)
+else:
+    # Default empty query if nothing is enabled - should return no results
+    sql += "SELECT 1 AS PeopleId, '' AS Name, '' AS dDate, '' AS Type, GETDATE() AS bDate, GETDATE() AS ThisYearDate, '' AS Email, 0 AS YearsCount WHERE 1=0"
+
+# Complete the SQL query
+sql += '''
 ) AS CombinedResults
 ORDER BY MONTH(bDate), DAY(bDate)
 '''
@@ -166,6 +198,10 @@ print '''
 }
 .anniversary-row:hover {
   background-color: #f9f9f9;
+}
+.today-highlight {
+  background-color: #e8f5e9;
+  border-left: 3px solid #4CAF50;
 }
 .anniversary-date {
   font-weight: bold;
@@ -487,6 +523,11 @@ try:
             
             let visibleCount = 0;
             
+            // Get today's date in MM/dd format for comparison
+            const today = new Date();
+            const todayFormatted = (today.getMonth() + 1).toString().padStart(2, '0') + '/' + 
+                                today.getDate().toString().padStart(2, '0');
+            
             for (const anniv of this.allAnniversaries) {
                 const anniversaryDate = this.parseAnniversaryDate(anniv.date);
                 if (!anniversaryDate) continue; // Skip if date is invalid
@@ -497,6 +538,11 @@ try:
                     // Create a row for this anniversary
                     const row = document.createElement('div');
                     row.className = 'anniversary-row';
+                    
+                    // Check if this anniversary is today and add highlighting class if it is
+                    if (anniv.date === todayFormatted) {
+                        row.className += ' today-highlight';
+                    }
                     
                     // Create safe versions of strings for the onclick handler
                     const safeType = anniv.type.replace(/'/g, "\\'").replace(/"/g, '\\"');
