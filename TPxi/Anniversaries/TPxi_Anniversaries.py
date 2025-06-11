@@ -1,53 +1,119 @@
-#This is to show upcoming staff birthdays and anniversaries with navigation.  
-#-- Steps --
-#1. Copy this code to a python script (Admin ~ Advanced ~ Special Content ~ Python Scripts) 
-#   and call it something like WidgetStaffBirthdays and make sure to add the word widget to 
-#   the content keywords by the script name
-#2. Update config parameters below
-#3. Add as a home page widget (Admin ~ Advanced ~ Homepage Widget) by selecting the script, 
-#   adding name, and setting permissions that can see it
+# ::START:: Staff Anniversaries Widget with Email Support
+# This widget displays upcoming staff birthdays, anniversaries, and work anniversaries 
+# with navigation and email functionality. Designed to work as a homepage widget.
+#
+# --Upload Instructions Start--
+# To upload code to Touchpoint, use the following steps:
+# 1. Click Admin ~ Advanced ~ Special Content ~ Python Scripts
+# 2. Click New Python Script File
+# 3. Choose your script name (example: "TPxi_AnniversaryWidget")
+# 4. ⭐ IMPORTANT: Update the script_name in the AnniversaryConfig class below to match exactly
+# 5. Paste all this code
+# 6. Add the word "widget" to the content keywords by the script name
+# 7. Test the script standalone first: /PyScript/YourScriptName
+# 8. Add as homepage widget: Admin ~ Advanced ~ Homepage Widget
+# --Upload Instructions End--
+#
+# Written by: Ben Swaby (modified for improved widget compatibility)
+# Email: bswaby@fbchtn.org
 
-# written by: Ben Swaby 
-# email: bswaby@fbchtn.org
+import hashlib
+import time
 
+# ::START:: Configuration Parameters
+class AnniversaryConfig:
+    """Configuration class for anniversary widget settings"""
+    
+    def __init__(self):
+        # IMPORTANT: Set this to match your TouchPoint script name exactly
+        self.script_name = 'TPxi_AnniversaryWidget'  # ⭐ CHANGE THIS TO YOUR SCRIPT NAME
+        
+        # Display settings
+        self.title = 'Staff Anniversaries'
+        self.days_to_look_out = 30  # Days to show initially
+        self.data_range = 180  # Days to preload (6 months)
+        self.saved_query = 'Dashboard_Birthday-Wedding'  # Name of saved query
+        
+        # Feature toggles
+        self.show_birthdays = True
+        self.show_weddings = True
+        self.show_extra_value = True
+        
+        # Extra value field configuration
+        self.extra_value_field = 'WorkAnniversary'
+        self.extra_value_friendly_name = 'Work'
+        
+        # Email settings (fallback if user email unavailable)
+        self.system_from_email = 'system@yourchurch.org'
+        self.system_from_name = 'Church Family'
+        
+        # Widget appearance
+        self.widget_border_color = '#4CAF50'
+        self.widget_hover_color = '#45a049'
 
-#------------------------------------------------------
-#config parameters
-#------------------------------------------------------
-title = '''Staff Anniversaries'''
-daysToLookOut = '30' #set to how many days you want to look out initially
-dataRange = '180' #set to how many days to load in each direction (pre-load 6 months)
-savedQuery = 'Dashboard_Birthday-Wedding' #Name of saved query
+config = AnniversaryConfig()
 
-# Display options - set to True to enable or False to disable
-show_birthdays = True
-show_weddings = True
-show_extra_value = True
+# ::START:: Configuration Validation
+def validate_configuration():
+    """Validate that the configuration is set up correctly"""
+    errors = []
+    warnings = []
+    
+    # Check script name configuration
+    if config.script_name == 'TPxi_AnniversaryWidget':
+        warnings.append("Script name is still set to the example value. Consider updating it to match your actual script name.")
+    
+    if not config.script_name or len(config.script_name.strip()) == 0:
+        errors.append("Script name cannot be empty. Please set config.script_name to your TouchPoint script name.")
+    
+    # Check query configuration
+    if not config.saved_query:
+        errors.append("Saved query name is required. Please set config.saved_query to your TouchPoint saved query name.")
+    
+    # Check email configuration
+    if config.system_from_email == 'system@yourchurch.org':
+        warnings.append("System email is still set to example value. Consider updating config.system_from_email.")
+    
+    return errors, warnings
 
-extraValueField = 'WorkAnniversary' #add extra value field name if you want to pull in another date
-extraValueFieldFriendlyName = 'Work' # just a friendly name of extra value
+# ::START:: User Authentication and Info Retrieval
+class UserManager:
+    """Handles user authentication and information retrieval"""
+    
+    @staticmethod
+    def get_user_info():
+        """Get logged-in user's name and email with fallback"""
+        try:
+            user_info = q.QuerySqlTop1(
+                "SELECT p.Name, p.EmailAddress FROM People p WHERE p.PeopleId = {}".format(
+                    model.UserPeopleId
+                )
+            )
+            
+            if user_info and hasattr(user_info, 'Name') and hasattr(user_info, 'EmailAddress'):
+                return {
+                    'name': user_info.Name or config.system_from_name,
+                    'email': user_info.EmailAddress or config.system_from_email
+                }
+            else:
+                return {
+                    'name': config.system_from_name,
+                    'email': config.system_from_email
+                }
+        except Exception:
+            return {
+                'name': config.system_from_name,
+                'email': config.system_from_email
+            }
 
-# System email will only be used if user email can't be retrieved
-system_fromEmail = 'system@yourchurch.org' 
-system_fromName = 'Church Family'
-
-#------------------------------------------------------
-# start of code
-#------------------------------------------------------
-
-model.Header = title
-
-# Get logged-in user's name and email
-try:
-    userInfo = q.QuerySqlTop1("SELECT p.Name, p.EmailAddress FROM People p WHERE p.PeopleId = {}".format(model.UserPeopleId))
-    fromName = userInfo.Name if userInfo and hasattr(userInfo, 'Name') else system_fromName
-    fromEmail = userInfo.EmailAddress if userInfo and hasattr(userInfo, 'EmailAddress') else system_fromEmail
-except Exception as e:
-    # Fallback to system values if query fails
-    fromName = system_fromName
-    fromEmail = system_fromEmail
-
-sql = '''
+# ::START:: Anniversary Data Management
+class AnniversaryDataManager:
+    """Manages anniversary data queries and processing"""
+    
+    @staticmethod
+    def build_sql_query():
+        """Build the SQL query based on configuration"""
+        base_sql = '''
 WITH weddingDate AS (
     SELECT DISTINCT 
         p.PeopleId,
@@ -83,13 +149,13 @@ bDay AS (
 
 SELECT * FROM (
 '''
-
-# Start building the UNION parts based on configuration
-unionParts = []
-
-# Add extra value field query if enabled
-if show_extra_value and extraValueField:
-    unionPart = '''
+        
+        # Build union parts based on configuration
+        union_parts = []
+        
+        # Add extra value field query if enabled
+        if config.show_extra_value and config.extra_value_field:
+            union_part = '''
     SELECT DISTINCT
         p.PeopleId,
         Name,
@@ -105,12 +171,12 @@ if show_extra_value and extraValueField:
     AND DATEADD(year, DATEPART(year, GETDATE()) - DATEPART(year, pe.DateValue), pe.DateValue) 
         BETWEEN CONVERT(datetime, DATEADD(day, -{1}, GETDATE()), 101)
         AND CONVERT(datetime, DATEADD(day, {1}, GETDATE()), 101)
-    '''
-    unionParts.append(unionPart)
-
-# Add wedding date query if enabled
-if show_weddings:
-    unionPart = '''
+'''
+            union_parts.append(union_part)
+        
+        # Add wedding date query if enabled
+        if config.show_weddings:
+            union_parts.append('''
     SELECT
         wd.PeopleId,
         wd.Name,
@@ -121,12 +187,11 @@ if show_weddings:
         wd.Email,
         wd.YearsCount
     FROM WeddingDate wd
-    '''
-    unionParts.append(unionPart)
-
-# Add birthday query if enabled
-if show_birthdays:
-    unionPart = '''
+''')
+        
+        # Add birthday query if enabled
+        if config.show_birthdays:
+            union_parts.append('''
     SELECT
         bd.PeopleId,
         bd.Name,
@@ -137,35 +202,95 @@ if show_birthdays:
         bd.Email,
         bd.YearsCount
     FROM bDay bd
-    '''
-    unionParts.append(unionPart)
-
-# Join all enabled parts with UNION ALL
-if unionParts:
-    sql += "\n    UNION ALL\n    ".join(unionParts)
-else:
-    # Default empty query if nothing is enabled - should return no results
-    sql += "SELECT 1 AS PeopleId, '' AS Name, '' AS dDate, '' AS Type, GETDATE() AS bDate, GETDATE() AS ThisYearDate, '' AS Email, 0 AS YearsCount WHERE 1=0"
-
-# Complete the SQL query
-sql += '''
+''')
+        
+        # Join all enabled parts with UNION ALL
+        if union_parts:
+            base_sql += "\n    UNION ALL\n    ".join(union_parts)
+        else:
+            # Default empty query if nothing is enabled
+            base_sql += "SELECT 1 AS PeopleId, '' AS Name, '' AS dDate, '' AS Type, GETDATE() AS bDate, GETDATE() AS ThisYearDate, '' AS Email, 0 AS YearsCount WHERE 1=0"
+        
+        # Complete the SQL query
+        base_sql += '''
 ) AS CombinedResults
 ORDER BY MONTH(bDate), DAY(bDate)
 '''
+        
+        return base_sql
+    
+    @staticmethod
+    def get_people_list():
+        """Get list of people from saved query"""
+        try:
+            people_list = []
+            for p in q.QueryList(config.saved_query, "PeopleId"):
+                people_list.append(str(p.PeopleId))
+            return ','.join(people_list) if people_list else '0'
+        except Exception as e:
+            raise Exception("Error getting people list: " + str(e))
 
-# Generate a unique ID for this widget instance to avoid conflicts on the homepage
-import hashlib
-import time
-widget_id = "sa_" + hashlib.md5(str(time.time())).hexdigest()[:8]
+# ::START:: Email Handler
+class EmailHandler:
+    """Handles email sending functionality with improved widget compatibility"""
+    
+    @staticmethod
+    def process_email_request():
+        """Process email request with improved error handling"""
+        try:
+            # Get form data safely
+            logged_in_user = model.UserPeopleId
+            
+            # Access form data with error checking
+            try:
+                pid = int(str(getattr(model.Data, 'email_pid', '')))
+            except (ValueError, AttributeError):
+                raise Exception("Invalid person ID provided")
+            
+            try:
+                subject = str(getattr(model.Data, 'email_subject', ''))
+                message = str(getattr(model.Data, 'email_message', ''))
+                from_email = str(getattr(model.Data, 'email_from', ''))
+                from_name = str(getattr(model.Data, 'email_fromname', ''))
+            except AttributeError as e:
+                raise Exception("Missing required email field: " + str(e))
+            
+            if not all([subject, message, from_email, from_name]):
+                raise Exception("All email fields are required")
+            
+            # Send the email using TouchPoint's email function
+            model.Email(pid, logged_in_user, from_email, from_name, subject, message)
+            
+            # Return success response
+            return {
+                'success': True,
+                'message': 'Email sent successfully to ' + str(pid)
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'message': 'Error sending email: ' + str(e)
+            }
 
-print '''
+# ::START:: Widget Renderer
+class WidgetRenderer:
+    """Renders the widget HTML and JavaScript"""
+    
+    def __init__(self, widget_id, user_info):
+        self.widget_id = widget_id
+        self.user_info = user_info
+    
+    def render_styles(self):
+        """Render CSS styles for the widget"""
+        return '''
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
 
 <style>
 .anniversary-widget {
   background-color: White;
-  border: 1px solid #4CAF50;
+  border: 1px solid ''' + config.widget_border_color + ''';
   border-radius: 5px;
   padding: 3px;
   margin: 0px;
@@ -177,7 +302,7 @@ print '''
   margin: 1px;
 }
 .email-button {
-  color: #4CAF50;
+  color: ''' + config.widget_border_color + ''';
   cursor: pointer;
   border: none;
   background: none;
@@ -186,7 +311,7 @@ print '''
   margin-left: 8px;
 }
 .email-button:hover {
-  color: #45a049;
+  color: ''' + config.widget_hover_color + ''';
   transform: scale(1.2);
 }
 .anniversary-row {
@@ -201,7 +326,7 @@ print '''
 }
 .today-highlight {
   background-color: #e8f5e9;
-  border-left: 3px solid #4CAF50;
+  border-left: 3px solid ''' + config.widget_border_color + ''';
 }
 .anniversary-date {
   font-weight: bold;
@@ -225,7 +350,7 @@ print '''
 .nav-arrow {
   cursor: pointer;
   font-size: 24px;
-  color: #4CAF50;
+  color: ''' + config.widget_border_color + ''';
   padding: 0 10px;
   transition: transform 0.2s;
 }
@@ -241,141 +366,105 @@ print '''
   flex-grow: 1;
   text-align: center;
 }
+.loading-indicator {
+  text-align: center;
+  padding: 20px;
+  color: #666;
+}
 </style>
-
-<div id="''' + widget_id + '''" class="anniversary-widget">
+'''
+    
+    def render_widget_html(self):
+        """Render the main widget HTML structure"""
+        return '''
+<div id="''' + self.widget_id + '''" class="anniversary-widget">
   <div class="navigation-header smallpadding">
-    <span class="nav-arrow" onclick="''' + widget_id + '''_navigate(-1)" title="Previous 30 days">&lt;</span>
-    <h3 class="center-title">''' + title + '''
+    <span class="nav-arrow" onclick="''' + self.widget_id + '''_navigate(-1)" title="Previous ''' + str(config.days_to_look_out) + ''' days">&lt;</span>
+    <h3 class="center-title">''' + config.title + '''
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="85 75 230 130" style="width: 60px; height: 30px; margin-left: -4px; vertical-align: middle;">
-        <!-- Text portion - TP -->
         <text x="100" y="120" font-family="Arial, sans-serif" font-weight="bold" font-size="60" fill="#333333">TP</text>
-        
-        <!-- Circular element -->
         <g transform="translate(190, 107)">
-          <!-- Outer circle -->
           <circle cx="0" cy="0" r="13.5" fill="#0099FF"/>
-          
-          <!-- White middle circle -->
           <circle cx="0" cy="0" r="10.5" fill="white"/>
-          
-          <!-- Inner circle -->
           <circle cx="0" cy="0" r="7.5" fill="#0099FF"/>
-          
-          <!-- X crossing through the circles -->
           <path d="M-9 -9 L9 9 M-9 9 L9 -9" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
         </g>
-        
-        <!-- Single "i" letter to the right -->
         <text x="206" y="105" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#0099FF">i</text>
       </svg>
     </h3>
-    <span class="nav-arrow" onclick="''' + widget_id + '''_navigate(1)" title="Next 30 days">&gt;</span>
+    <span class="nav-arrow" onclick="''' + self.widget_id + '''_navigate(1)" title="Next ''' + str(config.days_to_look_out) + ''' days">&gt;</span>
   </div>
-  <div id="''' + widget_id + '''_range" class="date-range" style="text-align: center; display:none;"></div>
+  <div id="''' + self.widget_id + '''_range" class="date-range" style="text-align: center; display:none;"></div>
   <hr class="smallpadding">
   
-  <!-- Container for anniversaries - populated by JavaScript -->
-  <div id="''' + widget_id + '''_container"></div>
+  <div id="''' + self.widget_id + '''_container">
+    <div class="loading-indicator">Loading anniversaries...</div>
+  </div>
 </div>
-
+'''
+    
+    def render_javascript_start(self):
+        """Render the beginning of JavaScript code"""
+        return '''
 <script>
 (function() {
-    // Namespace all functions and variables to avoid conflicts
-    window.''' + widget_id + ''' = {
-        // Constants
-        daysToShow: ''' + daysToLookOut + ''',
-        
-        // State
+    window.''' + self.widget_id + ''' = {
+        daysToShow: ''' + str(config.days_to_look_out) + ''',
         currentOffset: 0,
         allAnniversaries: [],
         
-        // Initialize the widget
         init: function() {
+            // Detect execution context and use configured script name
+            this.isWidget = window.location.pathname === '/' || window.location.pathname.includes('Default');
+            this.configuredScriptName = ''' + repr(config.script_name) + ''';
+            this.detectedScriptName = window.location.pathname.split('/').pop();
+            
             this.loadData();
             this.updateOffsetDisplay();
             this.displayVisibleAnniversaries();
-            
-            // Add initialization complete flag
-            document.getElementById("''' + widget_id + '''").setAttribute("data-initialized", "true");
+            document.getElementById(''' + repr(self.widget_id) + ''').setAttribute("data-initialized", "true");
         },
         
-        // Load all anniversary data
         loadData: function() {
 '''
-
-# Handle POST request for sending emails
-if model.HttpMethod == 'post' and model.Data.a == "email":  
-    print " "  # Print a blank line first - IMPORTANT!
-
-    try:
-        # Get data from request
-        LoggedInUser = model.UserPeopleId
-        pid = int(model.Data.email_pid)
-        subject = model.Data.email_subject
-        message = model.Data.email_message
-        from_email = model.Data.email_from
-        from_name = model.Data.email_fromname
-        
-        # Send the email
-        model.Email(pid, LoggedInUser, from_email, from_name, subject, message)
-        
-        # Success! Note: we must return SOMETHING or the request will 404
-        print "Email sent successfully"
-    except Exception as e:
-        # More detailed error handling
-        import traceback
-        print "<h4 style='color:red;'>Error</h4>"
-        print "<p>An error occurred while sending email: " + str(e) + "</p>"
-        print "<pre style='font-size:10px;color:#666;'>"
-        traceback.print_exc()
-        print "</pre>"
-        print " "
-
-#--------------------------
-#Add people from savedQuery
-#--------------------------
-try:
-    people = ''
-    for p in q.QueryList(savedQuery, "PeopleId"):
-        if people:
-            people += ',' + str(p.PeopleId)
-        else:
-            people += str(p.PeopleId)
     
-    # Get anniversaries from a wider date range (6 months before/after)
-    data = q.QuerySql(sql.format(people, dataRange, extraValueFieldFriendlyName, extraValueField))
+    def render_anniversary_data(self, data):
+        """Render anniversary data as JavaScript objects"""
+        js_data = ""
+        if data:
+            for item in data:
+                # Safely escape strings for JavaScript
+                name_safe = item.Name.replace("'", "\\'").replace('"', '\\"').replace('\n', ' ').replace('\r', ' ')
+                type_safe = item.Type.replace("'", "\\'").replace('"', '\\"').replace('\n', ' ').replace('\r', ' ')
+                date_safe = item.dDate
+                email_safe = ""
+                if hasattr(item, 'Email') and item.Email:
+                    email_safe = item.Email.replace("'", "\\'").replace('"', '\\"')
+                
+                js_data += '''            this.allAnniversaries.push({
+                pid: ''' + str(item.PeopleId) + ''',
+                name: "''' + name_safe + '''",
+                date: "''' + date_safe + '''",
+                type: "''' + type_safe + '''",
+                yearsCount: ''' + str(item.YearsCount) + ''',
+                email: "''' + email_safe + '''"
+            });
+'''
+        return js_data
     
-    # For each anniversary, add a JavaScript object to the allAnniversaries array
-    if data:
-        for i in data:
-            name_safe = i.Name.replace("'", "\\'").replace('"', '\\"')
-            type_safe = i.Type.replace("'", "\\'").replace('"', '\\"')
-            # Convert ThisYearDate from SQL DateTime to JavaScript format
-            # Format: MM/DD
-            date_safe = i.dDate
-            email_safe = ""
-            if hasattr(i, 'Email') and i.Email:
-                email_safe = i.Email.replace("'", "\\'").replace('"', '\\"')
-            
-            print "            this.allAnniversaries.push({"
-            print "                pid: " + str(i.PeopleId) + ","
-            print "                name: \"" + name_safe + "\","
-            print "                date: \"" + date_safe + "\","
-            print "                type: \"" + type_safe + "\","
-            print "                yearsCount: " + str(i.YearsCount) + ","
-            print "                email: \"" + email_safe + "\""
-            print "            });"
-    
-    print """
-        },
+    def render_javascript_functions(self):
+        """Render JavaScript functions for widget functionality"""
+        # Pre-build the widget ID strings to avoid JavaScript concatenation issues
+        widget_container_id = self.widget_id + '_container'
+        widget_range_id = self.widget_id + '_range'
         
-        // Parse a date string in MM/dd format into a JS Date object for the current year
+        return '''        },
+        
         parseAnniversaryDate: function(dateStr) {
             const parts = dateStr.split('/');
             if (parts.length !== 2) return null;
             
-            const month = parseInt(parts[0]) - 1; // JS months are 0-based
+            const month = parseInt(parts[0]) - 1;
             const day = parseInt(parts[1]);
             
             const date = new Date();
@@ -385,91 +474,55 @@ try:
             return date;
         },
         
-        // Handle navigation - changes the visible anniversaries without reloading
         navigate: function(direction) {
-            // Update the offset
             this.currentOffset += direction * this.daysToShow;
-            
-            // Update the header to show the current offset
             this.updateOffsetDisplay();
-            
-            // Filter and display the appropriate anniversaries
             this.displayVisibleAnniversaries();
         },
         
-        // Send email function
         sendEmail: function(pid, celebrationType, personName, yearsCount, personEmail) {
-            // Create appropriate subject and email body based on celebration type
             let subject = "";
             let emailBody = "";
             
             if (celebrationType.includes("Birthday")) {
                 subject = "Happy Birthday " + personName + "!";
-                emailBody = "Happy Birthday " + personName + "!\\n\\n";
-                emailBody += "Wishing you a wonderful birthday celebration!\\n\\n";
+                emailBody = "Happy Birthday " + personName + "!\\n\\nWishing you a wonderful birthday celebration!\\n\\n";
             } else if (celebrationType.includes("Wedding")) {
                 subject = "Happy " + yearsCount + (yearsCount === 1 ? " Year" : " Years") + " Wedding Anniversary " + personName + "!";
-                emailBody = "Congratulations on " + yearsCount + (yearsCount === 1 ? " year" : " years") + " of marriage, " + personName + "!\\n\\n";
-                emailBody += "May your love continue to grow stronger with each passing year.\\n\\n";
+                emailBody = "Congratulations on " + yearsCount + (yearsCount === 1 ? " year" : " years") + " of marriage, " + personName + "!\\n\\nMay your love continue to grow stronger with each passing year.\\n\\n";
             } else if (celebrationType.includes("Work")) {
                 subject = "Happy " + yearsCount + (yearsCount === 1 ? " Year" : " Years") + " Work Anniversary " + personName + "!";
-                emailBody = "Congratulations on " + yearsCount + (yearsCount === 1 ? " year" : " years") + " with us, " + personName + "!\\n\\n";
-                emailBody += "Thank you for your dedication and all your contributions.\\n\\n";
+                emailBody = "Congratulations on " + yearsCount + (yearsCount === 1 ? " year" : " years") + " with us, " + personName + "!\\n\\nThank you for your dedication and all your contributions.\\n\\n";
             }
             
-            emailBody += "Best wishes,\\n""" + fromName + """";
+            emailBody += "Best wishes,\\n" + ''' + repr(self.user_info['name']) + ''';
             
-            // Open email dialog with SweetAlert
             Swal.fire({
                 title: "Send Celebration Email",
-                html: `
-                    <div style="text-align: left; margin-bottom: 15px;">
-                        <strong>To:</strong> ${personName}${personEmail ? ' (' + personEmail + ')' : ''}<br>
-                        <strong>Subject:</strong> ${subject}
-                    </div>
-                    <textarea id="swal-email-message" class="swal2-textarea" style="height: 200px;">${emailBody}</textarea>
-                `,
+                html: '<div style="text-align: left; margin-bottom: 15px;"><strong>To:</strong> ' + personName + (personEmail ? ' (' + personEmail + ')' : '') + '<br><strong>Subject:</strong> ' + subject + '</div><textarea id="swal-email-message" class="swal2-textarea" style="height: 200px;">' + emailBody + '</textarea>',
                 showCancelButton: true,
                 confirmButtonText: 'Send Email',
-                confirmButtonColor: '#4CAF50',
+                confirmButtonColor: ''' + repr(config.widget_border_color) + ''',
                 cancelButtonColor: '#d33',
                 showLoaderOnConfirm: true,
                 preConfirm: () => {
-                    // Get the message from the textarea
                     const message = document.getElementById('swal-email-message').value;
                     if (!message.trim()) {
                         Swal.showValidationMessage('Please enter a message');
                         return false;
                     }
                     
-                    // Get the current page URL path
-                    let currentPath = window.location.pathname;
-                    let formPath = currentPath.replace('/PyScript/', '/PyScriptForm/');
-                    
-                    // Build form data
+                    // Create a more reliable form submission approach
                     const formData = new FormData();
                     formData.append('a', 'email');
                     formData.append('email_pid', pid);
                     formData.append('email_subject', subject);
                     formData.append('email_message', message);
-                    formData.append('email_from', '""" + fromEmail + """');
-                    formData.append('email_fromname', '""" + fromName + """');
+                    formData.append('email_from', ''' + repr(self.user_info['email']) + ''');
+                    formData.append('email_fromname', ''' + repr(self.user_info['name']) + ''');
                     
-                    // Send request
-                    return fetch(formPath, {
-                        method: 'POST',
-                        body: new URLSearchParams(formData)
-                    })
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error(`Request failed with status ${response.status}`);
-                        }
-                        return response.text();
-                    })
-                    .catch(error => {
-                        Swal.showValidationMessage(`Request failed: ${error}`);
-                        return false;
-                    });
+                    // Try multiple submission strategies
+                    return this.submitEmailForm(formData);
                 }
             }).then((result) => {
                 if (result.isConfirmed) {
@@ -483,9 +536,78 @@ try:
             });
         },
         
-        // Update the header to show the current offset
-        updateOffsetDisplay: function() {
-            const rangeDisplay = document.getElementById('""" + widget_id + """_range');
+        submitEmailForm: function(formData) {
+            // Different strategies based on execution context
+            const urlParams = new URLSearchParams(formData);
+            
+            let submissionUrls = [];
+            
+            if (this.isWidget) {
+                // Widget context: homepage or dashboard
+                submissionUrls = [
+                    '/PyScriptForm/' + this.configuredScriptName,  // Primary: use configured name
+                    '/PyScriptForm/WidgetStaffAnniversaries',      // Fallback: legacy name
+                    '/PyScriptForm/' + this.detectedScriptName     // Last resort: detected name
+                ];
+            } else {
+                // Standalone context: direct script URL
+                let currentPath = window.location.pathname;
+                submissionUrls = [
+                    currentPath.replace('/PyScript/', '/PyScriptForm/'),  // Primary: current URL
+                    '/PyScriptForm/' + this.configuredScriptName,         // Fallback: configured name
+                    '/PyScriptForm/' + this.detectedScriptName,           // Fallback: detected name
+                    '/PyScriptForm/WidgetStaffAnniversaries'              // Last resort: legacy name
+                ];
+            }
+            
+            // Try each URL in sequence
+            return this.trySubmissionSequence(submissionUrls, urlParams);
+        },
+        
+        trySubmissionSequence: function(urls, urlParams) {
+            if (urls.length === 0) {
+                return Promise.reject(new Error('No more URLs to try'));
+            }
+            
+            const currentUrl = urls[0];
+            const remainingUrls = urls.slice(1);
+            
+            return this.trySubmission(currentUrl, urlParams)
+                .catch(error => {
+                    console.warn('Failed to submit to:', currentUrl, error.message);
+                    if (remainingUrls.length > 0) {
+                        return this.trySubmissionSequence(remainingUrls, urlParams);
+                    } else {
+                        throw new Error('All submission attempts failed. Last error: ' + error.message);
+                    }
+                });
+        },
+        
+        trySubmission: function(url, urlParams) {
+            return fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: urlParams
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+                }
+                return response.text();
+            })
+            .then(text => {
+                // Check if response indicates success
+                if (text.toLowerCase().includes('error') && !text.toLowerCase().includes('success')) {
+                    throw new Error('Server returned error response');
+                }
+                return text;
+            });
+        },
+        
+                        updateOffsetDisplay: function() {
+            const rangeDisplay = document.getElementById(''' + repr(widget_range_id) + ''');
             if (!rangeDisplay) return;
             
             if (this.currentOffset === 0) {
@@ -493,74 +615,75 @@ try:
             } else {
                 rangeDisplay.style.display = 'block';
                 if (this.currentOffset < 0) {
-                    rangeDisplay.textContent = `(Viewing ${Math.abs(this.currentOffset)} days ago)`;
+                    rangeDisplay.textContent = '(Viewing ' + Math.abs(this.currentOffset) + ' days ago)';
                 } else {
-                    rangeDisplay.textContent = `(Viewing ${this.currentOffset} days ahead)`;
+                    rangeDisplay.textContent = '(Viewing ' + this.currentOffset + ' days ahead)';
                 }
             }
         },
         
-        // Check if a date is within the current view range
         isDateInRange: function(dateObj) {
             const today = new Date();
             const startDate = new Date(today);
             const endDate = new Date(today);
             
-            // Add the offset to our date range
             startDate.setDate(startDate.getDate() + this.currentOffset);
             endDate.setDate(endDate.getDate() + this.currentOffset + this.daysToShow);
             
-            // Check if the anniversary date is in this range
             return dateObj >= startDate && dateObj <= endDate;
         },
         
-        // Filter and display only the anniversaries in the current view range
         displayVisibleAnniversaries: function() {
-            const container = document.getElementById('""" + widget_id + """_container');
+            const container = document.getElementById(''' + repr(widget_container_id) + ''');
             if (!container) return;
             
-            container.innerHTML = ''; // Clear current display
-            
+            container.innerHTML = '';
             let visibleCount = 0;
             
-            // Get today's date in MM/dd format for comparison
             const today = new Date();
             const todayFormatted = (today.getMonth() + 1).toString().padStart(2, '0') + '/' + 
                                 today.getDate().toString().padStart(2, '0');
             
             for (const anniv of this.allAnniversaries) {
                 const anniversaryDate = this.parseAnniversaryDate(anniv.date);
-                if (!anniversaryDate) continue; // Skip if date is invalid
+                if (!anniversaryDate) continue;
                 
                 if (this.isDateInRange(anniversaryDate)) {
                     visibleCount++;
                     
-                    // Create a row for this anniversary
                     const row = document.createElement('div');
                     row.className = 'anniversary-row';
                     
-                    // Check if this anniversary is today and add highlighting class if it is
                     if (anniv.date === todayFormatted) {
                         row.className += ' today-highlight';
                     }
                     
-                    // Create safe versions of strings for the onclick handler
                     const safeType = anniv.type.replace(/'/g, "\\'").replace(/"/g, '\\"');
                     const safeName = anniv.name.replace(/'/g, "\\'").replace(/"/g, '\\"');
                     
-                    row.innerHTML = `
-                        <span class="anniversary-date">${anniv.date}</span>
-                        <span class="anniversary-name"><a href="/Person2/${anniv.pid}#tab-communications">${anniv.name}</a></span>
-                        <span class="anniversary-type">${anniv.type}</span>
-                        <button class="email-button" title="Send celebration email" 
-                            onclick="event.preventDefault(); """ + widget_id + """.sendEmail(${anniv.pid}, '${safeType}', '${safeName}', ${anniv.yearsCount}, '${anniv.email}')">✉️</button>
-                    `;
+                    row.innerHTML = 
+                        '<span class="anniversary-date">' + anniv.date + '</span>' +
+                        '<span class="anniversary-name"><a href="/Person2/' + anniv.pid + '#tab-communications">' + anniv.name + '</a></span>' +
+                        '<span class="anniversary-type">' + anniv.type + '</span>' +
+                        '<button class="email-button" title="Send celebration email" data-pid="' + anniv.pid + '" data-type="' + safeType + '" data-name="' + safeName + '" data-years="' + anniv.yearsCount + '" data-email="' + anniv.email + '">✉️</button>';
+                    
+                    // Add click event listener to the button
+                    const emailButton = row.querySelector('.email-button');
+                    emailButton.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        ''' + self.widget_id + '''.sendEmail(
+                            parseInt(this.getAttribute('data-pid')),
+                            this.getAttribute('data-type'),
+                            this.getAttribute('data-name'),
+                            parseInt(this.getAttribute('data-years')),
+                            this.getAttribute('data-email')
+                        );
+                    });
                     
                     container.appendChild(row);
                 }
             }
             
-            // Show a message if no anniversaries in this range
             if (visibleCount === 0) {
                 const emptyMsg = document.createElement('p');
                 emptyMsg.style.textAlign = 'center';
@@ -571,39 +694,132 @@ try:
         }
     };
     
-    // Define global navigation function for the arrow buttons
-    window.""" + widget_id + """_navigate = function(direction) {
-        """ + widget_id + """.navigate(direction);
+    window.''' + self.widget_id + '''_navigate = function(direction) {
+        ''' + self.widget_id + '''.navigate(direction);
     };
     
-    // Wait for document to be ready, then initialize
     function initWidget() {
-        if (document.getElementById('""" + widget_id + """')) {
-            if (!document.getElementById('""" + widget_id + """').getAttribute('data-initialized')) {
-                """ + widget_id + """.init();
+        if (document.getElementById(''' + repr(self.widget_id) + ''')) {
+            if (!document.getElementById(''' + repr(self.widget_id) + ''').getAttribute('data-initialized')) {
+                ''' + self.widget_id + '''.init();
             }
         } else {
-            // If the widget element doesn't exist yet, try again in 100ms
             setTimeout(initWidget, 100);
         }
     }
     
-    // Start the initialization process
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initWidget);
     } else {
-        // Document already loaded
         initWidget();
     }
 })();
 </script>
-"""
+'''
 
-except Exception as e:
-    # Improved error handling
-    import traceback
-    print "<h3>Error</h3>"
-    print "<p>An error occurred: " + str(e) + "</p>"
-    print "<pre>"
-    traceback.print_exc()
-    print "</pre>"
+# ::START:: Main Controller
+def main_controller():
+    """Main controller that orchestrates the widget functionality"""
+    
+    # ::STEP:: Validate Configuration
+    config_errors, config_warnings = validate_configuration()
+    if config_errors:
+        print '''
+<div class="anniversary-widget" style="border-color: #d32f2f;">
+    <h3 style="color: #d32f2f; text-align: center;">Configuration Error</h3>
+    <div style="padding: 10px; background-color: #ffebee; border-radius: 3px; margin: 5px;">
+        <p><strong>Please fix the following configuration issues:</strong></p>
+        <ul>'''
+        for error in config_errors:
+            print '<li style="color: #d32f2f;">' + error + '</li>'
+        print '''</ul>
+        <p><em>Update the AnniversaryConfig class at the top of this script.</em></p>
+    </div>
+</div>
+'''
+        return
+    
+    # Show warnings if any (but continue execution)
+    if config_warnings:
+        print '''
+<div style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 3px; padding: 8px; margin: 5px 0;">
+    <strong>Configuration Notice:</strong>
+    <ul style="margin: 5px 0;">'''
+        for warning in config_warnings:
+            print '<li style="color: #856404;">' + warning + '</li>'
+        print '''</ul>
+</div>
+'''
+    
+    # ::STEP:: Set widget header
+    model.Header = config.title
+    
+    # ::STEP:: Generate unique widget ID
+    widget_id = "sa_" + hashlib.md5(str(time.time())).hexdigest()[:8]
+    
+    try:
+        # ::STEP:: Handle email POST requests
+        if model.HttpMethod == 'post' and hasattr(model.Data, 'a') and str(getattr(model.Data, 'a', '')) == 'email':
+            print ""  # Important: print blank line first for POST responses
+            
+            email_result = EmailHandler.process_email_request()
+            if email_result['success']:
+                print "Email sent successfully"
+            else:
+                print "<h4 style='color:red;'>Error</h4>"
+                print "<p>" + email_result['message'] + "</p>"
+            return
+        
+        # ::STEP:: Get user information
+        user_info = UserManager.get_user_info()
+        
+        # ::STEP:: Initialize widget renderer
+        renderer = WidgetRenderer(widget_id, user_info)
+        
+        # ::STEP:: Render styles and widget HTML
+        print renderer.render_styles()
+        print renderer.render_widget_html()
+        print renderer.render_javascript_start()
+        
+        # ::STEP:: Get anniversary data
+        data_manager = AnniversaryDataManager()
+        people_list = data_manager.get_people_list()
+        
+        if people_list and people_list != '0':
+            sql_query = data_manager.build_sql_query()
+            anniversary_data = q.QuerySql(
+                sql_query.format(
+                    people_list, 
+                    config.data_range, 
+                    config.extra_value_friendly_name, 
+                    config.extra_value_field
+                )
+            )
+            
+            # ::STEP:: Render anniversary data as JavaScript
+            print renderer.render_anniversary_data(anniversary_data)
+        
+        # ::STEP:: Complete JavaScript rendering
+        print renderer.render_javascript_functions()
+        
+    except Exception as e:
+        # ::STEP:: Error handling with user-friendly display
+        import traceback
+        print '''
+<div class="anniversary-widget" style="border-color: #d32f2f;">
+    <h3 style="color: #d32f2f; text-align: center;">Error Loading Anniversaries</h3>
+    <div style="padding: 10px; background-color: #ffebee; border-radius: 3px; margin: 5px;">
+        <p><strong>Error:</strong> ''' + str(e) + '''</p>
+        <details style="margin-top: 10px;">
+            <summary style="cursor: pointer; color: #666;">Technical Details</summary>
+            <pre style="font-size: 10px; color: #666; margin-top: 5px; white-space: pre-wrap;">'''
+        traceback.print_exc()
+        print '''</pre>
+        </details>
+    </div>
+</div>
+'''
+
+# ::START:: Script Execution
+# Execute main controller directly (Python 2.7.3 in TouchPoint doesn't support __name__ == "__main__")
+main_controller()
