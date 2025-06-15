@@ -251,13 +251,13 @@ This is like Kenny Rogers of tools in that it helps you know "when to hold them"
 An advanced statistical analysis dashboard that identifies people whose attendance patterns have significantly deviated from their normal behavior. Uses standard deviation calculations to find members who haven't attended in longer than their typical pattern suggests, helping pastoral staff proactively reach out before people fully disconnect.
 Key Capabilities:
 
-📊 Statistical analysis using standard deviations to identify lapsed patterns
-🎯 Priority scoring system (URGENT/HIGH/MEDIUM) based on deviation severity
-📋 Bulk actions: mass tagging, task creation, and note adding
-👥 Contact tracking to avoid duplicate outreach efforts
-🔍 Advanced filtering by age groups (adults vs children)
-⚙️ Configurable thresholds adaptable to different church contexts
-📱 Mobile-responsive ag-Grid interface with visual indicators
+📊 Statistical analysis using standard deviations to identify lapsed patterns</br>
+🎯 Priority scoring system (URGENT/HIGH/MEDIUM) based on deviation severity</br>
+📋 Bulk actions: mass tagging, task creation, and note adding</br>
+👥 Contact tracking to avoid duplicate outreach efforts</br>
+🔍 Advanced filtering by age groups (adults vs children)</br>
+⚙️ Configurable thresholds adaptable to different church contexts</br>
+📱 Mobile-responsive ag-Grid interface with visual indicators</br>
 
 - ⚙️ Implementation Level: Moderate - Requires SQL knowledge for program ID configuration
 - 🧩 Installation: Upload as Python script, configure excluded program IDs and thresholds for your church's structure
