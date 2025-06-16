@@ -6,39 +6,39 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Widget%20QuickLinks/WidgetQuickLink.png" width="700">
 
 💰 Finance</br>
-- 💳 [FortisFees](https://github.com/bswaby/Touchpoint/blob/main/README.md#-fortisfees) - Automated fee breakdown and back-charging</br>
-- 📜 [QCD-Grant Letters](https://github.com/bswaby/Touchpoint/blob/main/README.md#-qcd-grantletters) - Automated letter generation for windowed envelopes</br>
-- 📜 [Payment Manager](https://github.com/bswaby/Touchpoint/blob/main/README.md#-payment-manager) - Outstanding payment tracking and management</br>
-- 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/README.md#-weekly-contribution-report) - Weekly finance tracking and reporting</br>
+- 💳 [FortisFees](https://github.com/bswaby/Touchpoint/blob/main/README.md#-fortisfees) - Automated fee breakdown and back-charging
+- 📜 [QCD-Grant Letters](https://github.com/bswaby/Touchpoint/blob/main/README.md#-qcd-grantletters) - Automated letter generation for windowed envelopes
+- 📜 [Payment Manager](https://github.com/bswaby/Touchpoint/blob/main/README.md#-payment-manager) - Outstanding payment tracking and management
+- 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/README.md#-weekly-contribution-report) - Weekly finance tracking and reporting
 
 📈 Reports</br>
-- 📅 [Anniversaries](https://github.com/bswaby/Touchpoint/blob/main/README.md#-anniversaries) - Member anniversary tracking widget</br>
-- 📊 [Auxiliary to Group Analytics](https://github.com/bswaby/Touchpoint/blob/main/README.md#-auxiliary-to-group-analytics) - Program effectiveness analysis</br>
-- 📱 [Communication Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-communication-dashboard) - Email and SMS analytics</br>
-- 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-data-quality-dashboard) - Database completeness monitoring</br>
-- 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-activity-dashboard) - Involvement activity analysis</br>
-- 📉 [Lapsed Attenders](https://github.com/bswaby/Touchpoint/blob/main/README.md#-lapsed-attenders) - Statistical attendance pattern analysis</br>
-- 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-ministry-structure) - Program and involvement structure overview</br>
-- 📤 [Registration Export](https://github.com/bswaby/Touchpoint/blob/main/README.md#-registration-export) - Event registration data export</br>
-- 📝 [TaskNote Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-tasknote-activity-dashboard) - Task and note activity monitoring</br>
-- ✅ [Weekly Attendance](https://github.com/bswaby/Touchpoint/blob/main/README.md#-weekly-attendance) - Enhanced attendance reporting (WAAG 2.0)</br>
+- 📅 [Anniversaries](https://github.com/bswaby/Touchpoint/blob/main/README.md#-anniversaries) - Member anniversary tracking widget
+- 📊 [Auxiliary to Group Analytics](https://github.com/bswaby/Touchpoint/blob/main/README.md#-auxiliary-to-group-analytics) - Program effectiveness analysis
+- 📱 [Communication Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-communication-dashboard) - Email and SMS analytics
+- 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-data-quality-dashboard) - Database completeness monitoring
+- 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-activity-dashboard) - Involvement activity analysis
+- 📉 [Lapsed Attenders](https://github.com/bswaby/Touchpoint/blob/main/README.md#-lapsed-attenders) - Statistical attendance pattern analysis
+- 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-ministry-structure) - Program and involvement structure overview
+- 📤 [Registration Export](https://github.com/bswaby/Touchpoint/blob/main/README.md#-registration-export) - Event registration data export
+- 📝 [TaskNote Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-tasknote-activity-dashboard) - Task and note activity monitoring
+- ✅ [Weekly Attendance](https://github.com/bswaby/Touchpoint/blob/main/README.md#-weekly-attendance) - Enhanced attendance reporting (WAAG 2.0)
 
 🔧 Programs</br>
-- 🌍 [Missions Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-missions-dashbaord) - Mission trip management system</br>
+- 🌍 [Missions Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-missions-dashbaord) - Mission trip management system
 
 🛠️ Tools</br>
-- 🔗 [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/blob/main/README.md#-attachment-link-downloader) - Bulk document downloads</br>
-- 🔗 [Account Security Monitor](https://github.com/bswaby/Touchpoint/blob/main/README.md#-account-security-monitor) - Advanced security analytics</br>
-- 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/blob/main/README.md#-fastlanecheckin) - Streamlined event check-in system</br>
-- 🗺️ [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-geographic-distribution-map) - Member location mapping with demographics</br>
-- 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-owner-audit) - Involvement ownership tracking</br>
-- ↻  [Involvement Sync](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-sync) - Multi-involvement synchronization</br>
-- 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/blob/main/README.md#-link-generator) - Pre-authenticated link creation</br>
-- 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-techstatus) - System status monitoring</br>
-- 🗺️ [User Activity](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-user-activity) - User activity level analysis</br>
+- 🔗 [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/blob/main/README.md#-attachment-link-downloader) - Bulk document downloads
+- 🔗 [Account Security Monitor](https://github.com/bswaby/Touchpoint/blob/main/README.md#-account-security-monitor) - Advanced security analytics
+- 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/blob/main/README.md#-fastlanecheckin) - Streamlined event check-in system
+- 🗺️ [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-geographic-distribution-map) - Member location mapping with demographics
+- 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-owner-audit) - Involvement ownership tracking
+- ↻  [Involvement Sync](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-sync) - Multi-involvement synchronization
+- 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/blob/main/README.md#-link-generator) - Pre-authenticated link creation
+- 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-techstatus) - System status monitoring
+- 🗺️ [User Activity](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-user-activity) - User activity level analysis
 
 🧩 Widgets</br>
-- ⚡ [Widget QuickLinks](https://github.com/bswaby/Touchpoint/blob/main/README.md#-widget-quicklinks) - Permission-based quick access links</br>
+- ⚡ [Widget QuickLinks](https://github.com/bswaby/Touchpoint/blob/main/README.md#-widget-quicklinks) - Permission-based quick access links
 
 ## 💰 Finance
 
