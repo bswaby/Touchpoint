@@ -5,16 +5,13 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 
 <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Widget%20QuickLinks/WidgetQuickLink.png" width="700">
 
-🚀 Quick Links</br>
 💰 Finance</br>
-</br>
 💳 [FortisFees](https://github.com/bswaby/Touchpoint/blob/main/README.md#-fortisfees) - Automated fee breakdown and back-charging</br>
 📜 [QCD-Grant Letters](https://github.com/bswaby/Touchpoint/blob/main/README.md#-qcd-grantletters) - Automated letter generation for windowed envelopes</br>
 📜 [Payment Manager](https://github.com/bswaby/Touchpoint/blob/main/README.md#-payment-manager) - Outstanding payment tracking and management</br>
 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/README.md#-weekly-contribution-report) - Weekly finance tracking and reporting</br>
 </br>
 📈 Reports</br>
-</br>
 📅 [Anniversaries](https://github.com/bswaby/Touchpoint/blob/main/README.md#-anniversaries) - Member anniversary tracking widget</br>
 📊 [Auxiliary to Group Analytics](https://github.com/bswaby/Touchpoint/blob/main/README.md#-auxiliary-to-group-analytics) - Program effectiveness analysis</br>
 📱 [Communication Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-communication-dashboard) - Email and SMS analytics</br>
@@ -27,11 +24,9 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 ✅ [Weekly Attendance](https://github.com/bswaby/Touchpoint/blob/main/README.md#-weekly-attendance) - Enhanced attendance reporting (WAAG 2.0)</br>
 </br>
 🔧 Programs</br>
-
 🌍 [Missions Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-missions-dashbaord) - Mission trip management system</br>
 
 🛠️ Tools</br>
-
 🔗 [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/blob/main/README.md#-attachment-link-downloader) - Bulk document downloads</br>
 🔗 [Account Security Monitor](https://github.com/bswaby/Touchpoint/blob/main/README.md#-account-security-monitor) - Advanced security analytics</br>
 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/blob/main/README.md#-fastlanecheckin) - Streamlined event check-in system</br>
@@ -43,7 +38,6 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 🗺️ [User Activity](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-user-activity) - User activity level analysis</br>
 
 🧩 Widgets</br>
-
 ⚡ [Widget QuickLinks](https://github.com/bswaby/Touchpoint/blob/main/README.md#-widget-quicklinks) - Permission-based quick access links</br>
 
 ## 💰 Finance
