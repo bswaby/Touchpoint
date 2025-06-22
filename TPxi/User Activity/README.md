@@ -5,7 +5,7 @@ This is to help get an idea of user activity levels based on the activity log ta
 - 🧩 **Installation: This is a paste-and-go Python script with only one configuration option that you might want to consider: OFFICE_IP_ADDRESSES configuration option determines if people are working in the office or outside the office if you configure it with your network ip addresses.  
 
 
-<summary><strong>Overview/strong></summary>
+<summary><strong>Overview</strong></summary>
 <p>Gives an overview of the number of changes in the database and who are the top active users.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-Overview.png" width="700">
