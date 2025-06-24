@@ -38,6 +38,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 - 🗺️ [User Activity](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-user-activity) - User activity level analysis
 
 🧩 Widgets</br>
+- ⚡ [Widget Involvement Dashboard Widget](https://github.com/bswaby/Touchpoint/edit/main/README.md#-involvement-dashboard-widget) - Quick list of involvements for leaders
 - ⚡ [Widget QuickLinks](https://github.com/bswaby/Touchpoint/blob/main/README.md#-widget-quicklinks) - Permission-based quick access links
 
 ## 💰 Finance
@@ -770,7 +771,6 @@ The Involvement Dashboard provides church leaders a comprehensive overview of al
 - ⚙️ Implementation Level: Easy  
 - 🧩 **Installation**: Minimal configuration required. Edit the PROGRAM_ID and DIVISION_ID variables to match your specific program/division to monitor. Optionally: Adjust DAYS_FOR_AVERAGE (default 90 days) for attendance calculations and set DEBUG_ROLE for troubleshooting access.
 
-<details>
 <summary><strong>Dashboard Features</strong></summary>
 
 **Key Metrics Displayed:**
