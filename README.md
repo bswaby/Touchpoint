@@ -786,7 +786,6 @@ The Involvement Dashboard provides church leaders a comprehensive overview of al
 - 🔴 **Overdue**: No meetings in 30+ days
 - ⚫ **No Meetings**: Organizations without recorded meetings
 
-
 <details>
   <summary><strong>Main Screen</strong></summary>
     <p align="center">
