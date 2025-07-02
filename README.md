@@ -16,7 +16,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 - 📊 [Auxiliary to Group Analytics](https://github.com/bswaby/Touchpoint/blob/main/README.md#-auxiliary-to-group-analytics) - Program effectiveness analysis
 - 📱 [Communication Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-communication-dashboard) - Email and SMS analytics
 - 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-data-quality-dashboard) - Database completeness monitoring
-- 🚑 [Emergency List](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Emergency%20List) - Emergency List
+- 🚑 [Emergency List](https://github.com/bswaby/Touchpoint/blob/main/README.md#-emergency-list---emergency-list) - Emergency List
 - 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-activity-dashboard) - Involvement activity analysis
 - 📉 [Lapsed Attenders](https://github.com/bswaby/Touchpoint/blob/main/README.md#-lapsed-attenders) - Statistical attendance pattern analysis
 - 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-ministry-structure) - Program and involvement structure overview
