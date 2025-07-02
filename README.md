@@ -16,6 +16,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 - 📊 [Auxiliary to Group Analytics](https://github.com/bswaby/Touchpoint/blob/main/README.md#-auxiliary-to-group-analytics) - Program effectiveness analysis
 - 📱 [Communication Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-communication-dashboard) - Email and SMS analytics
 - 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-data-quality-dashboard) - Database completeness monitoring
+- 🚑 [Emergency List](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Emergency%20List) - Emergency List
 - 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-activity-dashboard) - Involvement activity analysis
 - 📉 [Lapsed Attenders](https://github.com/bswaby/Touchpoint/blob/main/README.md#-lapsed-attenders) - Statistical attendance pattern analysis
 - 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-ministry-structure) - Program and involvement structure overview
@@ -242,6 +243,21 @@ Monitors the completeness of the database demographics and what might be missing
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
 </p>
 </details>
+
+### 🚑 [Emergency List](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Emergency%20List) - Emergency List
+Provides an emergency list for off-site, camps, and events that provides a single source for the nurse/team lead to have medical notes, primary doctor, health insurance, OTC meds, emergency contacts, and family contacts.
+
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
+
+<details>
+<summary><strong>Overview</strong></summary>
+<p>Report look</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/tree/main/TPxi/EmergencyList.png" width="700">
+</p>
+</details>
+
 
 ### 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Activity%20Dashboard)
 This is like Kenny Rogers of tools in that it helps you know "when to hold them" and "when to fold them" regarding your Involvements.  Overall, this shows you active to dormant involvements and helps you improve the cleanliness of your database. 
