@@ -254,7 +254,7 @@ Provides an emergency list for off-site, camps, and events that provides a singl
 <summary><strong>Overview</strong></summary>
 <p>Report look</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/tree/main/TPxi/EmergencyList.png" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Emergency%20List/EmergencyList.png" width="700">
 </p>
 </details>
 
