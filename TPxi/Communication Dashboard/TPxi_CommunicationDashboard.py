@@ -7,22 +7,13 @@
 # - Top senders analytics with delivery rates
 # - Program-specific communication metrics
 #
-# Features:
-# - Modular design for easier maintenance
-# - Better error handling with user-friendly messages
-# - Loading indicators for long-running operations
-# - Configurable options for customization
-# - Fixed SQL queries with proper column references
-# - Improved UI with responsive design
-# - Complete SMS analytics with sender information and failure breakdowns
-#
 #####################################################################
 #### UPLOAD INSTRUCTIONS
 #####################################################################
 # To upload code to Touchpoint, use the following steps:
 # 1. Click Admin ~ Advanced ~ Special Content ~ Python
 # 2. Click New Python Script File
-# 3. Name the Python script "CommunicationDashboard" and paste all this code
+# 3. Name the Python script file with your preferred name and paste all this code
 # 4. Test and optionally add to menu
 
 # Written By: Ben Swaby
@@ -50,7 +41,7 @@ class Config:
     DEFAULT_LOOKBACK_DAYS = 30
     
     # Maximum number of records to show in tables
-    MAX_ROWS_PER_TABLE = 20
+    MAX_ROWS_PER_TABLE = 150  # Show up to 150 campaigns without pagination
     
     # Default tab to show when no tab is selected
     DEFAULT_TAB = "dashboard"  # Options: dashboard, email, sms, senders, programs
@@ -69,6 +60,12 @@ class Config:
     
     # Debug mode - set to True to display more detailed error messages
     DEBUG_MODE = True
+    
+    # Pagination debug mode - no longer used (pagination removed)
+    PAGINATION_DEBUG = False
+    
+    # Performance mode - set to True to use simplified queries for large datasets
+    PERFORMANCE_MODE = False  # Disabled actual metrics
 
 #####################################################################
 #### INITIALIZATION
@@ -84,6 +81,30 @@ def get_form_data(attr_name, default_value):
         return value
     except:
         return default_value
+
+# Helper function to safely get integer form data
+def get_form_data_int(attr_name, default_value):
+    try:
+        value = getattr(model.Data, attr_name)
+        # Check if value is empty or None
+        if value is None or str(value).strip() == '':
+            return default_value
+        # Try to convert to int
+        try:
+            return int(value)
+        except ValueError:
+            return default_value
+    except:
+        return default_value
+
+# Helper function to get the current script URL
+def get_current_script_url():
+    """Get the current script URL dynamically"""
+    # Check if we have script name from model
+    if hasattr(model, 'ScriptName'):
+        return "/PyScript/" + model.ScriptName
+    # Otherwise return empty string to post to current URL
+    return ""
 
 # Initialize data model with default values if not already set
 today = datetime.now()
@@ -436,6 +457,10 @@ class DataRetrieval:
             sent_emails = 0
             failed_emails = 0
             failed_types = []
+            opens = 0
+            clicks = 0
+            unsubscribes = 0
+            bounces = 0
             
             # Format filter conditions - but only if needed
             sql_hide_success = '' if hide_success != 'yes' else ' AND fe.Fail IS NOT NULL '
@@ -504,6 +529,126 @@ class DataRetrieval:
             if total_emails >= sent_emails:
                 failed_emails = total_emails - sent_emails
             
+            # Get email opens count - count unique people who opened emails
+            try:
+                sql_opens = """
+                SELECT COUNT(DISTINCT er.PeopleId) AS OpenCount
+                FROM EmailResponses er
+                INNER JOIN EmailQueueTo eqt ON er.EmailQueueId = eqt.Id AND er.PeopleId = eqt.PeopleId
+                WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                AND er.Type = 'o'
+                """.format(sDate, eDate)
+                
+                opens_result = q.QuerySqlScalar(sql_opens)
+                if opens_result is not None:
+                    opens = int(opens_result)
+            except Exception as e:
+                print("<div class='alert alert-warning'>Warning: Failed to get email opens. {0}</div>".format(str(e)))
+            
+            # Get email clicks count - use EmailLinks table since EmailResponses doesn't track clicks
+            try:
+                # Since EmailResponses doesn't have Type='c', use EmailLinks table
+                # This gives total clicks across all campaigns in the date range
+                sql_clicks = """
+                SELECT ISNULL(SUM(el.Count), 0) AS ClickCount
+                FROM EmailLinks el
+                INNER JOIN EmailQueue eq ON el.EmailId = eq.Id
+                WHERE eq.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                """.format(sDate, eDate)
+                
+                clicks_result = q.QuerySqlScalar(sql_clicks)
+                if clicks_result is not None:
+                    clicks = int(clicks_result)
+                    
+                # Note: This is total clicks, not unique people clicking
+                # These are aggregate click counts per link
+            except Exception as e:
+                print("<div class='alert alert-warning'>Warning: Failed to get email clicks. {0}</div>".format(str(e)))
+            
+            # Get unsubscribe count using EmailOptOut table
+            try:
+                if DatabaseHelper.table_exists('EmailOptOut'):
+                    # First, detect which date column exists
+                    column_check_sql = """
+                    SELECT COLUMN_NAME 
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'EmailOptOut'
+                    AND COLUMN_NAME IN ('Date', 'OptOutDate', 'CreatedDate', 'DateX')
+                    """
+                    columns = q.QuerySql(column_check_sql)
+                    
+                    date_column = None
+                    for col in columns:
+                        if hasattr(col, 'COLUMN_NAME'):
+                            # Use the first available date column
+                            if col.COLUMN_NAME in ['Date', 'OptOutDate', 'CreatedDate', 'DateX']:
+                                date_column = col.COLUMN_NAME
+                                break
+                    
+                    if date_column:
+                        sql_unsubscribes = """
+                        SELECT COUNT(DISTINCT eo.ToPeopleId) AS UnsubscribeCount
+                        FROM EmailOptOut eo
+                        INNER JOIN People p ON eo.ToPeopleId = p.PeopleId
+                        WHERE eo.{2} BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                        AND p.IsDeceased = 0
+                        AND p.ArchivedFlag = 0
+                        """.format(sDate, eDate, date_column)
+                        
+                        unsubscribes_result = q.QuerySqlScalar(sql_unsubscribes)
+                        if unsubscribes_result is not None:
+                            unsubscribes = int(unsubscribes_result)
+                    else:
+                        # No date column found, raise exception to use fallback
+                        raise Exception("No date column found in EmailOptOut table")
+                else:
+                    # Table doesn't exist, raise exception to use fallback
+                    raise Exception("EmailOptOut table does not exist")
+            except Exception as e:
+                # If EmailOptOut table doesn't exist or has issues, try alternative approaches
+                try:
+                    # Check for DoNotMailFlag as fallback
+                    sql_unsubscribes_alt = """
+                    SELECT COUNT(DISTINCT p.PeopleId) AS UnsubscribeCount
+                    FROM People p
+                    WHERE (p.DoNotMailFlag = 1 OR p.DoNotCallFlag = 1)
+                    AND p.ModifiedDate BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                    """.format(sDate, eDate)
+                    
+                    unsubscribes_result = q.QuerySqlScalar(sql_unsubscribes_alt)
+                    if unsubscribes_result is not None:
+                        unsubscribes = int(unsubscribes_result)
+                except Exception as e2:
+                    print("<div class='alert alert-warning'>Warning: Failed to get unsubscribes. {0}</div>".format(str(e)))
+            
+            # Get bounce count from failed emails
+            # Based on user's failure types, the following should be considered bounces:
+            # - bouncedaddress: Direct bounce indicator
+            # - Mailbox Unavailable: Mailbox doesn't exist or is full
+            # - Invalid Address: Email address is invalid
+            # - invalid: Another form of invalid address
+            try:
+                # Count total bounce events (not unique people) to match failure breakdown
+                # Using the same join pattern as the failure breakdown query
+                sql_bounces = """
+                SELECT COUNT(*) AS BounceCount
+                FROM (
+                    SELECT DISTINCT fe.Fail, eqt.Id, eqt.PeopleId
+                    FROM EmailQueueTo eqt
+                    JOIN FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId
+                    WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                    AND fe.Fail IS NOT NULL
+                    AND fe.Fail IN ('bounce', 'hardbounce', 'blocked', 'invalid', 
+                                   'bouncedaddress', 'Mailbox Unavailable', 'Invalid Address')
+                ) AS BounceList
+                """.format(sDate, eDate)
+                
+                bounces_result = q.QuerySqlScalar(sql_bounces)
+                if bounces_result is not None:
+                    bounces = int(bounces_result)
+            except Exception as e:
+                print("<div class='alert alert-warning'>Warning: Failed to get bounce count. {0}</div>".format(str(e)))
+            
             # Get failed email breakdown with minimal SQL - use temp table approach to reduce null issues
             try:
                 sql_failures = """
@@ -566,13 +711,43 @@ class DataRetrieval:
             except:
                 delivery_rate = 0
             
+            # Calculate open rate
+            open_rate = 0
+            if sent_emails > 0:
+                open_rate = (float(opens) / float(sent_emails)) * 100
+            
+            # Calculate click-through rate
+            # Note: clicks are total clicks (not unique), opens are unique people
+            # So this rate might exceed 100% if people clicked multiple times
+            click_rate = 0
+            if sent_emails > 0:
+                click_rate = (float(clicks) / float(sent_emails)) * 100
+            
+            # Calculate bounce rate
+            bounce_rate = 0
+            if total_emails > 0:
+                bounce_rate = (float(bounces) / float(total_emails)) * 100
+            
+            # Calculate unsubscribe rate
+            unsubscribe_rate = 0
+            if sent_emails > 0:
+                unsubscribe_rate = (float(unsubscribes) / float(sent_emails)) * 100
+            
             # Return final stats with guaranteed values
             return {
                 'total_emails': total_emails,
                 'sent_emails': sent_emails,
                 'failed_emails': failed_emails,
                 'delivery_rate': delivery_rate,
-                'failed_types': failed_types
+                'failed_types': failed_types,
+                'opens': opens,
+                'clicks': clicks,
+                'open_rate': open_rate,
+                'click_rate': click_rate,
+                'bounces': bounces,
+                'bounce_rate': bounce_rate,
+                'unsubscribes': unsubscribes,
+                'unsubscribe_rate': unsubscribe_rate
             }
         except Exception as e:
             # Log error but return a valid structure with defaults
@@ -582,9 +757,255 @@ class DataRetrieval:
                 'sent_emails': 0,
                 'failed_emails': 0,
                 'delivery_rate': 0,
-                'failed_types': []
+                'failed_types': [],
+                'opens': 0,
+                'clicks': 0,
+                'open_rate': 0,
+                'click_rate': 0,
+                'bounces': 0,
+                'bounce_rate': 0,
+                'unsubscribes': 0,
+                'unsubscribe_rate': 0
             }
             
+    @staticmethod
+    def get_subscriber_growth(sDate, eDate, interval='daily'):
+        """Get subscriber growth over time based on email activity"""
+        try:
+            # First check if we can use EmailOptOut table effectively
+            can_use_optout = False
+            optout_date_column = None
+            
+            if DatabaseHelper.table_exists('EmailOptOut'):
+                # Try to detect which date column exists
+                try:
+                    # First, get column names from the table
+                    column_check_sql = """
+                    SELECT COLUMN_NAME 
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'EmailOptOut'
+                    AND COLUMN_NAME IN ('Date', 'OptOutDate', 'CreatedDate', 'DateX')
+                    """
+                    columns = q.QuerySql(column_check_sql)
+                    
+                    # Check which columns exist
+                    available_columns = []
+                    for col in columns:
+                        if hasattr(col, 'COLUMN_NAME'):
+                            available_columns.append(col.COLUMN_NAME)
+                    
+                    # Use the first available date column
+                    if 'Date' in available_columns:
+                        optout_date_column = 'Date'
+                        can_use_optout = True
+                    elif 'OptOutDate' in available_columns:
+                        optout_date_column = 'OptOutDate'
+                        can_use_optout = True
+                    elif 'CreatedDate' in available_columns:
+                        optout_date_column = 'CreatedDate'
+                        can_use_optout = True
+                    elif 'DateX' in available_columns:
+                        optout_date_column = 'DateX'
+                        can_use_optout = True
+                    else:
+                        can_use_optout = False
+                except:
+                    # If the column check fails, we'll use the fallback
+                    can_use_optout = False
+            # Determine date grouping based on interval
+            if interval == 'daily':
+                date_format = 'YYYY-MM-DD'
+                date_group = "CONVERT(VARCHAR(10), DatePoint, 101)"  # MM/DD/YYYY format
+            elif interval == 'weekly':
+                date_format = 'YYYY-WW'
+                date_group = "DATEPART(YEAR, DatePoint) * 100 + DATEPART(WEEK, DatePoint)"
+            else:  # monthly
+                date_format = 'YYYY-MM'
+                date_group = "CONVERT(VARCHAR(7), DatePoint, 126)"
+            
+            # Build date group expressions
+            date_group_sent = date_group.replace('DatePoint', 'eqt.Sent')
+            date_group_mod = date_group.replace('DatePoint', 'p.ModifiedDate')
+            
+            # Only set optout date group if we have a valid column
+            if can_use_optout and optout_date_column:
+                date_group_optout = date_group.replace('DatePoint', 'eo.' + optout_date_column)
+            else:
+                date_group_optout = None
+                
+            # Track email activity-based growth
+            # Focus on actual email recipients and opt-outs during the period
+            
+            if can_use_optout and optout_date_column:
+                # Use the detected date column
+                date_column = "eo." + optout_date_column
+                
+                sql_growth = """
+            WITH DateRange AS (
+                SELECT CAST('{0}' AS DATE) AS StartDate, CAST('{1}' AS DATE) AS EndDate
+            ),
+            -- Get unique email recipients per period (active subscribers)
+            EmailActivity AS (
+                SELECT 
+                    {2} AS DateGroup,
+                    COUNT(DISTINCT eqt.PeopleId) AS ActiveRecipients
+                FROM EmailQueueTo eqt
+                INNER JOIN People p ON eqt.PeopleId = p.PeopleId
+                WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                AND p.IsDeceased = 0
+                AND p.EmailAddress IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM EmailOptOut eo
+                    WHERE eo.ToPeopleId = p.PeopleId
+                )
+                GROUP BY {2}
+            ),
+            -- Count first-time email recipients (new to email list)
+            FirstTimeRecipients AS (
+                SELECT 
+                    {2} AS DateGroup,
+                    COUNT(DISTINCT eqt.PeopleId) AS NewRecipients
+                FROM EmailQueueTo eqt
+                INNER JOIN People p ON eqt.PeopleId = p.PeopleId
+                WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                AND p.IsDeceased = 0
+                -- This is their first email
+                AND NOT EXISTS (
+                    SELECT 1 FROM EmailQueueTo eqt2
+                    WHERE eqt2.PeopleId = eqt.PeopleId
+                    AND eqt2.Sent < '{0} 00:00:00'
+                )
+                GROUP BY {2}
+            ),
+            -- Count people who opted out during the period
+            OptOuts AS (
+                SELECT 
+                    {3} AS DateGroup,
+                    COUNT(DISTINCT eo.ToPeopleId) AS OptOutCount
+                FROM EmailOptOut eo
+                INNER JOIN People p ON eo.ToPeopleId = p.PeopleId
+                WHERE {4} BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                AND p.IsDeceased = 0
+                AND p.ArchivedFlag = 0
+                -- They received emails before opting out
+                AND EXISTS (
+                    SELECT 1 FROM EmailQueueTo eqt
+                    WHERE eqt.PeopleId = eo.ToPeopleId
+                    AND eqt.Sent < {4}
+                )
+                GROUP BY {3}
+            ),
+            -- Combine all date groups
+            AllDates AS (
+                SELECT DateGroup FROM EmailActivity
+                UNION SELECT DateGroup FROM FirstTimeRecipients  
+                UNION SELECT DateGroup FROM OptOuts
+            )
+            SELECT 
+                ad.DateGroup,
+                ISNULL(ftr.NewRecipients, 0) AS NewSubscribers,
+                ISNULL(oo.OptOutCount, 0) AS Unsubscribes,
+                ISNULL(ftr.NewRecipients, 0) - ISNULL(oo.OptOutCount, 0) AS NetGrowth,
+                ISNULL(ea.ActiveRecipients, 0) AS TotalActive
+            FROM AllDates ad
+            LEFT JOIN EmailActivity ea ON ad.DateGroup = ea.DateGroup
+            LEFT JOIN FirstTimeRecipients ftr ON ad.DateGroup = ftr.DateGroup
+            LEFT JOIN OptOuts oo ON ad.DateGroup = oo.DateGroup
+            ORDER BY ad.DateGroup
+            """.format(sDate, eDate, date_group_sent, 
+                      date_group_optout,
+                      date_column)
+            else:
+                # Fallback query when EmailOptOut table doesn't exist
+                # Use DoNotMailFlag as proxy for opt-outs
+                sql_growth = """
+            WITH DateRange AS (
+                SELECT CAST('{0}' AS DATE) AS StartDate, CAST('{1}' AS DATE) AS EndDate
+            ),
+            -- Get unique email recipients per period (active subscribers)
+            EmailActivity AS (
+                SELECT 
+                    {2} AS DateGroup,
+                    COUNT(DISTINCT eqt.PeopleId) AS ActiveRecipients
+                FROM EmailQueueTo eqt
+                INNER JOIN People p ON eqt.PeopleId = p.PeopleId
+                WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                AND p.IsDeceased = 0
+                AND p.EmailAddress IS NOT NULL
+                AND p.DoNotMailFlag = 0
+                GROUP BY {2}
+            ),
+            -- Count first-time email recipients (new to email list)
+            FirstTimeRecipients AS (
+                SELECT 
+                    {2} AS DateGroup,
+                    COUNT(DISTINCT eqt.PeopleId) AS NewRecipients
+                FROM EmailQueueTo eqt
+                INNER JOIN People p ON eqt.PeopleId = p.PeopleId
+                WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                AND p.IsDeceased = 0
+                -- This is their first email
+                AND NOT EXISTS (
+                    SELECT 1 FROM EmailQueueTo eqt2
+                    WHERE eqt2.PeopleId = eqt.PeopleId
+                    AND eqt2.Sent < '{0} 00:00:00'
+                )
+                GROUP BY {2}
+            ),
+            -- Count people who were marked DoNotMail during the period
+            OptOuts AS (
+                SELECT 
+                    {3} AS DateGroup,
+                    COUNT(DISTINCT p.PeopleId) AS OptOutCount
+                FROM People p
+                WHERE p.ModifiedDate BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                AND p.DoNotMailFlag = 1
+                AND p.IsDeceased = 0
+                AND p.ArchivedFlag = 0
+                -- They received emails before being marked DoNotMail
+                AND EXISTS (
+                    SELECT 1 FROM EmailQueueTo eqt
+                    WHERE eqt.PeopleId = p.PeopleId
+                    AND eqt.Sent < p.ModifiedDate
+                )
+                GROUP BY {3}
+            ),
+            -- Combine all date groups
+            AllDates AS (
+                SELECT DateGroup FROM EmailActivity
+                UNION SELECT DateGroup FROM FirstTimeRecipients  
+                UNION SELECT DateGroup FROM OptOuts
+            )
+            SELECT 
+                ad.DateGroup,
+                ISNULL(ftr.NewRecipients, 0) AS NewSubscribers,
+                ISNULL(oo.OptOutCount, 0) AS Unsubscribes,
+                ISNULL(ftr.NewRecipients, 0) - ISNULL(oo.OptOutCount, 0) AS NetGrowth,
+                ISNULL(ea.ActiveRecipients, 0) AS TotalActive
+            FROM AllDates ad
+            LEFT JOIN EmailActivity ea ON ad.DateGroup = ea.DateGroup
+            LEFT JOIN FirstTimeRecipients ftr ON ad.DateGroup = ftr.DateGroup
+            LEFT JOIN OptOuts oo ON ad.DateGroup = oo.DateGroup
+            ORDER BY ad.DateGroup
+            """.format(sDate, eDate, date_group_sent, date_group_mod)
+            
+            results = q.QuerySql(sql_growth)
+            
+            # Convert to list of dictionaries
+            data = []
+            for row in results:
+                data.append({
+                    'DateGroup': str(getattr(row, 'DateGroup', '')),
+                    'NewSubscribers': getattr(row, 'NewSubscribers', 0),
+                    'Unsubscribes': getattr(row, 'Unsubscribes', 0),
+                    'NetGrowth': getattr(row, 'NetGrowth', 0)
+                })
+                
+            return data
+        except Exception as e:
+            print("<div class='alert alert-danger'>Error in subscriber growth: {0}</div>".format(str(e)))
+            return []
+    
     @staticmethod
     def get_failure_recipients(sDate, eDate, hide_success, program_filter, failure_filter):
         """Get recipients with failed emails"""
@@ -596,6 +1017,7 @@ class DataRetrieval:
         # SQL for user failure stats
         sql = """
         SELECT 
+            p.PeopleId,
             p.Name,
             p.EmailAddress,
             fe.Fail AS FailureType,  
@@ -607,7 +1029,7 @@ class DataRetrieval:
         LEFT JOIN Program pro ON pro.Id = d.ProgId
         LEFT JOIN People p ON p.PeopleId = eqt.PeopleId
         WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2} {3} {4}
-        GROUP BY p.Name, p.EmailAddress, fe.Fail
+        GROUP BY p.PeopleId, p.Name, p.EmailAddress, fe.Fail
         ORDER BY FailureCount DESC
         """
         
@@ -620,6 +1042,7 @@ class DataRetrieval:
             data = []
             for row in results:
                 data.append({
+                    'PeopleId': getattr(row, 'PeopleId', 0),
                     'Name': getattr(row, 'Name', ''),
                     'EmailAddress': getattr(row, 'EmailAddress', ''),
                     'FailureType': getattr(row, 'FailureType', ''),
@@ -631,42 +1054,276 @@ class DataRetrieval:
             raise Exception("Error retrieving failure recipients: {}".format(str(e)))
 
     @staticmethod
-    def get_recent_campaigns(sDate, eDate, program_filter):
-        """Get recent email campaigns"""
+    def get_recent_campaigns(sDate, eDate, program_filter, page=1, page_size=None, exclude_single_recipient=False):
+        """Get recent email campaigns with engagement metrics - simplified version"""
+        # Always use max rows setting, ignore pagination
+        page_size = Config.MAX_ROWS_PER_TABLE
+        offset = 0  # No pagination - always start from beginning
+        
         # Format filter conditions
         filter_program = '' if program_filter == str(999999) else ' AND pro.Id = {}'.format(program_filter)
+        # For HAVING clause, we need the condition without the leading AND
+        filter_single_recipient = ' AND COUNT(DISTINCT eqt.PeopleId) > 1' if exclude_single_recipient else ''
         
-        # SQL for basic campaign data - using 'Sent' column instead of 'SendingDate'
-        sql = """
-        SELECT TOP {3}
-            eq.Subject AS CampaignName,
-            COUNT(eqt.PeopleId) AS RecipientCount,
-            MAX(CAST(eqt.Sent AS DATE)) AS SentDate,
-            eq.FromName AS Sender
-        FROM EmailQueue eq
-        JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
-        LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
-        LEFT JOIN Division d ON d.Id = o.DivisionId
-        LEFT JOIN Program pro ON pro.Id = d.ProgId
-        WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2}
-        GROUP BY eq.Subject, eq.FromName
-        ORDER BY MAX(eqt.Sent) DESC
+        # Choose query based on performance mode
+        if Config.PERFORMANCE_MODE:
+            # Super simplified query for maximum performance
+            sql = """
+            -- Performance mode: Basic campaign info only, no metrics
+            WITH CampaignList AS (
+                SELECT 
+                    eq.Id AS EmailQueueId,
+                    eq.Subject AS CampaignName,
+                    eq.FromName AS Sender,
+                    eq.QueuedBy AS SenderPeopleId,
+                    COUNT(DISTINCT eqt.PeopleId) AS RecipientCount,
+                    CONVERT(VARCHAR(10), MAX(eqt.Sent), 101) AS SentDate,
+                    MAX(eqt.Sent) AS SentDateTime
+                FROM EmailQueue eq WITH (NOLOCK)
+                INNER JOIN EmailQueueTo eqt WITH (NOLOCK) ON eq.Id = eqt.Id
+                WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                GROUP BY eq.Id, eq.Subject, eq.FromName, eq.QueuedBy
+                HAVING 1=1 {2}
+                ORDER BY MAX(eqt.Sent) DESC
+                OFFSET 0 ROWS
+                FETCH NEXT {3} ROWS ONLY
+            )
+            SELECT 
+                EmailQueueId,
+                CampaignName,
+                Sender,
+                SenderPeopleId,
+                SentDate,
+                RecipientCount,
+                0 AS OpenCount,
+                0 AS ClickCount,
+                0 AS FailureCount,
+                0 AS UnsubscribeCount,
+                0.0 AS OpenRate,
+                0.0 AS ClickRate,
+                0.0 AS FailureRate
+            FROM CampaignList
+            ORDER BY SentDateTime DESC
+            """.format(sDate, eDate, filter_single_recipient, page_size)
+        else:
+            # Ultra-optimized SQL - Get basic campaign info first, metrics are loaded separately
+            sql = """
+        -- Get campaign list with basic info only
+        WITH CampaignList AS (
+            SELECT 
+                eq.Id AS EmailQueueId,
+                eq.Subject AS CampaignName,
+                eq.FromName AS Sender,
+                eq.QueuedBy AS SenderPeopleId,
+                COUNT(DISTINCT eqt.PeopleId) AS RecipientCount,
+                CONVERT(VARCHAR(10), MAX(eqt.Sent), 101) AS SentDate,
+                MAX(eqt.Sent) AS SentDateTime
+            FROM EmailQueue eq WITH (NOLOCK)
+            INNER JOIN EmailQueueTo eqt WITH (NOLOCK) ON eq.Id = eqt.Id
+            LEFT JOIN Organizations o WITH (NOLOCK) ON o.OrganizationId = eqt.OrgId
+            LEFT JOIN Division d WITH (NOLOCK) ON d.Id = o.DivisionId
+            LEFT JOIN Program pro WITH (NOLOCK) ON pro.Id = d.ProgId
+            WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2}
+            GROUP BY eq.Id, eq.Subject, eq.FromName, eq.QueuedBy
+            HAVING 1=1 {3}
+            ORDER BY MAX(eqt.Sent) DESC
+            OFFSET 0 ROWS
+            FETCH NEXT {4} ROWS ONLY
+        )
+        SELECT 
+            cl.*,
+            -- Simplified metrics - just counts, calculate rates in Python
+            (SELECT COUNT(DISTINCT PeopleId) FROM EmailResponses WITH (NOLOCK) WHERE EmailQueueId = cl.EmailQueueId AND Type = 'o') AS OpenCount,
+            (SELECT ISNULL(SUM(Count), 0) FROM EmailLinks WITH (NOLOCK) WHERE EmailId = cl.EmailQueueId) AS ClickCount,
+            (SELECT COUNT(DISTINCT fe.PeopleId) FROM FailedEmails fe WITH (NOLOCK) 
+             INNER JOIN EmailQueueTo eqt2 WITH (NOLOCK) ON fe.Id = eqt2.Id AND fe.PeopleId = eqt2.PeopleId 
+             WHERE eqt2.Id = cl.EmailQueueId) AS FailureCount,
+            0 AS UnsubscribeCount, -- Skip unsubscribes for performance, they're rarely used
+            0.0 AS OpenRate,
+            0.0 AS ClickRate,
+            0.0 AS FailureRate
+        FROM CampaignList cl
+        ORDER BY cl.SentDateTime DESC
         """
         
         try:
-            # Format SQL with parameters
-            formatted_sql = sql.format(sDate, eDate, filter_program, Config.MAX_ROWS_PER_TABLE)
+            # Debug: Log parameter values BEFORE formatting
+            if Config.DEBUG_MODE and False:  # Temporarily disabled
+                print "<div class='alert alert-warning'>Debug: Parameters BEFORE SQL formatting:</div>"
+                print "<ul>"
+                print "<li>exclude_single_recipient parameter: {0}</li>".format(exclude_single_recipient)
+                print "<li>filter_single_recipient value: '{0}'</li>".format(filter_single_recipient)
+                print "<li>Length of filter_single_recipient: {0}</li>".format(len(filter_single_recipient))
+                print "</ul>"
+                
+                # Count placeholders in SQL template
+                import re
+                placeholder_count = len(re.findall(r'\{(\d+)\}', sql))
+                print "<div class='alert alert-info'>Debug: SQL template has {0} placeholders</div>".format(placeholder_count)
+                print "<div class='alert alert-info'>Debug: Passing {0} parameters to format()</div>".format(6)
+            
+            # Format SQL with parameters including pagination
+            if Config.PERFORMANCE_MODE:
+                # Performance mode query is already formatted
+                formatted_sql = sql
+            else:
+                # Note: The {3} placeholder in the HAVING clause needs the filter_single_recipient value
+                formatted_sql = sql.format(sDate, eDate, filter_program, filter_single_recipient, page_size)
+            
+            # Debug output - remove after testing
+            if Config.DEBUG_MODE and False:  # Temporarily disabled
+                print "<div class='alert alert-info'>Debug: Page={0}, PageSize={1}, Offset={2}</div>".format(page, page_size, offset)
+                print "<div class='alert alert-info'>Debug: Date range: {0} to {1}</div>".format(sDate, eDate)
+                print "<div class='alert alert-info'>Debug: Program filter: {0}</div>".format(program_filter if program_filter else "All Programs")
+                print "<div class='alert alert-info'>Debug: Filter program SQL: {0}</div>".format(filter_program if filter_program else "None")
+                print "<div class='alert alert-info'>Debug: Exclude single recipient: {0}</div>".format(exclude_single_recipient)
+                print "<div class='alert alert-info'>Debug: Single recipient filter SQL: {0}</div>".format(filter_single_recipient if filter_single_recipient else "None")
+                
+                # Show the actual SQL query being executed
+                print "<div class='alert alert-warning'>Debug: SQL Query being executed:</div>"
+                print "<pre style='font-size: 11px; background: #f8f9fa; padding: 10px; border-radius: 4px;'>{0}</pre>".format(formatted_sql.replace('<', '&lt;').replace('>', '&gt;'))
+                
+                # Check if HAVING clause was properly formatted
+                if 'HAVING' in formatted_sql:
+                    having_start = formatted_sql.find('HAVING')
+                    having_end = formatted_sql.find('\n', having_start)
+                    having_clause = formatted_sql[having_start:having_end] if having_end > -1 else formatted_sql[having_start:]
+                    print "<div class='alert alert-warning'>Debug: Extracted HAVING clause: <code>{0}</code></div>".format(having_clause.strip())
+                    
+                    # Explicitly check if the filter is present
+                    if exclude_single_recipient and 'COUNT(DISTINCT eqt.PeopleId) > 1' not in formatted_sql:
+                        print "<div class='alert alert-danger'>ERROR: Single-recipient filter was NOT added to SQL despite exclude_single_recipient=True!</div>"
+                    elif exclude_single_recipient:
+                        print "<div class='alert alert-success'>SUCCESS: Single-recipient filter IS present in SQL</div>"
+                
+                # Additional debug to verify parameter substitution
+                print "<div class='alert alert-info'>Debug: Format parameters:</div>"
+                print "<ul>"
+                print "<li>sDate: {0}</li>".format(sDate)
+                print "<li>eDate: {0}</li>".format(eDate)
+                print "<li>filter_program: {0}</li>".format(filter_program)
+                print "<li>filter_single_recipient: {0}</li>".format(filter_single_recipient)
+                print "<li>offset: {0}</li>".format(offset)
+                print "<li>page_size: {0}</li>".format(page_size)
+                print "</ul>"
+                
+                # Check total count without pagination for debugging
+                count_sql = sql.replace('OFFSET {4} ROWS\n        FETCH NEXT {5} ROWS ONLY', '').format(sDate, eDate, filter_program, filter_single_recipient)
+                total_results = q.QuerySql(count_sql)
+                total_count = len(list(total_results)) if total_results else 0
+                print "<div class='alert alert-info'>Debug: Total campaigns available: {0}</div>".format(total_count)
+                
+                # Check if there are any EmailQueueTo records in the date range at all
+                basic_count_sql = """
+                SELECT COUNT(*) as EmailCount
+                FROM EmailQueueTo eqt
+                WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                """.format(sDate, eDate)
+                
+                basic_result = q.QuerySqlTop1(basic_count_sql)
+                basic_count = getattr(basic_result, 'EmailCount', 0) if basic_result else 0
+                print "<div class='alert alert-info'>Debug: Total emails in date range: {0}</div>".format(basic_count)
+                
+                # Check distinct campaigns in date range
+                distinct_campaigns_sql = """
+                SELECT COUNT(DISTINCT eq.Id) as CampaignCount
+                FROM EmailQueue eq
+                JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
+                WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                """.format(sDate, eDate)
+                
+                distinct_result = q.QuerySqlTop1(distinct_campaigns_sql)
+                distinct_count = getattr(distinct_result, 'CampaignCount', 0) if distinct_result else 0
+                print "<div class='alert alert-info'>Debug: Distinct campaigns in date range: {0}</div>".format(distinct_count)
+                
+                # Test if the program filter is affecting results
+                if filter_program:
+                    no_filter_sql = """
+                    SELECT COUNT(DISTINCT eq.Id) as CampaignCount
+                    FROM EmailQueue eq
+                    JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
+                    WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                    """.format(sDate, eDate)
+                    
+                    no_filter_result = q.QuerySqlTop1(no_filter_sql)
+                    no_filter_count = getattr(no_filter_result, 'CampaignCount', 0) if no_filter_result else 0
+                    print "<div class='alert alert-info'>Debug: Campaigns without program filter: {0}</div>".format(no_filter_count)
+                    
+                    # Also check how many campaigns have program associations
+                    with_program_sql = """
+                    SELECT COUNT(DISTINCT eq.Id) as CampaignCount
+                    FROM EmailQueue eq
+                    JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
+                    LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
+                    LEFT JOIN Division d ON d.Id = o.DivisionId
+                    LEFT JOIN Program pro ON pro.Id = d.ProgId
+                    WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+                    AND pro.Id IS NOT NULL
+                    """.format(sDate, eDate)
+                    
+                    with_program_result = q.QuerySqlTop1(with_program_sql)
+                    with_program_count = getattr(with_program_result, 'CampaignCount', 0) if with_program_result else 0
+                    print "<div class='alert alert-info'>Debug: Campaigns with program associations: {0}</div>".format(with_program_count)
+            
+            # Get all campaigns up to the limit
             results = q.QuerySql(formatted_sql)
             
             # Convert results to list of dictionaries
             data = []
+            
             for row in results:
+                
+                email_queue_id = getattr(row, 'EmailQueueId', 0)
+                sender_people_id = getattr(row, 'SenderPeopleId', 0)
+                recipient_count = getattr(row, 'RecipientCount', 0)
+                open_count = getattr(row, 'OpenCount', 0)
+                click_count = getattr(row, 'ClickCount', 0)
+                failure_count = getattr(row, 'FailureCount', 0)
+                unsubscribe_count = getattr(row, 'UnsubscribeCount', 0)
+                open_rate = getattr(row, 'OpenRate', 0)
+                click_rate = getattr(row, 'ClickRate', 0)
+                failure_rate = getattr(row, 'FailureRate', 0)
+                
+                # Calculate rates in Python for better performance
+                if recipient_count > 0:
+                    calc_open_rate = (float(open_count) / float(recipient_count)) * 100
+                    calc_click_rate = (float(click_count) / float(recipient_count)) * 100
+                    calc_failure_rate = (float(failure_count) / float(recipient_count)) * 100
+                else:
+                    calc_open_rate = 0
+                    calc_click_rate = 0
+                    calc_failure_rate = 0
+                
                 data.append({
+                    'EmailQueueId': email_queue_id,
                     'CampaignName': getattr(row, 'CampaignName', ''),
-                    'RecipientCount': FormatHelper.format_number(getattr(row, 'RecipientCount', 0)),
+                    'Sender': getattr(row, 'Sender', ''),
+                    'SenderPeopleId': sender_people_id,
                     'SentDate': getattr(row, 'SentDate', ''),
-                    'Sender': getattr(row, 'Sender', '')
+                    'RecipientCount': recipient_count,
+                    'RecipientCountFormatted': FormatHelper.format_number(recipient_count),
+                    'OpenCount': FormatHelper.format_number(open_count),
+                    'OpenRate': FormatHelper.format_percent(calc_open_rate),
+                    'ClickCount': FormatHelper.format_number(click_count),
+                    'ClickRate': FormatHelper.format_percent(calc_click_rate),
+                    'FailureCount': FormatHelper.format_number(failure_count),
+                    'FailureRate': FormatHelper.format_percent(calc_failure_rate),
+                    'UnsubscribeCount': FormatHelper.format_number(unsubscribe_count),
+                    'IsSingleRecipient': recipient_count == 1
                 })
+            
+            # No pagination - no need for has_more flag
+            
+            # Debug output
+            if Config.PAGINATION_DEBUG:
+                print '<!-- Debug: get_recent_campaigns() Results -->'
+                print '<!-- Page: {0}, Page Size: {1}, Offset: {2} -->'.format(page, page_size, offset)
+                print '<!-- Exclude Single Recipient: {0} -->'.format(exclude_single_recipient)
+                print '<!-- Rows found: {0} -->'.format(len(data))
+                print '<div class="alert alert-info" style="margin: 10px;">'
+                print '<strong>Debug:</strong> '
+                print 'Found {0} campaigns'.format(len(data))
+                print '</div>'
             
             return data
         except Exception as e:
@@ -678,22 +1335,62 @@ class DataRetrieval:
         # Format filter conditions
         filter_program = '' if program_filter == str(999999) else ' AND pro.Id = {}'.format(program_filter)
         
-        # SQL for top senders
+        # SQL for top senders with unsubscribe counts
         sql = """
+        WITH SenderStats AS (
+            SELECT 
+                eq.FromName AS SenderName,
+                eq.Id AS EmailQueueId,
+                COUNT(eqt.PeopleId) AS Recipients
+            FROM EmailQueue eq
+            JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
+            LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
+            LEFT JOIN Division d ON d.Id = o.DivisionId
+            LEFT JOIN Program pro ON pro.Id = d.ProgId
+            WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2}
+            GROUP BY eq.FromName, eq.Id
+        ),
+        UnsubscribeStats AS (
+            SELECT 
+                eq.FromName AS SenderName,
+                COUNT(DISTINCT p.PeopleId) AS UnsubscribeCount
+            FROM EmailQueue eq
+            JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
+            JOIN People p ON p.PeopleId = eqt.PeopleId
+            WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+            AND p.DoNotMailFlag = 1
+            AND p.ModifiedDate >= eqt.Sent
+            AND p.ModifiedDate <= DATEADD(day, 7, eqt.Sent)
+            GROUP BY eq.FromName
+        ),
+        SenderTotals AS (
+            SELECT 
+                SenderName,
+                COUNT(DISTINCT EmailQueueId) AS CampaignCount,
+                SUM(Recipients) AS TotalRecipients
+            FROM SenderStats
+            GROUP BY SenderName
+        ),
+        FailureCounts AS (
+            SELECT 
+                eq.FromName AS SenderName,
+                COUNT(DISTINCT fe.Id) AS FailureCount
+            FROM EmailQueue eq
+            JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
+            JOIN FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId
+            WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+            GROUP BY eq.FromName
+        )
         SELECT TOP {3}
-            eq.FromName AS SenderName,
-            COUNT(DISTINCT eq.Id) AS CampaignCount,
-            COUNT(eqt.PeopleId) AS TotalRecipients,
-            SUM(CASE WHEN fe.Id IS NULL THEN 1 ELSE 0 END) AS SuccessfulDeliveries
-        FROM EmailQueue eq
-        JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
-        LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId
-        LEFT JOIN Organizations o ON o.OrganizationId = eqt.OrgId
-        LEFT JOIN Division d ON d.Id = o.DivisionId
-        LEFT JOIN Program pro ON pro.Id = d.ProgId
-        WHERE eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999' {2}
-        GROUP BY eq.FromName
-        ORDER BY COUNT(DISTINCT eq.Id) DESC
+            st.SenderName,
+            st.CampaignCount,
+            st.TotalRecipients,
+            st.TotalRecipients - ISNULL(fc.FailureCount, 0) AS SuccessfulDeliveries,
+            ISNULL(us.UnsubscribeCount, 0) AS Unsubscribes
+        FROM SenderTotals st
+        LEFT JOIN FailureCounts fc ON fc.SenderName = st.SenderName
+        LEFT JOIN UnsubscribeStats us ON us.SenderName = st.SenderName
+        ORDER BY st.CampaignCount DESC
         """
         
         try:
@@ -706,6 +1403,7 @@ class DataRetrieval:
             for row in results:
                 total_recipients = getattr(row, 'TotalRecipients', 0)
                 successful_deliveries = getattr(row, 'SuccessfulDeliveries', 0)
+                unsubscribes = getattr(row, 'Unsubscribes', 0)
                 delivery_rate = FormatHelper.safe_div(successful_deliveries, total_recipients) * 100
                 
                 data.append({
@@ -713,7 +1411,8 @@ class DataRetrieval:
                     'CampaignCount': getattr(row, 'CampaignCount', 0),
                     'TotalRecipients': FormatHelper.format_number(total_recipients),
                     'SuccessfulDeliveries': FormatHelper.format_number(successful_deliveries),
-                    'DeliveryRate': FormatHelper.format_percent(delivery_rate)
+                    'DeliveryRate': FormatHelper.format_percent(delivery_rate),
+                    'Unsubscribes': FormatHelper.format_number(unsubscribes)
                 })
             
             return data
@@ -1523,68 +2222,251 @@ class UIRenderer:
 
     @staticmethod
     def render_email_summary(summary_data):
-        """Render email summary metrics section"""
+        """Render email summary metrics section with Mailchimp-style metrics"""
         
         # Extract values from summary data with defaults
         total_emails = summary_data.get('total_emails', 0)
         sent_emails = summary_data.get('sent_emails', 0)
         failed_emails = summary_data.get('failed_emails', 0)
         delivery_rate = summary_data.get('delivery_rate', 0)
+        opens = summary_data.get('opens', 0)
+        clicks = summary_data.get('clicks', 0)
+        open_rate = summary_data.get('open_rate', 0)
+        click_rate = summary_data.get('click_rate', 0)
+        bounces = summary_data.get('bounces', 0)
+        bounce_rate = summary_data.get('bounce_rate', 0)
+        unsubscribes = summary_data.get('unsubscribes', 0)
+        unsubscribe_rate = summary_data.get('unsubscribe_rate', 0)
         
-        # Create metrics HTML
+        # Create metrics HTML with Mailchimp-style layout
         html = """
         <div class="panel panel-primary">
             <div class="panel-heading">
-                <h3 class="panel-title">Email Delivery Summary</h3>
+                <h3 class="panel-title">Email Campaign Performance Metrics</h3>
             </div>
             <div class="panel-body">
-                <div class="row text-center">
+                <!-- Primary Metrics Row -->
+                <div class="row text-center" style="margin-bottom: 30px;">
                     <div class="col-md-3 col-sm-6">
-                        <div class="well well-sm">
-                            <h2>{0}</h2>
-                            <p>Total Emails Sent</p>
+                        <div class="metric-card" style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                            <div style="font-size: 36px; font-weight: bold; color: #2c3e50;">{0}</div>
+                            <div style="color: #7f8c8d; margin-top: 10px;">Total Emails Sent</div>
                         </div>
                     </div>
                     <div class="col-md-3 col-sm-6">
-                        <div class="well well-sm">
-                            <h2>{1}</h2>
-                            <p>Successfully Delivered</p>
+                        <div class="metric-card" style="background: #e8f5e9; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                            <div style="font-size: 36px; font-weight: bold; color: #27ae60;">{1}</div>
+                            <div style="color: #7f8c8d; margin-top: 10px;">Delivery Rate</div>
+                            <div style="font-size: 14px; color: #95a5a6;">({2} delivered)</div>
                         </div>
                     </div>
                     <div class="col-md-3 col-sm-6">
-                        <div class="well well-sm">
-                            <h2>{2}</h2>
-                            <p>Failed Emails</p>
+                        <div class="metric-card" style="background: #e3f2fd; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                            <div style="font-size: 36px; font-weight: bold; color: #2196f3;">{3}</div>
+                            <div style="color: #7f8c8d; margin-top: 10px;">Open Rate</div>
+                            <div style="font-size: 14px; color: #95a5a6;">({4} opens)</div>
                         </div>
                     </div>
                     <div class="col-md-3 col-sm-6">
-                        <div class="well well-sm">
-                            <h2>{3}</h2>
-                            <p>Delivery Rate</p>
+                        <div class="metric-card" style="background: #f3e5f5; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                            <div style="font-size: 36px; font-weight: bold; color: #9c27b0;">{5}</div>
+                            <div style="color: #7f8c8d; margin-top: 10px;">Click Rate</div>
+                            <div style="font-size: 14px; color: #95a5a6;">({6} total clicks)</div>
                         </div>
                     </div>
                 </div>
                 
-                <div class="progress">
-                    <div class="progress-bar progress-bar-success" role="progressbar" style="width: {4}%;" 
-                        aria-valuenow="{5}" aria-valuemin="0" aria-valuemax="100">
-                        {6}%
+                <!-- Secondary Metrics Row -->
+                <div class="row text-center">
+                    <div class="col-md-4">
+                        <div class="metric-card" style="background: #fff3e0; padding: 15px; border-radius: 8px;">
+                            <div style="font-size: 24px; font-weight: bold; color: #ff9800;">{7}</div>
+                            <div style="color: #7f8c8d; margin-top: 5px;">
+                                Bounce Rate 
+                                <a href="#" onclick="$('#bounceHelpModal').modal('show'); return false;" 
+                                   style="color: #95a5a6; font-size: 12px;">
+                                    <i class="glyphicon glyphicon-question-sign"></i>
+                                </a>
+                            </div>
+                            <div style="font-size: 12px; color: #95a5a6;">({8} bounces)</div>
+                            <div class="progress" style="height: 6px; margin-top: 10px;">
+                                <div class="progress-bar" style="background-color: #ff9800; width: {9}%;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="metric-card" style="background: #ffebee; padding: 15px; border-radius: 8px;">
+                            <div style="font-size: 24px; font-weight: bold; color: #f44336;">{10}</div>
+                            <div style="color: #7f8c8d; margin-top: 5px;">Unsubscribe Rate</div>
+                            <div style="font-size: 12px; color: #95a5a6;">({11} unsubscribes)</div>
+                            <div class="progress" style="height: 6px; margin-top: 10px;">
+                                <div class="progress-bar" style="background-color: #f44336; width: {12}%;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="metric-card" style="background: #fce4ec; padding: 15px; border-radius: 8px;">
+                            <div style="font-size: 24px; font-weight: bold; color: #e91e63;">{13}</div>
+                            <div style="color: #7f8c8d; margin-top: 5px;">Failed Emails</div>
+                            <div style="font-size: 12px; color: #95a5a6;">({14} emails)</div>
+                            <div class="progress" style="height: 6px; margin-top: 10px;">
+                                <div class="progress-bar" style="background-color: #e91e63; width: {15}%;"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <p class="text-center">Email Delivery Performance</p>
+                
+                <!-- Engagement Funnel Visualization -->
+                <div style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                    <h4 style="margin-bottom: 20px; color: #2c3e50;">Engagement Funnel</h4>
+                    <div class="funnel-chart">
+                        <div class="funnel-stage" style="background: #3498db; width: 100%; padding: 10px; color: white; margin-bottom: 2px; position: relative; min-height: 40px;">
+                            <span style="position: relative; z-index: 1;">Sent: {16}</span>
+                        </div>
+                        <div class="funnel-stage-wrapper" style="width: 100%; background: #e8e8e8; margin-bottom: 2px; position: relative;">
+                            <div class="funnel-stage" style="background: #2ecc71; width: {17}%; padding: 10px; color: white; min-width: 1px; min-height: 40px;">
+                                <span style="position: absolute; left: 10px; color: #2c3e50; white-space: nowrap;">Delivered: {18} ({21})</span>
+                            </div>
+                        </div>
+                        <div class="funnel-stage-wrapper" style="width: 100%; background: #e8e8e8; margin-bottom: 2px; position: relative;">
+                            <div class="funnel-stage" style="background: #f39c12; width: {19}%; padding: 10px; color: white; min-width: 1px; min-height: 40px;">
+                                <span style="position: absolute; left: 10px; color: #2c3e50; white-space: nowrap;">Opened: {22} ({23})</span>
+                            </div>
+                        </div>
+                        <div class="funnel-stage-wrapper" style="width: 100%; background: #e8e8e8; position: relative;">
+                            <div class="funnel-stage" style="background: #e74c3c; width: {20}%; padding: 10px; color: white; min-width: 1px; min-height: 40px;">
+                                <span style="position: absolute; left: 10px; color: #2c3e50; white-space: nowrap;">Clicked: {24} ({25})</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Industry Benchmarks Comparison -->
+                <div style="margin-top: 20px; padding: 15px; background: #ecf0f1; border-radius: 8px;">
+                    <p style="margin: 0; font-size: 12px; color: #7f8c8d;">
+                        <strong>Industry Benchmarks:</strong> 
+                        Average Open Rate: 20-25% | Average Click Rate: 2-3% | Average Bounce Rate: <2% | Average Unsubscribe Rate: <0.5%
+                    </p>
+                </div>
             </div>
         </div>
-        """.format(
-            FormatHelper.format_number(total_emails),
-            FormatHelper.format_number(sent_emails),
-            FormatHelper.format_number(failed_emails),
-            FormatHelper.format_percent(delivery_rate),
-            min(100, max(0, delivery_rate)),
-            int(delivery_rate),
-            int(delivery_rate)
-        )
         
-        return html
+        <style>
+        .metric-card {
+            transition: transform 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .funnel-stage {
+            text-align: center;
+            transition: all 0.3s;
+        }
+        </style>
+        """
+        
+        # Calculate some values for the funnel
+        funnel_delivery_width = delivery_rate
+        funnel_open_width = open_rate if sent_emails > 0 else 0
+        funnel_click_width = (float(clicks) / float(total_emails) * 100) if total_emails > 0 else 0
+        
+        # Format all values
+        formatted_values = {
+            'total_emails_fmt': FormatHelper.format_number(total_emails),
+            'delivery_rate_fmt': FormatHelper.format_percent(delivery_rate),
+            'sent_emails_fmt': FormatHelper.format_number(sent_emails),
+            'open_rate_fmt': FormatHelper.format_percent(open_rate),
+            'opens_fmt': FormatHelper.format_number(opens),
+            'click_rate_fmt': FormatHelper.format_percent(click_rate),
+            'clicks_fmt': FormatHelper.format_number(clicks),
+            'bounce_rate_fmt': FormatHelper.format_percent(bounce_rate),
+            'bounces_fmt': FormatHelper.format_number(bounces),
+            'bounce_progress': min(100, max(0, bounce_rate * 10)),
+            'unsub_rate_fmt': FormatHelper.format_percent(unsubscribe_rate),
+            'unsubs_fmt': FormatHelper.format_number(unsubscribes),
+            'unsub_progress': min(100, max(0, unsubscribe_rate * 100)),
+            'failed_rate_fmt': FormatHelper.format_percent((float(failed_emails) / float(total_emails) * 100) if total_emails > 0 else 0),
+            'failed_emails_fmt': FormatHelper.format_number(failed_emails),
+            'failed_progress': min(100, max(0, (float(failed_emails) / float(total_emails) * 100) if total_emails > 0 else 0)),
+            'funnel_delivery_width': funnel_delivery_width,
+            'funnel_open_width': funnel_open_width,
+            'funnel_click_width': funnel_click_width
+        }
+        
+        # Now substitute each value individually
+        html = html.replace('{0}', formatted_values['total_emails_fmt'])
+        html = html.replace('{1}', formatted_values['delivery_rate_fmt'])
+        html = html.replace('{2}', formatted_values['sent_emails_fmt'])
+        html = html.replace('{3}', formatted_values['open_rate_fmt'])
+        html = html.replace('{4}', formatted_values['opens_fmt'])
+        html = html.replace('{5}', formatted_values['click_rate_fmt'])
+        html = html.replace('{6}', formatted_values['clicks_fmt'])
+        html = html.replace('{7}', formatted_values['bounce_rate_fmt'])
+        html = html.replace('{8}', formatted_values['bounces_fmt'])
+        html = html.replace('{9}', str(formatted_values['bounce_progress']))
+        html = html.replace('{10}', formatted_values['unsub_rate_fmt'])
+        html = html.replace('{11}', formatted_values['unsubs_fmt'])
+        html = html.replace('{12}', str(formatted_values['unsub_progress']))
+        html = html.replace('{13}', formatted_values['failed_rate_fmt'])
+        html = html.replace('{14}', formatted_values['failed_emails_fmt'])
+        html = html.replace('{15}', str(formatted_values['failed_progress']))
+        html = html.replace('{16}', formatted_values['total_emails_fmt'])
+        html = html.replace('{17}', str(formatted_values['funnel_delivery_width']))
+        html = html.replace('{18}', formatted_values['sent_emails_fmt'])
+        html = html.replace('{19}', str(formatted_values['funnel_open_width']))
+        html = html.replace('{20}', str(formatted_values['funnel_click_width']))
+        html = html.replace('{21}', formatted_values['delivery_rate_fmt'])
+        html = html.replace('{22}', formatted_values['opens_fmt'])
+        html = html.replace('{23}', formatted_values['open_rate_fmt'])
+        html = html.replace('{24}', formatted_values['clicks_fmt'])
+        html = html.replace('{25}', formatted_values['click_rate_fmt'])
+        
+        # Add bounce help modal
+        bounce_modal = """
+        <!-- Bounce Help Modal -->
+        <div class="modal fade" id="bounceHelpModal" tabindex="-1" role="dialog">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                        <h4 class="modal-title">Understanding Email Bounce Rate</h4>
+                    </div>
+                    <div class="modal-body">
+                        <p><strong>What is included in the bounce rate?</strong></p>
+                        <p>The bounce rate includes emails that failed to deliver due to permanent or temporary delivery issues. Specifically, we count the following failure types as bounces:</p>
+                        
+                        <ul>
+                            <li><strong>bouncedaddress</strong> - Email address has explicitly bounced</li>
+                            <li><strong>Mailbox Unavailable</strong> - The recipient's mailbox doesn't exist or is full</li>
+                            <li><strong>Invalid Address</strong> - The email address format is incorrect or doesn't exist</li>
+                            <li><strong>invalid</strong> - General invalid address indicator</li>
+                            <li><strong>bounce/hardbounce</strong> - Traditional bounce classifications</li>
+                            <li><strong>blocked</strong> - Email was blocked by the recipient's server</li>
+                        </ul>
+                        
+                        <p><strong>What is NOT included in bounce rate?</strong></p>
+                        <ul>
+                            <li>Spam reports or spam-related blocks</li>
+                            <li>Reputation issues</li>
+                            <li>Technical failures on our end</li>
+                            <li>Unclassified failures</li>
+                        </ul>
+                        
+                        <p><strong>Industry Benchmark:</strong> A healthy bounce rate should be below 2%. Higher rates may indicate issues with your email list quality.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """
+        
+        return html + bounce_modal
 
     @staticmethod
     def render_failure_breakdown(failed_types):
@@ -1629,40 +2511,142 @@ class UIRenderer:
         return html
 
     @staticmethod
-    def render_recent_campaigns(campaigns):
+    def render_recent_campaigns(campaigns, page=1):
         """Render recent campaigns table"""
         
         if not campaigns:
             return '<div class="alert alert-info">No campaigns found in the selected time period.</div>'
         
-        # Define column headers and labels
-        header_labels = {
-            'CampaignName': 'Campaign Name',
-            'Sender': 'Sender',
-            'SentDate': 'Date Sent',
-            'RecipientCount': 'Recipients'
-        }
+        # Check if we're showing single-recipient emails
+        show_single = getattr(model.Data, 'show_single_recipient', 'false') == 'true'
         
-        # Create HTML for campaigns table
+        # No pagination needed
+        
+        # Create HTML for campaigns table with server-side pagination
         html = """
         <div class="panel panel-info">
             <div class="panel-heading">
-                <h3 class="panel-title">Recent Email Campaigns</h3>
+                <h3 class="panel-title">
+                    Recent Email Campaigns with Engagement Metrics
+                    <span class="badge" id="campaign-count">{0}</span>
+                    <small class="pull-right" id="single-recipient-info"></small>
+                </h3>
             </div>
             <div class="panel-body">
-        """
-        
-        html += TableGenerator.generate_html_table(
-            campaigns,
-            column_order=['SentDate', 'CampaignName', 'Sender', 'RecipientCount'],
-            header_labels=header_labels,
-            id="recent-campaigns-table"
+                <form id="campaigns-form" method="GET" action="">
+                    <!-- Hidden fields to maintain state -->
+                    <input type="hidden" name="sDate" value="{1}">
+                    <input type="hidden" name="eDate" value="{2}">
+                    <input type="hidden" name="program" value="{3}">
+                    <input type="hidden" name="failclassification" value="{4}">
+                    <input type="hidden" name="HideSuccess" value="{5}">
+                    <input type="hidden" name="activeTab" value="email">
+                    <input type="hidden" id="show_single_recipient" name="show_single_recipient" value="{6}">
+                    
+                    <div style="margin-bottom: 15px;">
+                        <div class="checkbox">
+                            <label>
+                                <input type="checkbox" id="showSingleRecipient" {8} onchange="toggleSingleRecipientFilter()">
+                                Show single-recipient emails
+                            </label>
+                            <span class="text-muted" style="margin-left: 10px;">
+                                <small>(Showing up to {7} campaigns{9})</small>
+                            </span>
+                        </div>
+                    </div>
+                </form>
+                
+                <div class="table-responsive">
+                    <table class="table table-striped table-bordered table-hover table-condensed" id="recent-campaigns-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Campaign</th>
+                                <th>Sender</th>
+                                <th>Recipients</th>
+                                <th>Opens</th>
+                                <th>Open Rate</th>
+                                <th>Clicks</th>
+                                <th>Click Rate</th>
+                                <th>Failures</th>
+                                <th>Fail Rate</th>
+                                <th>Unsubs</th>
+                            </tr>
+                        </thead>
+                        <tbody id="campaigns-tbody">""".format(
+            len(campaigns),  # Show count
+            model.Data.sDate,
+            model.Data.eDate,
+            model.Data.program,
+            model.Data.failclassification,
+            'no' if model.Data.HideSuccess != 'yes' else 'yes',
+            'true' if show_single else 'false',
+            Config.MAX_ROWS_PER_TABLE,
+            'checked' if show_single else '',
+            ' - Performance mode' if Config.PERFORMANCE_MODE else ''  # Performance mode indicator
         )
         
+        # Add all campaigns from this page
+        for campaign in campaigns:
+            row_style = 'background-color: #f9f9f9;' if campaign.get('IsSingleRecipient', False) else ''
+            
+            html += """
+                            <tr style="{0}">
+                                <td>{1}</td>
+                                <td><a href="/Manage/Emails/Details/{2}">{3}</a></td>
+                                <td><a href="/Manage/Emails/SentBy/{4}">{5}</a></td>
+                                <td>{6}</td>
+                                <td>{7}</td>
+                                <td>{8}</td>
+                                <td>{9}</td>
+                                <td>{10}</td>
+                                <td>{11}</td>
+                                <td>{12}</td>
+                                <td>{13}</td>
+                            </tr>""".format(
+                row_style,
+                campaign['SentDate'],
+                campaign['EmailQueueId'],
+                campaign['CampaignName'],
+                campaign['SenderPeopleId'] or '0',
+                campaign['Sender'],
+                campaign['RecipientCountFormatted'],
+                campaign['OpenCount'],
+                campaign['OpenRate'],
+                campaign['ClickCount'],
+                campaign['ClickRate'],
+                campaign['FailureCount'],
+                campaign['FailureRate'],
+                campaign['UnsubscribeCount']
+            )
+        
         html += """
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="text-muted" style="margin-top: 10px;">
+                    <small>
+                        <i class="glyphicon glyphicon-info-sign"></i> 
+                        Showing up to {0} campaigns. Single-recipient emails are highlighted in gray.
+                    </small>
+                </div>
             </div>
         </div>
-        """
+        
+        <script>
+        function toggleSingleRecipientFilter() {{
+            // Update the hidden field value
+            var checkbox = document.getElementById('showSingleRecipient');
+            document.getElementById('show_single_recipient').value = checkbox.checked ? 'true' : 'false';
+            
+            // Submit form to reload with filter applied
+            document.getElementById('campaigns-form').submit();
+        }}
+        </script>
+        """.format(
+            Config.MAX_ROWS_PER_TABLE
+        )
         
         return html
 
@@ -1679,7 +2663,8 @@ class UIRenderer:
             'CampaignCount': 'Campaigns Sent',
             'TotalRecipients': 'Total Recipients',
             'SuccessfulDeliveries': 'Successful Deliveries',
-            'DeliveryRate': 'Delivery Rate'
+            'DeliveryRate': 'Delivery Rate',
+            'Unsubscribes': 'Unsubscribes'
         }
         
         # Create HTML for senders table
@@ -1693,7 +2678,7 @@ class UIRenderer:
         
         html += TableGenerator.generate_html_table(
             senders,
-            column_order=['SenderName', 'CampaignCount', 'TotalRecipients', 'SuccessfulDeliveries', 'DeliveryRate'],
+            column_order=['SenderName', 'CampaignCount', 'TotalRecipients', 'SuccessfulDeliveries', 'DeliveryRate', 'Unsubscribes'],
             header_labels=header_labels,
             id="active-senders-table"
         )
@@ -1747,39 +2732,282 @@ class UIRenderer:
 
     @staticmethod
     def render_failed_recipients(recipients):
-        """Render recipients with failed emails"""
+        """Render recipients with failed emails with expandable rows"""
         
         if not recipients:
             return '<div class="alert alert-info">No recipients with failed emails found in the selected time period.</div>'
         
-        # Define column headers and labels
-        header_labels = {
-            'Name': 'Recipient Name',
-            'EmailAddress': 'Email Address',
-            'FailureType': 'Failure Type',
-            'FailureCount': 'Failure Count'
-        }
+        # Determine if we need to limit display
+        total_recipients = len(recipients)
+        initial_display_limit = 10
+        show_limited = total_recipients > initial_display_limit
         
         # Create HTML for recipients table
         html = """
         <div class="panel panel-danger">
             <div class="panel-heading">
-                <h3 class="panel-title">Recipients with Failed Emails</h3>
+                <h3 class="panel-title">
+                    Recipients with Failed Emails 
+                    <span class="badge">{0}</span>
+                </h3>
             </div>
             <div class="panel-body">
+        """.format(total_recipients)
+        
+        if show_limited:
+            # Show limited rows initially
+            html += """
+                <div id="failed-recipients-limited">
+                    <table class="table table-striped table-bordered table-hover" id="failed-recipients-table-limited">
+                        <thead>
+                            <tr>
+                                <th>Recipient Name</th>
+                                <th>Email Address</th>
+                                <th>Failure Type</th>
+                                <th>Failure Count</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            """
+            
+            # Add limited data rows
+            for recipient in recipients[:initial_display_limit]:
+                html += '<tr>'
+                html += '<td><a href="/Person2/{0}">{1}</a></td>'.format(
+                    recipient.get('PeopleId', 0), recipient.get('Name', '')
+                )
+                html += '<td>{0}</td>'.format(recipient.get('EmailAddress', ''))
+                html += '<td>{0}</td>'.format(recipient.get('FailureType', ''))
+                html += '<td>{0}</td>'.format(recipient.get('FailureCount', 0))
+                html += '</tr>'
+            
+            html += """
+                        </tbody>
+                    </table>
+                    <div class="text-center" style="margin-top: 15px;">
+                        <button class="btn btn-default" onclick="$('#failed-recipients-limited').hide(); $('#failed-recipients-full').show(); return false;">
+                            <i class="glyphicon glyphicon-chevron-down"></i> 
+                            Show All {0} Recipients
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="failed-recipients-full" style="display: none;">
+            """.format(total_recipients)
+        
+        # Full table (or only table if under limit)
+        html += """
+                    <table class="table table-striped table-bordered table-hover" id="failed-recipients-table" {0}>
+                        <thead>
+                            <tr>
+                                <th>Recipient Name</th>
+                                <th>Email Address</th>
+                                <th>Failure Type</th>
+                                <th>Failure Count</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        """.format('style="display: none;"' if show_limited else '')
+        
+        # Add all data rows
+        for recipient in recipients:
+            html += '<tr>'
+            html += '<td><a href="/Person2/{0}">{1}</a></td>'.format(
+                recipient.get('PeopleId', 0), recipient.get('Name', '')
+            )
+            html += '<td>{0}</td>'.format(recipient.get('EmailAddress', ''))
+            html += '<td>{0}</td>'.format(recipient.get('FailureType', ''))
+            html += '<td>{0}</td>'.format(recipient.get('FailureCount', 0))
+            html += '</tr>'
+        
+        html += """
+                        </tbody>
+                    </table>
         """
         
-        html += TableGenerator.generate_html_table(
-            recipients,
-            column_order=['Name', 'EmailAddress', 'FailureType', 'FailureCount'],
-            header_labels=header_labels,
-            id="failed-recipients-table"
-        )
+        if show_limited:
+            html += """
+                    <div class="text-center" style="margin-top: 15px;">
+                        <button class="btn btn-default" onclick="$('#failed-recipients-full').hide(); $('#failed-recipients-limited').show(); return false;">
+                            <i class="glyphicon glyphicon-chevron-up"></i> 
+                            Show Less
+                        </button>
+                    </div>
+                </div>
+            """
         
         html += """
             </div>
         </div>
         """
+        
+        return html
+    
+    @staticmethod
+    def render_subscriber_growth_chart(growth_data):
+        """Render email recipient growth chart with first-time recipients vs unsubscribes"""
+        
+        if not growth_data:
+            return '<div class="alert alert-info">No email recipient growth data available for the selected time period.</div>'
+        
+        # Prepare data for Chart.js
+        labels = []
+        new_subscribers = []
+        unsubscribes = []
+        net_growth = []
+        
+        for row in growth_data:
+            labels.append(str(row.get('DateGroup', '')))
+            new_subscribers.append(row.get('NewSubscribers', 0))
+            unsubscribes.append(row.get('Unsubscribes', 0))
+            net_growth.append(row.get('NetGrowth', 0))
+        
+        # Convert to JSON strings for JavaScript
+        labels_json = str(labels).replace("'", '"')
+        new_subs_json = str(new_subscribers)
+        unsubs_json = str(unsubscribes)
+        net_growth_json = str(net_growth)
+        
+        html = """
+        <div class="panel panel-info">
+            <div class="panel-heading">
+                <h3 class="panel-title">
+                    Email Recipient Growth
+                    <span class="pull-right">
+                        <a href="#" onclick="$('#growthHelp').toggle(); return false;" style="color: white; text-decoration: none;">
+                            <i class="glyphicon glyphicon-question-sign"></i>
+                        </a>
+                    </span>
+                </h3>
+            </div>
+            <div class="panel-body">
+                <div id="growthHelp" style="display: none; background: #f0f0f0; padding: 15px; margin-bottom: 20px; border-radius: 5px;">
+                    <h4><i class="glyphicon glyphicon-info-sign"></i> Understanding Email Recipient Growth</h4>
+                    <p><strong>What is a "period"?</strong> The time period depends on your date range selection:</p>
+                    <ul>
+                        <li><strong>Daily:</strong> Each day is a separate period</li>
+                        <li><strong>Weekly:</strong> Each week (Sunday-Saturday) is a period</li>
+                        <li><strong>Monthly:</strong> Each calendar month is a period</li>
+                    </ul>
+                    <p><strong>How are email recipients tracked?</strong></p>
+                    <ul>
+                        <li><strong>First-Time Recipients:</strong> People who received their first email from the church during this period (not necessarily subscribers who signed up)</li>
+                        <li><strong>Unsubscribes:</strong> People who opted out (DoNotMail flag set) during this period</li>
+                        <li><strong>Net Growth:</strong> First-time recipients minus unsubscribes for each period</li>
+                    </ul>
+                    <p class="text-muted"><small>Note: This tracks actual email activity. Recipients may have been added through organization membership, event registration, or staff selection - not necessarily through voluntary subscription.</small></p>
+                </div>
+                <canvas id="subscriberGrowthChart" height="100" style="max-height: 400px;"></canvas>
+                
+                <div class="row text-center" style="margin-top: 20px;">
+                    <div class="col-md-4">
+                        <div class="metric-card" style="background: #e8f5e9; padding: 15px; border-radius: 8px;">
+                            <div style="font-size: 24px; font-weight: bold; color: #4caf50;">{0}</div>
+                            <div style="color: #7f8c8d;">Total First-Time Recipients</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="metric-card" style="background: #ffebee; padding: 15px; border-radius: 8px;">
+                            <div style="font-size: 24px; font-weight: bold; color: #f44336;">{1}</div>
+                            <div style="color: #7f8c8d;">Total Unsubscribes</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="metric-card" style="background: #e3f2fd; padding: 15px; border-radius: 8px;">
+                            <div style="font-size: 24px; font-weight: bold; color: #2196f3;">{2}</div>
+                            <div style="color: #7f8c8d;">Net Growth</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+        <script>
+        (function() {{
+            // Destroy any existing chart instance
+            var existingChart = Chart.getChart('subscriberGrowthChart');
+            if (existingChart) {{
+                existingChart.destroy();
+            }}
+            
+            var ctx = document.getElementById('subscriberGrowthChart').getContext('2d');
+            window.subscriberChart = new Chart(ctx, {{
+                type: 'line',
+                data: {{
+                    labels: {3},
+                    datasets: [{{
+                        label: 'First-Time Recipients',
+                        data: {4},
+                        borderColor: '#4caf50',
+                        backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.1
+                    }}, {{
+                        label: 'Unsubscribes',
+                        data: {5},
+                        borderColor: '#f44336',
+                        backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.1
+                    }}, {{
+                        label: 'Net Growth',
+                        data: {6},
+                        borderColor: '#2196f3',
+                        backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.1,
+                        fill: true
+                    }}]
+                }},
+                options: {{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {{
+                        duration: 0  // Disable animation to prevent performance issues
+                    }},
+                    plugins: {{
+                        legend: {{
+                            position: 'top',
+                        }},
+                        title: {{
+                            display: false
+                        }},
+                        tooltip: {{
+                            mode: 'index',
+                            intersect: false
+                        }}
+                    }},
+                    scales: {{
+                        x: {{
+                            display: true,
+                            title: {{
+                                display: true,
+                                text: 'Date'
+                            }}
+                        }},
+                        y: {{
+                            display: true,
+                            title: {{
+                                display: true,
+                                text: 'Count'
+                            }},
+                            beginAtZero: true
+                        }}
+                    }}
+                }}
+            }});
+        }})();
+        </script>
+        """.format(
+            sum(new_subscribers),
+            sum(unsubscribes), 
+            sum(net_growth),
+            labels_json,
+            new_subs_json,
+            unsubs_json,
+            net_growth_json
+        )
         
         return html
 
@@ -1966,8 +3194,14 @@ class UIRenderer:
         """Add required CSS and JavaScript resources"""
         
         html = """
+        <!-- jQuery (required for Bootstrap and our AJAX) -->
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+        
         <!-- Bootstrap CSS -->
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.4.1/css/bootstrap.min.css">
+        
+        <!-- Bootstrap JS -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.4.1/js/bootstrap.min.js"></script>
         
         <style>
         .dashboard-container {
@@ -2075,6 +3309,14 @@ class UIRenderer:
                 });
             }
         });
+        
+        // Clean up charts when navigating away
+        window.addEventListener('beforeunload', function() {
+            if (window.subscriberChart) {
+                window.subscriberChart.destroy();
+                window.subscriberChart = null;
+            }
+        });
         </script>
         
         <!-- Loading overlay -->
@@ -2095,6 +3337,8 @@ class UIRenderer:
 def main():
     """Main function to render the dashboard with extra error handling"""
     try:
+        # No AJAX handling needed - pagination removed
+        
         # Surround everything with try/except to ensure we always return something
         try:
             # Get filter parameters
@@ -2160,27 +3404,38 @@ def main():
                         email_summary = DataRetrieval.get_email_summary(sDate, eDate, hide_success, program_filter, failure_filter)
                         output += UIRenderer.render_email_summary(email_summary)
                         
-                        # Layout in two columns for smaller sections
-                        output += '<div class="row">'
+                        # Add subscriber growth chart
+                        try:
+                            # Determine interval based on date range
+                            date_range_days = (datetime.strptime(eDate, '%Y-%m-%d') - datetime.strptime(sDate, '%Y-%m-%d')).days
+                            if date_range_days <= 31:
+                                interval = 'daily'
+                            elif date_range_days <= 90:
+                                interval = 'weekly'
+                            else:
+                                interval = 'monthly'
+                            
+                            growth_data = DataRetrieval.get_subscriber_growth(sDate, eDate, interval)
+                            output += UIRenderer.render_subscriber_growth_chart(growth_data)
+                        except Exception as eg:
+                            output += ErrorHandler.handle_error(eg, "subscriber growth chart")
                         
-                        # Left column
-                        output += '<div class="col-md-6">'
+                        # Recent campaigns (full width for the enhanced table with metrics)
+                        try:
+                            # Check if we should exclude single-recipient emails
+                            show_single_initial = getattr(model.Data, 'show_single_recipient', 'false') == 'true'
+                            
+                            # Get campaigns with appropriate filtering (no pagination)
+                            campaigns = DataRetrieval.get_recent_campaigns(sDate, eDate, program_filter, exclude_single_recipient=not show_single_initial)
+                            output += UIRenderer.render_recent_campaigns(campaigns)
+                        except Exception as e2:
+                            output += ErrorHandler.handle_error(e2, "recent campaigns")
+                        
+                        # Failure breakdown (full width below campaigns)
                         try:
                             output += UIRenderer.render_failure_breakdown(email_summary.get('failed_types', []))
                         except Exception as e1:
                             output += ErrorHandler.handle_error(e1, "failure breakdown")
-                        output += '</div>'
-                        
-                        # Right column
-                        output += '<div class="col-md-6">'
-                        try:
-                            campaigns = DataRetrieval.get_recent_campaigns(sDate, eDate, program_filter)
-                            output += UIRenderer.render_recent_campaigns(campaigns)
-                        except Exception as e2:
-                            output += ErrorHandler.handle_error(e2, "recent campaigns")
-                        output += '</div>'
-                        
-                        output += '</div>'  # End row
                         
                         # Failed recipients (full width)
                         try:
@@ -2293,7 +3548,7 @@ except Exception as e:
     <div class="alert alert-danger">
         <h4><i class="glyphicon glyphicon-exclamation-sign"></i> Critical Error</h4>
         <p>A critical error occurred while rendering the dashboard. Please contact support.</p>
-        <pre style="max-height: 200px; overflow-y: auto;">{}</pre>
+        <pre style="max-height: 200px; overflow-y: auto;">{0}</pre>
     </div>
     """.format(traceback.format_exc())
 # FormatHelper.format_number(total_sms),
