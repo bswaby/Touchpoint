@@ -36,7 +36,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 - 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-owner-audit) - Involvement ownership tracking
 - ↻  [Involvement Sync](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-sync) - Multi-involvement synchronization
 - 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/blob/main/README.md#-link-generator) - Pre-authenticated link creation
-- [Live Search](https://github.com/bswaby/Touchpoint/tree/main#-touchpoint-live-search) - Live Search with Quick Actions
+- 🔍 [Live Search](https://github.com/bswaby/Touchpoint/tree/main#-touchpoint-live-search) - Live Search with Quick Actions
 - 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-techstatus) - System status monitoring
 - 🗺️ [User Activity](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-user-activity) - User activity level analysis
 
