@@ -12,3 +12,8 @@
   - KPI Cards: Total involvements, total fees collected, registration counts, and average fee per involvement
   - Creator Analytics: See who's creating fee-based involvements and their total impact
   - Date Range Filtering: Default 30-day view with customizable date ranges
+
+<summary><strong>Main Screen</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvements%20with%20Fees/InvolvementwithFees.png" width="700">
+</p>
