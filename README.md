@@ -321,14 +321,9 @@ This is like Kenny Rogers of tools in that it helps you know "when to hold them"
   searching and reconciliation work.
 
   ⚙️ Implementation Level: Easy-Moderate
-  🧩 Installation:
-
-  This script requires the Finance role and is ready to use out of the box. Simply upload the script and optionally add it to your menu.
-  The tool automatically detects your TouchPoint configuration and adapts to both old XML and new JSON fee formats. No database
-  modifications are required.
+  🧩 Installation: This script requires the Finance role and is ready to use out of the box. Simply upload the script and optionally add it to your menu. The tool automatically detects your TouchPoint configuration and adapts to both old XML and new JSON fee formats.
 
   🎯 Key Features:
-  📊 Dashboard Overview
 
   - KPI Cards: Total involvements, total fees collected, registration counts, and average fee per involvement
   - Creator Analytics: See who's creating fee-based involvements and their total impact
