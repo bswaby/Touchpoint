@@ -36,6 +36,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 - 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-owner-audit) - Involvement ownership tracking
 - ↻  [Involvement Sync](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-sync) - Multi-involvement synchronization
 - 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/blob/main/README.md#-link-generator) - Pre-authenticated link creation
+- [Live Search](https://github.com/bswaby/Touchpoint/tree/main#-touchpoint-live-search) - Live Search with Quick Actions
 - 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-techstatus) - System status monitoring
 - 🗺️ [User Activity](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-user-activity) - User activity level analysis
 
@@ -705,7 +706,7 @@ This admin-only tool helps you create a pre-authenticated link that will "automa
 </p>
 </details>
 
-### 🔍 TouchPoint Live Search
+### 🔍 TouchPoint Live Search with Quick Action
 
 🟩 **Implementation Level: Widget & Standalone** - Deploy as homepage widget or full-page tool
 
@@ -722,7 +723,7 @@ TPxi_LiveSearch is an advanced real-time search interface for TouchPoint that pr
 
 2. **Comprehensive Member Views**
 - **Journey Timeline**: Visual timeline of member engagement milestones
-- **Family Engagement**: See entire family's involvement at a glance
+- **Family Engagement**: See the entire family's involvement at a glance
 - **Contact Info**: Quick access to phone numbers and email addresses
 - **Member Status**: Clear indicators for active members, guests, and prospects
 
@@ -754,7 +755,7 @@ SHOW_GIVING_IN_JOURNEY = False  # Enable/disable giving in timeline
 <details>
 <summary><strong>Journey</strong></summary>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Live%20Search/LS-Journey" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Live%20Search/LS-Journey.png" width="700">
 </p>
 </details>
 
