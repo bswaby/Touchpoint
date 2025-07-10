@@ -44,7 +44,7 @@ SHOW_GIVING_IN_JOURNEY = False  # Enable/disable giving in timeline
 
 <summary><strong>Journey</strong></summary>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Live%20Search/LS-Journey" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Live%20Search/LS-Journey.png" width="700">
 </p>
 
 <summary><strong>Quick Add Note</strong></summary>
