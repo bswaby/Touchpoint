@@ -18,6 +18,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 - 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-data-quality-dashboard) - Database completeness monitoring
 - 🚑 [Emergency List](https://github.com/bswaby/Touchpoint/blob/main/README.md#-emergency-list---emergency-list) - Emergency List
 - 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-activity-dashboard) - Involvement activity analysis
+- [Invovlement with Fee] - Involvements with Fees
 - 📉 [Lapsed Attenders](https://github.com/bswaby/Touchpoint/blob/main/README.md#-lapsed-attenders) - Statistical attendance pattern analysis
 - 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-ministry-structure) - Program and involvement structure overview
 - 📤 [Registration Export](https://github.com/bswaby/Touchpoint/blob/main/README.md#-registration-export) - Event registration data export
@@ -312,6 +313,26 @@ This is like Kenny Rogers of tools in that it helps you know "when to hold them"
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Activity%20Dashboard/IA-InactiveInvolvements.png" width="700">
 </p>
 </details>
+
+### 💰 Involvements with Fees Report
+
+  A finance tool that automatically identifies and reports on all TouchPoint involvements that have
+  associated fees. It supports both legacy XML fee storage and the new JSON registration system, saving finance teams hours of manual
+  searching and reconciliation work.
+
+  ⚙️ Implementation Level: Easy-Moderate
+  🧩 Installation:
+
+  This script requires the Finance role and is ready to use out of the box. Simply upload the script and optionally add it to your menu.
+  The tool automatically detects your TouchPoint configuration and adapts to both old XML and new JSON fee formats. No database
+  modifications are required.
+
+  🎯 Key Features:
+  📊 Dashboard Overview
+
+  - KPI Cards: Total involvements, total fees collected, registration counts, and average fee per involvement
+  - Creator Analytics: See who's creating fee-based involvements and their total impact
+  - Date Range Filtering: Default 30-day view with customizable date ranges
 
 ### 📉 Lapsed Attenders
 An advanced statistical analysis dashboard that identifies people whose attendance patterns have significantly deviated from their normal behavior. Uses standard deviation calculations to find members who haven't attended in longer than their typical pattern suggests, helping pastoral staff proactively reach out before people fully disconnect.
