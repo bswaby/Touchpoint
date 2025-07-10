@@ -18,7 +18,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 - 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-data-quality-dashboard) - Database completeness monitoring
 - 🚑 [Emergency List](https://github.com/bswaby/Touchpoint/blob/main/README.md#-emergency-list---emergency-list) - Emergency List
 - 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-activity-dashboard) - Involvement activity analysis
-- [Invovlement with Fee] - Involvements with Fees
+- 💰 [Invovlement with Fee](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvements-with-fees-report) - Involvements with Fees
 - 📉 [Lapsed Attenders](https://github.com/bswaby/Touchpoint/blob/main/README.md#-lapsed-attenders) - Statistical attendance pattern analysis
 - 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-ministry-structure) - Program and involvement structure overview
 - 📤 [Registration Export](https://github.com/bswaby/Touchpoint/blob/main/README.md#-registration-export) - Event registration data export
