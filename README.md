@@ -727,10 +727,10 @@ TPxi_LiveSearch is an advanced real-time search interface for TouchPoint that pr
 - **Member Status**: Clear indicators for active members, guests, and prospects
 
 3. **Quick Actions**
-- **Add Task**: Create tasks directly from search results
-- **Add Note**: Add notes without leaving the search interface
+- **Add Task**: Quickly create tasks directly from search results
+- **Add Note**: Quickly add notes without leaving the search interface
 - **View Journey**: One-click access to member engagement history
-- **Family View**: Modal popup showing family engagement metrics
+- **Family View**: Popup showing family engagement metrics
 
 
 - ⚙️ **Implementation Level: Easy
@@ -744,16 +744,33 @@ SCRIPT_NAME = 'TPxi_LiveSearch'  # Must match your upload name
 SHOW_GIVING_IN_JOURNEY = False  # Enable/disable giving in timeline
 ```
 
-🖼️ Screenshots
+<details>
+<summary><strong>Main Interface</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Live%20Search/LS-MainSearch.png" width="700">
+</p>
+</details>
 
-Main Search Interface
-![Live Search Main Screen](screenshots/livesearch-main.png)
+<details>
+<summary><strong>Journey</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Live%20Search/LS-Journey" width="700">
+</p>
+</details>
 
-Journey Timeline View
-![Journey Timeline](screenshots/livesearch-journey.png)
+<details>
+<summary><strong>Quick Add Note</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Live%20Search/LS-Note.png" width="700">
+</p>
+</details>
 
-Family Engagement Modal
-![Family Engagement](screenshots/livesearch-family.png)
+<details>
+<summary><strong>Quick Add Task</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Live%20Search/LS-Task.png" width="700">
+</p>
+</details>
 
 
 ### 🔐 [Regisration Export](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export)
