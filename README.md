@@ -329,6 +329,13 @@ This is like Kenny Rogers of tools in that it helps you know "when to hold them"
   - Creator Analytics: See who's creating fee-based involvements and their total impact
   - Date Range Filtering: Default 30-day view with customizable date ranges
 
+<details>
+<summary><strong>Main Screen</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvements%20with%20Fees/InvolvementwithFees.png" width="700">
+</p>
+</details>
+
 ### 📉 Lapsed Attenders
 An advanced statistical analysis dashboard that identifies people whose attendance patterns have significantly deviated from their normal behavior. Uses standard deviation calculations to find members who haven't attended in longer than their typical pattern suggests, helping pastoral staff proactively reach out before people fully disconnect.
 Key Capabilities:
