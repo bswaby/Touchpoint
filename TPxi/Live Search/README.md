@@ -37,13 +37,22 @@ SCRIPT_NAME = 'TPxi_LiveSearch'  # Must match your upload name
 SHOW_GIVING_IN_JOURNEY = False  # Enable/disable giving in timeline
 ```
 
-🖼️ Screenshots
+<summary><strong>Main Interface</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Live%20Search/LS-MainSearch.png" width="700">
+</p>
 
-Main Search Interface
-![Live Search Main Screen](screenshots/livesearch-main.png)
+<summary><strong>Journey</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Live%20Search/LS-Journey" width="700">
+</p>
 
-Journey Timeline View
-![Journey Timeline](screenshots/livesearch-journey.png)
+<summary><strong>Quick Add Note</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Live%20Search/LS-Note.png" width="700">
+</p>
 
-Family Engagement Modal
-![Family Engagement](screenshots/livesearch-family.png)
+<summary><strong>Quick Add Task</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Live%20Search/LS-Task.png" width="700">
+</p>
