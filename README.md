@@ -6,7 +6,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Widget%20QuickLinks/WidgetQuickLink.png" width="700">
 
 💰 Finance</br>
-- [Deposit Report] - Ministry deposit report
+- 🗂 [Deposit Report](https://github.com/bswaby/Touchpoint/blob/main/README.md#-deposit-report) - Ministry deposit report
 - 💳 [Fortis Fees](https://github.com/bswaby/Touchpoint/blob/main/README.md#-fortisfees) - Automated fee breakdown and back-charging
 - 📜 [QCD-Grant Letters](https://github.com/bswaby/Touchpoint/blob/main/README.md#-qcd-grantletters) - Automated letter generation for windowed envelopes
 - 📜 [Payment Manager](https://github.com/bswaby/Touchpoint/blob/main/README.md#-payment-manager) - Outstanding payment tracking and management
@@ -47,7 +47,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 
 ## 💰 Finance
 
-### 💳 [Deposit Report]
+### 🗂 [Deposit Report]
 Comprehensive deposit tracking and reconciliation tool for ministry finances. This report streamlines the deposit preparation by automatically categorizing payments by type (cash, check, credit card) and fund, providing daily breakdowns with expandable transaction details, and generating deposit slips for the finance team reconciliation.
 
   - ⚙️ Implementation Level: Easy
