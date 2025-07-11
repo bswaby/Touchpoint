@@ -3,7 +3,7 @@
 This repository is the work of one guy who loves Jesus, loves clean data, and loves seeing people come to Christ — so I built a bunch of tools to help make ministry smoother, more informed, reduce overhead, and help reach others.
 ---
 
-<img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Widget%20QuickLinks/WidgetQuickLink.png" width="700">
+<img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Widget%20QuickLinks/WidgetQuickLink.png" width="500">
 
 💰 Finance</br>
 - 🗂 [Deposit Report](https://github.com/bswaby/Touchpoint/blob/main/README.md#-deposit-report) - Ministry deposit report
