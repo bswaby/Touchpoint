@@ -7,5 +7,5 @@ This provides quick-access links for users to get to things quickly.  The links 
 <summary><strong>Example</strong></summary>
 <p>The tool implementation is intermediate level, but not overly difficult</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Widget%20QuickLinks/WidgetQuickLink.png" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Widget%20QuickLinks/WidgetQuickLink.png" width="450">
 </p>
