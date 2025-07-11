@@ -59,15 +59,15 @@ Comprehensive deposit tracking and reconciliation tool for ministry finances. Th
 <summary><strong>Deposit Report</strong></summary>
 <p>The date selection interface allows users to choose dates to pull letters from.  Once you have pulled the letters, it allows you to upload a note to each persons record.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDGrantScreenShot.png" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Deposit%20Report/DepositReport.png" width="700">
 </p>
-</details>
-
 <details>
+
+</details>
 <summary><strong>Transaction Details</strong></summary>
 <p>The date selection interface allows users to choose dates to pull letters from.  Once you have pulled the letters, it allows you to upload a note to each persons record.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDGrantScreenShot.png" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Deposit%20Report/DepositDetails.png" width="700">
 </p>
 </details>
 
