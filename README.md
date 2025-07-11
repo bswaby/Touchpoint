@@ -6,7 +6,8 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Widget%20QuickLinks/WidgetQuickLink.png" width="700">
 
 💰 Finance</br>
-- 💳 [FortisFees](https://github.com/bswaby/Touchpoint/blob/main/README.md#-fortisfees) - Automated fee breakdown and back-charging
+- [Deposit Report] - Ministry deposit report
+- 💳 [Fortis Fees](https://github.com/bswaby/Touchpoint/blob/main/README.md#-fortisfees) - Automated fee breakdown and back-charging
 - 📜 [QCD-Grant Letters](https://github.com/bswaby/Touchpoint/blob/main/README.md#-qcd-grantletters) - Automated letter generation for windowed envelopes
 - 📜 [Payment Manager](https://github.com/bswaby/Touchpoint/blob/main/README.md#-payment-manager) - Outstanding payment tracking and management
 - 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/README.md#-weekly-contribution-report) - Weekly finance tracking and reporting
@@ -46,6 +47,30 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 
 ## 💰 Finance
 
+### 💳 [Deposit Report]
+Comprehensive deposit tracking and reconciliation tool for ministry finances. This report streamlines the deposit preparation by automatically categorizing payments by type (cash, check, credit card) and fund, providing daily breakdowns with expandable transaction details, and generating deposit slips for the finance team reconciliation.
+
+  - ⚙️ Implementation Level: Easy
+  - 🧩 **Installation: This is a paste-and-go Python script with minimal configuration needed (verify payment type IDs match your TouchPoint setup).
+
+<i><b>Note:</b>  Touchpoint does not give options to mark cash and checks in their system.  To get around this, we use a CSH/CHK prefix, thus allowing the report to reduce the overhead of deposit reports.  To help ensure CHK/CSH gets added to the description, it's recommended to use Payment Manager to intake payments as it adds the appropriate prefix along with sending the payer an actual receipt for their transaction.</i>
+
+<details>
+<summary><strong>Deposit Report</strong></summary>
+<p>The date selection interface allows users to choose dates to pull letters from.  Once you have pulled the letters, it allows you to upload a note to each persons record.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDGrantScreenShot.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Transaction Details</strong></summary>
+<p>The date selection interface allows users to choose dates to pull letters from.  Once you have pulled the letters, it allows you to upload a note to each persons record.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Finance/screenshots/QCDGrantScreenShot.png" width="700">
+</p>
+</details>
+
 ### 💳 [FortisFees](https://github.com/bswaby/Touchpoint/blob/main/Finance/FortisFees)
 It breaks down fees by program and accounting code so accounting can use it to back-charge. The biggest note is that the fees will be close to 99% but not 100% due to the disconnect of certain charges and reversals getting back to Touchpoint.  The most prominent mention of this script is how much time it saved our finance team. Before this, it would have taken 6-8 hours a month to figure out the backcharges.  Now, with this script, they may spend 15 minutes.
 
@@ -53,6 +78,8 @@ Update: 20250610 - Resolved issue with ACH, improved looks, added inline comment
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: Paste in code and change the fee percentages
+
+
 
 ### 📜 [QCD-GrantLetters](https://github.com/bswaby/Touchpoint/blob/main/Finance/QCD-GrantLetters)
 It automatically creates QCD and Grant letters that you can print out and stuff into windowed envelopes. In addition, you can upload these as a secure note to each person's record.  On an average week for us, it saved the finance team 2-3 hours compared to how it was done prior.  
