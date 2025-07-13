@@ -936,7 +936,7 @@ SHOW_GIVING_IN_JOURNEY = False  # Enable/disable giving in timeline
 </p>
 </details>
 
-### 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/tree/main/TPxi/TechStatus)
+### 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
 This is a quick way to get failed prints, today's print stats, login failures, and more. If I get a question about whether we are having an issue with something like printing, I will pull this up to see what printed and what might be stuck in the queue.  
 
 - ⚙️ **Implementation Level: Easy
