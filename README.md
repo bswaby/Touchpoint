@@ -22,6 +22,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 - 💰 [Invovlement with Fee](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvements-with-fees-report) - Involvements with Fees
 - 📉 [Lapsed Attenders](https://github.com/bswaby/Touchpoint/blob/main/README.md#-lapsed-attenders) - Statistical attendance pattern analysis
 - 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-ministry-structure) - Program and involvement structure overview
+- ⭐ [New Member Report]() - New Member Report
 - 📤 [Registration Export](https://github.com/bswaby/Touchpoint/blob/main/README.md#-registration-export) - Event registration data export
 - 📝 [TaskNote Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-tasknote-activity-dashboard) - Task and note activity monitoring
 - ✅ [Weekly Attendance](https://github.com/bswaby/Touchpoint/blob/main/README.md#-weekly-attendance) - Enhanced attendance reporting (WAAG 2.0)
@@ -401,6 +402,24 @@ This is one of my favorite tools for understanding the structure of programs, di
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Ministry%20Structure/MinistryStructure.png" width="700">
 </p>
 </details>
+
+### ⭐ [New Member Report]()
+A comprehensive weekly email report helps the team track and follow up with new members by providing demographic breakdowns, engagement metrics, and fiscal year comparisons. What used to take at least an hour of manual data gathering each week now happens automatically every Monday morning, giving staff immediate visibility into new member trends and follow-up needs.
+
+Update: 20250113 - Added baptism hour tracking, fiscal year demographics, attendance metrics, improved family grouping display, and clickable high-resolution photos.
+
+⚙️ Implementation Level: Easy - Single script solution
+🧩 Installation: Paste code and configure email recipients
+
+Key Features:
+
+- Smart Family Grouping - Automatically groups family members who join together
+- Fiscal Year Analytics - YTD comparisons with previous year growth percentages
+- Demographic Insights - Age distribution, gender, marital status breakdowns
+- Contact Completeness - Tracks email/phone/address data quality
+- Engagement Journey - Visual timeline of each member's spiritual milestones
+- Ministry Involvements - Shows all current ministry connections
+
 
 ### 📤 [Registration Export](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export)
 Exports event or class registration data in structured formats.
