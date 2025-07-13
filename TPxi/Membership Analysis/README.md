@@ -17,7 +17,7 @@ Key Features:
 
 
 <summary><strong>Report Example</strong></summary>
-<p>Gives you a structural breakdown of your involvements.</p>
+<p>Gives you a structural breakdown of your membership.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Membership%20Analysis/Membership1.png" width="700">
 </p>
