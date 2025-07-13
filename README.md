@@ -22,7 +22,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 - 💰 [Invovlement with Fee](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvements-with-fees-report) - Involvements with Fees
 - 📉 [Lapsed Attenders](https://github.com/bswaby/Touchpoint/blob/main/README.md#-lapsed-attenders) - Statistical attendance pattern analysis
 - 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-ministry-structure) - Program and involvement structure overview
-- ⭐ [New Member Report]() - New Member Report
+- ⭐ [New Member Report](https://github.com/bswaby/Touchpoint/tree/main#-new-member-report) - New Member Report
 - 📤 [Registration Export](https://github.com/bswaby/Touchpoint/blob/main/README.md#-registration-export) - Event registration data export
 - 📝 [TaskNote Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-tasknote-activity-dashboard) - Task and note activity monitoring
 - ✅ [Weekly Attendance](https://github.com/bswaby/Touchpoint/blob/main/README.md#-weekly-attendance) - Enhanced attendance reporting (WAAG 2.0)
