@@ -1,9 +1,7 @@
 ## 📋 Overview
 
-This repository is the work of one guy who loves Jesus, loves clean data, and loves seeing people come to Christ — so I built a bunch of tools to help make ministry smoother, more informed, reduce overhead, and help reach others.
+Open-source ministry technology from the trenches. As a developer serving in church leadership, I've built these 35+ tools to solve real problems we face every day—and I'm sharing them freely with the church community. These solutions range from simple automation scripts to advanced analytics platforms, all designed to help ministry teams work smarter, gain better insights, and spend more time on what matters: loving people and advancing the Kingdom.
 ---
-
-<img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Widget%20QuickLinks/WidgetQuickLink.png" width="450">
 
 💰 **Finance**</br>
 - 🗂 [Deposit Report](https://github.com/bswaby/Touchpoint/blob/main/README.md#-deposit-report) - Ministry deposit report
