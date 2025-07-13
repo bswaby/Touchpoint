@@ -50,7 +50,7 @@ Whether you need a simple automation script, advanced analytics, or tailor-made 
 - 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-techstatus) - System status monitoring
 
 🧩 **Widgets**</br>
-- ⚡ [Widget Involvement Dashboard Widget](https://github.com/bswaby/Touchpoint/edit/main/README.md#-involvement-dashboard-widget) - Quick list of involvements for leaders
+- ⚡ [Widget Involvement Dashboard Widget](https://github.com/bswaby/Touchpoint/blob/main/README.md#-widget-involvement-dashboard-widget) - Quick list of involvements for leaders
 - ⚡ [Widget QuickLinks](https://github.com/bswaby/Touchpoint/blob/main/README.md#-widget-quicklinks) - Permission-based quick access links
 
 ## 💰 Finance
