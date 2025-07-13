@@ -21,6 +21,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 - 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-activity-dashboard) - Involvement activity analysis
 - 💰 [Invovlement with Fee](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvements-with-fees-report) - Involvements with Fees
 - 📉 [Lapsed Attenders](https://github.com/bswaby/Touchpoint/blob/main/README.md#-lapsed-attenders) - Statistical attendance pattern analysis
+- [Membership Analysis]() - Membership Analysis
 - 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-ministry-structure) - Program and involvement structure overview
 - ⭐ [New Member Report](https://github.com/bswaby/Touchpoint/tree/main#-new-member-report) - New Member Report
 - 📤 [Registration Export](https://github.com/bswaby/Touchpoint/blob/main/README.md#-registration-export) - Event registration data export
@@ -388,6 +389,25 @@ Key Capabilities:
 </p>
 </details>
 The key differentiator here is that this isn't just "who missed church recently" - it's "who is behaving differently than their established pattern," which is much more actionable for pastoral care!
+
+### [Membership Analysis]()
+This is an analytical dashboard that provides insights into membership trends, retention patterns, and demographic shifts across multiple periods. This report helps see growth patterns, opportunities, and potential concerns before they become problems. What previously required exporting data to Excel and hours of manual analysis now generates instantly with interactive visualizations and drill-down capabilities. The only note is that the cohort retention analysis for us is not helpful yet, as we only have 2 years of data coming over to Touchpoint.
+
+Update: 20250613 - Enhanced retention cohort analysis, added predictive trend lines, improved demographic breakdowns, and implemented campus-specific filtering.
+
+⚙️ Implementation Level: Easy - Single script with no dependencies
+🧩 Installation: Paste code and run - automatically detects your membership status codes
+
+Key Features:
+- Multi-Period Analysis - Compare 30/90/365 day trends with YoY comparisons
+- Cohort Retention Tracking - See how each year's new member class is retained over time
+- Demographic Deep Dive - Age, gender, marital status, and family composition analytics
+- Geographic Mapping - Visualize member distribution by ZIP code with heat maps
+- Engagement Scoring - Automated scoring based on attendance, giving, and serving
+- Predictive Analytics - Trend lines showing projected membership based on current patterns
+- Campus Breakdown - Filter and compare metrics across multiple locations
+- Export Capabilities - Download detailed data for further analysis
+
 
 ### 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure)
 This is one of my favorite tools for understanding the structure of programs, divisions, involvements, and involvement types, as it provides a simple and effective means of laying out the structure.
