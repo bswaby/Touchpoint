@@ -562,7 +562,7 @@ This report is still being built, but it is Week at a Glance (WAAG) 2.0 for at l
 
 ## 📋 Administrative Reports
 
-### 🔗 [Account Security Monitor](https://github.com/bswaby/Touchpoint/blob/main/TPxi/Account%20Security%20Monitor/TPxi_AccountSecurityMonitor.py)
+### 🔗 [Account Security Monitor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Account%20Security%20Monitor)
 This Python dashboard provides advanced security analytics, automated threat detection, and actionable intelligence for protecting your church's digital infrastructure.
 
 🛡️ Key Features
