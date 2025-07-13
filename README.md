@@ -1,10 +1,10 @@
 ## 📋 Overview
 
-Ministry technology tools from the trenches. As a developer with God given talents serving in church leadership, I've built many tools to solve real problems we face every day. I also believe the Lord has instructed us to build the Kingdom in every way possible.
+As a developer blessed with God-given talents and experience in church leadership, I’ve built practical tools to solve some of the daily challenges ministries face. I also believe the Lord calls us to build His Kingdom in every way we can, including through technology.
 
-Beyond these ready-to-use tools, I also take on custom development projects leveraging TouchPoint's exposed APIs and database resources.
+In addition to ready-to-use solutions, I offer custom development work that leverages TouchPoint’s APIs and database capabilities.
 
-Hopefully, one of these solutions—from simple automation scripts to advanced analytics platforms to custom-built functionality—can help your team work smarter, gain better insights, and spend more time on what matters: loving people and advancing the Kingdom.
+Whether you need a simple automation script, advanced analytics, or tailor-made features, I pray that these tools help your team work smarter, uncover valuable insights, and focus more on what matters most: loving people and growing the Kingdom.
 
 
 💰 **Finance**</br>
