@@ -118,7 +118,7 @@ It automatically creates QCD and Grant letters that you can print out and stuff 
 </details>
 
 ### 📜 [Payment Manager](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Payment%20Manager)
-The payment manager was built to help us identify outstanding payments across programs and then dive into each. When you dive in, you can make payments with receipts for cash and check, send a quick digital pay link, or resend receipts.   The biggest note is that this was coded for our environment, and while it should work, I am not 100% sure what you will run into as I haven't done any testing outside our environment for this one.
+The payment manager was built to help us identify outstanding payments across programs and then dive into each. When you dive in, you can make payments with receipts for cash and check, send a quick digital pay link, or resend receipts.   The biggest note is that this was coded for our environment, and while it should work, I am not 100% sure what you will run into, as I haven't done any testing outside our environment for this one.
 
 - ⚙️ **Implementation Level: Easy-Moderate
 - 🧩 **Installation: There are a few config items on top of the script.  Most do not need to be edited, but at a minimum, I would say you need to edit the DEFAULT_EMAIL_SENDER.  
