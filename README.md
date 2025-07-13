@@ -773,10 +773,24 @@ Note: This will <b>not</b> print badges, as those modules from TP are not expose
 </details>
 
 ### 🌍 [Missions Dashboard](https://github.com/bswaby/Touchpoint/tree/main/Missions/MissionsDashboard)
-The mission's program is a tool that helps the mission pastor and mission leaders oversee the trips. This tool has many features. Mission pastors can easily manage outstanding payments, background checks, passports, upcoming meetings, see who the leaders are, and more. Mission leaders can easily see their team, contact information, emergency contact information, payment status of each person, and training resources.  Their access to this is dynamically given through the mission widget that lives in their dashboard.
+A comprehensive mission trip management dashboard that transformed how we coordinate, track, and report on global mission efforts. This tool consolidates trip planning, participant tracking, fundraising progress, and post-trip impact reporting into a unified interface. What used to require juggling multiple spreadsheets, email chains, and paper forms across different staff members is now centralized with real-time updates. 
 
-- ⚙️ **Implementation Level: Advanced
-- 🧩 **Installation:  This is highly configured for our environment.  It is possible to use it, but several hard-coded areas throughout the script will need to be considered.  I am evaluating whether I can make this easier to implement in other environments, but it will be awhile before I add any focus back on it.
+Update: 20250615 Normalized the code to make it more adaptable for other churches.  
+Note:  Touchpoint released some code in March that has <u>negatively</u> impacted one of the required tables that holds the funding.  While the tool still works, any funding is 8-10x slower loading now.  Support is aware and currently waiting on a resolution.
+
+⚙️ Implementation Level: Moderate - Requires trip organization structure setup
+🧩 Installation: Create mission trip organizations with "Close" date extra values, paste the code, and configure email templates
+
+Key Features:
+
+- Trip Portfolio View - See all active and upcoming trips at a glance with participant counts
+- Fundraising Thermometer - Real-time progress bars showing individual and team fundraising goals
+- Document Tracking - Monitor passport, visa, medical form, and waiver completion status
+- Automated Communications - Deadline reminders, fundraising updates, and trip preparation emails
+- Team Rosters - Printable rosters with emergency contacts and medical information
+- Financial Reconciliation - Track payments and outstanding balances
+- Post-Trip Reporting - Statistics
+- Multi-Trip Participants - Identify and track people serving on multiple trips
 
 <details>
 <summary><strong>Dashboard</strong></summary>
