@@ -1,6 +1,8 @@
 ## 📋 Overview
 
-Open-source ministry technology from the trenches. As a developer serving in church leadership, I've built these 35+ tools to solve real problems we face every day—and I'm sharing them freely with the church community. These solutions range from simple automation scripts to advanced analytics platforms, all designed to help ministry teams work smarter, gain better insights, and spend more time on what matters: loving people and advancing the Kingdom.
+Ministry technology tools from the trenches. As a developer with God given talents around the WIE geniuses serving in church leadership, I've built many tools to solve real problems we face every day. I also believe the Lord has instructed us to build the Kingdom in every way we can.
+Beyond these ready-to-use tools, I also take on custom development projects leveraging TouchPoint's exposed APIs and database resources. Whether you need specialized reports, unique workflows, or functionality that doesn't exist in the standard platform, I can build tailored solutions that integrate seamlessly with your TouchPoint environment.
+Hopefully, one of these solutions—from simple automation scripts to advanced analytics platforms to custom-built functionality—can help your team work smarter, gain better insights, and spend more time on what matters: loving people and advancing the Kingdom.
 ---
 
 💰 **Finance**</br>
