@@ -39,7 +39,7 @@ Whether you need a simple automation script, advanced analytics, or tailor-made 
 
 🔧 **Programs & Events**</br>
 - 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/blob/main/README.md#-fastlanecheckin) - Streamlined event check-in system
-- 🌍 [Missions Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-missions-dashbaord) - Mission trip management system
+- 🌍 [Missions Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-missions-dashboard) - Mission trip management system
 
 🛠️ **System Tools**</br>
 - 🔗 [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/blob/main/README.md#-attachment-link-downloader) - Bulk document downloads
