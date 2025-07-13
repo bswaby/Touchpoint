@@ -46,7 +46,7 @@ Whether you need a simple automation script, advanced analytics, or tailor-made 
 - 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-owner-audit) - Involvement ownership tracking
 - ↻  [Involvement Sync](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-sync) - Multi-involvement synchronization
 - 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/blob/main/README.md#-link-generator) - Pre-authenticated link creation
-- 🔍 [Live Search](https://github.com/bswaby/Touchpoint/tree/main#-touchpoint-live-search-with-quick-action) - Live Search with Quick Actions
+- 🔍 [Live Search](https://github.com/bswaby/Touchpoint/tree/main#-live-search) - Live Search with Quick Actions
 - 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-techstatus) - System status monitoring
 
 🧩 **Widgets**</br>
