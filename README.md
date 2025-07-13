@@ -5,51 +5,55 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 
 <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Widget%20QuickLinks/WidgetQuickLink.png" width="450">
 
-💰 Finance</br>
+💰 **Finance**</br>
 - 🗂 [Deposit Report](https://github.com/bswaby/Touchpoint/blob/main/README.md#-deposit-report) - Ministry deposit report
 - 💳 [Fortis Fees](https://github.com/bswaby/Touchpoint/blob/main/README.md#-fortisfees) - Automated fee breakdown and back-charging
 - 📜 [QCD-Grant Letters](https://github.com/bswaby/Touchpoint/blob/main/README.md#-qcd-grantletters) - Automated letter generation for windowed envelopes
 - 📜 [Payment Manager](https://github.com/bswaby/Touchpoint/blob/main/README.md#-payment-manager) - Outstanding payment tracking and management
 - 📊 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/blob/main/README.md#-weekly-contribution-report) - Weekly finance tracking and reporting
 
-📈 Reports</br>
+👥 **Member Analytics**</br>
 - 📅 [Anniversaries](https://github.com/bswaby/Touchpoint/blob/main/README.md#-anniversaries) - Member anniversary tracking widget
-- 📊 [Auxiliary to Group Analytics](https://github.com/bswaby/Touchpoint/blob/main/README.md#-auxiliary-to-group-analytics) - Program effectiveness analysis
-- 📱 [Communication Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-communication-dashboard) - Email and SMS analytics
-- 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-data-quality-dashboard) - Database completeness monitoring
-- 🚑 [Emergency List](https://github.com/bswaby/Touchpoint/blob/main/README.md#-emergency-list---emergency-list) - Emergency List
-- 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-activity-dashboard) - Involvement activity analysis
-- 💰 [Invovlement with Fee](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvements-with-fees-report) - Involvements with Fees
+- 🗺️ [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-geographic-distribution-map) - Member location mapping with demographics
 - 📉 [Lapsed Attenders](https://github.com/bswaby/Touchpoint/blob/main/README.md#-lapsed-attenders) - Statistical attendance pattern analysis
 - 👥 [Membership Analysis](https://github.com/bswaby/Touchpoint/tree/main#-membership-analysis) - Membership Analysis
-- 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-ministry-structure) - Program and involvement structure overview
 - ⭐ [New Member Report](https://github.com/bswaby/Touchpoint/tree/main#-new-member-report) - New Member Report
-- 📤 [Registration Export](https://github.com/bswaby/Touchpoint/blob/main/README.md#-registration-export) - Event registration data export
+
+📊 **Activity & Engagement**</br>
+- 📊 [Auxiliary to Group Analytics](https://github.com/bswaby/Touchpoint/blob/main/README.md#-auxiliary-to-group-analytics) - Program effectiveness analysis
+- 📱 [Communication Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-communication-dashboard) - Email and SMS analytics
+- 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-activity-dashboard) - Involvement activity analysis
 - 📝 [TaskNote Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-tasknote-activity-dashboard) - Task and note activity monitoring
+- 🗺️ [User Activity](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-user-activity) - User activity level analysis
 - ✅ [Weekly Attendance](https://github.com/bswaby/Touchpoint/blob/main/README.md#-weekly-attendance) - Enhanced attendance reporting (WAAG 2.0)
 
-🔧 Programs</br>
+📋 **Administrative Reports**</br>
+- 🔗 [Account Security Monitor](https://github.com/bswaby/Touchpoint/blob/main/README.md#-account-security-monitor) - Advanced security analytics
+- 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-data-quality-dashboard) - Database completeness monitoring
+- 🚑 [Emergency List](https://github.com/bswaby/Touchpoint/blob/main/README.md#-emergency-list---emergency-list) - Emergency List
+- 💰 [Invovlement with Fee](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvements-with-fees-report) - Involvements with Fees
+- 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-ministry-structure) - Program and involvement structure overview
+- 📤 [Registration Export](https://github.com/bswaby/Touchpoint/blob/main/README.md#-registration-export) - Event registration data export
+
+🔧 **Programs & Events**</br>
+- 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/blob/main/README.md#-fastlanecheckin) - Streamlined event check-in system
 - 🌍 [Missions Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-missions-dashbaord) - Mission trip management system
 
-🛠️ Tools</br>
+🛠️ **System Tools**</br>
 - 🔗 [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/blob/main/README.md#-attachment-link-downloader) - Bulk document downloads
-- 🔗 [Account Security Monitor](https://github.com/bswaby/Touchpoint/blob/main/README.md#-account-security-monitor) - Advanced security analytics
-- 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/blob/main/README.md#-fastlanecheckin) - Streamlined event check-in system
-- 🗺️ [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-geographic-distribution-map) - Member location mapping with demographics
 - 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-owner-audit) - Involvement ownership tracking
 - ↻  [Involvement Sync](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-sync) - Multi-involvement synchronization
 - 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/blob/main/README.md#-link-generator) - Pre-authenticated link creation
 - 🔍 [Live Search](https://github.com/bswaby/Touchpoint/tree/main#-touchpoint-live-search-with-quick-action) - Live Search with Quick Actions
 - 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-techstatus) - System status monitoring
-- 🗺️ [User Activity](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-user-activity) - User activity level analysis
 
-🧩 Widgets</br>
+🧩 **Widgets**</br>
 - ⚡ [Widget Involvement Dashboard Widget](https://github.com/bswaby/Touchpoint/edit/main/README.md#-involvement-dashboard-widget) - Quick list of involvements for leaders
 - ⚡ [Widget QuickLinks](https://github.com/bswaby/Touchpoint/blob/main/README.md#-widget-quicklinks) - Permission-based quick access links
 
 ## 💰 Finance
 
-### 🗂 [Deposit Report]
+### 🗂 [Deposit Report](https://github.com/bswaby/Touchpoint/blob/main/TPxi/Deposit%20Report)
 Comprehensive deposit tracking and reconciliation tool for ministry finances. This report streamlines the deposit preparation by automatically categorizing payments by type (cash, check, credit card) and fund, providing daily breakdowns with expandable transaction details, and generating deposit slips for the finance team reconciliation.
 
   - ⚙️ Implementation Level: Easy
@@ -80,8 +84,6 @@ Update: 20250610 - Resolved issue with ACH, improved looks, added inline comment
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: Paste in code and change the fee percentages
-
-
 
 ### 📜 [QCD-GrantLetters](https://github.com/bswaby/Touchpoint/blob/main/Finance/QCD-GrantLetters)
 It automatically creates QCD and Grant letters that you can print out and stuff into windowed envelopes. In addition, you can upload these as a secure note to each person's record.  On an average week for us, it saved the finance team 2-3 hours compared to how it was done prior.  
@@ -158,7 +160,8 @@ Our finance team uses this primary tool to track, report, and work through finan
 - 🧩 **Installation: The Script is pasted and go. Once you are in the UI, you will complete all the configuration in the UI for you financial setup.
 
 ---
-## 📈 Reports
+
+## 👥 Member Analytics
 
 ### 📅 [Anniversaries](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Anniversaries)
 It is designed as a widget on your dashboard that tracks member anniversaries, such as marriage, work, and birthdays.  We use it to track staff anniversaries, but it could easily be used for any group as it's based on a saved search.
@@ -181,6 +184,141 @@ It is designed as a widget on your dashboard that tracks member anniversaries, s
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Anniversaries/Anniversaries%20Pop-Up.png" width="700">
 </p>
 </details>
+
+### 🗺️ [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Geographic%20Distribution%20Map)
+This blue toolbar visualizes the geographic spread of members or activities in Google Maps. It is similar to Touchpoint's map tool but has three advantages over Touchpoint. 
+
+Advantages
+1. You can overlay demographic data from the US Census.
+2. You can click on the image to get info on the person, similar to how James Kurtz is doing it.
+3. You can draw around a city, neighborhood, etc., and tag or export those people for the selected area
+
+- ⚙️ **Implementation Level: Easy-Moderate
+- 🧩 **Installation: This is an easy script to implement. The most complicated parts are getting Google Maps and Census API keys.
+
+<details>
+<summary><strong>Tag Areas</strong></summary>
+<p>Ability to draw around a parameter and tag the results.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Geographic%20Distribution%20Map/GDM-Tag.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Census Demographc Overlay</strong></summary>
+<p>Overlay US census data.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Geographic%20Distribution%20Map/GDM-Demographics.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Pop-Up</strong></summary>
+<p>Click an icon to see info about the person.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Geographic%20Distribution%20Map/GDM-PopUp.png" width="700">
+</p>
+</details>
+
+### 📉 [Lapsed Attenders](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Lapsed%20Attenders)
+An advanced statistical analysis dashboard that identifies people whose attendance patterns have significantly deviated from their normal behavior. Uses standard deviation calculations to find members who haven't attended in longer than their typical pattern suggests, helping pastoral staff proactively reach out before people fully disconnect.
+
+Key Capabilities:
+📊 Statistical analysis using standard deviations to identify lapsed patterns</br>
+🎯 Priority scoring system (URGENT/HIGH/MEDIUM) based on deviation severity</br>
+📋 Bulk actions: mass tagging, task creation, and note adding</br>
+👥 Contact tracking to avoid duplicate outreach efforts</br>
+🔍 Advanced filtering by age groups (adults vs children)</br>
+⚙️ Configurable thresholds adaptable to different church contexts</br>
+📱 Mobile-responsive ag-Grid interface with visual indicators</br>
+
+- ⚙️ Implementation Level: Moderate - Requires SQL knowledge for program ID configuration
+- 🧩 Installation: Upload as Python script, configure excluded program IDs and thresholds for your church's structure
+
+<details>
+<summary><strong>Lapsed Attender Dashboard Screenshot</strong></summary>
+<p>Interactive dashboard showing statistical analysis with priority levels, contact status tracking, and bulk action capabilities. Each person's deviation from their normal attendance pattern is calculated and displayed with visual priority indicators.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Lapsed%20Attenders/LA-Dashboard.png" width="700">
+</p>
+</details>
+
+### 👥 [Membership Analysis](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Membership%20Analysis)
+This analytical dashboard provides insights into membership trends, retention patterns, and demographic shifts across multiple periods. This report helps see growth patterns, opportunities, and potential concerns before they become problems. What previously required exporting data to Excel and hours of manual analysis now generates instantly with interactive visualizations and drill-down capabilities. The only note is that our cohort retention analysis is not helpful yet, as we only have 2 years of data coming over to Touchpoint.
+
+Update: 20250613 - Enhanced retention cohort analysis, added predictive trend lines, improved demographic breakdowns, and implemented campus-specific filtering.
+
+⚙️ Implementation Level: Easy - Single script with no dependencies
+🧩 Installation: Paste code and run - automatically detects your membership status codes
+
+Key Features:
+- Multi-Period Analysis - Compare 30/90/365 day trends with YoY comparisons
+- Cohort Retention Tracking - See how each year's new member class is retained over time
+- Demographic Deep Dive - Age, gender, marital status, and family composition analytics
+- Geographic Mapping - Visualize member distribution by ZIP code with heat maps
+- Engagement Scoring - Automated scoring based on attendance, giving, and serving
+- Predictive Analytics - Trend lines showing projected membership based on current patterns
+- Campus Breakdown - Filter and compare metrics across multiple locations
+- Export Capabilities - Download detailed data for further analysis
+
+<details>
+<summary><strong>Report Example</strong></summary>
+<p>Gives you a structural breakdown of membership.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Membership%20Analysis/Membership1.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Membership%20Analysis/Membership2.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Membership%20Analysis/Membership3.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Membership%20Analysis/Membership4.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Membership%20Analysis/Membership5.png" width="700">
+</p>
+</details>
+
+### ⭐ [New Member Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/New%20Member%20Report)
+A comprehensive weekly email report helps the team track and follow up with new members by providing demographic breakdowns, engagement metrics, and fiscal year comparisons. What used to take at least an hour of manual data gathering each week now happens automatically every Monday morning, giving staff immediate visibility into new member trends and follow-up needs.
+
+Update: 20250113 - Added baptism hour tracking, fiscal year demographics, attendance metrics, improved family grouping display, and clickable high-resolution photos.
+
+⚙️ Implementation Level: Easy - Single script solution
+🧩 Installation: Paste code and configure email recipients
+
+Key Features:
+- Smart Family Grouping - Automatically groups family members who join together
+- Fiscal Year Analytics - YTD comparisons with previous year growth percentages
+- Demographic Insights - Age distribution, gender, marital status breakdowns
+- Contact Completeness - Tracks email/phone/address data quality
+- Engagement Journey - Visual timeline of each member's spiritual milestones
+- Ministry Involvements - Shows all current ministry connections
+
+<details>
+<summary><strong>Main Screen</strong></summary>
+<p>Key new member metrics.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/New%20Member%20Report/NM-Main1.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/New%20Member%20Report/NM-Main2.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>New Member</strong></summary>
+<p>Progression, contacts, family, etc.. of new member</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/New%20Member%20Report/NM-Person.png" width="700">
+</p>
+</details>
+
+---
+
+## 📊 Activity & Engagement
 
 ### 📊 [Auxiliary to Group Analytics](https://github.com/bswaby/Touchpoint/blob/main/TPxi/Auxiliary%20to%20Group%20Analytics/TPxi_Auxiliary2Group.py)
 The Auxiliary to Group Analytics dashboard helps churches analyze how effectively their various programs drive attendance to Groups. It tracks actual attendance patterns, identifies true conversions (people who joined Connect Groups AFTER participating in programs), and provides summary and detailed metrics to measure program success in building ongoing community connections.
@@ -242,54 +380,6 @@ Centralized dashboard for viewing and analyzing email and SMS communications.  T
 </p>
 </details>
 
-### 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Data%20Quality%20Dashboard)
-Monitors the completeness of the database demographics and what might be missing as data comes in.  
-
-- ⚙️ **Implementation Level: Easy
-- 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
-
-<details>
-<summary><strong>Overview</strong></summary>
-<p>Shows record count and percentages of missing data areas.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityOverview1.png" width="700">
-</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityOverview2.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>Problem Records</strong></summary>
-<p>Good way to see data missing as it's changed.  This can reveal forms or methods that are not capturing data you might need.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityProblemRecords.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>Recommended Actions</strong></summary>
-<p>Recommended actions with ability to export list to csv.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
-</p>
-</details>
-
-### 🚑 [Emergency List](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Emergency%20List) - Emergency List
-Provides an emergency list for off-site, camps, and events that provides a single source for the nurse/team lead to have medical notes, primary doctor, health insurance, OTC meds, emergency contacts, and family contacts.
-
-- ⚙️ **Implementation Level: Easy
-- 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
-
-<details>
-<summary><strong>Overview</strong></summary>
-<p>Report look</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Emergency%20List/EmergencyList.png" width="700">
-</p>
-</details>
-
-
 ### 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Activity%20Dashboard)
 This is like Kenny Rogers of tools in that it helps you know "when to hold them" and "when to fold them" regarding your Involvements.  Overall, this shows you active to dormant involvements and helps you improve the cleanliness of your database. 
 
@@ -344,144 +434,6 @@ This is like Kenny Rogers of tools in that it helps you know "when to hold them"
 </p>
 </details>
 
-### 💰 Involvements with Fees Report
-
-  A finance tool that automatically identifies and reports on all TouchPoint involvements that have
-  associated fees. It supports both legacy XML fee storage and the new JSON registration system, saving finance teams hours of manual
-  searching and reconciliation work.
-
-  ⚙️ Implementation Level: Easy-Moderate
-  🧩 Installation: This script requires the Finance role and is ready to use out of the box. Simply upload the script and optionally add it to your menu. The tool automatically detects your TouchPoint configuration and adapts to both old XML and new JSON fee formats.
-
-  🎯 Key Features:
-
-  - KPI Cards: Total involvements, total fees collected, registration counts, and average fee per involvement
-  - Creator Analytics: See who's creating fee-based involvements and their total impact
-  - Date Range Filtering: Default 30-day view with customizable date ranges
-
-<details>
-<summary><strong>Main Screen</strong></summary>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvements%20with%20Fees/InvolvementwithFees.png" width="700">
-</p>
-</details>
-
-### 📉 Lapsed Attenders
-An advanced statistical analysis dashboard that identifies people whose attendance patterns have significantly deviated from their normal behavior. Uses standard deviation calculations to find members who haven't attended in longer than their typical pattern suggests, helping pastoral staff proactively reach out before people fully disconnect.
-Key Capabilities:
-
-📊 Statistical analysis using standard deviations to identify lapsed patterns</br>
-🎯 Priority scoring system (URGENT/HIGH/MEDIUM) based on deviation severity</br>
-📋 Bulk actions: mass tagging, task creation, and note adding</br>
-👥 Contact tracking to avoid duplicate outreach efforts</br>
-🔍 Advanced filtering by age groups (adults vs children)</br>
-⚙️ Configurable thresholds adaptable to different church contexts</br>
-📱 Mobile-responsive ag-Grid interface with visual indicators</br>
-
-- ⚙️ Implementation Level: Moderate - Requires SQL knowledge for program ID configuration
-- 🧩 Installation: Upload as Python script, configure excluded program IDs and thresholds for your church's structure
-
-<details>
-<summary><strong>Lapsed Attender Dashboard Screenshot</strong></summary>
-<p>Interactive dashboard showing statistical analysis with priority levels, contact status tracking, and bulk action capabilities. Each person's deviation from their normal attendance pattern is calculated and displayed with visual priority indicators.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Lapsed%20Attenders/LA-Dashboard.png" width="700">
-</p>
-</details>
-The key differentiator here is that this isn't just "who missed church recently" - it's "who is behaving differently than their established pattern," which is much more actionable for pastoral care!
-
-### 👥 [Membership Analysis]()
-This analytical dashboard provides insights into membership trends, retention patterns, and demographic shifts across multiple periods. This report helps see growth patterns, opportunities, and potential concerns before they become problems. What previously required exporting data to Excel and hours of manual analysis now generates instantly with interactive visualizations and drill-down capabilities. The only note is that our cohort retention analysis is not helpful yet, as we only have 2 years of data coming over to Touchpoint.
-
-Update: 20250613 - Enhanced retention cohort analysis, added predictive trend lines, improved demographic breakdowns, and implemented campus-specific filtering.
-
-⚙️ Implementation Level: Easy - Single script with no dependencies
-🧩 Installation: Paste code and run - automatically detects your membership status codes
-
-Key Features:
-- Multi-Period Analysis - Compare 30/90/365 day trends with YoY comparisons
-- Cohort Retention Tracking - See how each year's new member class is retained over time
-- Demographic Deep Dive - Age, gender, marital status, and family composition analytics
-- Geographic Mapping - Visualize member distribution by ZIP code with heat maps
-- Engagement Scoring - Automated scoring based on attendance, giving, and serving
-- Predictive Analytics - Trend lines showing projected membership based on current patterns
-- Campus Breakdown - Filter and compare metrics across multiple locations
-- Export Capabilities - Download detailed data for further analysis
-
-
-<details>
-<summary><strong>Report Example</strong></summary>
-<p>Gives you a structural breakdown of membership.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Membership%20Analysis/Membership1.png" width="700">
-</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Membership%20Analysis/Membership2.png" width="700">
-</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Membership%20Analysis/Membership3.png" width="700">
-</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Membership%20Analysis/Membership4.png" width="700">
-</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Membership%20Analysis/Membership5.png" width="700">
-</p>
-</details>
-
-### 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure)
-This is one of my favorite tools for understanding the structure of programs, divisions, involvements, and involvement types, as it provides a simple and effective means of laying out the structure.
-
-- ⚙️ **Implementation Level: Easy
-- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
-
-<details>
-<summary><strong>Main Screen</strong></summary>
-<p>Gives you a structural breakdown of your involvements.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Ministry%20Structure/MinistryStructure.png" width="700">
-</p>
-</details>
-
-### ⭐ [New Member Report]()
-A comprehensive weekly email report helps the team track and follow up with new members by providing demographic breakdowns, engagement metrics, and fiscal year comparisons. What used to take at least an hour of manual data gathering each week now happens automatically every Monday morning, giving staff immediate visibility into new member trends and follow-up needs.
-
-Update: 20250113 - Added baptism hour tracking, fiscal year demographics, attendance metrics, improved family grouping display, and clickable high-resolution photos.
-
-⚙️ Implementation Level: Easy - Single script solution
-🧩 Installation: Paste code and configure email recipients
-
-Key Features:
-
-- Smart Family Grouping - Automatically groups family members who join together
-- Fiscal Year Analytics - YTD comparisons with previous year growth percentages
-- Demographic Insights - Age distribution, gender, marital status breakdowns
-- Contact Completeness - Tracks email/phone/address data quality
-- Engagement Journey - Visual timeline of each member's spiritual milestones
-- Ministry Involvements - Shows all current ministry connections
-
-<details>
-<summary><strong>Main Screen</strong></summary>
-<p>Key new member metrics.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/New%20Member%20Report/NM-Main1.png" width="700">
-</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/New%20Member%20Report/NM-Main2.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>New Member</strong></summary>
-<p>Progression, contacts, family, etc.. of new member</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/New%20Member%20Report/NM-Person.png" width="700">
-</p>
-</details>
-
-### 📤 [Registration Export](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export)
-Exports event or class registration data in structured formats.
-
 ### 📝 [TaskNote Activity Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/TaskNote%20Activity%20Dashboard)
 I developed this to understand TaskNote activity, who has open assignments, keyword trends, and more.  Believe it or not, we are weak in digital process for Touchpoint items, so this is a stepping stone for me to start to monitor and understand what we are currently doing.
 
@@ -528,6 +480,44 @@ I developed this to understand TaskNote activity, who has open assignments, keyw
 </p>
 </details>
 
+### 🗺️ [User Activity](https://github.com/bswaby/Touchpoint/tree/main/TPxi/User%20Activity)
+This is to help get an idea of user activity levels based on the activity log table.   You can even search a single person with this and see how much they worked at the church, home, mobile and an estimated amount of time they worked in the system.
+
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This is a paste-and-go Python script with only one configuration option that you might want to consider: OFFICE_IP_ADDRESSES configuration option determines if people are working in the office or outside the office if you configure it with your network ip addresses.  
+
+<details>
+<summary><strong>Overview</strong></summary>
+<p>Gives an overview of the number of changes in the database and who are the top active users.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-Overview.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>User Activity</strong></summary>
+<p>Gives and overview of the level of activity, estimated time they are spending, and what areas they are working on.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-UserActivity.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Stale Accounts</strong></summary>
+<p>Accounts that have seen a level of inactivity.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-StaleAccounts.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Password Resets</strong></summary>
+<p>Report of accounts that have recently completed a password reset.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-PasswordResets.png" width="700">
+</p>
+</details>
+
 ### ✅ [Weekly Attendance](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Weekly%20Attendance)
 This report is still being built, but it is Week at a Glance (WAAG) 2.0 for at least us. The most significant changes are that it compares previous periods and introduces new concepts for tracking metrics with various comparisons.  One of the concepts for WAAG 2.0 is enrollment vs attendance metrics for our connect groups (Sunday School).  This allows us to track the need for outreach or inreach for each ministry area.  Another one is tracking total attendance for either the configured fiscal year or calendar year to the previous period, which helps determine as a whole if you are are up/down.
 
@@ -567,46 +557,8 @@ This report is still being built, but it is Week at a Glance (WAAG) 2.0 for at l
 </details>
 
 ---
-## 🔧 Programs
 
-### 🌍 [Missions Dashbaord](https://github.com/bswaby/Touchpoint/tree/main/Missions/MissionsDashboard)
-The mission's program is a tool that helps the mission pastor and mission leaders oversee the trips. This tool has many features. Mission pastors can easily manage outstanding payments, background checks, passports, upcoming meetings, see who the leaders are, and more. Mission leaders can easily see their team, contact information, emergency contact information, payment status of each person, and training resources.  Their access to this is dynamically given through the mission widget that lives in their dashboard.
-
-- ⚙️ **Implementation Level: Advanced
-- 🧩 **Installation:  This is highly configured for our environment.  It is possible to use it, but several hard-coded areas throughout the script will need to be considered.  I am evaluating whether I can make this easier to implement in other environments, but it will be awhile before I add any focus back on it.
-
-<details>
-<summary><strong>Dashboard</strong></summary>
-<p>Gives missions pastor a single painted glass for all his active mission trips.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/Missions/MissionsDashboard/MissionsDashboard.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>Leaders Page</strong></summary>
-<p>Leaders have a single page to look at all the materials, status on team payments, verification of data, and easy way to contact.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/Missions/MissionsDashboard/MissionsLeaderPage.png" width="700">
-</p>
-</details>
-
----
-## 🛠️ Tools
-
-### 🔗 [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator)
-Simple download tool allows you to download all documents from an involvement registration easily. 
-
-- ⚙️ **Implementation Level: Easy
-- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
-
-<details>
-<summary><strong>Download attachments</strong></summary>
-<p>Download attachments in bulk, individually, or selected.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Attachment%20Link%20Generator/ALG-Download.png" width="700">
-</p>
-</details>
+## 📋 Administrative Reports
 
 ### 🔗 [Account Security Monitor](https://github.com/bswaby/Touchpoint/blob/main/TPxi/Account%20Security%20Monitor/TPxi_AccountSecurityMonitor.py)
 This Python dashboard provides advanced security analytics, automated threat detection, and actionable intelligence for protecting your church's digital infrastructure.
@@ -665,6 +617,109 @@ This Python dashboard provides advanced security analytics, automated threat det
 </p>
 </details>
 
+### 🧹 [Data Quality Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Data%20Quality%20Dashboard)
+Monitors the completeness of the database demographics and what might be missing as data comes in.  
+
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
+
+<details>
+<summary><strong>Overview</strong></summary>
+<p>Shows record count and percentages of missing data areas.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityOverview1.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityOverview2.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Problem Records</strong></summary>
+<p>Good way to see data missing as it's changed.  This can reveal forms or methods that are not capturing data you might need.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityProblemRecords.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Recommended Actions</strong></summary>
+<p>Recommended actions with ability to export list to csv.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Data%20Quality%20Dashboard/DataQualityRecommendedActions.png" width="700">
+</p>
+</details>
+
+### 🚑 [Emergency List](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Emergency%20List)
+Provides an emergency list for off-site, camps, and events that provides a single source for the nurse/team lead to have medical notes, primary doctor, health insurance, OTC meds, emergency contacts, and family contacts.
+
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
+
+<details>
+<summary><strong>Overview</strong></summary>
+<p>Report look</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Emergency%20List/EmergencyList.png" width="700">
+</p>
+</details>
+
+### 💰 [Involvements with Fees Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvements%20with%20Fees)
+A finance tool that automatically identifies and reports on all TouchPoint involvements that have associated fees. It supports both legacy XML fee storage and the new JSON registration system, saving finance teams hours of manual searching and reconciliation work.
+
+⚙️ Implementation Level: Easy-Moderate
+🧩 Installation: This script requires the Finance role and is ready to use out of the box. Simply upload the script and optionally add it to your menu. The tool automatically detects your TouchPoint configuration and adapts to both old XML and new JSON fee formats.
+
+🎯 Key Features:
+- KPI Cards: Total involvements, total fees collected, registration counts, and average fee per involvement
+- Creator Analytics: See who's creating fee-based involvements and their total impact
+- Date Range Filtering: Default 30-day view with customizable date ranges
+
+<details>
+<summary><strong>Main Screen</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvements%20with%20Fees/InvolvementwithFees.png" width="700">
+</p>
+</details>
+
+### 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure)
+This is one of my favorite tools for understanding the structure of programs, divisions, involvements, and involvement types, as it provides a simple and effective means of laying out the structure.
+
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
+
+<details>
+<summary><strong>Main Screen</strong></summary>
+<p>Gives you a structural breakdown of your involvements.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Ministry%20Structure/MinistryStructure.png" width="700">
+</p>
+</details>
+
+### 📤 [Registration Export](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export)
+Export registrations from multiple or single involvements.
+
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
+
+<details>
+<summary><strong>Registration Selection or Typed-In</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Registration%20Export/RE-Selection.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Data Export</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Registration%20Export/RE-DataExport.png" width="700">
+</p>
+</details>
+
+---
+
+## 🔧 Programs & Events
+
 ### 🚗 [FastLaneCheckIn](https://github.com/bswaby/Touchpoint/tree/main/TPxi/FastLaneCheckIn)
 This streamlined check-in interface is designed for large events (100–2500+ attendees). The core goals are:
 
@@ -684,9 +739,7 @@ The app is intentionally minimal and is optimized for use by individuals or team
   - Feature 2: Added an Outstanding Payment flag during check-in to clearly indicate unpaid balances.
   - Feature 3: Added alphabet grouping options in the UI so it no longer needs to be a configuration change.
 
-
 3️⃣ Badge Limitation Note
-
 Note: This will <b>not</b> print badges, as those modules from TP are not exposed.
 
 4️⃣ Implementation & Installation Section
@@ -717,42 +770,47 @@ Note: This will <b>not</b> print badges, as those modules from TP are not expose
 </p>
 </details>
 
-### 🗺️ [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Geographic%20Distribution%20Map)
-This blue toolbar visualizes the geographic spread of members or activities in Google Maps. It is similar to Touchpoint's map tool but has three advantages over Touchpoint. 
+### 🌍 [Missions Dashboard](https://github.com/bswaby/Touchpoint/tree/main/Missions/MissionsDashboard)
+The mission's program is a tool that helps the mission pastor and mission leaders oversee the trips. This tool has many features. Mission pastors can easily manage outstanding payments, background checks, passports, upcoming meetings, see who the leaders are, and more. Mission leaders can easily see their team, contact information, emergency contact information, payment status of each person, and training resources.  Their access to this is dynamically given through the mission widget that lives in their dashboard.
 
-Advantages
-1. You can overlay demographic data from the US Census.
-2. You can click on the image to get info on the person, similar to how James Kurtz is doing it.
-3. You can draw around a city, neighborhood, etc., and tag or export those people for the selected area
-
-- ⚙️ **Implementation Level: Easy-Moderate
-- 🧩 **Installation: This is an easy script to implement. The most complicated parts are getting Google Maps and Census API keys.
+- ⚙️ **Implementation Level: Advanced
+- 🧩 **Installation:  This is highly configured for our environment.  It is possible to use it, but several hard-coded areas throughout the script will need to be considered.  I am evaluating whether I can make this easier to implement in other environments, but it will be awhile before I add any focus back on it.
 
 <details>
-<summary><strong>Tag Areas</strong></summary>
-<p>Ability to draw around a parameter and tag the results.</p>
+<summary><strong>Dashboard</strong></summary>
+<p>Gives missions pastor a single painted glass for all his active mission trips.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Geographic%20Distribution%20Map/GDM-Tag.png" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Missions/MissionsDashboard/MissionsDashboard.png" width="700">
 </p>
 </details>
 
 <details>
-<summary><strong>Census Demographc Overlay</strong></summary>
-<p>Overlay US census data.</p>
+<summary><strong>Leaders Page</strong></summary>
+<p>Leaders have a single page to look at all the materials, status on team payments, verification of data, and easy way to contact.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Geographic%20Distribution%20Map/GDM-Demographics.png" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Missions/MissionsDashboard/MissionsLeaderPage.png" width="700">
 </p>
 </details>
+
+---
+
+## 🛠️ System Tools
+
+### 🔗 [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator)
+Simple download tool allows you to download all documents from an involvement registration easily. 
+
+- ⚙️ **Implementation Level: Easy
+- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
 
 <details>
-<summary><strong>Pop-Up</strong></summary>
-<p>Click an icon to see info about the person.</p>
+<summary><strong>Download attachments</strong></summary>
+<p>Download attachments in bulk, individually, or selected.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Geographic%20Distribution%20Map/GDM-PopUp.png" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Attachment%20Link%20Generator/ALG-Download.png" width="700">
 </p>
 </details>
 
-### 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
+### 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Owner%20Audit)
 Provides a quick method to see owners of involvements to help with auditing or a leader/staff changeover. 
 
 - ⚙️ **Implementation Level: Easy
@@ -810,7 +868,7 @@ This admin-only tool helps you create a pre-authenticated link that will "automa
 </p>
 </details>
 
-### 🔍 TouchPoint Live Search with Quick Action
+### 🔍 [Live Search](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Live%20Search)
 
 🟩 **Implementation Level: Widget & Standalone** - Deploy as homepage widget or full-page tool
 
@@ -836,7 +894,6 @@ TPxi_LiveSearch is an advanced real-time search interface for TouchPoint that pr
 - **Add Note**: Quickly add notes without leaving the search interface
 - **View Journey**: One-click access to member engagement history
 - **Family View**: Popup showing family engagement metrics
-
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with the only configuration needed is to set the SCRIPT_NAME variable correctly due to home page requirement
@@ -877,28 +934,7 @@ SHOW_GIVING_IN_JOURNEY = False  # Enable/disable giving in timeline
 </p>
 </details>
 
-
-### 🔐 [Regisration Export](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export)
-Export registrations from multiple or single invovlements.
-
-- ⚙️ **Implementation Level: Easy
-- 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
-
-<details>
-<summary><strong>Registration Selection or Typed-In</strong></summary>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Registration%20Export/RE-Selection.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>Data Export</strong></summary>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Registration%20Export/RE-DataExport.png" width="700">
-</p>
-</details>
-
-### 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
+### 🖥️ [TechStatus](https://github.com/bswaby/Touchpoint/tree/main/TPxi/TechStatus)
 This is a quick way to get failed prints, today's print stats, login failures, and more. If I get a question about whether we are having an issue with something like printing, I will pull this up to see what printed and what might be stuck in the queue.  
 
 - ⚙️ **Implementation Level: Easy
@@ -936,54 +972,15 @@ This is a quick way to get failed prints, today's print stats, login failures, a
 </p>
 </details>
 
-### 🗺️ [User Activity](https://github.com/bswaby/Touchpoint/tree/main/TPxi/User%20Activity)
-This is to help get an idea of user activity levels based on the activity log table.   You can even search a single person with this and see how much they worked at the church, home, mobile and an estimated amount of time they worked in the system.
-
-- ⚙️ **Implementation Level: Easy
-- 🧩 **Installation: This is a paste-and-go Python script with only one configuration option that you might want to consider: OFFICE_IP_ADDRESSES configuration option determines if people are working in the office or outside the office if you configure it with your network ip addresses.  
-
-<details>
-<summary><strong>Overview/strong></summary>
-<p>Gives an overview of the number of changes in the database and who are the top active users.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-Overview.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>User Activity</strong></summary>
-<p>Gives and overview of the level of activity, estimated time they are spending, and what areas they are working on.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-UserActivity.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>Stale Accounts</strong></summary>
-<p>Accounts that have seen a level of inactivity.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-StaleAccounts.png" width="700">
-</p>
-</details>
-
-<details>
-<summary><strong>Password Resets</strong></summary>
-<p>Report of accounts that have recently completed a password reset.</p>
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-PasswordResets.png" width="700">
-</p>
-</details>
-
+---
 
 ## 🧩 Widgets
 
-### 📊 [Involvement Dashboard Widget](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Widget%20Involvement%20Dashboard)
+### ⚡ [Widget Involvement Dashboard Widget](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Widget%20Involvement%20Dashboard)
 The Involvement Dashboard provides church leaders a comprehensive overview of all involvements within a specific program and division. It displays basic real-time attendance metrics, meeting schedules, last meeting dates, and identifies organizations that need attention based on meeting frequency.
 
 - ⚙️ Implementation Level: Easy  
 - 🧩 **Installation**: Minimal configuration required. Edit the PROGRAM_ID and DIVISION_ID variables to match your specific program/division to monitor. Optionally: Adjust DAYS_FOR_AVERAGE (default 90 days) for attendance calculations and set DEBUG_ROLE for troubleshooting access.
-
-<summary><strong>Dashboard Features</strong></summary>
 
 **Key Metrics Displayed:**
 - Total involvements and member count
@@ -999,10 +996,10 @@ The Involvement Dashboard provides church leaders a comprehensive overview of al
 - ⚫ **No Meetings**: Organizations without recorded meetings
 
 <details>
-  <summary><strong>Main Screen</strong></summary>
-    <p align="center">
-      <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Widget%20Involvement%20Dashboard/WID-Main.png" width="700">
-    </p>
+<summary><strong>Main Screen</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Widget%20Involvement%20Dashboard/WID-Main.png" width="700">
+</p>
 </details>
 
 ### ⚡ [Widget QuickLinks](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Widget%20QuickLinks)
