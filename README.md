@@ -21,7 +21,7 @@ This repository is the work of one guy who loves Jesus, loves clean data, and lo
 - 🧑‍🤝‍🧑 [Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-activity-dashboard) - Involvement activity analysis
 - 💰 [Invovlement with Fee](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvements-with-fees-report) - Involvements with Fees
 - 📉 [Lapsed Attenders](https://github.com/bswaby/Touchpoint/blob/main/README.md#-lapsed-attenders) - Statistical attendance pattern analysis
-- 👥 [Membership Analysis](https://github.com/bswaby/Touchpoint/tree/main#membership-analysis) - Membership Analysis
+- 👥 [Membership Analysis](https://github.com/bswaby/Touchpoint/tree/main#-membership-analysis) - Membership Analysis
 - 🏛️ [Ministry Structure](https://github.com/bswaby/Touchpoint/blob/main/README.md#%EF%B8%8F-ministry-structure) - Program and involvement structure overview
 - ⭐ [New Member Report](https://github.com/bswaby/Touchpoint/tree/main#-new-member-report) - New Member Report
 - 📤 [Registration Export](https://github.com/bswaby/Touchpoint/blob/main/README.md#-registration-export) - Event registration data export
@@ -411,7 +411,7 @@ Key Features:
 
 <details>
 <summary><strong>Report Example</strong></summary>
-<p>Gives you a structural breakdown of your involvements.</p>
+<p>Gives you a structural breakdown of membership.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Membership%20Analysis/Membership1.png" width="700">
 </p>
