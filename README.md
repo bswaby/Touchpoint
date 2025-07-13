@@ -420,6 +420,24 @@ Key Features:
 - Engagement Journey - Visual timeline of each member's spiritual milestones
 - Ministry Involvements - Shows all current ministry connections
 
+<details>
+<summary><strong>Main Screen</strong></summary>
+<p>Key new member metrics.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/New%20Member%20Report/NM-Main1.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/New%20Member%20Report/NM-Main2.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>New Member</strong></summary>
+<p>Progression, contacts, family, etc.. of new member</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/New%20Member%20Report/NM-Person.png" width="700">
+</p>
+</details>
 
 ### 📤 [Registration Export](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export)
 Exports event or class registration data in structured formats.
