@@ -796,15 +796,34 @@ Key Features:
 <summary><strong>Dashboard</strong></summary>
 <p>Gives missions pastor a single painted glass for all his active mission trips.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/Missions/MissionsDashboard/MissionsDashboard.png" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Missions/MissionsDashboard/MD-Dashboard.png" width="700">
 </p>
 </details>
 
 <details>
-<summary><strong>Leaders Page</strong></summary>
-<p>Leaders have a single page to look at all the materials, status on team payments, verification of data, and easy way to contact.</p>
+<summary><strong>Finance</strong></summary>
+<p>Single location to see what each owes</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/Missions/MissionsDashboard/MissionsLeaderPage.png" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Missions/MissionsDashboard/MD-Finance.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Email</strong></summary>
+<p>Single painted glass to see communication that's gone out to each group.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Missions/MissionsDashboard/MD-Email.png" width="700">
+</p>
+</details>
+
+<details>
+<summary><strong>Stats</strong></summary>
+<p>Run down on mission trips</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Missions/MissionsDashboard/MD-Stats1.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/Missions/MissionsDashboard/MD-Stats2.png" width="700">
 </p>
 </details>
 
