@@ -1,10 +1,10 @@
 ## 📋 Overview
 
-As a developer blessed with God-given talents and experience in church leadership, I’ve built practical tools to solve some of the daily challenges ministries face. I also believe the Lord calls us to build His Kingdom in every way we can, including through technology.
+As a husband, father of two beautiful daughters, and dad to a special needs child, I’ve seen firsthand the importance of tools that truly serve people well. With experience in church leadership and a passion for development, I’ve built practical solutions to help ministries overcome everyday challenges.
 
-In addition to ready-to-use solutions, I offer custom development work that leverages TouchPoint’s APIs and database capabilities.
+I believe God calls us to build His Kingdom in every way we can—including through technology. That’s why I’ve created a range of ready-to-use tools, and I also take on custom development projects that leverage TouchPoint’s APIs and database resources.
 
-Whether you need a simple automation script, advanced analytics, or tailor-made features, I pray that these tools help your team work smarter, uncover valuable insights, and focus more on what matters most: loving people and growing the Kingdom.
+Whether you’re looking for a simple automation script, advanced analytics, or tailor-made features, my prayer is that these tools help your team work smarter, uncover meaningful insights, and focus more on what matters most: loving people and growing the Kingdom.
 
 
 💰 **Finance**</br>
