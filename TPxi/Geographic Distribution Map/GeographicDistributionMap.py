@@ -13,7 +13,40 @@ Features:
 - Census data layer overlays (income, education, age, etc.)
 - Export to CSV option
 
-Note:  You will need a Google Maps API Key, and if you enable the census data, you will also need a census data api key.
+Note: You will need a Google Maps API Key, and if you enable the census data, you will also need a census data api key.
+
+========= API KEY SETUP INSTRUCTIONS =========
+
+BEFORE USING THIS SCRIPT: You must obtain and configure API keys below in the CONFIGURATION SETTINGS section.
+
+GOOGLE MAPS API KEY (Required):
+1. Go to Google Cloud Console: https://console.cloud.google.com/
+2. Create a new project or select existing project
+3. Enable these APIs: Maps JavaScript API, Geocoding API, Places API (optional)
+4. Go to "APIs & Services" > "Credentials" > "Create Credentials" > "API Key"
+5. Copy your API key and paste it in GOOGLE_MAPS_API_KEY below
+6. IMPORTANT: Restrict your key for security (set HTTP referrers and API restrictions)
+
+US CENSUS API KEY (Optional - for census data overlays):
+1. Go to: https://api.census.gov/data/key_signup.html
+2. Fill out the registration form (name, email, organization, intended use)
+3. Check your email for the API key (arrives within minutes)
+4. Copy your API key and paste it in CENSUS_API_KEY below
+5. If you don't want census data, set ENABLE_CENSUS_DATA = False
+
+SECURITY NOTES:
+- Never share your API keys publicly
+- Use domain restrictions on Google Maps API key
+- Google Maps has free tier: 28,000 map loads, 40,000 geocoding requests per month
+- Census API is free with 500 requests per day limit
+
+TROUBLESHOOTING:
+- Google Maps "can't load correctly" = check billing enabled
+- "RefererNotAllowedMapError" = check domain restrictions
+- Census API 403 error = verify API key is correct
+- Census API 429 error = exceeded daily limit (500 requests)
+
+=================================================
 
 --Upload Instructions Start--
 To upload code to Touchpoint, use the following steps:
