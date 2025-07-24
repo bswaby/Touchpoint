@@ -15,30 +15,120 @@ Features:
 
 Note: You will need a Google Maps API Key, and if you enable the census data, you will also need a census data api key.
 
-========= API KEY SETUP INSTRUCTIONS =========
+========= COMPLETE API KEY SETUP INSTRUCTIONS =========
 
 BEFORE USING THIS SCRIPT: You must obtain and configure API keys below in the CONFIGURATION SETTINGS section.
 
-GOOGLE MAPS API KEY (Required):
-1. Go to Google Cloud Console: https://console.cloud.google.com/
-2. Create a new project or select existing project
-3. Enable these APIs: Maps JavaScript API, Geocoding API, Places API (optional)
-4. Go to "APIs & Services" > "Credentials" > "Create Credentials" > "API Key"
-5. Copy your API key and paste it in GOOGLE_MAPS_API_KEY below
-6. IMPORTANT: Restrict your key for security (set HTTP referrers and API restrictions)
+GOOGLE MAPS API KEY SETUP (Required):
+----------------------------------------
 
-US CENSUS API KEY (Optional - for census data overlays):
-1. Go to: https://api.census.gov/data/key_signup.html
-2. Fill out the registration form (name, email, organization, intended use)
-3. Check your email for the API key (arrives within minutes)
-4. Copy your API key and paste it in CENSUS_API_KEY below
-5. If you don't want census data, set ENABLE_CENSUS_DATA = False
+Step 1: Create a Google Cloud Project
+1. Go to the Google Cloud Console: https://console.cloud.google.com/
+2. Sign in with your Google account
+3. Click "Select a project" at the top of the page
+4. Click "New Project"
+5. Enter a project name (e.g., "Geographic Distribution Map")
+6. Click "Create"
 
-SECURITY NOTES:
-- Never share your API keys publicly
-- Use domain restrictions on Google Maps API key
-- Google Maps has free tier: 28,000 map loads, 40,000 geocoding requests per month
-- Census API is free with 500 requests per day limit
+Step 2: Enable Required APIs
+1. In the Google Cloud Console, navigate to "APIs & Services" > "Library"
+2. Search for and enable the following APIs:
+   - Maps JavaScript API (for displaying the interactive map)
+   - Geocoding API (for converting addresses to coordinates)
+   - Places API (optional, for enhanced location data)
+3. Click "Enable" for each API
+
+Step 3: Create API Credentials
+1. Go to "APIs & Services" > "Credentials"
+2. Click "Create Credentials" > "API Key"
+3. Copy the generated API key and store it securely
+4. Click "Restrict Key" to configure security settings (IMPORTANT for security)
+
+Step 4: Configure API Key Restrictions (HIGHLY RECOMMENDED)
+1. Under "Application restrictions":
+   - Select "HTTP referrers (web sites)"
+   - Add your domain(s) where the script will run
+   - Example: https://yourdomain.com/*
+   - For localhost testing: http://localhost:*
+2. Under "API restrictions":
+   - Select "Restrict key"
+   - Choose only the APIs you enabled in Step 2
+3. Click "Save"
+
+Step 5: Set Up Billing (Required for Google Maps)
+1. Go to "Billing" in Google Cloud Console
+2. Link a billing account (credit card required)
+3. Google Maps APIs require billing but have generous free tiers:
+   - Maps JavaScript API: 28,000 free map loads per month
+   - Geocoding API: 40,000 free requests per month
+4. Set up billing alerts to monitor usage
+
+Step 6: Add API Key to This Script
+In the CONFIGURATION SETTINGS section below, replace:
+GOOGLE_MAPS_API_KEY = ""
+With your actual API key:
+GOOGLE_MAPS_API_KEY = "your_actual_google_maps_api_key_here"
+
+US CENSUS API KEY SETUP (Optional - for Census Data Overlays):
+---------------------------------------------------------------
+
+Step 1: Request Census API Key
+1. Go to the US Census Bureau API Key Request Page:
+   https://api.census.gov/data/key_signup.html
+2. Fill out the registration form with:
+   - Your name
+   - Email address
+   - Organization (can be personal/individual)
+   - Intended use description (e.g., "Geographic analysis for community mapping")
+3. Submit the form
+
+Step 2: Receive and Verify Key
+1. Check your email for the API key (usually arrives within minutes)
+2. The key will be in format: 1234567890abcdef1234567890abcdef12345678
+3. No additional activation steps required
+4. Test the key by visiting:
+   https://api.census.gov/data/2021/acs/acs5?get=B19013_001E&for=state:*&key=YOUR_KEY
+   (Replace YOUR_KEY with your actual key)
+
+Step 3: Add Census API Key to This Script
+In the CONFIGURATION SETTINGS section below, replace:
+CENSUS_API_KEY = ""
+With your actual API key:
+CENSUS_API_KEY = "your_actual_census_api_key_here"
+
+If you don't want to use census data overlays, set:
+ENABLE_CENSUS_DATA = False
+
+TESTING YOUR SETUP:
+-------------------
+
+Test Google Maps API:
+1. After adding your API key to the script, run the script
+2. Check if the map loads properly
+3. Look for any error messages in browser console
+4. Common test: Try geocoding an address
+
+Test Census API:
+1. With your key added, enable census overlays in the script
+2. Try loading census data for your area
+3. Check for data visualization on the map
+4. Verify no 403 or 429 errors occur
+
+SECURITY BEST PRACTICES:
+------------------------
+
+For Google Maps API Key:
+- ALWAYS set up domain restrictions (Step 4 above)
+- Never expose your API key in client-side code for production
+- Store in environment variables when possible
+- Regularly monitor usage in Google Cloud Console
+- Set up billing alerts to avoid unexpected charges
+- Rotate keys periodically for security
+
+For Census API Key:
+- Store securely but restrictions are less critical (public data)
+- Be aware of rate limits (500 queries per IP per day)
+- No billing concerns - Census API is completely free
 
 TROUBLESHOOTING:
 - Google Maps "can't load correctly" = check billing enabled
@@ -61,7 +151,6 @@ c. add this:  <Report name="GeographicDistributionMap" type="PyScript" role="Acc
 
 note: CustomReport changes can take 24 hrs to show due to how it's implemented on the TP servers
 --End Upload Instructions--
-
 
 Written By: Ben Swaby
 Email: bswaby@fbchtn.org
