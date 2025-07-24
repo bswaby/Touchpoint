@@ -49,12 +49,19 @@ TROUBLESHOOTING:
 =================================================
 
 --Upload Instructions Start--
-To upload code to Touchpoint, use the following steps:
-1. Click Admin ~ Advanced ~ Special Content ~ Python
-2. Click New Python Script File
-3. Name the Python script (e.g., "GeographicDistributionMap") and paste all this code
-4. Test and optionally add to menu
---Upload Instructions End--
+Step 1:  Upload code to Touchpoint
+a. Click Admin ~ Advanced ~ Special Content ~ Python
+b. Click New Python Script File
+c. Name the Python script (e.g., "GeographicDistributionMap") and paste all this code
+
+Step 2: Add this to the Bluetoolbar
+a. Click Admin ~ Advanced ~ Special Content ~ Text
+b. Open CustomReport
+c. add this:  <Report name="GeographicDistributionMap" type="PyScript" role="Access" />
+
+note: CustomReport changes can take 24 hrs to show due to how it's implemented on the TP servers
+--End Upload Instructions--
+
 
 Written By: Ben Swaby
 Email: bswaby@fbchtn.org
