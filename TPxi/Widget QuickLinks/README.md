@@ -9,3 +9,6 @@ This provides quick-access links for users to get to things quickly.  The links 
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Widget%20QuickLinks/WidgetQuickLink.png" width="450">
 </p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Widget%20QuickLinks/WidgetQuickLink1.png" width="450">
+</p>
