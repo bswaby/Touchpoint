@@ -87,7 +87,7 @@ class Config:
     USE_CACHING = True  # Enable caching for performance
     
     # Application-specific organization IDs to exclude (adjust for your setup)
-    APPLICATION_ORG_IDS = [2736, 2737, 2738]  # Organizations used for applications
+    APPLICATION_ORG_IDS = [2736, 2737, 2738, 3032]  # Organizations used for applications
     
     # Dashboard Sections
     ENABLE_STATS_TAB = True
@@ -1967,6 +1967,126 @@ def handle_ajax_request():
     
     return False  # Not an AJAX request
 
+def get_queue_statistics():
+    """Get statistics about people in the application queue"""
+    
+    app_org_list = ','.join(str(x) for x in config.APPLICATION_ORG_IDS)
+    
+    queue_stats_sql = '''
+    WITH QueuePeople AS (
+        SELECT DISTINCT 
+            p.PeopleId,
+            p.Name2 AS Name,
+            p.Age,
+            p.GenderId,
+            p.MemberStatusId,
+            om.EnrollmentDate
+        FROM Organizations o WITH (NOLOCK)
+        INNER JOIN OrganizationMembers om WITH (NOLOCK) ON o.OrganizationId = om.OrganizationId
+        INNER JOIN People p WITH (NOLOCK) ON p.PeopleId = om.PeopleId
+        WHERE o.OrganizationId IN ({0})
+          AND om.InactiveDate IS NULL
+    ),
+    PreviousMissions AS (
+        SELECT 
+            qp.PeopleId,
+            COUNT(DISTINCT o.OrganizationId) AS PreviousTripCount
+        FROM QueuePeople qp
+        INNER JOIN OrganizationMembers om WITH (NOLOCK) ON qp.PeopleId = om.PeopleId
+        INNER JOIN Organizations o WITH (NOLOCK) ON om.OrganizationId = o.OrganizationId
+        WHERE o.IsMissionTrip = {1}
+          AND o.OrganizationStatusId = {2}
+          AND o.OrganizationId NOT IN ({0})
+        GROUP BY qp.PeopleId
+    )
+    SELECT 
+        COUNT(DISTINCT qp.PeopleId) AS TotalInQueue,
+        COUNT(DISTINCT pm.PeopleId) AS HasPreviousTrips,
+        COUNT(DISTINCT CASE WHEN pm.PeopleId IS NULL THEN qp.PeopleId END) AS FirstTimers,
+        AVG(qp.Age) AS AvgAge,
+        MIN(qp.Age) AS MinAge,
+        MAX(qp.Age) AS MaxAge,
+        SUM(CASE WHEN g.Description = 'Male' THEN 1 ELSE 0 END) AS MaleCount,
+        SUM(CASE WHEN g.Description = 'Female' THEN 1 ELSE 0 END) AS FemaleCount,
+        SUM(CASE WHEN ms.Description = 'Member' THEN 1 ELSE 0 END) AS MemberCount,
+        SUM(CASE WHEN ms.Description != 'Member' OR ms.Description IS NULL THEN 1 ELSE 0 END) AS NonMemberCount,
+        DATEDIFF(DAY, MIN(qp.EnrollmentDate), GETDATE()) AS OldestApplicationDays,
+        DATEDIFF(DAY, MAX(qp.EnrollmentDate), GETDATE()) AS NewestApplicationDays
+    FROM QueuePeople qp
+    LEFT JOIN PreviousMissions pm ON qp.PeopleId = pm.PeopleId
+    LEFT JOIN lookup.Gender g WITH (NOLOCK) ON qp.GenderId = g.Id
+    LEFT JOIN lookup.MemberStatus ms WITH (NOLOCK) ON qp.MemberStatusId = ms.Id
+    '''.format(app_org_list, config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID)
+    
+    return execute_query_with_debug(queue_stats_sql, "Queue Statistics Query", "top1")
+
+def render_queue_statistics():
+    """Render queue statistics section on dashboard"""
+    
+    queue_stats = get_queue_statistics()
+    
+    if not queue_stats or queue_stats.TotalInQueue == 0:
+        return  # Don't show if no one in queue
+    
+    print '''
+    <div style="margin: 20px 0; padding: 15px; background: #fff3e0; border-radius: 8px; border-left: 4px solid #ff9800;">
+        <h4 style="margin-top: 0; color: #e65100;">
+            <span style="font-size: 1.2em;">📋</span> Application Queue Statistics
+        </h4>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+            <div>
+                <div style="font-size: 20px; font-weight: bold; color: #ff6f00;">{0}</div>
+                <div style="color: #666; font-size: 0.9em;">Total Applicants</div>
+                <div style="margin-top: 5px; font-size: 0.85em;">
+                    <span style="color: #388e3c;"><strong>{1}</strong> have been on trips</span><br>
+                    <span style="color: #1976d2;"><strong>{2}</strong> first-timers</span>
+                </div>
+            </div>
+            <div>
+                <div style="font-size: 20px; font-weight: bold; color: #ff6f00;">{3} yrs</div>
+                <div style="color: #666; font-size: 0.9em;">Average Age</div>
+                <div style="margin-top: 5px; font-size: 0.85em;">
+                    Range: {4} - {5} years
+                </div>
+            </div>
+            <div>
+                <div style="font-size: 20px; font-weight: bold; color: #ff6f00;">{6}/{7}</div>
+                <div style="color: #666; font-size: 0.9em;">Gender Split</div>
+                <div style="margin-top: 5px; font-size: 0.85em;">
+                    Male / Female
+                </div>
+            </div>
+            <div>
+                <div style="font-size: 20px; font-weight: bold; color: #ff6f00;">{8}/{9}</div>
+                <div style="color: #666; font-size: 0.9em;">Membership</div>
+                <div style="margin-top: 5px; font-size: 0.85em;">
+                    Members / Non-members
+                </div>
+            </div>
+            <div>
+                <div style="font-size: 20px; font-weight: bold; color: #ff6f00;">{10} days</div>
+                <div style="color: #666; font-size: 0.9em;">Oldest Application</div>
+                <div style="margin-top: 5px; font-size: 0.85em;">
+                    Newest: {11} days ago
+                </div>
+            </div>
+        </div>
+    </div>
+    '''.format(
+        queue_stats.TotalInQueue,
+        queue_stats.HasPreviousTrips or 0,
+        queue_stats.FirstTimers or 0,
+        int(queue_stats.AvgAge or 0),
+        queue_stats.MinAge or 0,
+        queue_stats.MaxAge or 0,
+        queue_stats.MaleCount or 0,
+        queue_stats.FemaleCount or 0,
+        queue_stats.MemberCount or 0,
+        queue_stats.NonMemberCount or 0,
+        queue_stats.OldestApplicationDays or 0,
+        queue_stats.NewestApplicationDays or 0
+    )
+
 def render_dashboard_deadlines():
     """Render upcoming deadlines prominently on dashboard"""
     
@@ -2005,6 +2125,12 @@ def render_dashboard_deadlines():
             urgency_color = '#d32f2f' if deadline.DaysUntil <= 7 else '#f57c00' if deadline.DaysUntil <= 14 else '#388e3c'
             icon = '🚨' if deadline.DaysUntil <= 7 else '⚠️'
             
+            # Format the amount remaining text
+            if deadline.AmountRemaining > 0:
+                amount_text = '<strong style="color: #d32f2f;">{0} remaining</strong>'.format(format_currency(deadline.AmountRemaining))
+            else:
+                amount_text = '<strong style="color: #2e7d32;">Fully paid</strong>'
+            
             print '''
             <div style="background: white; padding: 10px; border-radius: 5px; border-left: 3px solid {5};">
                 <div style="font-weight: bold; font-size: 12px;">
@@ -2013,7 +2139,7 @@ def render_dashboard_deadlines():
                 <div style="font-size: 11px; color: #666; margin-top: 3px;">
                     {2}: {3}<br>
                     <strong style="color: {5};">{4} days left</strong><br>
-                    <strong style="color: #d32f2f;">{7} remaining</strong>
+                    {7}
                 </div>
             </div>
             '''.format(
@@ -2024,7 +2150,7 @@ def render_dashboard_deadlines():
                 deadline.DaysUntil,
                 urgency_color,
                 icon,
-                format_currency(deadline.AmountRemaining) if deadline.AmountRemaining > 0 else "Fully paid"
+                amount_text
             )
         
         print '''
@@ -2054,6 +2180,9 @@ def render_dashboard_view():
     
     # Add urgent deadlines section
     render_dashboard_deadlines()
+    
+    # Add queue statistics section
+    render_queue_statistics()
     
     # Check for show closed parameter
     show_closed = model.Data.ShowClosed == '1' if hasattr(model.Data, 'ShowClosed') else config.SHOW_CLOSED_BY_DEFAULT
