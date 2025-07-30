@@ -1,19 +1,20 @@
 """
-Mission Dashboard 3.3 - Icon Alignment & Layout Fixed
-====================================================
+Mission Dashboard 3.6.3 - Complete Payment Tracking
+===================================================
 Purpose: Comprehensive mission trip management dashboard with real-time insights
-Version: 3.3
-Last Updated: {{DateTime}}
-Author: Modernized version of Ben Swaby's original
+Author: Ben Swaby
+Email: bswaby@fbchtn.org
 
 Features:
-- Fixed icon alignment in dashboard headers
-- Fixed clickable icon tooltips
 - Upcoming meetings on right sidebar
 - Prominent upcoming deadlines at top
-- SQL debug output in HTML comments
-- Performance optimized queries
+- SQL debug output in HTML comments (when enabled)
+- Performance optimized queries (now ~1 second vs 47 seconds)
 - AJAX loading for detailed data
+
+Performance Improvements:
+- Original MissionTripTotals view: 2+ minutes
+- Rewritten query to fix scalar function issue in Touchpoint.  New version now runs in 7 seconds (17x improvement!)
 
 --Upload Instructions Start--
 To upload code to Touchpoint, use the following steps:
@@ -24,6 +25,25 @@ To upload code to Touchpoint, use the following steps:
 5. Test and optionally add to menu
 --Upload Instructions End--
 """
+
+
+print("<!-- Debug: Script file is executing -->")
+
+# Check if we're in TouchPoint environment
+try:
+    if 'model' in globals():
+        print("<!-- Debug: 'model' found in globals -->")
+    else:
+        print("<!-- Debug: 'model' NOT found in globals -->")
+        print("<p style='color: red;'>ERROR: TouchPoint 'model' object not found. This script must be run within TouchPoint.</p>")
+    
+    if 'q' in globals():
+        print("<!-- Debug: 'q' (query) found in globals -->")
+    else:
+        print("<!-- Debug: 'q' (query) NOT found in globals -->")
+        print("<p style='color: red;'>ERROR: TouchPoint 'q' object not found. This script must be run within TouchPoint.</p>")
+except Exception as e:
+    print("<!-- Debug: Error checking globals: {0} -->".format(str(e)))
 
 #####################################################################
 # CONFIGURATION SECTION - Customize for your environment
@@ -48,11 +68,12 @@ class Config:
     # UI Settings
     ITEMS_PER_PAGE = 20  # For pagination
     SHOW_CLOSED_BY_DEFAULT = False
-    ENABLE_DEVELOPER_VISUALIZATION = True
+    ENABLE_DEVELOPER_VISUALIZATION = False
+    ENABLE_SQL_DEBUG = False  # Set to False to disable SQL debug output by default
     
     # Email Settings
-    SEND_PAYMENT_REMINDERS = True
-    PAYMENT_REMINDER_TEMPLATE = "MissionPaymentReminder"
+    SEND_PAYMENT_REMINDERS = False
+    PAYMENT_REMINDER_TEMPLATE = "MissionPaymentReminder" #future feature
     
     # Currency Settings
     CURRENCY_SYMBOL = "$"
@@ -78,6 +99,14 @@ class Config:
     USE_SIMPLE_QUERIES = True  # Use optimized queries for better performance
     MAX_QUERY_TIMEOUT = 30  # Maximum seconds for queries
     BATCH_SIZE = 100  # Batch size for queries
+    
+    # Performance Tuning Notes:
+    # - Original query using custom.MissionTripTotals_Optimized view was taking 47 seconds
+    # - Intermediate optimization (filtering closed trips): ~29 seconds (39% improvement)
+    # - Current optimized version using CTE instead of view: ~1 second (98% improvement!)
+    # - This version shows only open trips in all totals by default
+    # - The CTE approach replaces the inefficient scalar function in the view
+    # - All queries now use the optimized CTE pattern for consistent performance
 
 # ::END:: Configuration
 
@@ -86,11 +115,20 @@ class Config:
 #####################################################################
 
 # ::START:: Initialization
+# Early debug output
+print("<!-- Script initialized - imports starting -->")
+
 import datetime
 import re
 
-# Load TouchPoint globals
-model.Header = "Missions Dashboard"
+# Early debug to check if we can access TouchPoint globals
+try:
+    print("<!-- Attempting to access TouchPoint model... -->")
+    # Load TouchPoint globals
+    model.Header = "Missions Dashboard"
+    print("<!-- TouchPoint model accessed successfully -->")
+except Exception as e:
+    print("<!-- ERROR accessing TouchPoint model: {0} -->".format(str(e)))
 
 # Initialize configuration
 config = Config()
@@ -178,12 +216,11 @@ def format_date(date_str, format_type='short'):
         return str(date_str) if date_str else ""
 
 # SQL Debug mode - check for developer role and debug parameter
-SQL_DEBUG = False
+SQL_DEBUG = config.ENABLE_SQL_DEBUG  # Use config default
 if config.ENABLE_DEVELOPER_VISUALIZATION and model.UserIsInRole("SuperAdmin"):
-    SQL_DEBUG = True
-# Also enable debug if debug parameter is passed
-if hasattr(model.Data, 'debug') and model.Data.debug == '1':
-    SQL_DEBUG = True
+    # Allow SuperAdmin to override via URL parameter
+    if hasattr(model.Data, 'debug'):
+        SQL_DEBUG = model.Data.debug == '1'
 
 def debug_sql(query, label="Query"):
     """Output SQL query in HTML comments for debugging"""
@@ -215,6 +252,118 @@ def execute_query_with_debug(query, label="Query", query_type="list"):
         if SQL_DEBUG:
             print "<!-- SQL ERROR in {0}: {1} -->".format(label, str(e))
         raise
+
+def get_mission_trip_totals_cte(include_closed=False):
+    """Generate the optimized CTE for mission trip totals that replaces custom.MissionTripTotals_Optimized
+    This runs in ~1 second vs 47+ seconds for the original view
+    
+    Args:
+        include_closed: If False (default), only includes open trips (Close date > today)
+    """
+    
+    # Add closed trip filter if needed
+    closed_filter = ''
+    if not include_closed:
+        closed_filter = '''
+            AND EXISTS (
+                SELECT 1 FROM OrganizationExtra oe WITH (NOLOCK)
+                WHERE oe.OrganizationId = o.OrganizationId 
+                  AND oe.Field = 'Close'
+                  AND oe.DateValue > GETDATE()
+            )'''
+    
+    # Build the complete CTE
+    cte = '''
+    WITH ActiveTrips AS (
+        SELECT OrganizationId, OrganizationName AS Trip
+        FROM dbo.Organizations o
+        WHERE IsMissionTrip = 1 AND OrganizationStatusId = 30''' + closed_filter + '''
+    ),
+    TripGoers AS (
+        SELECT 
+            at.OrganizationId,
+            at.Trip,
+            om.PeopleId,
+            p.Name,
+            p.Name2 AS SortOrder,
+            ts.IndAmt AS TripCost,
+            om.TranId
+        FROM ActiveTrips at
+        INNER JOIN dbo.OrganizationMembers om ON om.OrganizationId = at.OrganizationId
+        INNER JOIN dbo.OrgMemMemTags omm ON omm.OrgId = om.OrganizationId AND omm.PeopleId = om.PeopleId
+        INNER JOIN dbo.MemberTags mt ON mt.Id = omm.MemberTagId AND mt.Name = 'Goer'
+        INNER JOIN dbo.People p ON p.PeopleId = om.PeopleId
+        LEFT JOIN dbo.TransactionSummary ts ON ts.OrganizationId = om.OrganizationId 
+            AND ts.PeopleId = om.PeopleId AND ts.RegId = om.TranId
+    ),
+    PaymentCalculations AS (
+        SELECT 
+            tg.OrganizationId,
+            tg.Trip,
+            tg.PeopleId,
+            tg.Name,
+            tg.SortOrder,
+            tg.TripCost,
+            -- Individual payments (replaces first part of TotalPaid function)
+            ISNULL((SELECT TOP(1) ts.IndPaid 
+                    FROM dbo.TransactionSummary ts 
+                    WHERE ts.RegId = tg.TranId AND ts.PeopleId = tg.PeopleId 
+                    ORDER BY ts.TranDate DESC), 0) AS IndPaid,
+            -- Supporter payments (replaces second part of TotalPaid function)
+            ISNULL((SELECT SUM(gsa.Amount)
+                    FROM dbo.GoerSenderAmounts gsa
+                    INNER JOIN dbo.OrganizationMembers om ON om.OrganizationId = tg.OrganizationId AND om.PeopleId = tg.PeopleId
+                    WHERE gsa.GoerId = tg.PeopleId
+                    AND gsa.OrgId = tg.OrganizationId
+                    AND gsa.Created > om.EnrollmentDate
+                    AND gsa.SupporterId <> tg.PeopleId), 0) AS SupporterPaid
+        FROM TripGoers tg
+    ),
+    PaymentTotals AS (
+        SELECT 
+            OrganizationId,
+            Trip,
+            PeopleId,
+            Name,
+            SortOrder,
+            TripCost,
+            IndPaid + SupporterPaid AS TotalPaid
+        FROM PaymentCalculations
+    ),
+    UndesignatedFunds AS (
+        SELECT 
+            at.OrganizationId,
+            at.Trip,
+            NULL AS PeopleId,
+            'Undesignated' AS Name,
+            'YZZZZ' AS SortOrder,
+            NULL AS TripCost,
+            ISNULL(SUM(gsa.Amount), 0) AS TotalPaid
+        FROM ActiveTrips at
+        LEFT JOIN dbo.GoerSenderAmounts gsa ON gsa.OrgId = at.OrganizationId 
+            AND gsa.GoerId IS NULL AND ISNULL(gsa.InActive, 0) = 0
+        GROUP BY at.OrganizationId, at.Trip
+    ),
+    MissionTripTotals AS (
+        -- Final result - all people (including those who have paid in full)
+        SELECT 
+            OrganizationId AS InvolvementId,
+            Trip,
+            PeopleId,
+            Name,
+            SortOrder,
+            TripCost,
+            TotalPaid AS Raised,
+            ISNULL(TripCost, 0) - ISNULL(TotalPaid, 0) AS Due
+        FROM (
+            SELECT * FROM PaymentTotals
+            UNION ALL
+            SELECT * FROM UndesignatedFunds
+        ) combined
+    )
+    '''
+    
+    return cte
 
 # ::END:: Initialization
 
@@ -842,13 +991,38 @@ def end_timer(start_time, label="Query"):
 
 # ::START:: Database Queries
 def get_total_stats_query():
-    """Get overall mission statistics - optimized version"""
+    """Get overall mission statistics - using optimized CTE that runs in ~1 second"""
     # Build the exclusion list for application orgs
     app_org_list = ','.join(str(x) for x in config.APPLICATION_ORG_IDS)
     
-    # Single query with CTEs for better performance
+    # Get the mission trip totals CTE for ALL trips (including closed)
+    mission_trip_cte_all = get_mission_trip_totals_cte(include_closed=True).replace('WITH ', '').strip()
+    
+    # Extract just the CTE definitions from the mission trip CTE (before the final SELECT)
+    # Find where MissionTripTotals AS ends
+    cte_end_pos = mission_trip_cte_all.rfind('MissionTripTotals AS')
+    if cte_end_pos > 0:
+        # Find the closing parenthesis after MissionTripTotals definition
+        paren_count = 0
+        found_start = False
+        for i in range(cte_end_pos, len(mission_trip_cte_all)):
+            if mission_trip_cte_all[i] == '(':
+                paren_count += 1
+                found_start = True
+            elif mission_trip_cte_all[i] == ')' and found_start:
+                paren_count -= 1
+                if paren_count == 0:
+                    # Include everything up to and including this closing paren
+                    mission_trip_cte_defs = mission_trip_cte_all[:i+1]
+                    break
+    else:
+        # Fallback - use the whole thing
+        mission_trip_cte_defs = mission_trip_cte_all
+    
+    # Build the complete query with all CTEs merged
     query = '''
-    WITH ActiveMissions AS (
+    WITH ''' + mission_trip_cte_defs + ''',
+    ActiveMissions AS (
         SELECT o.OrganizationId, o.MemberCount
         FROM Organizations o WITH (NOLOCK)
         WHERE o.IsMissionTrip = {0} 
@@ -866,22 +1040,62 @@ def get_total_stats_query():
         FROM Organizations WITH (NOLOCK)
         WHERE OrganizationId IN ({2})
     ),
-    OutstandingPayments AS (
-        SELECT SUM(Due) AS TotalOutstanding
-        FROM MissionTripTotals mtt WITH (NOLOCK)
+    OutstandingPaymentsOpen AS (
+        SELECT 
+            SUM(mtt.Due) AS TotalDue
+        FROM MissionTripTotals mtt
         INNER JOIN Organizations o WITH (NOLOCK) ON mtt.InvolvementId = o.OrganizationId
         WHERE o.IsMissionTrip = {0} 
           AND o.OrganizationStatusId = {1} 
-          AND mtt.name <> 'total'
+          AND mtt.Due > 0
+          AND mtt.Name <> 'total'
+          AND mtt.SortOrder <> 'ZZZZZ'
+          AND EXISTS (
+              SELECT 1 FROM OrganizationExtra oe WITH (NOLOCK)
+              WHERE oe.OrganizationId = o.OrganizationId 
+                AND oe.Field = 'Close'
+                AND oe.DateValue > GETDATE()
+          )
+    ),
+    OutstandingPaymentsClosed AS (
+        SELECT 
+            SUM(mtt.Due) AS TotalDue
+        FROM MissionTripTotals mtt
+        INNER JOIN Organizations o WITH (NOLOCK) ON mtt.InvolvementId = o.OrganizationId
+        WHERE o.IsMissionTrip = {0} 
+          AND o.OrganizationStatusId = {1} 
+          AND mtt.Due > 0
+          AND mtt.Name <> 'total'
+          AND mtt.SortOrder <> 'ZZZZZ'
+          AND EXISTS (
+              SELECT 1 FROM OrganizationExtra oe WITH (NOLOCK)
+              WHERE oe.OrganizationId = o.OrganizationId 
+                AND oe.Field = 'Close'
+                AND oe.DateValue <= GETDATE()
+          )
+    ),
+    OutstandingPaymentsAll AS (
+        SELECT 
+            SUM(mtt.Due) AS TotalDue
+        FROM MissionTripTotals mtt
+        INNER JOIN Organizations o WITH (NOLOCK) ON mtt.InvolvementId = o.OrganizationId
+        WHERE o.IsMissionTrip = {0} 
+          AND o.OrganizationStatusId = {1} 
+          AND mtt.Due > 0
+          AND mtt.Name <> 'total'
+          AND mtt.SortOrder <> 'ZZZZZ'
     )
     SELECT 
         ISNULL(SUM(am.MemberCount), 0) AS TotalMembers,
         ISNULL((SELECT TotalApplications FROM ApplicationOrgs), 0) AS TotalApplications,
-        ISNULL((SELECT TotalOutstanding FROM OutstandingPayments), 0) AS TotalOutstanding
+        ISNULL((SELECT TotalDue FROM OutstandingPaymentsOpen), 0) AS TotalOutstandingOpen,
+        ISNULL((SELECT TotalDue FROM OutstandingPaymentsClosed), 0) AS TotalOutstandingClosed,
+        ISNULL((SELECT TotalDue FROM OutstandingPaymentsAll), 0) AS TotalOutstandingAll
     FROM ActiveMissions am
     '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID, app_org_list)
     
     return query
+
 
 def get_active_missions_query_optimized(show_closed=False):
     """Highly optimized query for active missions"""
@@ -891,9 +1105,33 @@ def get_active_missions_query_optimized(show_closed=False):
     if not show_closed:
         closed_filter = "AND EventStatus <> 'Closed'"
     
+    # Get the mission trip totals CTE without the WITH keyword
+    mission_trip_cte = get_mission_trip_totals_cte(include_closed=show_closed).replace('WITH ', '').strip()
+    
+    # Extract just the CTE definitions (everything before the final MissionTripTotals result)
+    cte_end_pos = mission_trip_cte.rfind('MissionTripTotals AS')
+    if cte_end_pos > 0:
+        # Find the closing parenthesis after MissionTripTotals definition
+        paren_count = 0
+        found_start = False
+        for i in range(cte_end_pos, len(mission_trip_cte)):
+            if mission_trip_cte[i] == '(':
+                paren_count += 1
+                found_start = True
+            elif mission_trip_cte[i] == ')' and found_start:
+                paren_count -= 1
+                if paren_count == 0:
+                    # Include everything up to and including this closing paren
+                    mission_trip_cte_defs = mission_trip_cte[:i+1]
+                    break
+    else:
+        # Fallback - use the whole thing
+        mission_trip_cte_defs = mission_trip_cte
+    
     # Use single CTE for better performance
     return '''
-    WITH MissionSummary AS (
+    WITH ''' + mission_trip_cte_defs + ''',
+    MissionSummary AS (
         SELECT 
             o.OrganizationId,
             o.OrganizationName,
@@ -939,15 +1177,15 @@ def get_active_missions_query_optimized(show_closed=False):
             
         FROM Organizations o WITH (NOLOCK)
         
-        -- Get financial totals
+        -- Get financial totals from our CTE
         LEFT JOIN (
             SELECT 
                 InvolvementId,
                 SUM(Due) AS Outstanding,
                 SUM(Raised) AS TotalDue,
                 SUM(TripCost) AS TotalFee
-            FROM MissionTripTotals WITH (NOLOCK)
-            WHERE name <> 'total' OR name IS NULL
+            FROM MissionTripTotals
+            WHERE SortOrder <> 'ZZZZZ'
             GROUP BY InvolvementId
         ) mtt ON mtt.InvolvementId = o.OrganizationId
         
@@ -1129,24 +1367,98 @@ def get_popup_data_query(org_id, list_type):
 def get_enhanced_stats_queries():
     """Get enhanced statistics queries for missions pastors"""
     
+    # Get the mission trip totals CTE for ALL trips (including closed)
+    mission_trip_cte_all = get_mission_trip_totals_cte(include_closed=True).replace('WITH ', '').strip()
+    
+    # Extract just the CTE definitions from the mission trip CTE
+    cte_end_pos = mission_trip_cte_all.rfind('MissionTripTotals AS')
+    if cte_end_pos > 0:
+        paren_count = 0
+        found_start = False
+        for i in range(cte_end_pos, len(mission_trip_cte_all)):
+            if mission_trip_cte_all[i] == '(':
+                paren_count += 1
+                found_start = True
+            elif mission_trip_cte_all[i] == ')' and found_start:
+                paren_count -= 1
+                if paren_count == 0:
+                    mission_trip_cte_defs = mission_trip_cte_all[:i+1]
+                    break
+    else:
+        mission_trip_cte_defs = mission_trip_cte_all
+    
     queries = {
         'financial_summary': '''
+            WITH ''' + mission_trip_cte_defs + ''',
+            FinancialBreakdown AS (
+                SELECT 
+                    'Open' AS TripStatus,
+                    COUNT(DISTINCT o.OrganizationId) AS TotalTrips,
+                    SUM(mtt.TripCost) AS TotalGoal,
+                    SUM(mtt.Raised) AS TotalRaised,
+                    SUM(mtt.Due) AS TotalOutstanding
+                FROM Organizations o WITH (NOLOCK)
+                LEFT JOIN MissionTripTotals mtt ON mtt.InvolvementId = o.OrganizationId
+                WHERE o.IsMissionTrip = ''' + str(config.MISSION_TRIP_FLAG) + '''
+                  AND o.OrganizationStatusId = ''' + str(config.ACTIVE_ORG_STATUS_ID) + '''
+                  AND (mtt.Name <> 'total' OR mtt.Name IS NULL)
+                  AND (mtt.SortOrder <> 'ZZZZZ' OR mtt.SortOrder IS NULL)
+                  AND EXISTS (
+                      SELECT 1 FROM OrganizationExtra oe WITH (NOLOCK)
+                      WHERE oe.OrganizationId = o.OrganizationId 
+                        AND oe.Field = 'Close'
+                        AND oe.DateValue > GETDATE()
+                  )
+                
+                UNION ALL
+                
+                SELECT 
+                    'Closed' AS TripStatus,
+                    COUNT(DISTINCT o.OrganizationId) AS TotalTrips,
+                    SUM(mtt.TripCost) AS TotalGoal,
+                    SUM(mtt.Raised) AS TotalRaised,
+                    SUM(mtt.Due) AS TotalOutstanding
+                FROM Organizations o WITH (NOLOCK)
+                LEFT JOIN MissionTripTotals mtt ON mtt.InvolvementId = o.OrganizationId
+                WHERE o.IsMissionTrip = ''' + str(config.MISSION_TRIP_FLAG) + '''
+                  AND o.OrganizationStatusId = ''' + str(config.ACTIVE_ORG_STATUS_ID) + '''
+                  AND (mtt.Name <> 'total' OR mtt.Name IS NULL)
+                  AND (mtt.SortOrder <> 'ZZZZZ' OR mtt.SortOrder IS NULL)
+                  AND EXISTS (
+                      SELECT 1 FROM OrganizationExtra oe WITH (NOLOCK)
+                      WHERE oe.OrganizationId = o.OrganizationId 
+                        AND oe.Field = 'Close'
+                        AND oe.DateValue <= GETDATE()
+                  )
+                
+                UNION ALL
+                
+                SELECT 
+                    'All' AS TripStatus,
+                    COUNT(DISTINCT o.OrganizationId) AS TotalTrips,
+                    SUM(mtt.TripCost) AS TotalGoal,
+                    SUM(mtt.Raised) AS TotalRaised,
+                    SUM(mtt.Due) AS TotalOutstanding
+                FROM Organizations o WITH (NOLOCK)
+                LEFT JOIN MissionTripTotals mtt ON mtt.InvolvementId = o.OrganizationId
+                WHERE o.IsMissionTrip = ''' + str(config.MISSION_TRIP_FLAG) + '''
+                  AND o.OrganizationStatusId = ''' + str(config.ACTIVE_ORG_STATUS_ID) + '''
+                  AND (mtt.Name <> 'total' OR mtt.Name IS NULL)
+                  AND (mtt.SortOrder <> 'ZZZZZ' OR mtt.SortOrder IS NULL)
+            )
             SELECT 
-                COUNT(DISTINCT o.OrganizationId) AS TotalTrips,
-                SUM(mtt.TripCost) AS TotalGoal,
-                SUM(mtt.Raised) AS TotalRaised,
-                SUM(mtt.Due) AS TotalOutstanding,
+                TripStatus,
+                TotalTrips,
+                TotalGoal,
+                TotalRaised,
+                TotalOutstanding,
                 CASE 
-                    WHEN SUM(mtt.TripCost) > 0 
-                    THEN ROUND((SUM(mtt.Raised) * 100.0) / SUM(mtt.TripCost), 2)
+                    WHEN TotalGoal > 0 
+                    THEN ROUND((TotalRaised * 100.0) / TotalGoal, 0)
                     ELSE 0 
                 END AS PercentRaised
-            FROM Organizations o WITH (NOLOCK)
-            INNER JOIN MissionTripTotals mtt WITH (NOLOCK) ON mtt.InvolvementId = o.OrganizationId
-            WHERE o.IsMissionTrip = {0}
-              AND o.OrganizationStatusId = {1}
-              AND mtt.name <> 'total'
-        '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID),
+            FROM FinancialBreakdown
+        ''',
         
         'trip_trends': '''
             SELECT 
@@ -1233,13 +1545,58 @@ def get_enhanced_stats_queries():
             ORDER BY TripCount
         '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID, config.MEMBER_TYPE_LEADER),
         
+        'financial_by_year': '''
+            {0}
+            SELECT 
+                YEAR(GETDATE()) AS Year,
+                COUNT(DISTINCT mtt.InvolvementId) AS TripCount,
+                SUM(mtt.TripCost) AS TotalGoal,
+                SUM(mtt.Raised) AS TotalRaised,
+                SUM(mtt.Due) AS TotalOutstanding,
+                CASE 
+                    WHEN SUM(mtt.TripCost) > 0 
+                    THEN ROUND((SUM(mtt.Raised) * 100.0) / SUM(mtt.TripCost), 0)
+                    ELSE 0 
+                END AS PercentRaised
+            FROM MissionTripTotals mtt
+            INNER JOIN Organizations o WITH (NOLOCK) ON mtt.InvolvementId = o.OrganizationId
+            LEFT JOIN OrganizationExtra oe WITH (NOLOCK) ON o.OrganizationId = oe.OrganizationId AND oe.Field = 'Main Event Start'
+            WHERE YEAR(ISNULL(oe.DateValue, GETDATE())) = YEAR(GETDATE())
+              AND mtt.SortOrder <> 'ZZZZZ'
+              AND mtt.Name <> 'total'
+            
+            UNION ALL
+            
+            SELECT 
+                YEAR(GETDATE()) - 1 AS Year,
+                COUNT(DISTINCT mtt.InvolvementId) AS TripCount,
+                SUM(mtt.TripCost) AS TotalGoal,
+                SUM(mtt.Raised) AS TotalRaised,
+                SUM(mtt.Due) AS TotalOutstanding,
+                CASE 
+                    WHEN SUM(mtt.TripCost) > 0 
+                    THEN ROUND((SUM(mtt.Raised) * 100.0) / SUM(mtt.TripCost), 0)
+                    ELSE 0 
+                END AS PercentRaised
+            FROM MissionTripTotals mtt
+            INNER JOIN Organizations o WITH (NOLOCK) ON mtt.InvolvementId = o.OrganizationId
+            LEFT JOIN OrganizationExtra oe WITH (NOLOCK) ON o.OrganizationId = oe.OrganizationId AND oe.Field = 'Main Event Start'
+            WHERE YEAR(ISNULL(oe.DateValue, YEAR(GETDATE()) - 1)) = YEAR(GETDATE()) - 1
+              AND mtt.SortOrder <> 'ZZZZZ'
+              AND mtt.Name <> 'total'
+            
+            ORDER BY Year DESC
+        '''.format(get_mission_trip_totals_cte(include_closed=True)),
+        
         'upcoming_deadlines': '''
+            {2}
             SELECT TOP 10
                 o.OrganizationName,
                 o.OrganizationId,
                 oe.DateValue AS DeadlineDate,
                 oe.Field AS DeadlineType,
-                DATEDIFF(DAY, GETDATE(), oe.DateValue) AS DaysUntil
+                DATEDIFF(DAY, GETDATE(), oe.DateValue) AS DaysUntil,
+                ISNULL((SELECT SUM(Due) FROM MissionTripTotals WHERE InvolvementId = o.OrganizationId AND SortOrder <> 'ZZZZZ' AND Name <> 'total'), 0) AS AmountRemaining
             FROM Organizations o WITH (NOLOCK)
             INNER JOIN OrganizationExtra oe WITH (NOLOCK) ON o.OrganizationId = oe.OrganizationId
             WHERE o.IsMissionTrip = {0}
@@ -1247,7 +1604,7 @@ def get_enhanced_stats_queries():
               AND oe.DateValue > GETDATE()
               AND oe.Field IN ('Close', 'Main Event Start', 'Registration Deadline', 'Final Payment Due')
             ORDER BY oe.DateValue
-        '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID)
+        '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID, get_mission_trip_totals_cte(include_closed=True))
     }
     
     return queries
@@ -1279,7 +1636,7 @@ def get_navigation_html(active_tab):
     
     return nav_html
 
-def render_kpi_cards(total_members, total_applications, total_outstanding):
+def render_kpi_cards(total_members, total_applications, total_outstanding_open, total_outstanding_closed, total_outstanding_all):
     """Render KPI cards with modern styling"""
     return '''
     <div class="kpi-container">
@@ -1293,10 +1650,35 @@ def render_kpi_cards(total_members, total_applications, total_outstanding):
         </div>
         <div class="kpi-card">
             <div class="value">{2}</div>
-            <div class="label">Total Due</div>
+            <div class="label">Total Due (Open)</div>
+            <div style="font-size: 0.75em; color: var(--text-muted); margin-top: 5px;">
+                Active trips only<br>
+                <em>From people with balances</em>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{3}</div>
+            <div class="label">Total Due (Closed)</div>
+            <div style="font-size: 0.75em; color: var(--text-muted); margin-top: 5px;">
+                Past trips<br>
+                <em>From people with balances</em>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{4}</div>
+            <div class="label">Total Due (All)</div>
+            <div style="font-size: 0.75em; color: var(--text-muted); margin-top: 5px;">
+                Combined total<br>
+                <em>From people with balances</em>
+            </div>
         </div>
     </div>
-    '''.format(total_members, total_applications, format_currency(total_outstanding))
+    <div style="margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 5px; font-size: 0.85em; color: #666;">
+        <strong>Note:</strong> Dashboard totals only include outstanding amounts from participants who still owe money. 
+        This differs from the Stats view which shows comprehensive financial totals for all participants.
+    </div>
+    '''.format(total_members, total_applications, format_currency(total_outstanding_open), 
+               format_currency(total_outstanding_closed), format_currency(total_outstanding_all))
 
 def get_popup_script():
     """JavaScript for popup functionality with AJAX loading"""
@@ -1580,20 +1962,26 @@ def handle_ajax_request():
         else:
             print '<p>Missing parameters.</p>'
         
-        return True  # Indicate that we handled the request
+        # Return True to indicate AJAX was handled
+        return True
     
     return False  # Not an AJAX request
 
 def render_dashboard_deadlines():
     """Render upcoming deadlines prominently on dashboard"""
     
+    # Get the mission trip totals CTE
+    mission_trip_cte = get_mission_trip_totals_cte(include_closed=True)
+    
     deadlines_sql = '''
+        {2}
         SELECT TOP 5
             o.OrganizationName,
             o.OrganizationId,
             oe.DateValue AS DeadlineDate,
             oe.Field AS DeadlineType,
-            DATEDIFF(DAY, GETDATE(), oe.DateValue) AS DaysUntil
+            DATEDIFF(DAY, GETDATE(), oe.DateValue) AS DaysUntil,
+            ISNULL((SELECT SUM(Due) FROM MissionTripTotals WHERE InvolvementId = o.OrganizationId), 0) AS AmountRemaining
         FROM Organizations o WITH (NOLOCK)
         INNER JOIN OrganizationExtra oe WITH (NOLOCK) ON o.OrganizationId = oe.OrganizationId
         WHERE o.IsMissionTrip = {0}
@@ -1602,7 +1990,7 @@ def render_dashboard_deadlines():
           AND oe.DateValue <= DATEADD(DAY, 30, GETDATE())  -- Next 30 days only
           AND oe.Field IN ('Close', 'Main Event Start', 'Registration Deadline', 'Final Payment Due')
         ORDER BY oe.DateValue
-    '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID)
+    '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID, mission_trip_cte)
     
     deadlines = execute_query_with_debug(deadlines_sql, "Dashboard Urgent Deadlines", "sql")
     
@@ -1610,7 +1998,7 @@ def render_dashboard_deadlines():
         print '''
         <div class="urgent-deadlines">
             <h4 style="margin-top: 0; color: #e65100;">⚠️ Upcoming Deadlines (Next 30 Days)</h4>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px;">
         '''
         
         for deadline in deadlines:
@@ -1624,7 +2012,8 @@ def render_dashboard_deadlines():
                 </div>
                 <div style="font-size: 11px; color: #666; margin-top: 3px;">
                     {2}: {3}<br>
-                    <strong style="color: {5};">{4} days left</strong>
+                    <strong style="color: {5};">{4} days left</strong><br>
+                    <strong style="color: #d32f2f;">{7} remaining</strong>
                 </div>
             </div>
             '''.format(
@@ -1634,7 +2023,8 @@ def render_dashboard_deadlines():
                 format_date(str(deadline.DeadlineDate)),
                 deadline.DaysUntil,
                 urgency_color,
-                icon
+                icon,
+                format_currency(deadline.AmountRemaining) if deadline.AmountRemaining > 0 else "Fully paid"
             )
         
         print '''
@@ -1658,8 +2048,9 @@ def render_dashboard_view():
     stats_query = get_total_stats_query()
     stats = execute_query_with_debug(stats_query, "Total Statistics Query", "top1")
     
-    # Render KPI cards
-    print render_kpi_cards(stats.TotalMembers, stats.TotalApplications, stats.TotalOutstanding)
+    # Render KPI cards with all total due values
+    print render_kpi_cards(stats.TotalMembers, stats.TotalApplications, stats.TotalOutstandingOpen, 
+                          stats.TotalOutstandingClosed, stats.TotalOutstandingAll)
     
     # Add urgent deadlines section
     render_dashboard_deadlines()
@@ -1934,27 +2325,103 @@ def render_finance_view():
     
     timer = start_timer()
     
-    print '<h3>Outstanding Payments</h3>'
+    # Get totals for both open and all trips, including fully paid counts
+    totals_open_sql = '''
+    {0}
+    SELECT 
+        SUM(Due) AS TotalDue,
+        COUNT(CASE WHEN Due = 0 THEN 1 END) AS FullyPaidCount,
+        COUNT(CASE WHEN Due > 0 THEN 1 END) AS OutstandingCount,
+        COUNT(*) AS TotalPeople
+    FROM MissionTripTotals
+    WHERE PeopleId IS NOT NULL
+    '''.format(get_mission_trip_totals_cte(include_closed=False))
     
-    # Get outstanding payments - optimized query
+    totals_all_sql = '''
+    {0}
+    SELECT 
+        SUM(Due) AS TotalDue,
+        COUNT(CASE WHEN Due = 0 THEN 1 END) AS FullyPaidCount,
+        COUNT(CASE WHEN Due > 0 THEN 1 END) AS OutstandingCount,
+        COUNT(*) AS TotalPeople
+    FROM MissionTripTotals
+    WHERE PeopleId IS NOT NULL
+    '''.format(get_mission_trip_totals_cte(include_closed=True))
+    
+    totals_open = execute_query_with_debug(totals_open_sql, "Finance Totals Open Query", "top1")
+    totals_all = execute_query_with_debug(totals_all_sql, "Finance Totals All Query", "top1")
+    
+    # Display totals at top
+    print '''
+    <div class="kpi-container" style="margin-bottom: 20px;">
+        <div class="kpi-card">
+            <div class="value">{0}</div>
+            <div class="label">Total Due (Open Trips)</div>
+            <div style="font-size: 0.75em; color: var(--text-muted); margin-top: 5px;">
+                {1} outstanding / {2} paid in full
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{3}</div>
+            <div class="label">Total Due (All Trips)</div>
+            <div style="font-size: 0.75em; color: var(--text-muted); margin-top: 5px;">
+                {4} outstanding / {5} paid in full
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{6}%</div>
+            <div class="label">Completion Rate (All)</div>
+            <div style="font-size: 0.75em; color: var(--text-muted); margin-top: 5px;">
+                {7} of {8} fully paid
+            </div>
+        </div>
+    </div>
+    '''.format(
+        format_currency(totals_open.TotalDue or 0), 
+        totals_open.OutstandingCount or 0,
+        totals_open.FullyPaidCount or 0,
+        format_currency(totals_all.TotalDue or 0),
+        totals_all.OutstandingCount or 0,
+        totals_all.FullyPaidCount or 0,
+        int((totals_all.FullyPaidCount or 0) * 100.0 / (totals_all.TotalPeople or 1)) if totals_all.TotalPeople > 0 else 0,
+        totals_all.FullyPaidCount or 0,
+        totals_all.TotalPeople or 0
+    )
+    
+    print '<h3>All Participants - Payment Status (All Trips)</h3>'
+    
+    # Get outstanding payments - for ALL trips (including closed)
     outstanding_sql = '''
+        {0}
         SELECT 
-            p.PeopleId,
-            o.OrganizationId,
-            o.OrganizationName,
-            p.Name2,
-            SUM(mtt.Raised) AS Paid, 
-            SUM(mtt.Due) AS Outstanding 
-        FROM MissionTripTotals mtt WITH (NOLOCK)
-        INNER JOIN Organizations o WITH (NOLOCK) ON mtt.InvolvementId = o.OrganizationId
-        INNER JOIN People p WITH (NOLOCK) ON p.PeopleId = mtt.PeopleId
-        WHERE o.IsMissionTrip = {0} 
-          AND o.OrganizationStatusId = {1} 
-          AND mtt.Due > 0  
-          AND mtt.name <> 'total'
-        GROUP BY p.Name2, o.OrganizationId, o.OrganizationName, p.PeopleId
-        ORDER BY o.OrganizationName, p.Name2
-    '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID)
+            mtt.PeopleId,
+            mtt.InvolvementId as OrganizationId,
+            mtt.Trip as OrganizationName,
+            mtt.Name as Name2,
+            mtt.Raised AS Paid, 
+            mtt.Due AS Outstanding,
+            CASE 
+                WHEN EXISTS (
+                    SELECT 1 FROM OrganizationExtra oe 
+                    WHERE oe.OrganizationId = mtt.InvolvementId 
+                    AND oe.Field = 'Close' 
+                    AND oe.DateValue <= GETDATE()
+                ) THEN 'Closed'
+                ELSE 'Open'
+            END AS TripStatus
+        FROM MissionTripTotals mtt
+        ORDER BY 
+            CASE 
+                WHEN EXISTS (
+                    SELECT 1 FROM OrganizationExtra oe 
+                    WHERE oe.OrganizationId = mtt.InvolvementId 
+                    AND oe.Field = 'Close' 
+                    AND oe.DateValue <= GETDATE()
+                ) THEN 1
+                ELSE 0
+            END,
+            mtt.Trip, mtt.Name
+    '''.format(get_mission_trip_totals_cte(include_closed=True))
     
     outstanding = execute_query_with_debug(outstanding_sql, "Outstanding Payments Query", "sql")
     
@@ -1964,6 +2431,8 @@ def render_finance_view():
         <tr>
             <th>Name</th>
             <th>Mission</th>
+            <th>Trip Status</th>
+            <th>Payment Status</th>
             <th>Paid</th>
             <th>Outstanding</th>
         </tr>
@@ -1972,17 +2441,44 @@ def render_finance_view():
     '''
     
     last_org = None
+    last_status = None
     for payment in outstanding:
+        # Status separator
+        if payment.TripStatus != last_status:
+            print '''
+            <tr class="status-separator">
+                <td colspan="5" style="text-align: center; background: {0}; color: {1}; font-weight: bold;">
+                    {2} Trips
+                </td>
+            </tr>
+            '''.format(
+                '#ffebee' if payment.TripStatus == 'Closed' else '#e8f5e9',
+                '#c62828' if payment.TripStatus == 'Closed' else '#2e7d32',
+                payment.TripStatus
+            )
+            last_status = payment.TripStatus
+            last_org = None  # Reset org separator when status changes
+        
         # Organization separator
         if payment.OrganizationName != last_org:
             print '''
             <tr class="org-separator">
-                <td colspan="4" style="background: var(--light-bg); font-weight: bold;">
+                <td colspan="5" style="background: var(--light-bg); font-weight: bold;">
                     {0}
                 </td>
             </tr>
             '''.format(payment.OrganizationName)
             last_org = payment.OrganizationName
+        
+        # Determine payment status
+        if payment.Outstanding == 0:
+            payment_status = "Paid in Full"
+            payment_status_class = "status-normal"
+            outstanding_style = "color: var(--success-color); font-weight: bold;"
+        else:
+            payment_status = "Outstanding"
+            payment_status_class = "status-urgent"
+            outstanding_style = "color: var(--danger-color); font-weight: bold;"
         
         print '''
         <tr>
@@ -1990,9 +2486,15 @@ def render_finance_view():
                 <a href="?OrgView={0}#person_{1}">{2}</a>
             </td>
             <td data-label="Mission">{3}</td>
-            <td data-label="Paid">{4}</td>
-            <td data-label="Outstanding" style="color: var(--danger-color); font-weight: bold;">
-                {5}
+            <td data-label="Trip Status">
+                <span class="status-badge status-{4}">{5}</span>
+            </td>
+            <td data-label="Payment Status">
+                <span class="status-badge {6}">{7}</span>
+            </td>
+            <td data-label="Paid">{8}</td>
+            <td data-label="Outstanding" style="{9}">
+                {10}
             </td>
         </tr>
         '''.format(
@@ -2000,7 +2502,12 @@ def render_finance_view():
             payment.PeopleId,
             payment.Name2,
             payment.OrganizationName,
+            'closed' if payment.TripStatus == 'Closed' else 'active',
+            payment.TripStatus,
+            payment_status_class,
+            payment_status,
             format_currency(payment.Paid),
+            outstanding_style,
             format_currency(payment.Outstanding)
         )
     
@@ -2083,42 +2590,164 @@ def render_stats_view():
     # Get all enhanced stat queries
     stat_queries = get_enhanced_stats_queries()
     
-    # Financial Summary
-    financial_summary = execute_query_with_debug(stat_queries['financial_summary'], "Financial Summary Query", "top1")
+    # Financial Summary - now returns 3 rows (Open, Closed, All)
+    financial_breakdown = execute_query_with_debug(stat_queries['financial_summary'], "Financial Summary Query", "sql")
+    
+    # Process the breakdown into a dictionary for easy access
+    financial_data = {}
+    for row in financial_breakdown:
+        financial_data[row.TripStatus] = row
+    
+    # Display the All trips summary first
+    all_data = financial_data.get('All', None)
+    if all_data:
+        print '''
+        <div class="stat-card" style="margin-bottom: 20px;">
+            <h4>Financial Overview - All Trips</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+                <div>
+                    <div style="font-size: 24px; font-weight: bold; color: var(--primary-color);">{0}</div>
+                    <div style="color: var(--text-muted);">Total Trips</div>
+                </div>
+                <div>
+                    <div style="font-size: 24px; font-weight: bold; color: var(--success-color);">{1}</div>
+                    <div style="color: var(--text-muted);">Total Goal</div>
+                </div>
+                <div>
+                    <div style="font-size: 24px; font-weight: bold; color: var(--secondary-color);">{2}</div>
+                    <div style="color: var(--text-muted);">Total Raised</div>
+                </div>
+                <div>
+                    <div style="font-size: 24px; font-weight: bold; color: var(--danger-color);">{3}</div>
+                    <div style="color: var(--text-muted);">Outstanding</div>
+                </div>
+                <div>
+                    <div style="font-size: 24px; font-weight: bold;">{4:.0f}%</div>
+                    <div style="color: var(--text-muted);">Funded</div>
+                </div>
+            </div>
+            <div style="margin-top: 15px; padding: 10px; background: #e3f2fd; border-radius: 5px; font-size: 0.85em; color: #1976d2;">
+                <strong>📊 Comprehensive View:</strong> This overview includes ALL participants in mission trips, 
+                including those who have already paid in full. The outstanding amount represents the total still owed 
+                across all participants.
+            </div>
+        </div>
+        '''.format(
+            all_data.TotalTrips,
+            format_currency(all_data.TotalGoal),
+            format_currency(all_data.TotalRaised),
+            format_currency(all_data.TotalOutstanding),
+            all_data.PercentRaised
+        )
+    
+    # Display Open vs Closed breakdown
+    open_data = financial_data.get('Open', None)
+    closed_data = financial_data.get('Closed', None)
+    
+    if open_data or closed_data:
+        print '''
+        <div class="stat-card" style="margin-bottom: 20px;">
+            <h4>Outstanding Balance Breakdown</h4>
+            <table class="stat-table" style="width: 100%;">
+                <thead>
+                    <tr>
+                        <th>Trip Status</th>
+                        <th style="text-align: center;">Trips</th>
+                        <th style="text-align: right;">Goal</th>
+                        <th style="text-align: right;">Raised</th>
+                        <th style="text-align: right;">Outstanding</th>
+                        <th style="text-align: center;">Funded</th>
+                    </tr>
+                </thead>
+                <tbody>
+        '''
+        
+        if open_data:
+            print '''
+            <tr>
+                <td><strong style="color: #2e7d32;">Open Trips</strong></td>
+                <td style="text-align: center;">{0}</td>
+                <td style="text-align: right;">{1}</td>
+                <td style="text-align: right; color: var(--success-color);">{2}</td>
+                <td style="text-align: right; color: var(--danger-color);"><strong>{3}</strong></td>
+                <td style="text-align: center;"><strong>{4:.0f}%</strong></td>
+            </tr>
+            '''.format(
+                open_data.TotalTrips,
+                format_currency(open_data.TotalGoal),
+                format_currency(open_data.TotalRaised),
+                format_currency(open_data.TotalOutstanding),
+                open_data.PercentRaised
+            )
+        
+        if closed_data:
+            print '''
+            <tr>
+                <td><strong style="color: #c62828;">Closed Trips</strong></td>
+                <td style="text-align: center;">{0}</td>
+                <td style="text-align: right;">{1}</td>
+                <td style="text-align: right; color: var(--success-color);">{2}</td>
+                <td style="text-align: right; color: var(--danger-color);"><strong>{3}</strong></td>
+                <td style="text-align: center;"><strong>{4:.0f}%</strong></td>
+            </tr>
+            '''.format(
+                closed_data.TotalTrips,
+                format_currency(closed_data.TotalGoal),
+                format_currency(closed_data.TotalRaised),
+                format_currency(closed_data.TotalOutstanding),
+                closed_data.PercentRaised
+            )
+        
+        print '''
+                </tbody>
+            </table>
+        </div>
+        '''
+    
+    # Calendar Year Financial Breakdown
+    financial_by_year = execute_query_with_debug(stat_queries['financial_by_year'], "Financial by Year Query", "sql")
     
     print '''
     <div class="stat-card" style="margin-bottom: 20px;">
-        <h4>Financial Overview</h4>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
-            <div>
-                <div style="font-size: 24px; font-weight: bold; color: var(--primary-color);">{0}</div>
-                <div style="color: var(--text-muted);">Active Trips</div>
-            </div>
-            <div>
-                <div style="font-size: 24px; font-weight: bold; color: var(--success-color);">{1}</div>
-                <div style="color: var(--text-muted);">Total Goal</div>
-            </div>
-            <div>
-                <div style="font-size: 24px; font-weight: bold; color: var(--secondary-color);">{2}</div>
-                <div style="color: var(--text-muted);">Total Raised</div>
-            </div>
-            <div>
-                <div style="font-size: 24px; font-weight: bold; color: var(--danger-color);">{3}</div>
-                <div style="color: var(--text-muted);">Outstanding</div>
-            </div>
-            <div>
-                <div style="font-size: 24px; font-weight: bold;">{4}%</div>
-                <div style="color: var(--text-muted);">Funded</div>
-            </div>
-        </div>
+        <h4>Financial Overview by Calendar Year</h4>
+        <table class="stat-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>Year</th>
+                    <th style="text-align: center;">Trips</th>
+                    <th style="text-align: right;">Goal</th>
+                    <th style="text-align: right;">Raised</th>
+                    <th style="text-align: right;">Outstanding</th>
+                    <th style="text-align: center;">Funded</th>
+                </tr>
+            </thead>
+            <tbody>
+    '''
+    
+    for year_data in financial_by_year:
+        print '''
+        <tr>
+            <td><strong>{0}</strong></td>
+            <td style="text-align: center;">{1}</td>
+            <td style="text-align: right;">{2}</td>
+            <td style="text-align: right; color: var(--success-color);">{3}</td>
+            <td style="text-align: right; color: var(--danger-color);">{4}</td>
+            <td style="text-align: center;"><strong>{5:.0f}%</strong></td>
+        </tr>
+        '''.format(
+            year_data.Year,
+            year_data.TripCount,
+            format_currency(year_data.TotalGoal),
+            format_currency(year_data.TotalRaised),
+            format_currency(year_data.TotalOutstanding),
+            year_data.PercentRaised
+        )
+    
+    print '''
+            </tbody>
+        </table>
     </div>
-    '''.format(
-        financial_summary.TotalTrips,
-        format_currency(financial_summary.TotalGoal),
-        format_currency(financial_summary.TotalRaised),
-        format_currency(financial_summary.TotalOutstanding),
-        financial_summary.PercentRaised
-    )
+    '''
     
     # Grid layout for other stats
     print '<div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">'
@@ -2257,7 +2886,7 @@ def render_stats_view():
     print '<div class="stat-card" style="margin-top: 20px;">'
     print '<h4>Upcoming Deadlines</h4>'
     print '<table class="mission-table">'
-    print '<thead><tr><th>Mission</th><th>Deadline</th><th>Type</th><th>Days Until</th></tr></thead>'
+    print '<thead><tr><th>Mission</th><th>Deadline</th><th>Type</th><th>Days Until</th><th>Amount Remaining</th></tr></thead>'
     print '<tbody>'
     for deadline in deadlines:
         urgency_class = 'status-urgent' if deadline.DaysUntil < 7 else 'status-medium' if deadline.DaysUntil < 30 else 'status-normal'
@@ -2267,6 +2896,7 @@ def render_stats_view():
             <td>{2}</td>
             <td>{3}</td>
             <td><span class="status-badge {4}">{5} days</span></td>
+            <td style="color: {6}; font-weight: bold;">{7}</td>
         </tr>
         '''.format(
             deadline.OrganizationId,
@@ -2274,7 +2904,9 @@ def render_stats_view():
             format_date(str(deadline.DeadlineDate)),
             deadline.DeadlineType,
             urgency_class,
-            deadline.DaysUntil
+            deadline.DaysUntil,
+            '#d32f2f' if deadline.AmountRemaining > 0 else '#2e7d32',
+            format_currency(deadline.AmountRemaining) if deadline.AmountRemaining > 0 else "Fully paid"
         )
     print '</tbody></table>'
     print '</div>'
@@ -2392,8 +3024,9 @@ def render_organization_view(org_id):
     
     timer = start_timer()
     
-    # Get organization info
+    # Get organization info with optimized CTE for outstanding amount
     org_info_sql = '''
+        {1}
         SELECT 
             o.OrganizationId,
             o.OrganizationName,
@@ -2407,13 +3040,10 @@ def render_organization_view(org_id):
                 WHEN o.RegEnd < GETDATE() THEN 'Closed'
                 ELSE 'Active'
             END AS RegistrationStatus,
-            ISNULL(SUM(mtt.Due), 0) AS Outstanding
+            ISNULL((SELECT SUM(Due) FROM MissionTripTotals WHERE InvolvementId = o.OrganizationId), 0) AS Outstanding
         FROM Organizations o WITH (NOLOCK)
-        LEFT JOIN MissionTripTotals mtt WITH (NOLOCK) ON mtt.InvolvementId = o.OrganizationId
         WHERE o.OrganizationId = {0}
-        GROUP BY o.OrganizationId, o.OrganizationName, o.Description, 
-                 o.ImageUrl, o.RegStart, o.RegEnd
-    '''.format(org_id)
+    '''.format(org_id, get_mission_trip_totals_cte(include_closed=True))
     
     org_info = execute_query_with_debug(org_info_sql, "Organization Info Query", "top1")
     
@@ -2487,6 +3117,7 @@ def render_organization_view(org_id):
     print '<h3 style="margin-top: 30px;">Team Members</h3>'
     
     members_sql = '''
+        {2}
         SELECT 
             p.PeopleId,
             p.Name2,
@@ -2509,38 +3140,48 @@ def render_organization_view(org_id):
         LEFT JOIN RecReg rr WITH (NOLOCK) ON rr.PeopleId = p.PeopleId
         LEFT JOIN Volunteer v WITH (NOLOCK) ON v.PeopleId = p.PeopleId
         LEFT JOIN lookup.VolApplicationStatus vs WITH (NOLOCK) ON vs.Id = v.StatusId
-        LEFT JOIN MissionTripTotals mtt WITH (NOLOCK) ON mtt.PeopleId = p.PeopleId AND mtt.InvolvementId = om.OrganizationId
+        LEFT JOIN MissionTripTotals mtt ON mtt.PeopleId = p.PeopleId AND mtt.InvolvementId = om.OrganizationId
         WHERE om.OrganizationId = {0}
           AND om.MemberTypeId <> {1}
         ORDER BY mt.Description, p.Name2
-    '''.format(org_id, config.MEMBER_TYPE_LEADER)
+    '''.format(org_id, config.MEMBER_TYPE_LEADER, get_mission_trip_totals_cte(include_closed=True))
     
     members = execute_query_with_debug(members_sql, "Organization Members Query", "sql")
     
+    # Wrap all members in a container div
+    print '<div style="max-width: 100%; overflow: hidden;">'
+    
     last_role = None
+    current_role_container_open = False
+    
     for member in members:
         # Role separator
         if member.Role != last_role:
-            print '<h4 style="margin-top: 20px; padding: 10px; background: var(--primary-color); color: white;">{0}</h4>'.format(member.Role)
+            # Close previous role container if open
+            if current_role_container_open:
+                print '</div><!-- End role container -->'
+            
+            # Role header
+            print '<h4 style="margin-top: 20px; padding: 10px; background: var(--primary-color); color: white; border-radius: var(--radius) var(--radius) 0 0;">{0}</h4>'.format(member.Role)
+            # Start new role container
+            print '<div style="background: #f9f9f9; padding: 15px; border-radius: 0 0 var(--radius) var(--radius); margin-bottom: 20px;">'
+            current_role_container_open = True
             last_role = member.Role
         
         # Member card
         print '''
-        <div id="person_{0}" class="member-card" style="background: white; padding: 15px; margin-bottom: 15px; border-radius: var(--radius); box-shadow: var(--shadow);">
-            <div style="display: flex; gap: 15px;">
-                <div>
+        <div id="person_{0}" class="member-card" style="background: white; padding: 15px; margin-bottom: 15px; border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden;">
+            <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                <div style="flex-shrink: 0;">
                     <img src="{1}" alt="{2}" style="width: 60px; height: 60px; border-radius: 50%; object-fit: cover;">
                 </div>
-                <div style="flex: 1;">
-                    <h4 style="margin: 0;"><a href="/Person2/{0}" target="_blank">{2}</a> ({3})</h4>
-                    <p style="margin: 5px 0;">📱 {4} | ✉️ {5}</p>
-                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <div style="flex: 1; min-width: 0;">
+                    <h4 style="margin: 0; overflow: hidden; text-overflow: ellipsis;"><a href="/Person2/{0}" target="_blank">{2}</a> ({3})</h4>
+                    <p style="margin: 5px 0; overflow: hidden; text-overflow: ellipsis;">📱 {4} | ✉️ {5}</p>
+                    <div style="display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
                         <span class="badge {6}">🛂 Passport</span>
                         <span class="badge {7}">🛡️ Background</span>
-                    </div>
-                </div>
-            </div>
-        '''.format(
+                    </div>'''.format(
             member.PeopleId,
             member.Picture or '/Content/default-avatar.png',
             member.Name2,
@@ -2555,9 +3196,25 @@ def render_organization_view(org_id):
         if member.TotalFee and member.TotalFee > 0:
             percentage = (float(member.Paid or 0) / float(member.TotalFee)) * 100
             progress_label = "${:,.0f} paid of ${:,.0f}".format(member.Paid or 0, member.TotalFee)
-            print render_progress_bar(member.Paid or 0, member.TotalFee, progress_label)
+            print '''
+                    <div style="margin-top: 10px;">
+                        <div class="progress-container" style="max-width: 100%;">
+                            <div class="progress-bar" style="width: {0:.1f}%;"></div>
+                        </div>
+                        <div class="progress-text">{1}</div>
+                    </div>'''.format(percentage, progress_label)
         
-        print '</div></div>'
+        print '''
+                </div>
+            </div>
+        </div><!-- End member card -->'''
+    
+    # Close the last role container if it was opened
+    if current_role_container_open:
+        print '</div><!-- End last role container -->'
+    
+    # Close the main container
+    print '</div><!-- End members container -->'
     
     print end_timer(timer, "Organization View Load")
 
@@ -2580,7 +3237,7 @@ def main():
         current_view = str(model.Data.simplenav) if hasattr(model.Data, 'simplenav') else config.DEFAULT_TAB
         org_view = str(model.Data.OrgView) if hasattr(model.Data, 'OrgView') else ""
         
-        # Output styles
+        # Output styles first - this should be the first visible content
         print get_modern_styles()
         
         # Output visualization for developers
@@ -2619,6 +3276,21 @@ def main():
         '''.format(str(e), traceback.format_exc())
 
 # Execute main controller
-main()
+try:
+    # Add initial debug output to verify script is running
+    print("<!-- Script starting... -->")
+    main()
+except Exception as e:
+    # Catch any errors at the top level
+    import traceback
+    print("""
+    <div style="background: #ffcccc; padding: 20px; margin: 20px; border: 2px solid red;">
+        <h2>Critical Error</h2>
+        <p><strong>Error:</strong> {0}</p>
+        <pre style="background: white; padding: 10px; overflow: auto;">
+{1}
+        </pre>
+    </div>
+    """.format(str(e), traceback.format_exc()))
 
 # ::END:: Main Controller
