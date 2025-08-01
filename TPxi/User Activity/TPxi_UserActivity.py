@@ -37,8 +37,10 @@ from datetime import timedelta
 # Configuration Options (Modify as needed)
 # ==========================================
 
-#Page Title
-model.Header = 'User Activity'
+# Page title for TouchPoint header
+# Note: model.Header only supports plain text, not HTML
+# Using Unicode symbols for visual enhancement
+PAGE_TITLE = "📊 User Activity Dashboard"
 
 # Time gap in minutes that indicates a user has stopped working
 INACTIVITY_THRESHOLD_MINUTES = 10
@@ -102,6 +104,37 @@ class ActivityAnalyzer:
         except Exception as e:
             print "<div style='display:none'>Error in get_user_info: {0}</div>".format(str(e))
             return None
+    
+    def get_user_mobile_devices(self, user_id):
+        """Get mobile device information for a user."""
+        try:
+            # Force user_id to be an integer
+            if not isinstance(user_id, int):
+                user_id = int(str(user_id))
+                
+            # First get the PeopleId for this UserId
+            sql = """
+                SELECT 
+                    m.deviceTypeID,
+                    CASE 
+                        WHEN m.deviceTypeID = 1 THEN 'iOS'
+                        WHEN m.deviceTypeID = 2 THEN 'Android'
+                        ELSE 'Other'
+                    END as DeviceType,
+                    m.AppVersion,
+                    m.lastSeen,
+                    m.created,
+                    ROW_NUMBER() OVER (PARTITION BY m.deviceTypeID ORDER BY m.created DESC) as rn
+                FROM MobileAppDevices m
+                WHERE m.peopleID = (SELECT PeopleId FROM Users WHERE UserId = {0})
+                   OR m.userID = {0}  -- Fallback to userID if peopleID is not set
+                ORDER BY m.lastSeen DESC
+            """.format(user_id)
+            
+            return self.query.QuerySql(sql)
+        except Exception as e:
+            print "<div style='display:none'>Error in get_user_mobile_devices: {0}</div>".format(str(e))
+            return []
     
     def get_users_list(self):
         """Get a list of all users with recent activity."""
@@ -502,6 +535,60 @@ class ActivityAnalyzer:
             
             daily_activity = self.query.QuerySql(daily_activity_sql)
             
+            # Get mobile device statistics (OS and App Version)
+            device_stats_sql = """
+                WITH LatestDevices AS (
+                    SELECT 
+                        peopleID,
+                        deviceTypeID,
+                        AppVersion,
+                        lastSeen,
+                        ROW_NUMBER() OVER (PARTITION BY peopleID ORDER BY created DESC) as rn
+                    FROM MobileAppDevices
+                    WHERE peopleID IS NOT NULL
+                    AND lastSeen >= DATEADD(day, -{0}, GETDATE())
+                )
+                SELECT 
+                    COUNT(DISTINCT CASE WHEN deviceTypeID = 1 THEN peopleID END) as iOSUsers,
+                    COUNT(DISTINCT CASE WHEN deviceTypeID = 2 THEN peopleID END) as AndroidUsers,
+                    COUNT(DISTINCT CASE WHEN deviceTypeID NOT IN (1,2) THEN peopleID END) as OtherUsers,
+                    COUNT(DISTINCT peopleID) as TotalDeviceUsers
+                FROM LatestDevices
+                WHERE rn = 1
+            """.format(days)
+            
+            device_stats = self.query.QuerySqlTop1(device_stats_sql)
+            
+            # Get app version distribution
+            version_stats_sql = """
+                WITH LatestDevices AS (
+                    SELECT 
+                        peopleID,
+                        deviceTypeID,
+                        AppVersion,
+                        lastSeen,
+                        ROW_NUMBER() OVER (PARTITION BY peopleID ORDER BY lastSeen DESC) as rn
+                    FROM MobileAppDevices
+                    WHERE peopleID IS NOT NULL
+                    AND lastSeen >= DATEADD(day, -{0}, GETDATE())
+                    AND AppVersion IS NOT NULL
+                )
+                SELECT TOP 20
+                    AppVersion,
+                    CASE 
+                        WHEN deviceTypeID = 1 THEN 'iOS'
+                        WHEN deviceTypeID = 2 THEN 'Android'
+                        ELSE 'Other'
+                    END as DeviceType,
+                    COUNT(DISTINCT peopleID) as UserCount
+                FROM LatestDevices
+                WHERE rn = 1
+                GROUP BY AppVersion, deviceTypeID
+                ORDER BY COUNT(DISTINCT peopleID) DESC
+            """.format(days)
+            
+            version_stats = self.query.QuerySql(version_stats_sql)
+            
             # Get mobile vs web unique users comparison
             # Note: Web activity uses UserId, Mobile activity uses PeopleId
             comparison_sql = """
@@ -542,7 +629,9 @@ class ActivityAnalyzer:
                 'stats': stats,
                 'top_users': top_users,
                 'daily_activity': daily_activity,
-                'comparison': comparison
+                'comparison': comparison,
+                'device_stats': device_stats,
+                'version_stats': version_stats
             }
             
         except Exception as e:
@@ -855,30 +944,33 @@ class ReportRenderer:
     def render_page_header(self, title, subtitle=None):
         """Render a consistent page header."""
         html = """
-        <div class="panel panel-primary">
+        <div class="panel panel-primary" style="margin-bottom: 0;">
             <div class="panel-heading">
-                <h1 class="panel-title">{0}<svg xmlns="http://www.w3.org/2000/svg" viewBox="85 75 230 130" style="width: 60px; height: 30px; margin-left: -4px; vertical-align: middle;">
-                    <!-- Text portion - TP -->
-                    <text x="100" y="120" font-family="Arial, sans-serif" font-weight="bold" font-size="60" fill="#333333">TP</text>
-                    
-                    <!-- Circular element -->
-                    <g transform="translate(190, 107)">
-                      <!-- Outer circle -->
-                      <circle cx="0" cy="0" r="13.5" fill="#0099FF"/>
-                      
-                      <!-- White middle circle -->
-                      <circle cx="0" cy="0" r="10.5" fill="white"/>
-                      
-                      <!-- Inner circle -->
-                      <circle cx="0" cy="0" r="7.5" fill="#0099FF"/>
-                      
-                      <!-- X crossing through the circles -->
-                      <path d="M-9 -9 L9 9 M-9 9 L9 -9" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
-                    </g>
-                    
-                    <!-- Single "i" letter to the right -->
-                    <text x="206" y="105" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#0099FF">si</text>
-                  </svg></h1>
+                <h1 class="panel-title">
+                    <i class="fa fa-bar-chart" style="margin-right: 10px; color: #fff;"></i>{0}
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="85 75 230 130" style="width: 60px; height: 30px; margin-left: -4px; vertical-align: middle; float: right;">
+                        <!-- Text portion - TP -->
+                        <text x="100" y="120" font-family="Arial, sans-serif" font-weight="bold" font-size="60" fill="#ffffff">TP</text>
+                        
+                        <!-- Circular element -->
+                        <g transform="translate(190, 107)">
+                          <!-- Outer circle -->
+                          <circle cx="0" cy="0" r="13.5" fill="#0099FF"/>
+                          
+                          <!-- White middle circle -->
+                          <circle cx="0" cy="0" r="10.5" fill="white"/>
+                          
+                          <!-- Inner circle -->
+                          <circle cx="0" cy="0" r="7.5" fill="#0099FF"/>
+                          
+                          <!-- X crossing through the circles -->
+                          <path d="M-9 -9 L9 9 M-9 9 L9 -9" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+                        </g>
+                        
+                        <!-- Single "i" letter to the right -->
+                        <text x="206" y="105" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#0099FF">si</text>
+                    </svg>
+                </h1>
                 {1}
             </div>
         </div>
@@ -2049,6 +2141,8 @@ def render_overview_page(form_handler, analyzer, renderer):
         mobile_stats = mobile_data.get('stats')
         top_mobile_users = mobile_data.get('top_users', [])
         comparison_data = mobile_data.get('comparison')
+        device_stats = mobile_data.get('device_stats')
+        version_stats = mobile_data.get('version_stats', [])
         
         html += """
         <div class="row">
@@ -2144,6 +2238,84 @@ def render_overview_page(form_handler, analyzer, renderer):
                             </div>
                         </div>
                 """.format(mobile_only_pct, mobile_only, both_pct, both_users, web_only_pct, web_only, total_mobile, total_web, total_unique)
+            
+            # Add Mobile OS Breakdown
+            if device_stats:
+                ios_users = getattr(device_stats, 'iOSUsers', 0)
+                android_users = getattr(device_stats, 'AndroidUsers', 0)
+                other_users = getattr(device_stats, 'OtherUsers', 0)
+                total_device_users = getattr(device_stats, 'TotalDeviceUsers', 0)
+                
+                if total_device_users > 0:
+                    ios_pct = (float(ios_users) / total_device_users * 100)
+                    android_pct = (float(android_users) / total_device_users * 100)
+                    other_pct = (float(other_users) / total_device_users * 100)
+                    
+                    html += """
+                        <div class="row" style="margin-top: 20px;">
+                            <div class="col-md-6">
+                                <h4>Mobile OS Breakdown</h4>
+                                <div class="panel panel-default">
+                                    <div class="panel-body">
+                                        <div style="display: flex; justify-content: space-around;">
+                                            <div style="text-align: center;">
+                                                <i class="fa fa-apple fa-3x" style="color: #999;"></i>
+                                                <h3>{0:,}</h3>
+                                                <p>iOS Users ({1:.1f}%)</p>
+                                            </div>
+                                            <div style="text-align: center;">
+                                                <i class="fa fa-android fa-3x" style="color: #a4c639;"></i>
+                                                <h3>{2:,}</h3>
+                                                <p>Android Users ({3:.1f}%)</p>
+                                            </div>
+                                            {4}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h4>App Version Distribution</h4>
+                                <div class="panel panel-default">
+                                    <div class="panel-body" style="max-height: 400px; overflow-y: auto;">
+                                        <table class="table table-condensed">
+                                            <thead>
+                                                <tr>
+                                                    <th>Version</th>
+                                                    <th>OS</th>
+                                                    <th>Users</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                    """.format(ios_users, ios_pct, android_users, android_pct,
+                               """<div style="text-align: center;">
+                                                <i class="fa fa-mobile fa-3x" style="color: #666;"></i>
+                                                <h3>{0:,}</h3>
+                                                <p>Other ({1:.1f}%)</p>
+                                            </div>""".format(other_users, other_pct) if other_users > 0 else "")
+                    
+                    # Add version stats
+                    if version_stats:
+                        for version in version_stats:
+                            app_version = getattr(version, 'AppVersion', 'Unknown')
+                            device_type = getattr(version, 'DeviceType', 'Unknown')
+                            user_count = getattr(version, 'UserCount', 0)
+                            
+                            html += """
+                                                <tr>
+                                                    <td>{0}</td>
+                                                    <td>{1}</td>
+                                                    <td>{2:,}</td>
+                                                </tr>
+                            """.format(app_version, device_type, user_count)
+                    
+                    html += """
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    """
             
             # Show top mobile users with expandable list
             if top_mobile_users:
@@ -2813,6 +2985,9 @@ def render_user_detail_page(form_handler, analyzer, renderer):
         if not user:
             return "<div class='alert alert-danger'>User not found</div>"
         
+        # Get mobile device information
+        mobile_devices = analyzer.get_user_mobile_devices(user_id)
+        
         html = renderer.render_page_header("User Activity Analysis", 
                                          "User Details for {0}".format(getattr(user, 'Name', 'Unknown')))
         html += renderer.render_navigation('user_detail')
@@ -2928,6 +3103,72 @@ def render_user_detail_page(form_handler, analyzer, renderer):
             renderer.render_date(getattr(user, 'LastActivityDate', None)),
             "LOCKED" if getattr(user, 'IsLockedOut', 0) == 1 else "Active"
         )
+        
+        # Mobile Devices panel
+        html += """
+            <div class="col-md-6">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h3 class="panel-title">Mobile Devices</h3>
+                    </div>
+                    <div class="panel-body">
+        """
+        
+        if mobile_devices and len(list(mobile_devices)) > 0:
+            html += """
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Device Type</th>
+                                    <th>App Version</th>
+                                    <th>Last Seen</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+            """
+            
+            # Show latest device per type
+            seen_types = set()
+            for device in mobile_devices:
+                device_type = getattr(device, 'DeviceType', 'Unknown')
+                rn = getattr(device, 'rn', 1)
+                
+                # Only show the latest device for each type
+                if rn == 1 and device_type not in seen_types:
+                    seen_types.add(device_type)
+                    app_version = getattr(device, 'AppVersion', 'Unknown')
+                    last_seen = getattr(device, 'lastSeen', None)
+                    
+                    # Add icon based on device type
+                    icon = ''
+                    if device_type == 'iOS':
+                        icon = '<i class="fa fa-apple"></i> '
+                    elif device_type == 'Android':
+                        icon = '<i class="fa fa-android"></i> '
+                    
+                    html += """
+                                <tr>
+                                    <td>{0}{1}</td>
+                                    <td>{2}</td>
+                                    <td>{3}</td>
+                                </tr>
+                    """.format(icon, device_type, app_version, renderer.render_date(last_seen))
+            
+            html += """
+                            </tbody>
+                        </table>
+            """
+        else:
+            html += """
+                        <p class="text-muted">No mobile devices found for this user.</p>
+            """
+        
+        html += """
+                    </div>
+                </div>
+            </div>
+        </div>
+        """
         
         # Initialize these variables to be calculated properly later
         total_activities = activity_count
@@ -4120,6 +4361,9 @@ def render_activity_trends_page(form_handler, analyzer, renderer):
 def main():
     """Main function to run the application."""
     try:
+        # Set page title for TouchPoint header
+        model.Header = PAGE_TITLE
+        
         # Output debug info about the script name and URL
         print """
         <div style="display:none;" id="debug-panel">
