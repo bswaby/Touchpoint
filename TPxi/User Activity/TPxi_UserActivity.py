@@ -37,6 +37,9 @@ from datetime import timedelta
 # Configuration Options (Modify as needed)
 # ==========================================
 
+#Page Title
+model.Header = 'User Activity'
+
 # Time gap in minutes that indicates a user has stopped working
 INACTIVITY_THRESHOLD_MINUTES = 10
 
@@ -414,6 +417,140 @@ class ActivityAnalyzer:
                 'office_pct': 0,
                 'remote_pct': 0,
                 'mobile_pct': 0
+            }
+    
+    def get_mobile_vs_web_stats_by_period(self, days=30, period_type='daily'):
+        """Get mobile vs web login statistics by period - comparing apples to apples."""
+        try:
+            # Determine SQL grouping based on period type
+            if period_type == 'daily':
+                date_group = "CONVERT(date, ActivityDate)"
+            elif period_type == 'weekly':
+                date_group = "DATEADD(week, DATEDIFF(week, 0, ActivityDate), 0)"
+            else:  # monthly
+                date_group = "DATEADD(month, DATEDIFF(month, 0, ActivityDate), 0)"
+            
+            # Only count login events for both mobile and web for fair comparison
+            sql = """
+                SELECT 
+                    {1} AS Period,
+                    SUM(CASE WHEN Mobile = 1 THEN 1 ELSE 0 END) AS MobileCount,
+                    SUM(CASE WHEN Mobile = 0 AND Activity LIKE '%logged in%' THEN 1 ELSE 0 END) AS WebCount,
+                    COUNT(CASE WHEN Mobile = 1 OR Activity LIKE '%logged in%' THEN 1 END) AS TotalCount
+                FROM ActivityLog
+                WHERE DATEDIFF(day, ActivityDate, GETDATE()) <= {0}
+                    AND (Mobile = 1 OR Activity LIKE '%logged in%')
+                GROUP BY {1}
+                ORDER BY Period DESC
+            """.format(days, date_group)
+            
+            return self.query.QuerySql(sql)
+        except Exception as e:
+            print "<div style='display:none'>Error in get_mobile_vs_web_stats_by_period: {0}</div>".format(str(e))
+            return []
+    
+    def get_mobile_usage_stats(self, days=30):
+        """Get mobile app usage statistics."""
+        try:
+            # Get overall mobile stats - count actual unique people
+            mobile_stats_sql = """
+                SELECT 
+                    COUNT(DISTINCT a.PeopleId) as UniquePeople,
+                    COUNT(*) as TotalActions,
+                    COUNT(DISTINCT CAST(a.ActivityDate as DATE)) as ActiveDays
+                FROM ActivityLog a
+                WHERE a.Mobile = 1
+                AND a.ActivityDate >= DATEADD(day, -{0}, GETDATE())
+                AND a.PeopleId IS NOT NULL
+            """.format(days)
+            
+            stats = self.query.QuerySqlTop1(mobile_stats_sql)
+            
+            # Get top mobile users - group by PeopleId to avoid duplicates
+            top_users_sql = """
+                SELECT TOP 50
+                    p.Name2 as PersonName,
+                    COALESCE(a.PeopleId, u.PeopleId) as PeopleId,
+                    COUNT(*) as ActionCount,
+                    MAX(a.ActivityDate) as LastActive
+                FROM ActivityLog a
+                LEFT JOIN Users u ON a.UserId = u.UserId
+                LEFT JOIN People p ON COALESCE(a.PeopleId, u.PeopleId) = p.PeopleId
+                WHERE a.Mobile = 1
+                AND a.ActivityDate >= DATEADD(day, -{0}, GETDATE())
+                AND COALESCE(a.PeopleId, u.PeopleId) IS NOT NULL
+                GROUP BY 
+                    p.Name2, 
+                    COALESCE(a.PeopleId, u.PeopleId)
+                ORDER BY COUNT(*) DESC
+            """.format(days)
+            
+            top_users = self.query.QuerySql(top_users_sql)
+            
+            # Get mobile activity by day
+            daily_activity_sql = """
+                SELECT 
+                    CAST(ActivityDate as DATE) as ActivityDay,
+                    COUNT(DISTINCT UserId) as UniqueUsers,
+                    COUNT(*) as Actions
+                FROM ActivityLog
+                WHERE Mobile = 1
+                AND ActivityDate >= DATEADD(day, -{0}, GETDATE())
+                GROUP BY CAST(ActivityDate as DATE)
+                ORDER BY ActivityDay DESC
+            """.format(days)
+            
+            daily_activity = self.query.QuerySql(daily_activity_sql)
+            
+            # Get mobile vs web unique users comparison
+            # Note: Web activity uses UserId, Mobile activity uses PeopleId
+            comparison_sql = """
+                WITH UserActivity AS (
+                    SELECT DISTINCT
+                        CASE 
+                            WHEN a.Mobile = 1 THEN a.PeopleId
+                            WHEN a.Mobile = 0 AND a.UserId IS NOT NULL THEN u.PeopleId
+                            ELSE a.PeopleId
+                        END as PersonId,
+                        MAX(CASE WHEN a.Mobile = 1 THEN 1 ELSE 0 END) as UsesMobile,
+                        MAX(CASE WHEN a.Mobile = 0 THEN 1 ELSE 0 END) as UsesWeb
+                    FROM ActivityLog a
+                    LEFT JOIN Users u ON a.UserId = u.UserId
+                    WHERE a.ActivityDate >= DATEADD(day, -{0}, GETDATE())
+                    AND (
+                        (a.Mobile = 1 AND a.PeopleId IS NOT NULL) OR
+                        (a.Mobile = 0 AND a.UserId IS NOT NULL)
+                    )
+                    GROUP BY 
+                        CASE 
+                            WHEN a.Mobile = 1 THEN a.PeopleId
+                            WHEN a.Mobile = 0 AND a.UserId IS NOT NULL THEN u.PeopleId
+                            ELSE a.PeopleId
+                        END
+                )
+                SELECT 
+                    COUNT(CASE WHEN UsesMobile = 1 AND UsesWeb = 0 THEN 1 END) as MobileOnlyUsers,
+                    COUNT(CASE WHEN UsesMobile = 0 AND UsesWeb = 1 THEN 1 END) as WebOnlyUsers,
+                    COUNT(CASE WHEN UsesMobile = 1 AND UsesWeb = 1 THEN 1 END) as BothUsers,
+                    COUNT(*) as TotalUniquePeople
+                FROM UserActivity
+            """.format(days)
+            
+            comparison = self.query.QuerySqlTop1(comparison_sql)
+            
+            return {
+                'stats': stats,
+                'top_users': top_users,
+                'daily_activity': daily_activity,
+                'comparison': comparison
+            }
+            
+        except Exception as e:
+            print "<div style='display:none'>Error in get_mobile_usage_stats: {0}</div>".format(str(e))
+            return {
+                'stats': None,
+                'top_users': [],
+                'daily_activity': []
             }
 
     def get_organization_names(self, org_ids):
@@ -1907,6 +2044,220 @@ def render_overview_page(form_handler, analyzer, renderer):
             mobile_hours, mobile_pct
         )
         
+        # Mobile App Usage Section
+        mobile_data = analyzer.get_mobile_usage_stats(days)
+        mobile_stats = mobile_data.get('stats')
+        top_mobile_users = mobile_data.get('top_users', [])
+        comparison_data = mobile_data.get('comparison')
+        
+        html += """
+        <div class="row">
+            <div class="col-md-12">
+                <div class="panel panel-info">
+                    <div class="panel-heading">
+                        <h3 class="panel-title"><i class="fa fa-mobile"></i> Mobile App Usage</h3>
+                    </div>
+                    <div class="panel-body">
+        """
+        
+        if mobile_stats:
+            unique_people = getattr(mobile_stats, 'UniquePeople', 0)
+            total_actions = getattr(mobile_stats, 'TotalActions', 0)
+            active_days = getattr(mobile_stats, 'ActiveDays', 0)
+            
+            # Calculate average logins per user based on unique people count
+            avg_logins_per_user = float(total_actions) / unique_people if unique_people > 0 else 0.0
+            
+            html += """
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="panel panel-default">
+                                    <div class="panel-body text-center">
+                                        <h4>{0}</h4>
+                                        <p>Unique Mobile Users</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="panel panel-default">
+                                    <div class="panel-body text-center">
+                                        <h4>{1:,}</h4>
+                                        <p>Total Mobile Logins</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="panel panel-default">
+                                    <div class="panel-body text-center">
+                                        <h4>{2}</h4>
+                                        <p>Active Days</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="panel panel-default">
+                                    <div class="panel-body text-center">
+                                        <h4>{3:.1f}</h4>
+                                        <p>Avg Logins/User</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+            """.format(unique_people, total_actions, active_days, avg_logins_per_user)
+            
+            # Add Mobile vs Web Users Comparison
+            if comparison_data:
+                mobile_only = getattr(comparison_data, 'MobileOnlyUsers', 0)
+                web_only = getattr(comparison_data, 'WebOnlyUsers', 0)
+                both_users = getattr(comparison_data, 'BothUsers', 0)
+                total_unique = getattr(comparison_data, 'TotalUniquePeople', 0)
+                
+                # Calculate percentages
+                mobile_only_pct = (float(mobile_only) / total_unique * 100) if total_unique > 0 else 0
+                web_only_pct = (float(web_only) / total_unique * 100) if total_unique > 0 else 0
+                both_pct = (float(both_users) / total_unique * 100) if total_unique > 0 else 0
+                
+                # Calculate totals for display
+                total_mobile = mobile_only + both_users
+                total_web = web_only + both_users
+                
+                html += """
+                        <div class="row" style="margin-top: 20px;">
+                            <div class="col-md-12">
+                                <h4>Mobile vs Web Unique Users Comparison</h4>
+                                <div class="progress" style="height: 40px; margin-bottom: 10px;">
+                                    <div class="progress-bar progress-bar-info" style="width: {0:.1f}%; line-height: 40px;" title="Mobile Only Users">
+                                        <span style="font-size: 14px;">Mobile Only: {1:,} ({0:.1f}%)</span>
+                                    </div>
+                                    <div class="progress-bar progress-bar-warning" style="width: {2:.1f}%; line-height: 40px;" title="Users of Both Mobile and Web">
+                                        <span style="font-size: 14px;">Both: {3:,} ({2:.1f}%)</span>
+                                    </div>
+                                    <div class="progress-bar progress-bar-primary" style="width: {4:.1f}%; line-height: 40px;" title="Web Only Users">
+                                        <span style="font-size: 14px;">Web Only: {5:,} ({4:.1f}%)</span>
+                                    </div>
+                                </div>
+                                <p class="text-muted">
+                                    Total Mobile Users: {6:,} | 
+                                    Total Web Users: {7:,} | 
+                                    Total Unique Users: {8:,}
+                                </p>
+                            </div>
+                        </div>
+                """.format(mobile_only_pct, mobile_only, both_pct, both_users, web_only_pct, web_only, total_mobile, total_web, total_unique)
+            
+            # Show top mobile users with expandable list
+            if top_mobile_users:
+                top_users_count = len(list(top_mobile_users))
+                html += """
+                        <h4>Top {1} Mobile Users by Login Count (Last {0} Days)</h4>
+                        <table class="table table-striped" id="mobileUsersTable">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Person</th>
+                                    <th>Mobile Logins</th>
+                                    <th>Last Mobile Login</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                """.format(days, top_users_count)
+                
+                # Convert to list and iterate through all users
+                user_count = 0
+                for user in top_mobile_users:
+                    user_count += 1
+                    person_name = getattr(user, 'PersonName', 'N/A')
+                    action_count = getattr(user, 'ActionCount', 0)
+                    last_active = getattr(user, 'LastActive', None)
+                    people_id = getattr(user, 'PeopleId', None)
+                    
+                    # Format last active date
+                    if last_active:
+                        if hasattr(last_active, 'strftime'):
+                            last_active_str = last_active.strftime('%b %d, %Y %I:%M %p')
+                        else:
+                            last_active_str = str(last_active)
+                    else:
+                        last_active_str = 'N/A'
+                        
+                    # Create link to person if we have people_id
+                    if people_id:
+                        person_link = '<a href="/Person2/{0}" target="_blank">{1}</a>'.format(people_id, person_name)
+                    else:
+                        person_link = person_name
+                    
+                    # Add class to hide rows beyond 5
+                    row_class = '' if user_count <= 5 else 'mobile-user-hidden'
+                    
+                    html += """
+                                <tr class="{0}">
+                                    <td>{1}</td>
+                                    <td>{2}</td>
+                                    <td>{3:,}</td>
+                                    <td>{4}</td>
+                                </tr>
+                    """.format(row_class, user_count, person_link, action_count, last_active_str)
+                
+                html += """
+                            </tbody>
+                        </table>
+                """
+                
+                # Add show more/less button if there are more than 5 users
+                if user_count > 5:
+                    total_to_show = min(50, user_count)  # Show maximum of 50
+                    html += """
+                        <button id="toggleMobileUsers" class="btn btn-sm btn-default" onclick="toggleMobileUsers()">
+                            <i class="fa fa-plus"></i> Show Top {0} Users
+                        </button>
+                        
+                        <style>
+                            .mobile-user-hidden {{ display: none; }}
+                        </style>
+                        
+                        <script>
+                            var mobileUsersExpanded = false;
+                            var totalToShow = {0};
+                            function toggleMobileUsers() {{
+                                var hiddenRows = document.querySelectorAll('.mobile-user-hidden');
+                                var button = document.getElementById('toggleMobileUsers');
+                                
+                                if (mobileUsersExpanded) {{
+                                    // Hide extra rows
+                                    for (var i = 0; i < hiddenRows.length; i++) {{
+                                        hiddenRows[i].style.display = 'none';
+                                    }}
+                                    button.innerHTML = '<i class="fa fa-plus"></i> Show Top ' + totalToShow + ' Users';
+                                }} else {{
+                                    // Show all rows
+                                    for (var i = 0; i < hiddenRows.length; i++) {{
+                                        hiddenRows[i].style.display = 'table-row';
+                                    }}
+                                    button.innerHTML = '<i class="fa fa-minus"></i> Show Top 5 Only';
+                                }}
+                                mobileUsersExpanded = !mobileUsersExpanded;
+                            }}
+                        </script>
+                    """.format(total_to_show)
+        else:
+            html += """
+                        <p>No mobile activity data available for the selected period.</p>
+            """
+        
+        html += """
+                    </div>
+                    <div class="panel-footer">
+                        <p class="text-muted small">
+                            <i class="fa fa-info-circle"></i> 
+                            <strong>Note:</strong> TouchPoint only logs mobile app logins, not all mobile activity. 
+                            Users may be actively using the mobile app without generating new activity log entries.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """
+        
         # Now the activity trends chart starts here...
         
         # Add activity chart - implemented directly instead of calling render_activity_stats_chart
@@ -2006,68 +2357,111 @@ def render_overview_page(form_handler, analyzer, renderer):
         </div>
         """ % (labels_json, activity_json, users_json)
         
-        # Add most active users chart - implemented directly instead of calling render_most_active_users_chart
-        # Prepare data for chart
-        user_labels = []
-        user_activity_counts = []
+        # Add Mobile vs Web comparison chart
+        mobile_vs_web_stats = analyzer.get_mobile_vs_web_stats_by_period(days, 'daily')
         
-        # Make sure we have users before trying to slice
-        user_list = list(most_active_users) if most_active_users else []
+        # Prepare data for mobile vs web chart
+        mobile_web_labels = []
+        mobile_counts = []
+        web_counts = []
         
-        # Use min to avoid index errors if we have fewer than 10 users
-        display_count = min(10, len(user_list))
+        for stat in mobile_vs_web_stats:
+            # Format date for label
+            if hasattr(stat.Period, 'strftime'):
+                date_label = stat.Period.strftime('%b %d')
+            else:
+                # Remove time portion if it's a string with time
+                date_str = str(stat.Period)
+                if ' ' in date_str:
+                    date_str = date_str.split(' ')[0]  # Get just the date part
+                # Try to reformat if it's in YYYY-MM-DD format
+                if '-' in date_str and len(date_str.split('-')) == 3:
+                    parts = date_str.split('-')
+                    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                    try:
+                        month_idx = int(parts[1]) - 1
+                        if 0 <= month_idx < 12:
+                            date_label = months[month_idx] + ' ' + parts[2]
+                        else:
+                            date_label = date_str
+                    except:
+                        date_label = date_str
+                else:
+                    date_label = date_str
+            mobile_web_labels.append(date_label)
+            
+            mobile_counts.append(stat.MobileCount)
+            web_counts.append(stat.WebCount)
         
-        for i in range(display_count):
-            user = user_list[i]
-            user_labels.append(user.Name)
-            # Ensure we have a proper integer value
-            try:
-                activity_count = int(user.ActivityCount)
-            except (ValueError, TypeError):
-                activity_count = 0
-            user_activity_counts.append(activity_count)
+        # Reverse the lists to show oldest first
+        mobile_web_labels.reverse()
+        mobile_counts.reverse()
+        web_counts.reverse()
         
         # Convert to JSON strings for JavaScript
-        user_labels_json = json.dumps(user_labels)
-        user_activity_json = json.dumps(user_activity_counts)
+        mobile_web_labels_json = json.dumps(mobile_web_labels)
+        mobile_json = json.dumps(mobile_counts)
+        web_json = json.dumps(web_counts)
         
         html += """
         <div class="panel panel-default">
             <div class="panel-heading">
-                <h3 class="panel-title">Most Active Users</h3>
+                <h3 class="panel-title">Mobile App vs Web Logins</h3>
             </div>
             <div class="panel-body">
-                <canvas id="usersChart" width="800" height="400"></canvas>
+                <canvas id="mobileVsWebChart" width="800" height="400"></canvas>
                 <script>
-                    var ctx = document.getElementById('usersChart').getContext('2d');
+                    var ctx = document.getElementById('mobileVsWebChart').getContext('2d');
                     var chart = new Chart(ctx, {
                         type: 'bar',
                         data: {
                             labels: %s,
                             datasets: [
                                 {
-                                    label: 'Activity Count',
+                                    label: 'Mobile App Logins',
                                     data: %s,
-                                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                                    borderColor: 'rgba(75, 192, 192, 1)',
+                                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                                    borderColor: 'rgba(54, 162, 235, 1)',
+                                    borderWidth: 1
+                                },
+                                {
+                                    label: 'Web Logins',
+                                    data: %s,
+                                    backgroundColor: 'rgba(255, 159, 64, 0.5)',
+                                    borderColor: 'rgba(255, 159, 64, 1)',
                                     borderWidth: 1
                                 }
                             ]
                         },
                         options: {
+                            responsive: true,
                             scales: {
+                                xAxes: [{
+                                    stacked: true
+                                }],
                                 yAxes: [{
+                                    stacked: true,
                                     ticks: {
                                         beginAtZero: true
+                                    },
+                                    scaleLabel: {
+                                        display: true,
+                                        labelString: 'Login Count'
                                     }
                                 }]
+                            },
+                            tooltips: {
+                                mode: 'index',
+                                intersect: false
                             }
                         }
                     });
                 </script>
             </div>
         </div>
-        """ % (user_labels_json, user_activity_json)
+        """ % (mobile_web_labels_json, mobile_json, web_json)
+        
+        # Skip the redundant most active users chart and go directly to the table
         
         # Top users table with safer handling
         html += """
@@ -2209,7 +2603,7 @@ def render_user_list_page(form_handler, analyzer, renderer):
         html = renderer.render_page_header("User Activity Analysis", "User List")
         html += renderer.render_navigation('user_list')
         
-        # Create search form
+        # Create search form with filter options
         search_form = """
         <form method="get" class="form-inline" style="margin-bottom: 20px;">
             <input type="hidden" name="view" value="user_list">
@@ -2253,9 +2647,9 @@ def render_user_list_page(form_handler, analyzer, renderer):
                         u.LastActivityDate, p.EmailAddress
                     FROM Users u
                     JOIN People p ON p.PeopleId = u.PeopleId
-                    WHERE u.Name LIKE '%{0}%' OR u.Username LIKE '%{0}%'
+                    WHERE (u.Name LIKE '%{0}%' OR u.Username LIKE '%{0}%')
                     ORDER BY u.LastActivityDate DESC
-                """.format(search_name.replace("'", "''"))  # Escape single quotes for SQL
+                """.format(search_name.replace("'", "''"))
                 
                 users = analyzer.query.QuerySql(sql)
                 
@@ -2268,7 +2662,7 @@ def render_user_list_page(form_handler, analyzer, renderer):
                             u.LastActivityDate, p.EmailAddress
                         FROM Users u
                         JOIN People p ON p.PeopleId = u.PeopleId
-                        WHERE p.FirstName LIKE '%{0}%' OR p.LastName LIKE '%{0}%' OR p.EmailAddress LIKE '%{0}%'
+                        WHERE (p.FirstName LIKE '%{0}%' OR p.LastName LIKE '%{0}%' OR p.EmailAddress LIKE '%{0}%')
                         ORDER BY u.LastActivityDate DESC
                     """.format(search_name.replace("'", "''"))
                     
@@ -2295,6 +2689,7 @@ def render_user_list_page(form_handler, analyzer, renderer):
             
         # Render the users table
         if users and len(list(users)) > 0:
+                
             html += """
             <table class="table table-striped table-hover">
                 <thead>
@@ -2305,6 +2700,7 @@ def render_user_list_page(form_handler, analyzer, renderer):
                         <th>Email</th>
                         <th>Last Login</th>
                         <th>Last Activity</th>
+                        <th>Activity Type</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -2313,6 +2709,41 @@ def render_user_list_page(form_handler, analyzer, renderer):
             
             for user in users:
                 try:
+                    # Check if user has mobile activity
+                    user_id = getattr(user, 'UserId', 0)
+                    people_id = getattr(user, 'PeopleId', 0)
+                    
+                    # Quick check for activity type - looking at all time to catch any mobile usage
+                    activity_type_sql = """
+                        SELECT TOP 1
+                            CASE 
+                                WHEN SUM(CASE WHEN Mobile = 1 THEN 1 ELSE 0 END) > 0 
+                                     AND SUM(CASE WHEN Mobile = 0 THEN 1 ELSE 0 END) > 0 THEN 'Both'
+                                WHEN SUM(CASE WHEN Mobile = 1 THEN 1 ELSE 0 END) > 0 THEN 'Mobile'
+                                WHEN SUM(CASE WHEN Mobile = 0 THEN 1 ELSE 0 END) > 0 THEN 'Web'
+                                ELSE 'None'
+                            END as ActivityType,
+                            SUM(CASE WHEN Mobile = 1 THEN 1 ELSE 0 END) as MobileCount,
+                            SUM(CASE WHEN Mobile = 0 THEN 1 ELSE 0 END) as WebCount
+                        FROM ActivityLog
+                        WHERE (UserId = {0} OR PeopleId = {1})
+                    """.format(user_id, people_id)
+                    
+                    activity_type_result = analyzer.query.QuerySqlTop1(activity_type_sql)
+                    activity_type = getattr(activity_type_result, 'ActivityType', 'Unknown') if activity_type_result else 'Unknown'
+                    mobile_count = getattr(activity_type_result, 'MobileCount', 0) if activity_type_result else 0
+                    web_count = getattr(activity_type_result, 'WebCount', 0) if activity_type_result else 0
+                    
+                    # Set badge color based on activity type with hover text showing counts
+                    if activity_type == 'Both':
+                        activity_badge = '<span class="label label-success" title="Mobile: {0}, Web: {1}">Both</span>'.format(mobile_count, web_count)
+                    elif activity_type == 'Mobile':
+                        activity_badge = '<span class="label label-info" title="Mobile: {0} activities">Mobile</span>'.format(mobile_count)
+                    elif activity_type == 'Web':
+                        activity_badge = '<span class="label label-warning" title="Web: {0} activities">Web</span>'.format(web_count)
+                    else:
+                        activity_badge = '<span class="label label-default" title="No activity found">None</span>'
+                    
                     html += """
                     <tr>
                         <td>{0}</td>
@@ -2321,9 +2752,10 @@ def render_user_list_page(form_handler, analyzer, renderer):
                         <td>{3}</td>
                         <td>{4}</td>
                         <td>{5}</td>
+                        <td>{6}</td>
                         <td>
-                            <a href="?view=user_detail&user_id={6}" class="btn btn-xs btn-primary">View Activity</a>
-                            <a href="/Person2/{7}" target="_blank" class="btn btn-xs btn-info">View Person</a>
+                            <a href="?view=user_detail&user_id={7}" class="btn btn-xs btn-primary">View Activity</a>
+                            <a href="/Person2/{8}" target="_blank" class="btn btn-xs btn-info">View Person</a>
                         </td>
                     </tr>
                     """.format(
@@ -2333,6 +2765,7 @@ def render_user_list_page(form_handler, analyzer, renderer):
                         getattr(user, 'EmailAddress', 'N/A'),
                         renderer.render_date(getattr(user, 'LastLoginDate', None)),
                         renderer.render_date(getattr(user, 'LastActivityDate', None)),
+                        activity_badge,
                         getattr(user, 'UserId', 0),
                         getattr(user, 'PeopleId', 0)
                     )
@@ -3764,53 +4197,68 @@ def main():
             }
         </style>
         
-        <div id="loading" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-             background-color: rgba(255,255,255,0.8); z-index: 9999; display: flex; 
-             justify-content: center; align-items: center;">
-            <div style="text-align: center;">
-                <div class="spinner-border" role="status">
-                    <i class="fa fa-spinner fa-spin fa-3x"></i>
-                </div>
-                <p style="margin-top: 10px;">Loading data, please wait...</p>
-            </div>
-        </div>
+        <!-- Removed loading div to diagnose display issue -->
         """
         
-        # Render the appropriate view
-        if view == 'user_list':
-            print render_user_list_page(form_handler, analyzer, renderer)
-        elif view == 'user_detail':
-            print render_user_detail_page(form_handler, analyzer, renderer)
-        elif view == 'stale_accounts':
-            print render_stale_accounts_page(form_handler, analyzer, renderer)
-        elif view == 'locked_accounts':
-            print render_locked_accounts_page(analyzer, renderer)
-        elif view == 'password_resets':
-            print render_password_resets_page(form_handler, analyzer, renderer)
-        elif view == 'activity_trends':
-            print render_activity_trends_page(form_handler, analyzer, renderer)
-        else:
-            # Default to overview for any invalid or missing view parameter
-            print render_overview_page(form_handler, analyzer, renderer)
+        # Debug: Print current view
+        print "<!-- Debug: Current view = '{0}' -->".format(view)
         
-        # Hide loading indicator and add debug controls
+        # Render the appropriate view with error handling
+        try:
+            if view == 'user_list':
+                content = render_user_list_page(form_handler, analyzer, renderer)
+                print "<!-- Debug: Content length = {0} -->".format(len(content) if content else 0)
+                print content
+            elif view == 'user_detail':
+                content = render_user_detail_page(form_handler, analyzer, renderer)
+                print "<!-- Debug: Content length = {0} -->".format(len(content) if content else 0)
+                print content
+            elif view == 'stale_accounts':
+                content = render_stale_accounts_page(form_handler, analyzer, renderer)
+                print "<!-- Debug: Content length = {0} -->".format(len(content) if content else 0)
+                print content
+            elif view == 'locked_accounts':
+                content = render_locked_accounts_page(analyzer, renderer)
+                print "<!-- Debug: Content length = {0} -->".format(len(content) if content else 0)
+                print content
+            elif view == 'password_resets':
+                content = render_password_resets_page(form_handler, analyzer, renderer)
+                print "<!-- Debug: Content length = {0} -->".format(len(content) if content else 0)
+                print content
+            elif view == 'activity_trends':
+                content = render_activity_trends_page(form_handler, analyzer, renderer)
+                print "<!-- Debug: Content length = {0} -->".format(len(content) if content else 0)
+                print content
+            else:
+                # Default to overview for any invalid or missing view parameter
+                content = render_overview_page(form_handler, analyzer, renderer)
+                print "<!-- Debug: Content length = {0} -->".format(len(content) if content else 0)
+                print content
+        except Exception as e:
+            print """
+            <script>
+                document.getElementById('loading').style.display = 'none';
+            </script>
+            <div class="alert alert-danger">
+                <h4>Error Loading Page</h4>
+                <p>An error occurred while loading the page: {0}</p>
+                <pre>{1}</pre>
+            </div>
+            """.format(str(e), traceback.format_exc())
+        
+        # Loading div removed for debugging
+        
+        # Add debug controls
         print """
         <script>
-            document.getElementById('loading').style.display = 'none';
-            
-            // Add click handlers for buttons that might need loading indicator
-            document.addEventListener('click', function(e) {
-                if (e.target.tagName === 'BUTTON' || e.target.tagName === 'A') {
-                    if (!e.target.classList.contains('no-loading')) {
-                        document.getElementById('loading').style.display = 'flex';
-                    }
+            // Add a debug button that shows all debug panels
+            window.addEventListener('load', function() {
+                if (document.body) {
+                    document.body.insertAdjacentHTML('beforeend', 
+                        '<button onclick="showAllDebugPanels()" class="btn btn-warning" ' +
+                        'style="position:fixed; bottom:10px; left:10px;">Show All Debug</button>');
                 }
             });
-            
-            // Add a debug button that shows all debug panels
-            document.body.insertAdjacentHTML('beforeend', 
-                '<button onclick="showAllDebugPanels()" class="btn btn-warning" ' +
-                'style="position:fixed; bottom:10px; left:10px;">Show All Debug</button>');
                 
             function showAllDebugPanels() {
                 document.getElementById('debug-panel').style.display = 'block';
