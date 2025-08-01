@@ -524,7 +524,13 @@ This is to help get an idea of user activity levels based on the activity log ta
 <summary><strong>User Activity</strong></summary>
 <p>Gives and overview of the level of activity, estimated time they are spending, and what areas they are working on.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-UserActivity.png" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-1.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-2.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-3.png" width="700">
 </p>
 </details>
 
