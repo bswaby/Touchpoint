@@ -61,6 +61,8 @@ Comprehensive deposit tracking and reconciliation tool for ministry finances. Th
   - ⚙️ Implementation Level: Easy
   - 🧩 **Installation: This is a paste-and-go Python script with minimal configuration needed (verify payment type IDs match your TouchPoint setup).
 
+[Access Code](https://github.com/bswaby/Touchpoint/blob/main/TPxi/Deposit%20Report
+
 <i><b>Note:</b>  Touchpoint does not give options to mark cash and checks in their system.  To get around this, we use a CSH/CHK prefix, thus allowing the report to reduce the overhead of deposit reports.  To help ensure CHK/CSH gets added to the description, it's recommended to use Payment Manager to intake payments as it adds the appropriate prefix along with sending the payer an actual receipt for their transaction.</i>
 
 <details>
