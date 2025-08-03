@@ -89,11 +89,15 @@ Update: 20250610 - Resolved issue with ACH, improved looks, added inline comment
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: Paste in code and change the fee percentages
 
+[Code](https://github.com/bswaby/Touchpoint/blob/main/Finance/FortisFees)
+
 ### 📜 [QCD-GrantLetters](https://github.com/bswaby/Touchpoint/blob/main/Finance/QCD-GrantLetters)
 It automatically creates QCD and Grant letters that you can print out and stuff into windowed envelopes. In addition, you can upload these as a secure note to each person's record.  On an average week for us, it saved the finance team 2-3 hours compared to how it was done prior.  
 
 - ⚙️ **Implementation Level: Moderate-Advanced
 - 🧩 **Installation: This script is built around the fact that you have a separate batch type for Grant and QCD.  Updating the letter information will require basic knowledge of HTML, but it should be easy to implement if you follow the pattern.  The advanced side is that this is set up to print on windowed envelopes, and it can be tricky (not terrible) to get aligned based on your environment and printer settings.
+
+[Code](https://github.com/bswaby/Touchpoint/blob/main/Finance/QCD-GrantLetters)
 
 <details>
 <summary><strong>Date Selection</strong></summary>
@@ -123,7 +127,9 @@ It automatically creates QCD and Grant letters that you can print out and stuff 
 The payment manager was built to help us identify outstanding payments across programs and then dive into each. When you dive in, you can make payments with receipts for cash and check, send a quick digital pay link, or resend receipts.   The biggest note is that this was coded for our environment, and while it should work, I am not 100% sure what you will run into, as I haven't done any testing outside our environment for this one.
 
 - ⚙️ **Implementation Level: Easy-Moderate
-- 🧩 **Installation: There are a few config items on top of the script.  Most do not need to be edited, but at a minimum, I would say you need to edit the DEFAULT_EMAIL_SENDER.  
+- 🧩 **Installation: There are a few config items on top of the script.  Most do not need to be edited, but at a minimum, I would say you need to edit the DEFAULT_EMAIL_SENDER.
+
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Payment%20Manager)
 
 <details>
 <summary><strong>Program Outstanding</strong></summary>
@@ -163,6 +169,8 @@ Our finance team uses this primary tool to track, report, and work through finan
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: The Script is pasted and go. Once you are in the UI, you will complete all the configuration in the UI for you financial setup.
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Contribution%20Report)
+
 <details>
 <summary><strong>Main Contributions</strong></summary>
 <p>Main Report.</p>
@@ -197,6 +205,8 @@ It is designed as a widget on your dashboard that tracks member anniversaries, s
 - ⚙️ **Implementation Level: Moderate
 - 🧩 **Installation: Weddings and birthdays are tracked naturally in the system and uses a "saved search" to pull the list from. Extra anniversaries are tracked using an extra value field under a user's profile, but are not required.  To install, you first create a saved search in Touchpoint and then write down the name of it.  Then, paste the code, set the parameters, add the word widget to content keywords, and save it.  From there, you need to go into Admin ~ Advanced ~ HomePage widget and add this as a widget to have it appear on the homepage.
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Anniversaries)
+
 <details>
 <summary><strong>Anniversary Main Screen</strong></summary>
 <p>You can click through months to show past and upcoming anniversaries.</p>
@@ -223,6 +233,8 @@ Advantages
 
 - ⚙️ **Implementation Level: Easy-Moderate
 - 🧩 **Installation: This is an easy script to implement. The most complicated parts are getting Google Maps and Census API keys.
+
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Geographic%20Distribution%20Map)
 
 <details>
 <summary><strong>Tag Areas</strong></summary>
@@ -263,6 +275,8 @@ Key Capabilities:
 - ⚙️ Implementation Level: Moderate - Requires SQL knowledge for program ID configuration
 - 🧩 Installation: Upload as Python script, configure excluded program IDs and thresholds for your church's structure
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Lapsed%20Attenders)
+
 <details>
 <summary><strong>Lapsed Attender Dashboard Screenshot</strong></summary>
 <p>Interactive dashboard showing statistical analysis with priority levels, contact status tracking, and bulk action capabilities. Each person's deviation from their normal attendance pattern is calculated and displayed with visual priority indicators.</p>
@@ -288,6 +302,8 @@ Key Features:
 - Predictive Analytics - Trend lines showing projected membership based on current patterns
 - Campus Breakdown - Filter and compare metrics across multiple locations
 - Export Capabilities - Download detailed data for further analysis
+
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Membership%20Analysis)
 
 <details>
 <summary><strong>Report Example</strong></summary>
@@ -325,6 +341,8 @@ Key Features:
 - Engagement Journey - Visual timeline of each member's spiritual milestones
 - Ministry Involvements - Shows all current ministry connections
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/New%20Member%20Report)
+
 <details>
 <summary><strong>Main Screen</strong></summary>
 <p>Key new member metrics.</p>
@@ -354,6 +372,8 @@ The Auxiliary to Group Analytics dashboard helps churches analyze how effectivel
 - ⚙️ Implementation Level: Easy
 - 🧩 **Installation: Minimal configuration required. Edit the CHURCH_PROGRAM_ID (your Group program ID) and update the PROGRAM_IDS dictionary with your specific programs to analyze. The tool uses actual attendance data from the Attend table to ensure accurate metrics.
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Auxiliary%20to%20Group%20Analytics)
+
 <details>
 <summary><strong>Dashboard Overview</strong></summary>
 <p>Example overall and specific group summary</p>
@@ -367,6 +387,8 @@ Centralized dashboard for viewing and analyzing email and SMS communications.  T
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
+
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Communication%20Dashboard)
 
 <details>
 <summary><strong>Dashboard Overview</strong></summary>
@@ -413,6 +435,8 @@ This is like Kenny Rogers of tools in that it helps you know "when to hold them"
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
+
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Activity%20Dashboard)
 
 <details>
 <summary><strong>Overview</strong></summary>
@@ -468,6 +492,8 @@ I developed this to understand TaskNote activity, who has open assignments, keyw
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/TaskNote%20Activity%20Dashboard)
+
 <details>
 <summary><strong>Overview</strong></summary>
 <p>Overall view of Task and Notes</p>
@@ -514,6 +540,8 @@ This is to help get an idea of user activity levels based on the activity log ta
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with only one configuration option that you might want to consider: OFFICE_IP_ADDRESSES configuration option determines if people are working in the office or outside the office if you configure it with your network ip addresses.  
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/User%20Activity)
+
 <details>
 <summary><strong>Overview</strong></summary>
 <p>Gives an overview of the number of changes in the database and who are the top active users.</p>
@@ -556,7 +584,9 @@ This is to help get an idea of user activity levels based on the activity log ta
 This report is still being built, but it is Week at a Glance (WAAG) 2.0 for at least us. The most significant changes are that it compares previous periods and introduces new concepts for tracking metrics with various comparisons.  One of the concepts for WAAG 2.0 is enrollment vs attendance metrics for our connect groups (Sunday School).  This allows us to track the need for outreach or inreach for each ministry area.  Another one is tracking total attendance for either the configured fiscal year or calendar year to the previous period, which helps determine as a whole if you are are up/down.
 
 - ⚙️ **Implementation Level: Easy-Moderate
-- 🧩 **Installation: Most items of this script works, but is still being developed and might contain a few bugs.  Installation is fairly easy, but with the amount of options it can make it seem overwhelming.  
+- 🧩 **Installation: Most items of this script works, but is still being developed and might contain a few bugs.  Installation is fairly easy, but with the amount of options it can make it seem overwhelming.
+
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Weekly%20Attendance)
 
 <details>
 <summary><strong>KPI's</strong></summary>
@@ -601,6 +631,8 @@ This Python dashboard provides advanced security analytics, automated threat det
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
+
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Account%20Security%20Monitor)
 
 <details>
 <summary><strong>🎯 Dashboard</strong></summary>
@@ -657,6 +689,8 @@ Monitors the completeness of the database demographics and what might be missing
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Data%20Quality%20Dashboard)
+
 <details>
 <summary><strong>Overview</strong></summary>
 <p>Shows record count and percentages of missing data areas.</p>
@@ -690,6 +724,8 @@ Provides an emergency list for off-site, camps, and events that provides a singl
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation:  There are a couple of configuration options, but this is a paste-and-go script.
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Emergency%20List)
+
 <details>
 <summary><strong>Overview</strong></summary>
 <p>Report look</p>
@@ -709,6 +745,8 @@ A finance tool that automatically identifies and reports on all TouchPoint invol
 - Creator Analytics: See who's creating fee-based involvements and their total impact
 - Date Range Filtering: Default 30-day view with customizable date ranges
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvements%20with%20Fees)
+
 <details>
 <summary><strong>Main Screen</strong></summary>
 <p align="center">
@@ -721,6 +759,8 @@ This is one of my favorite tools for understanding the structure of programs, di
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
+
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure)
 
 <details>
 <summary><strong>Main Screen</strong></summary>
@@ -735,6 +775,8 @@ Export registrations from multiple or single involvements.
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
+
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export)
 
 <details>
 <summary><strong>Registration Selection or Typed-In</strong></summary>
@@ -780,6 +822,8 @@ Note: This will <b>not</b> print badges, as those modules from TP are not expose
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with just a couple of configuration items
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/FastLaneCheckIn)
+
 <details>
 <summary><strong>Select Groups</strong></summary>
 <p>Filter by program, select email notification if needed, and then 1 or more groups.</p>
@@ -823,6 +867,8 @@ Key Features:
 - Financial Reconciliation - Track payments and outstanding balances
 - Post-Trip Reporting - Statistics
 - Multi-Trip Participants - Identify and track people serving on multiple trips
+
+[Code](https://github.com/bswaby/Touchpoint/tree/main/Missions/MissionsDashboard)
 
 <details>
 <summary><strong>Dashboard</strong></summary>
@@ -869,6 +915,8 @@ Simple download tool allows you to download all documents from an involvement re
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator)
+
 <details>
 <summary><strong>Download attachments</strong></summary>
 <p>Download attachments in bulk, individually, or selected.</p>
@@ -882,6 +930,8 @@ Provides a quick method to see owners of involvements to help with auditing or a
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
+
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Owner%20Audit)
 
 <details>
 <summary><strong>Involvement Owner Audit Tool</strong></summary>
@@ -897,6 +947,8 @@ This provides an easy method to sync a primary involvement to a secondary. It ca
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script, with the only configuration needed to schedule it to run.
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Sync)
+
 <details>
 <summary><strong>Involvement Sync Main Screen</strong></summary>
 <p><i>Setup a new sync, edit and existing sync, or manually sync</i></p>
@@ -910,6 +962,8 @@ This admin-only tool helps you create a pre-authenticated link that will "automa
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
+
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator)
 
 <details>
 <summary><strong>Person Selection</strong></summary>
@@ -973,6 +1027,8 @@ SCRIPT_NAME = 'TPxi_LiveSearch'  # Must match your upload name
 SHOW_GIVING_IN_JOURNEY = False  # Enable/disable giving in timeline
 ```
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Live%20Search)
+
 <details>
 <summary><strong>Main Interface</strong></summary>
 <p align="center">
@@ -1007,6 +1063,7 @@ This is a quick way to get failed prints, today's print stats, login failures, a
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
 
+[Code](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)
 
 <details>
 <summary><strong>Overview</strong></summary>
@@ -1083,6 +1140,8 @@ The Involvement Dashboard provides church leaders a comprehensive overview of al
 - 🔴 **Overdue**: No meetings in 30+ days
 - ⚫ **No Meetings**: Organizations without recorded meetings
 
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Widget%20Involvement%20Dashboard)
+
 <details>
 <summary><strong>Main Screen</strong></summary>
 <p align="center">
@@ -1095,6 +1154,8 @@ This provides quick-access links for users to get to things quickly.  The links 
 
 - ⚙️ **Implementation Level: Moderate-Advanced
 - 🧩 **Installation: While the overall implementation is not overly complicated, using the count overlay and understanding how some of the configuration parameters go in can take moderate to advanced knowledge. 
+
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Widget%20QuickLinks)
 
 <details>
 <summary><strong>Example</strong></summary>
