@@ -925,13 +925,13 @@ Simple download tool allows you to download all documents from an involvement re
 </p>
 </details>
 
-### 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Owner%20Audit)
+### 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Notification%20Audit%20Tool)
 Provides a quick method to see owners of involvements to help with auditing or a leader/staff changeover. 
 
 - ⚙️ **Implementation Level: Easy
 - 🧩 **Installation: This is a paste-and-go Python script with no configuration needed.  
 
-[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Owner%20Audit)
+[Code](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Notification%20Audit%20Tool)
 
 <details>
 <summary><strong>Involvement Owner Audit Tool</strong></summary>
