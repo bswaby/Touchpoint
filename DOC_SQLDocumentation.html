@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TouchPoint SQL Database Reference - Ben Swaby</title>
+    <title>TouchPoint SQL Database Complete Reference Guide</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -18,30 +18,39 @@
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 30px;
+            padding: 40px;
             border-radius: 10px;
             margin-bottom: 30px;
             text-align: center;
         }
         
         .header h1 {
-            margin: 0 0 10px 0;
-            font-size: 2.5em;
+            margin: 0 0 15px 0;
+            font-size: 2.8em;
             font-weight: 700;
         }
         
         .header .subtitle {
-            font-size: 1.2em;
-            opacity: 0.9;
-            margin: 0;
+            font-size: 1.3em;
+            opacity: 0.95;
+            margin: 0 0 20px 0;
         }
         
-        .about-section {
-            background: #e2e8f0;
-            padding: 20px;
-            border-radius: 8px;
+        .header .version {
+            font-size: 1em;
+            opacity: 0.9;
+            background: rgba(255,255,255,0.2);
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+        }
+        
+        .intro-section {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
             margin-bottom: 30px;
-            border-left: 4px solid #4299e1;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
         
         .warning {
@@ -52,9 +61,25 @@
             margin: 20px 0;
         }
         
+        .info {
+            background: #bee3f8;
+            border: 2px solid #3182ce;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .success {
+            background: #c6f6d5;
+            border: 2px solid #38a169;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
         .toc {
             background: white;
-            padding: 25px;
+            padding: 30px;
             border-radius: 10px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             margin-bottom: 30px;
@@ -63,8 +88,16 @@
         .toc h2 {
             margin-top: 0;
             color: #2d3748;
-            border-bottom: 2px solid #4299e1;
+            border-bottom: 3px solid #4299e1;
             padding-bottom: 10px;
+            font-size: 2em;
+        }
+        
+        .toc h3 {
+            color: #4299e1;
+            margin-top: 25px;
+            margin-bottom: 10px;
+            font-size: 1.3em;
         }
         
         .toc ul {
@@ -74,25 +107,32 @@
         
         .toc li {
             margin: 8px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+        
+        .toc li:before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #4299e1;
         }
         
         .toc a {
             color: #4299e1;
             text-decoration: none;
             font-weight: 500;
-            padding: 5px 10px;
-            border-radius: 5px;
-            transition: background-color 0.2s;
+            transition: all 0.2s;
         }
         
         .toc a:hover {
-            background: #ebf8ff;
+            color: #2c5282;
             text-decoration: underline;
         }
         
         .section {
             background: white;
-            padding: 25px;
+            padding: 30px;
             border-radius: 10px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
             margin-bottom: 30px;
@@ -103,91 +143,73 @@
         }
         
         h2 {
-            border-bottom: 2px solid #4299e1;
+            border-bottom: 3px solid #4299e1;
             padding-bottom: 10px;
             margin-top: 0;
+            font-size: 1.8em;
         }
         
         h3 {
             color: #4299e1;
             margin-top: 25px;
+            font-size: 1.4em;
         }
         
-        /* Enhanced pre and code styles for GitHub Pages compatibility */
+        h4 {
+            color: #4a5568;
+            margin-top: 20px;
+            font-size: 1.2em;
+        }
+        
         pre {
             background: #2d3748 !important;
-            background-color: #2d3748 !important;
             color: #e2e8f0 !important;
-            padding: 15px !important;
+            padding: 20px !important;
             border-radius: 8px !important;
             overflow-x: auto !important;
-            font-family: 'SF Mono', Monaco, 'Inconsolata', 'Roboto Mono', Consolas, 'Droid Sans Mono', monospace !important;
-            line-height: 1.4 !important;
-            border: none !important;
-            margin: 15px 0 !important;
+            font-family: 'SF Mono', Monaco, 'Inconsolata', 'Roboto Mono', Consolas, monospace !important;
+            line-height: 1.5 !important;
+            font-size: 0.95em !important;
             position: relative;
-            display: block !important;
+            margin: 15px 0 !important;
         }
         
         pre code {
             background: transparent !important;
-            background-color: transparent !important;
             color: #e2e8f0 !important;
             padding: 0 !important;
-            border-radius: 0 !important;
-            font-family: inherit !important;
-            font-size: 0.95em !important;
-            line-height: inherit !important;
-            border: none !important;
-            display: block !important;
+            font-size: inherit !important;
         }
         
-        /* Inline code (not in pre blocks) */
         :not(pre) > code {
             background: #edf2f7 !important;
-            background-color: #edf2f7 !important;
-            padding: 2px 6px !important;
+            padding: 3px 6px !important;
             border-radius: 4px !important;
             font-family: 'SF Mono', Monaco, monospace !important;
             color: #e53e3e !important;
             font-size: 0.9em !important;
         }
         
-        /* Override GitHub Pages' .highlight class if present */
-        .highlight pre {
-            background: #2d3748 !important;
-            background-color: #2d3748 !important;
-        }
-        
-        /* Custom highlight boxes (not code) */
-        div.highlight {
-            background: #fef5e7;
-            border-left: 4px solid #ed8936;
-            padding: 15px;
-            margin: 15px 0;
-            border-radius: 0 8px 8px 0;
-        }
-        
         .critical {
             background: #fed7e2;
-            border-left: 4px solid #e53e3e;
+            border-left: 5px solid #e53e3e;
             padding: 15px;
-            margin: 15px 0;
+            margin: 20px 0;
             border-radius: 0 8px 8px 0;
         }
         
-        .success {
-            background: #f0fff4;
-            border-left: 4px solid #38a169;
+        .highlight {
+            background: #fef5e7;
+            border-left: 5px solid #ed8936;
             padding: 15px;
-            margin: 15px 0;
+            margin: 20px 0;
             border-radius: 0 8px 8px 0;
         }
         
         table {
             width: 100%;
             border-collapse: collapse;
-            margin: 15px 0;
+            margin: 20px 0;
             background: white;
         }
         
@@ -209,54 +231,105 @@
         
         .back-to-top {
             position: fixed;
-            bottom: 20px;
-            right: 20px;
+            bottom: 30px;
+            right: 30px;
             background: #4299e1;
             color: white;
-            padding: 10px 15px;
+            padding: 12px 20px;
             border-radius: 50px;
             text-decoration: none;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            transition: background-color 0.2s;
+            transition: all 0.3s;
+            font-weight: 600;
+            z-index: 1000;
         }
         
         .back-to-top:hover {
             background: #3182ce;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
         }
         
-        /* Copy button styling - Enhanced for visibility */
         .copy-button {
-            position: absolute !important;
-            top: 10px !important;
-            right: 10px !important;
-            background: #4299e1 !important;
-            background-color: #4299e1 !important;
-            color: white !important;
-            border: none !important;
-            padding: 5px 10px !important;
-            border-radius: 4px !important;
-            cursor: pointer !important;
-            font-size: 12px !important;
-            z-index: 1000 !important;
-            display: block !important;
-            opacity: 1 !important;
-            visibility: visible !important;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-            font-weight: 500 !important;
-            text-transform: none !important;
-            line-height: 1.2 !important;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #4299e1;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s;
         }
         
         .copy-button:hover {
-            background: #3182ce !important;
-            background-color: #3182ce !important;
-            transform: translateY(-1px) !important;
-            box-shadow: 0 3px 6px rgba(0,0,0,0.3) !important;
+            background: #3182ce;
         }
         
-        .copy-button:active {
-            transform: translateY(0) !important;
+        .field-table {
+            font-size: 0.95em;
+        }
+        
+        .field-table th:first-child {
+            width: 25%;
+        }
+        
+        .field-table th:nth-child(2) {
+            width: 15%;
+        }
+        
+        .field-table code {
+            font-size: 0.9em !important;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        
+        .badge-critical {
+            background: #fed7e2;
+            color: #c53030;
+        }
+        
+        .badge-new {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+        
+        .badge-performance {
+            background: #fef5e7;
+            color: #c05621;
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            
+            .header {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .section, .toc {
+                padding: 20px;
+            }
+            
+            pre {
+                padding: 15px !important;
+                font-size: 0.85em !important;
+            }
         }
         
         @media print {
@@ -264,6 +337,7 @@
             .section { box-shadow: none; border: 1px solid #e2e8f0; }
             .back-to-top { display: none; }
             .copy-button { display: none; }
+            .toc { page-break-after: always; }
         }
     </style>
 </head>
@@ -271,1176 +345,3432 @@
 
 <div class="header">
     <h1>TouchPoint SQL Database Reference</h1>
-    <p class="subtitle">Ben Swaby's Definitive Guide to TouchPoint's 378-Table (and counting) Database</p>
+    <p class="subtitle">The Complete Guide to TouchPoint's Church Management Database</p>
+    <div class="version">Version 2.0 - January 2025</div>
 </div>
 
-<div class="about-section">
-    <h3>📧 About This Guide</h3>
-    <p><strong>Author:</strong> Ben Swaby (<a href="mailto:bswaby@fbchtn.org">bswaby@fbchtn.org</a>)<br>
-    <strong>Focus:</strong> SQL Database Schema & Query Reference Only<br>
-    <strong>Important Limitations:</strong> This guide covers TouchPoint's SQL database structure for <strong>read-only queries</strong> and analysis.</p>
+<div class="intro-section">
+    <h2>📚 About This Guide</h2>
+    <p>This comprehensive reference documents TouchPoint's extensive SQL database structure, providing churches and developers with the knowledge needed to effectively query and understand their church management data. Created to help churches maximize their use of TouchPoint's powerful database system.</p>
     
-    <div class="critical">
-        <h4>🚨 Critical Database Access Limitations</h4>
-        <p><strong>READ-ONLY ACCESS:</strong> TouchPoint's SQL interface provides <strong>read-only access</strong> to the database. You <strong>CANNOT</strong>:</p>
+    <div class="info">
+        <h3>👥 Who This Guide Is For</h3>
         <ul>
-            <li>❌ INSERT new records</li>
-            <li>❌ UPDATE existing data</li>
-            <li>❌ DELETE records</li>
-            <li>❌ MODIFY any database structure</li>
-            <li>❌ Execute stored procedures that change data</li>
+            <li><strong>Church Database Administrators</strong> - Managing and querying church data</li>
+            <li><strong>Report Writers</strong> - Creating custom reports and analytics</li>
+            <li><strong>Developers</strong> - Building integrations and custom solutions</li>
+            <li><strong>Church Leadership</strong> - Understanding data capabilities</li>
         </ul>
-        
-        <p><strong>For Data Modifications:</strong> All data changes (adding people, updating records, creating organizations, etc.) must be done through:</p>
+    </div>
+    
+    <div class="warning">
+        <h3>⚠️ Critical: TouchPoint SQL is READ-ONLY</h3>
+        <p><strong>The SQL interface provides READ-ONLY access to the database.</strong> You cannot INSERT, UPDATE, or DELETE records through SQL. All data modifications must be done through:</p>
         <ul>
-            <li>✅ <strong>TouchPoint's Python scripting system</strong></li>
-            <li>✅ <strong>TouchPoint's web interface</strong></li>
-            <li>✅ <strong>TouchPoint's mobile app</strong></li>
-            <li>✅ <strong>TouchPoint's API endpoints</strong></li>
+            <li>✅ TouchPoint's web interface</li>
+            <li>✅ TouchPoint's Python scripting system</li>
+            <li>✅ TouchPoint's API endpoints</li>
+            <li>✅ TouchPoint's mobile app</li>
         </ul>
-        
-        <p><strong>This Guide's Purpose:</strong> Understand database structure, build reports, create analytics, and extract data for external systems using SQL SELECT statements only.</p>
+        <p>This guide focuses on SELECT queries for reporting, analysis, and data extraction.</p>
+    </div>
+    
+    <div class="success">
+        <h3>✨ What's New in Version 2.0</h3>
+        <ul>
+            <li>📊 Complete coverage of all 378 tables and 3,364 columns</li>
+            <li>🚀 Performance guidelines for tables with millions of records</li>
+            <li>🔧 Advanced systems documentation (Tags, Email, Engagement)</li>
+            <li>📝 Registration and Check-in system details</li>
+            <li>🎛️ Custom field system (Extra Values) documentation</li>
+            <li>📱 Mobile app integration fields</li>
+            <li>✅ Corrected OrganizationStatusId values and other critical fixes</li>
+        </ul>
     </div>
 </div>
 
 <div class="toc">
-    <h2>📚 Table of Contents</h2>
+    <h2>📖 Table of Contents</h2>
     
-    <h3>🚀 Quick Start</h3>
+    <h3>🚀 Getting Started</h3>
     <ul>
-        <li><a href="#database-overview">Database Overview & Scale</a></li>
-        <li><a href="#critical-rules">Critical Business Rules (READ FIRST)</a></li>
-        <li><a href="#essential-filters">Essential Filters & Safety Rules</a></li>
-        <li><a href="#common-queries">Most Common Queries (80% of Use Cases)</a></li>
+        <li><a href="#database-overview">Database Overview & Architecture</a></li>
+        <li><a href="#critical-rules">Critical Business Rules - READ THIS FIRST</a></li>
+        <li><a href="#performance-guidelines">Performance Guidelines & Large Table Warnings</a></li>
+        <li><a href="#common-queries">Most Common Queries (Quick Reference)</a></li>
     </ul>
 
     <h3>👥 People & Families</h3>
     <ul>
-        <li><a href="#people-table">People Table - "Single Source of Truth"</a></li>
-        <li><a href="#family-relationships">Family Relationships & Structures</a></li>
-        <li><a href="#contact-info">Contact Information & Communication Preferences</a></li>
-        <li><a href="#membership-status">Church Membership & Status Tracking</a></li>
+        <li><a href="#people-table">People Table - Complete Reference</a></li>
+        <li><a href="#family-structure">Family Relationships & Household Management</a></li>
+        <li><a href="#contact-permissions">Contact Information & Communication Permissions</a></li>
+        <li><a href="#membership-workflow">Church Membership Status & Workflow</a></li>
     </ul>
 
-    <h3>🏛️ Organizations & Ministry</h3>
+    <h3>🏛️ Organizations & Groups</h3>
     <ul>
-        <li><a href="#organizations-table">Organizations Table - "Involvements"</a></li>
-        <li><a href="#organization-membership">Organization Membership & Roles</a></li>
-        <li><a href="#program-hierarchy">Program → Division → Organization Hierarchy</a></li>
+        <li><a href="#organizations-table">Organizations Table (Involvements)</a></li>
+        <li><a href="#organization-members">Organization Membership & Roles</a></li>
+        <li><a href="#program-hierarchy">Program → Division → Organization Structure</a></li>
+        <li><a href="#organization-types">Organization Types & Classification</a></li>
     </ul>
 
     <h3>📅 Attendance & Meetings</h3>
     <ul>
-        <li><a href="#attend-table">Attend Table - The AttendanceFlag=1 Rule</a></li>
-        <li><a href="#meetings-table">Meetings & Event Scheduling</a></li>
-        <li><a href="#checkin-system">Check-In System Tables</a></li>
+        <li><a href="#attend-table">Attend Table - The AttendanceFlag Rule</a></li>
+        <li><a href="#meetings-table">Meetings & Scheduling</a></li>
+        <li><a href="#attendance-types">Attendance Types & Classifications</a></li>
+        <li><a href="#attendance-analytics">Attendance Analytics & Patterns</a></li>
     </ul>
 
-    <h3>💰 Financial & Giving</h3>
+    <h3>💰 Financial & Contributions</h3>
     <ul>
         <li><a href="#contribution-table">Contribution Table - The TypeId≠99 Rule</a></li>
-        <li><a href="#financial-processing">Financial Processing & Batch System</a></li>
-        <li><a href="#outstanding-payments">Outstanding Payments & Fee Tracking</a></li>
+        <li><a href="#contribution-funds">Funds & Designations</a></li>
+        <li><a href="#bundle-system">Bundle & Batch Processing</a></li>
+        <li><a href="#transaction-system">Transactions & Outstanding Balances</a></li>
     </ul>
 
     <h3>📝 Events & Registration</h3>
     <ul>
-        <li><a href="#registration-flow">Registration System Flow</a></li>
-        <li><a href="#form-questions">Form Questions & Responses</a></li>
-        <li><a href="#event-management">Event Management Tables</a></li>
+        <li><a href="#registration-system">Registration System Architecture</a></li>
+        <li><a href="#registration-questions">Custom Forms & Questions</a></li>
+        <li><a href="#registration-fees">Registration Fees & Payments</a></li>
+        <li><a href="#event-management">Event Management & Scheduling</a></li>
+    </ul>
+
+    <h3>🎫 Check-In System</h3>
+    <ul>
+        <li><a href="#checkin-overview">Check-In System Overview</a></li>
+        <li><a href="#checkin-activity">Check-In Activity & Times</a></li>
+        <li><a href="#checkin-configuration">Check-In Configuration & Settings</a></li>
+        <li><a href="#barcode-system">Barcode & Security Labels</a></li>
     </ul>
 
     <h3>📧 Communication Systems</h3>
     <ul>
         <li><a href="#email-system">Email Marketing System (3.9M+ records)</a></li>
-        <li><a href="#sms-system">SMS/Text Messaging</a></li>
-        <li><a href="#task-communication">Task & Ministry Communication</a></li>
+        <li><a href="#sms-system">SMS/Text Messaging System</a></li>
+        <li><a href="#task-system">Tasks & Ministry Communication</a></li>
+        <li><a href="#notification-preferences">Notification Preferences & Opt-outs</a></li>
     </ul>
 
     <h3>📊 Advanced Analytics</h3>
     <ul>
         <li><a href="#engagement-scoring">Engagement Scoring System (1.4M+ records)</a></li>
         <li><a href="#tag-system">Tag System (138M+ records)</a></li>
-        <li><a href="#activity-logging">Activity Logging & Change Tracking</a></li>
+        <li><a href="#activity-logging">Activity Logging & Audit Trail</a></li>
+        <li><a href="#change-tracking">Change Tracking & History</a></li>
     </ul>
 
-    <h3>🔧 System Administration</h3>
+    <h3>🎛️ Customization Systems</h3>
     <ul>
-        <li><a href="#users-security">Users, Roles & Security</a></li>
+        <li><a href="#extra-values">Extra Value Tables (Custom Fields)</a></li>
+        <li><a href="#lookup-tables">Lookup Tables Reference (67+ tables)</a></li>
         <li><a href="#settings-framework">Settings & Configuration Framework</a></li>
         <li><a href="#content-management">Content & Template Management</a></li>
     </ul>
 
     <h3>📱 Mobile & Integration</h3>
     <ul>
-        <li><a href="#mobile-config">Mobile App Configuration Tables</a></li>
-        <li><a href="#picture-management">Picture & Media Management</a></li>
+        <li><a href="#mobile-app">Mobile App Configuration</a></li>
+        <li><a href="#picture-system">Picture & Media Management</a></li>
         <li><a href="#search-optimization">Search Optimization System</a></li>
+        <li><a href="#api-integration">API Integration Points</a></li>
     </ul>
 
-    <h3>🎛️ Customization Systems</h3>
+    <h3>🔐 Security & Administration</h3>
     <ul>
-        <li><a href="#extra-value-tables">Extra Value Tables (17+ tables)</a></li>
-        <li><a href="#lookup-tables">Lookup Tables Reference (67+ tables)</a></li>
-        <li><a href="#church-customizations">Church-Specific Customizations</a></li>
+        <li><a href="#users-roles">Users, Roles & Permissions</a></li>
+        <li><a href="#security-settings">Security Settings & Access Control</a></li>
+        <li><a href="#data-privacy">Data Privacy & Protection</a></li>
     </ul>
 
-    <h3>⚡ Performance & Best Practices</h3>
+    <h3>📈 Reporting & Analytics</h3>
     <ul>
-        <li><a href="#performance-guidelines">Query Performance Guidelines</a></li>
-        <li><a href="#common-patterns">Common Query Patterns</a></li>
-        <li><a href="#troubleshooting">Troubleshooting & Data Quality</a></li>
+        <li><a href="#common-reports">Common Report Patterns</a></li>
+        <li><a href="#dashboard-queries">Dashboard & KPI Queries</a></li>
+        <li><a href="#growth-analytics">Growth & Trend Analytics</a></li>
+        <li><a href="#financial-reports">Financial Reporting Queries</a></li>
     </ul>
 
-    <h3>🔍 Quick Reference</h3>
+    <h3>🔧 Reference & Troubleshooting</h3>
     <ul>
-        <li><a href="#relationships-diagram">Essential Table Relationships Diagram</a></li>
-        <li><a href="#filter-checklist">Mandatory Filter Checklist</a></li>
-        <li><a href="#large-table-warnings">Large Table Warning List</a></li>
+        <li><a href="#field-reference">Complete Field Reference</a></li>
+        <li><a href="#relationship-diagram">Table Relationship Diagrams</a></li>
+        <li><a href="#common-issues">Common Issues & Solutions</a></li>
+        <li><a href="#best-practices">Best Practices & Tips</a></li>
     </ul>
 </div>
 
 <div id="database-overview" class="section">
-    <h2>📊 Database Overview & Scale</h2>
+    <h2>📊 Database Overview & Architecture</h2>
     
-    <p>TouchPoint is a comprehensive church management system with a massive, enterprise-level database containing <strong>378 tables and 3,364 columns</strong>. Far more extensive than typical documentation suggests, this is one of the largest church management databases available.</p>
+    <p>TouchPoint is an enterprise-level church management system with one of the most comprehensive databases in the church software industry. Understanding its scale and architecture is crucial for effective use.</p>
 
+    <h3>🏗️ Database Scale</h3>
+    <table>
+        <tr>
+            <th>Metric</th>
+            <th>Count</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><strong>Total Tables</strong></td>
+            <td>378</td>
+            <td>Complete system coverage from people to analytics</td>
+        </tr>
+        <tr>
+            <td><strong>Total Columns</strong></td>
+            <td>3,364</td>
+            <td>Extensive data points for comprehensive tracking</td>
+        </tr>
+        <tr>
+            <td><strong>Foreign Keys</strong></td>
+            <td>452</td>
+            <td>Complex relationships ensuring data integrity</td>
+        </tr>
+        <tr>
+            <td><strong>Lookup Tables</strong></td>
+            <td>67</td>
+            <td>Business logic and validation rules</td>
+        </tr>
+        <tr>
+            <td><strong>Extra Value Tables</strong></td>
+            <td>17</td>
+            <td>Unlimited custom field capabilities</td>
+        </tr>
+        <tr>
+            <td><strong>Stored Procedures</strong></td>
+            <td>495</td>
+            <td>Complex operations and reporting</td>
+        </tr>
+    </table>
+
+    <h3>📈 Production Data Volumes</h3>
     <div class="highlight">
-        <h4>🏗️ Database Architecture:</h4>
-        <ul>
-            <li><strong>378 total tables</strong> with complex relationships</li>
-            <li><strong>3,364 columns</strong> across all tables</li>
-            <li><strong>452 foreign key relationships</strong> ensuring data integrity</li>
-            <li><strong>67 lookup tables</strong> providing business logic</li>
-            <li><strong>17 extra value tables</strong> for unlimited customization</li>
-            <li><strong>20 special content tables</strong> for system configuration</li>
-            <li><strong>495 stored procedures</strong> for complex operations</li>
-        </ul>
+        <p><strong>Real-world production databases can contain massive data volumes:</strong></p>
+        <table>
+            <tr>
+                <th>Table</th>
+                <th>Record Count</th>
+                <th>Purpose</th>
+                <th>Performance Impact</th>
+            </tr>
+            <tr>
+                <td><code>TagPerson</code></td>
+                <td>138M+</td>
+                <td>Flexible categorization</td>
+                <td><span class="badge badge-critical">EXTREME</span></td>
+            </tr>
+            <tr>
+                <td><code>EmailResponses</code></td>
+                <td>3.9M+</td>
+                <td>Email engagement tracking</td>
+                <td><span class="badge badge-critical">HIGH</span></td>
+            </tr>
+            <tr>
+                <td><code>EmailQueueTo</code></td>
+                <td>3.8M+</td>
+                <td>Email recipients</td>
+                <td><span class="badge badge-critical">HIGH</span></td>
+            </tr>
+            <tr>
+                <td><code>ActivityLog</code></td>
+                <td>3.4M+</td>
+                <td>Audit trail</td>
+                <td><span class="badge badge-critical">HIGH</span></td>
+            </tr>
+            <tr>
+                <td><code>PeopleSearchTokens</code></td>
+                <td>1.7M+</td>
+                <td>Search optimization</td>
+                <td><span class="badge badge-performance">MEDIUM</span></td>
+            </tr>
+            <tr>
+                <td><code>EngagementScoreTag</code></td>
+                <td>1.4M+</td>
+                <td>Activity scoring</td>
+                <td><span class="badge badge-performance">MEDIUM</span></td>
+            </tr>
+            <tr>
+                <td><code>Attend</code></td>
+                <td>1.2M+</td>
+                <td>Attendance records</td>
+                <td><span class="badge badge-performance">MEDIUM</span></td>
+            </tr>
+            <tr>
+                <td><code>Contribution</code></td>
+                <td>673K+</td>
+                <td>Financial giving</td>
+                <td>LOW</td>
+            </tr>
+        </table>
     </div>
 
-    <div class="success">
-        <h4>📈 Massive Data Volumes (Real Production Scale):</h4>
-        <ul>
-            <li><strong>138M+ records:</strong> TagPerson (flexible categorization system)</li>
-            <li><strong>3.9M+ records:</strong> EmailResponses (email engagement tracking)</li>
-            <li><strong>3.8M+ records:</strong> EmailQueueTo (email recipients)</li>
-            <li><strong>3.4M+ records:</strong> ActivityLog (comprehensive audit trail)</li>
-            <li><strong>1.7M+ records:</strong> PeopleSearchTokens (search optimization)</li>
-            <li><strong>1.4M+ records:</strong> EngagementScoreTag (activity scoring details)</li>
-            <li><strong>1.2M+ records:</strong> Attend (attendance tracking)</li>
-            <li><strong>673K+ records:</strong> Contribution (financial giving)</li>
-            <li><strong>498K+ records:</strong> ChangeDetails (field-level change tracking)</li>
-            <li><strong>313K+ records:</strong> CheckInActivity & CheckInTimes (check-in system)</li>
-        </ul>
-    </div>
+    <h3>🏛️ Core System Architecture</h3>
+    <pre><code>-- Core Entity Relationships
+People (PeopleId) 
+    ├── FamilyId → Groups family members
+    ├── SpouseId → Direct spouse link
+    └── OrganizationMembers → Group participation
+        └── Organizations (OrganizationId)
+            ├── Meetings → Scheduled events
+            └── Attend → Attendance records
+
+People (PeopleId)
+    ├── Contribution → Financial giving
+    │   └── ContributionFund → Designated funds
+    ├── TaskNote → Tasks and notes
+    └── Registration → Event signups
+        └── RegPeople → Participants
+            └── RegAnswer → Form responses</code></pre>
 </div>
 
 <div id="critical-rules" class="section">
-    <h2>🚨 Critical Business Rules (READ FIRST)</h2>
+    <h2>🚨 Critical Business Rules - READ THIS FIRST</h2>
     
     <div class="critical">
-        <h3>⚠️ ALWAYS Use TOP Clause for Initial Queries</h3>
-        <p><strong>CRITICAL:</strong> TouchPoint's database contains millions of records. Always use <code>TOP 100</code> or <code>TOP 1000</code> when exploring data to prevent timeouts and performance issues. Only remove the TOP clause when you need complete datasets for specific reports.</p>
-        <pre><code>-- ✅ ALWAYS start with TOP for exploration
+        <h3>⚠️ Rule #1: ALWAYS Use TOP Clause for Exploration</h3>
+        <p>TouchPoint databases can contain millions of records. <strong>Never run unlimited queries without the TOP clause</strong> during exploration or testing.</p>
+        <pre><code>-- ✅ CORRECT: Always start with TOP
 SELECT TOP 100 * FROM People WHERE IsDeceased = 0 AND ArchivedFlag = 0
 
--- ❌ NEVER run unlimited queries on large tables without filters
-SELECT * FROM TagPerson  -- This has 138M+ records!</code></pre>
+-- ❌ WRONG: Never run unlimited on large tables
+SELECT * FROM TagPerson  -- This table has 138M+ records!</code></pre>
     </div>
-    
+
     <div class="critical">
-        <h3>⚠️ Mandatory Filters (Apply to EVERY Query)</h3>
-        <pre><code>-- 🚨 CRITICAL: Always filter active people
+        <h3>⚠️ Rule #2: Mandatory Filters for Every Query</h3>
+        <pre><code>-- 🚨 FILTER #1: Active People Only
 WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
 
--- 🚨 CRITICAL: AttendanceFlag = 1 for actual attendance
-WHERE a.AttendanceFlag = 1
+-- 🚨 FILTER #2: Actual Attendance (not absences)
+WHERE a.AttendanceFlag = 1  -- 1 = present, 0 = absent
 
--- 🚨 CRITICAL: Exclude event registration fees from giving reports
-WHERE c.ContributionTypeId != 99
+-- 🚨 FILTER #3: Real Donations (not event fees)
+WHERE c.ContributionTypeId != 99  -- 99 = event registration fee
 
--- ✅ RECOMMENDED: Current organization members
+-- 🚨 FILTER #4: Active Organizations
+WHERE o.OrganizationStatusId = 30  -- 30 = Active
+
+-- 🚨 FILTER #5: Current Members Only
 WHERE om.InactiveDate IS NULL
 
--- ✅ RECOMMENDED: Active organizations only
-WHERE o.OrganizationStatusId = 30
-
--- ✅ RECOMMENDED: Completed meetings (not cancelled)
+-- 🚨 FILTER #6: Completed Meetings
 WHERE m.DidNotMeet = 0</code></pre>
     </div>
 
-    <div id="essential-filters" class="highlight">
-        <h3>📋 Essential Safety Rules</h3>
-        <pre><code>-- Communication Compliance
-WHERE p.DoNotMailFlag = 0     -- Can mail
-WHERE p.DoNotCallFlag = 0     -- Can call  
-WHERE p.DoNotVisitFlag = 0    -- Can visit
-WHERE p.ReceiveSMS = 1        -- Can text
-
--- Data Quality
-WHERE p.PrimaryBadAddrFlag = 0    -- Good addresses only
-WHERE p.CellPhoneIsValid = 1      -- Valid phone numbers
-
--- Performance (for large tables)
-WHERE SomeDate >= DATEADD(month, -6, GETDATE())  -- Use date ranges</code></pre>
+    <div class="highlight">
+        <h3>📋 Communication Compliance Rules</h3>
+        <pre><code>-- Always check permissions before communication
+WHERE p.DoNotMailFlag = 0      -- Can send mail
+WHERE p.DoNotCallFlag = 0      -- Can make calls
+WHERE p.DoNotVisitFlag = 0     -- Can visit
+WHERE p.ReceiveSMS = 1         -- Can send texts
+WHERE p.SendEmailAddress1 = 1  -- Can email primary
+WHERE p.SendEmailAddress2 = 1  -- Can email secondary</code></pre>
     </div>
+
+    <div class="warning">
+        <h3>⚠️ Data Quality Filters</h3>
+        <pre><code>-- Ensure good data quality
+WHERE p.PrimaryBadAddrFlag = 0  -- Valid addresses only
+WHERE p.CellPhoneIsValid = 1    -- Valid phone numbers
+WHERE p.EmailAddress IS NOT NULL AND p.EmailAddress != ''</code></pre>
+    </div>
+</div>
+
+<div id="performance-guidelines" class="section">
+    <h2>⚡ Performance Guidelines & Large Table Warnings</h2>
+    
+    <h3>🎯 TOP Clause Usage Guidelines</h3>
+    <table>
+        <tr>
+            <th>Purpose</th>
+            <th>TOP Value</th>
+            <th>Use Case</th>
+        </tr>
+        <tr>
+            <td>Initial Exploration</td>
+            <td><code>TOP 100</code></td>
+            <td>Testing queries, understanding data structure</td>
+        </tr>
+        <tr>
+            <td>Sample Review</td>
+            <td><code>TOP 500</code></td>
+            <td>Reviewing data patterns, quality checks</td>
+        </tr>
+        <tr>
+            <td>Larger Analysis</td>
+            <td><code>TOP 1000</code></td>
+            <td>Statistical sampling, trend analysis</td>
+        </tr>
+        <tr>
+            <td>Comprehensive Sample</td>
+            <td><code>TOP 5000</code></td>
+            <td>Large samples (use with caution)</td>
+        </tr>
+        <tr>
+            <td>Full Dataset</td>
+            <td>No TOP</td>
+            <td>ONLY for final production reports after testing</td>
+        </tr>
+    </table>
+
+    <h3>🚨 High-Volume Table Requirements</h3>
+    <div class="critical">
+        <p><strong>These tables REQUIRE date filters and TOP clauses:</strong></p>
+        <pre><code>-- TagPerson (138M+ records) - EXTREME CAUTION
+SELECT TOP 100 * FROM TagPerson tp
+WHERE tp.DateCreated >= DATEADD(day, -30, GETDATE())
+
+-- EmailResponses (3.9M+ records)
+SELECT TOP 100 * FROM EmailResponses er
+WHERE er.EventTime >= DATEADD(week, -1, GETDATE())
+
+-- ActivityLog (3.4M+ records)
+SELECT TOP 100 * FROM ActivityLog al
+WHERE al.ActivityDate >= DATEADD(day, -7, GETDATE())
+
+-- EngagementScoreTag (1.4M+ records)
+SELECT TOP 100 * FROM EngagementScoreTag est
+JOIN EngagementScore es ON est.EngagementScoreId = es.Id
+WHERE es.WeekDate >= DATEADD(month, -3, GETDATE())
+
+-- EmailQueueTo (3.8M+ records)
+SELECT TOP 100 * FROM EmailQueueTo eqt
+JOIN EmailQueue eq ON eqt.EmailQueueId = eq.Id
+WHERE eq.SendAt >= DATEADD(month, -1, GETDATE())</code></pre>
+    </div>
+
+    <h3>✅ Safe Query Development Process</h3>
+    <pre><code>-- STEP 1: Start with minimal data
+SELECT TOP 10 * 
+FROM YourTable
+WHERE DateField >= DATEADD(day, -1, GETDATE())
+
+-- STEP 2: Verify query logic with small sample
+SELECT TOP 100 
+    SpecificColumns,
+    YouNeed
+FROM YourTable
+WHERE DateField >= DATEADD(week, -1, GETDATE())
+  AND OtherFilters = 'Applied'
+
+-- STEP 3: Expand sample if needed
+SELECT TOP 1000 
+    -- your final column list
+FROM YourTable
+WHERE -- all your filters
+ORDER BY -- your sort
+
+-- STEP 4: Remove TOP only for production reports
+-- after confirming performance is acceptable</code></pre>
 </div>
 
 <div id="common-queries" class="section">
-    <h2>🎯 Most Common Queries (80% of Use Cases)</h2>
+    <h2>🎯 Most Common Queries (Quick Reference)</h2>
     
-    <h3>Quick Start: Essential Patterns</h3>
-
-    <h4>👥 Who Are Our Active Members?</h4>
-    <pre><code>SELECT TOP 1000 p.Name, p.EmailAddress, p.CellPhone, ms.Description as Status
+    <h3>👥 Active Church Members</h3>
+    <pre><code>SELECT TOP 1000 
+    p.PeopleId,
+    p.Name,
+    p.EmailAddress,
+    p.CellPhone,
+    ms.Description as MemberStatus,
+    DATEDIFF(year, p.BDate, GETDATE()) as Age,
+    c.Description as Campus
 FROM People p
 JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-  AND p.MemberStatusId IN (10, 20)  -- Members and Prospects
-ORDER BY p.Name;</code></pre>
+LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+WHERE p.IsDeceased = 0 
+  AND p.ArchivedFlag = 0
+  AND p.MemberStatusId = 10  -- Members only
+ORDER BY p.Name</code></pre>
 
-    <h4>📅 Who Attended What This Week?</h4>
-    <pre><code>SELECT TOP 500 p.Name, o.OrganizationName, m.MeetingDate
-FROM People p
-JOIN Attend a ON p.PeopleId = a.PeopleId
-JOIN Meetings m ON a.MeetingId = m.MeetingId
+    <h3>📅 Recent Attendance</h3>
+    <pre><code>SELECT TOP 500
+    p.Name,
+    o.OrganizationName,
+    m.MeetingDate,
+    at.Description as AttendanceType
+FROM Attend a
+JOIN People p ON a.PeopleId = p.PeopleId
 JOIN Organizations o ON a.OrganizationId = o.OrganizationId
-WHERE a.AttendanceFlag = 1  -- CRITICAL
+JOIN Meetings m ON a.MeetingId = m.MeetingId
+JOIN lookup.AttendType at ON a.AttendanceTypeId = at.Id
+WHERE a.AttendanceFlag = 1  -- Critical: actual attendance
   AND m.MeetingDate >= DATEADD(week, -1, GETDATE())
+  AND m.DidNotMeet = 0
   AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-ORDER BY m.MeetingDate DESC;</code></pre>
+ORDER BY m.MeetingDate DESC, o.OrganizationName, p.Name</code></pre>
 
-    <h4>💰 Who Gave What This Month?</h4>
-    <pre><code>SELECT TOP 500 p.Name, cf.FundName, SUM(c.ContributionAmount) as Total
-FROM People p
-JOIN Contribution c ON p.PeopleId = c.PeopleId
+    <h3>💰 Recent Giving</h3>
+    <pre><code>SELECT TOP 500
+    p.Name,
+    c.ContributionDate,
+    c.ContributionAmount,
+    cf.FundName,
+    c.CheckNo
+FROM Contribution c
+JOIN People p ON c.PeopleId = p.PeopleId
 JOIN ContributionFund cf ON c.FundId = cf.FundId
-WHERE c.ContributionTypeId != 99  -- CRITICAL: Exclude event fees
+WHERE c.ContributionTypeId != 99  -- Exclude event fees
   AND c.ContributionDate >= DATEADD(month, -1, GETDATE())
   AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-GROUP BY p.PeopleId, p.Name, cf.FundName
-ORDER BY Total DESC;</code></pre>
+ORDER BY c.ContributionDate DESC, c.ContributionAmount DESC</code></pre>
 
-    <h4>🎯 Who Needs Follow-Up?</h4>
-    <pre><code>-- Recent first-time visitors
-SELECT TOP 100 p.Name, p.EmailAddress, o.OrganizationName, a.MeetingDate
-FROM People p
-JOIN Attend a ON p.PeopleId = a.PeopleId
-JOIN Organizations o ON a.OrganizationId = o.OrganizationId
-JOIN lookup.AttendType at ON a.AttendanceTypeId = at.Id
-WHERE a.AttendanceFlag = 1
-  AND at.Guest = 1  -- Guest attendance types
-  AND a.MeetingDate >= DATEADD(day, -7, GETDATE())
-  AND p.DoNotCallFlag = 0 AND p.DoNotVisitFlag = 0
-  -- First visit check
-  AND NOT EXISTS (
-    SELECT 1 FROM Attend a2 
-    WHERE a2.PeopleId = p.PeopleId 
-      AND a2.AttendanceFlag = 1
-      AND a2.MeetingDate < a.MeetingDate
-  )
-ORDER BY a.MeetingDate DESC;</code></pre>
+    <h3>🆕 First-Time Visitors</h3>
+    <pre><code>-- Recent first-time visitors for follow-up
+WITH FirstVisit AS (
+    SELECT 
+        p.PeopleId,
+        MIN(a.MeetingDate) as FirstVisitDate
+    FROM Attend a
+    JOIN People p ON a.PeopleId = p.PeopleId
+    WHERE a.AttendanceFlag = 1
+      AND a.AttendanceTypeId IN (40, 50)  -- New Guest, Recent Guest
+    GROUP BY p.PeopleId
+)
+SELECT TOP 100
+    p.Name,
+    p.EmailAddress,
+    p.CellPhone,
+    fv.FirstVisitDate,
+    DATEDIFF(day, fv.FirstVisitDate, GETDATE()) as DaysSinceVisit
+FROM FirstVisit fv
+JOIN People p ON fv.PeopleId = p.PeopleId
+WHERE fv.FirstVisitDate >= DATEADD(week, -2, GETDATE())
+  AND p.DoNotCallFlag = 0
+  AND p.DoNotVisitFlag = 0
+  AND p.IsDeceased = 0 
+  AND p.ArchivedFlag = 0
+ORDER BY fv.FirstVisitDate DESC</code></pre>
+
+    <h3>📊 Organization Summary</h3>
+    <pre><code>SELECT TOP 100
+    o.OrganizationName,
+    o.Location,
+    leader.Name as Leader,
+    o.MemberCount,
+    o.Limit as Capacity,
+    CASE 
+        WHEN o.Limit > 0 THEN 
+            CAST(o.MemberCount as float) / o.Limit * 100 
+        ELSE 0 
+    END as PercentFull,
+    o.FirstMeetingDate,
+    o.LastMeetingDate
+FROM Organizations o
+LEFT JOIN People leader ON o.LeaderId = leader.PeopleId
+WHERE o.OrganizationStatusId = 30  -- Active
+ORDER BY o.MemberCount DESC</code></pre>
 </div>
 
 <div id="people-table" class="section">
-    <h2>👥 People Table - "Single Source of Truth"</h2>
+    <h2>👥 People Table - Complete Reference</h2>
     
-    <p><strong>Purpose:</strong> Central demographic and contact data serving as the "single source of truth" for all personal details, activities, communication, giving, roles and family relationships<br>
-    <strong>Primary Key:</strong> PeopleId<br>  
-    <strong>Scale:</strong> 136 columns with 23 foreign key relationships<br>  
-    <strong>🚨 CRITICAL RULE:</strong> Always filter <code>WHERE IsDeceased = 0 AND ArchivedFlag = 0</code></p>
+    <p><strong>Purpose:</strong> Central repository for all person and family data<br>
+    <strong>Primary Key:</strong> <code>PeopleId</code><br>
+    <strong>Scale:</strong> 136 columns with 23 foreign key relationships<br>
+    <strong>Critical Rule:</strong> Always filter <code>WHERE IsDeceased = 0 AND ArchivedFlag = 0</code></p>
 
-    <h3>🔑 Core Identity Fields</h3>
-    <pre><code>SELECT TOP 100
-    -- 🔑 Primary Identity
-    PeopleId,               -- Primary key, unique person identifier
-    
-    -- 📛 Names (Multiple formats for different uses)
-    FirstName,              -- First name
-    LastName,               -- Last name  
-    NickName,               -- Preferred name (may override FirstName)
-    Name,                   -- ✅ Full name (computed field, USE FOR DISPLAY)
-    Name2,                  -- ✅ Last, First format (USE FOR SORTING)
-    AltName,                -- Alternative name/alias (search optimization)
-    MiddleName, MaidenName, SuffixCode, PreferredName,
-    
-    -- 🎂 Birth Information
-    BirthDay,               -- Day of birth (1-31)
-    BirthMonth,             -- Month of birth (1-12) 
-    BirthYear,              -- Year of birth
-    BDate,                  -- ⚠️ Full birth date (includes time - cast to date for age calc)
-    Age                     -- ✅ Current age in years (computed, updated regularly)
-    
-FROM People p
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0  -- 🚨 MANDATORY FILTER
-ORDER BY p.Name;</code></pre>
+    <h3>Core Identity Fields</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage</th>
+        </tr>
+        <tr>
+            <td><code>PeopleExtra</code></td>
+            <td>Mixed</td>
+            <td>Person-specific custom fields</td>
+        </tr>
+        <tr>
+            <td><code>ExtraValueBit</code></td>
+            <td>Boolean</td>
+            <td>Yes/No fields</td>
+        </tr>
+        <tr>
+            <td><code>ExtraValueDate</code></td>
+            <td>DateTime</td>
+            <td>Date fields</td>
+        </tr>
+        <tr>
+            <td><code>ExtraValueInt</code></td>
+            <td>Integer</td>
+            <td>Number fields</td>
+        </tr>
+        <tr>
+            <td><code>ExtraValueText</code></td>
+            <td>Text</td>
+            <td>Text fields</td>
+        </tr>
+        <tr>
+            <td><code>ExtraValueCode</code></td>
+            <td>Code</td>
+            <td>Dropdown/lookup fields</td>
+        </tr>
+        <tr>
+            <td><code>OrgExtra</code></td>
+            <td>Mixed</td>
+            <td>Organization custom fields</td>
+        </tr>
+        <tr>
+            <td><code>MeetingExtra</code></td>
+            <td>Mixed</td>
+            <td>Meeting custom fields</td>
+        </tr>
+        <tr>
+            <td><code>ContributionExtra</code></td>
+            <td>Mixed</td>
+            <td>Contribution custom fields</td>
+        </tr>
+    </table>
 
-    <h3>👤 Demographics & Classification</h3>
-    <pre><code>SELECT TOP 100
-    p.PeopleId, p.TitleCode, p.Name,
-    
-    -- 👤 Basic Demographics
-    g.Description as Gender,            -- → lookup.Gender.Id
-    ms.Description as MaritalStatus,    -- → lookup.MaritalStatus.Id
-    fp.Description as FamilyPosition,   -- → lookup.FamilyPosition.Id
-    gl.Description as GradeLevel,       -- → lookup.GradeLevel.Id
-    ss.Description as ShirtSize,        -- → lookup.ShirtSize.Id
-    
-    -- 🏛️ Church Classification
-    memstat.Description as MemberStatus,    -- → lookup.MemberStatus.Id (CRITICAL)
-    ep.Description as EntryPoint,           -- → lookup.EntryPoint.Id (how found church)
-    ip.Description as InterestPoint,        -- → lookup.InterestPoint.Id (what attracted)
-    rc.Description as ResidentCode,         -- → lookup.ResidentCode.Id (proximity)
-    c.Description as Campus                 -- → lookup.Campus.Id
-    
+    <h3>Discovering Custom Fields</h3>
+    <pre><code>-- Find what custom fields your church uses
+SELECT 
+    'PeopleExtra' as TableType,
+    Field,
+    COUNT(*) as RecordCount,
+    COUNT(DISTINCT PeopleId) as PeopleWithValue
+FROM PeopleExtra
+GROUP BY Field
+ORDER BY COUNT(*) DESC
+
+-- Example: Using a custom field
+SELECT 
+    p.Name,
+    pev.Field,
+    pev.Data as Value
 FROM People p
-LEFT JOIN lookup.Gender g ON p.GenderId = g.Id
-LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
-LEFT JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
-LEFT JOIN lookup.GradeLevel gl ON p.GradeLevelId = gl.Id
-LEFT JOIN lookup.ShirtSize ss ON p.ShirtSizeId = ss.Id
-LEFT JOIN lookup.MemberStatus memstat ON p.MemberStatusId = memstat.Id
-LEFT JOIN lookup.EntryPoint ep ON p.EntryPointId = ep.Id
-LEFT JOIN lookup.InterestPoint ip ON p.InterestPointId = ip.Id
-LEFT JOIN lookup.ResidentCode rc ON p.ResCodeId = rc.Id
-LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-ORDER BY p.Name;</code></pre>
+JOIN PeopleExtra pev ON p.PeopleId = pev.PeopleId
+WHERE pev.Field = 'MembershipCovenant'  -- Church-specific field
+  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+ORDER BY p.Name</code></pre>
+
+    <h3>Custom Field Analysis</h3>
+    <pre><code>-- Analyze custom field usage patterns
+WITH CustomFieldStats AS (
+    SELECT 
+        Field,
+        COUNT(*) as Uses,
+        COUNT(DISTINCT PeopleId) as UniquePeople,
+        MIN(CAST(Data as datetime)) as EarliestDate,
+        MAX(CAST(Data as datetime)) as LatestDate
+    FROM PeopleExtra
+    WHERE Field LIKE '%Date%'  -- Date-type fields
+      AND ISDATE(Data) = 1
+    GROUP BY Field
+)
+SELECT 
+    Field,
+    Uses,
+    UniquePeople,
+    EarliestDate,
+    LatestDate,
+    DATEDIFF(day, EarliestDate, LatestDate) as DateRange
+FROM CustomFieldStats
+ORDER BY Uses DESC</code></pre>
 </div>
 
-<div id="family-relationships" class="section">
-    <h2>👨‍👩‍👧‍👦 Family Relationships & Structures</h2>
+<div id="lookup-tables" class="section">
+    <h2>📚 Lookup Tables Reference</h2>
+    
+    <p>TouchPoint includes 67+ lookup tables that provide business logic, validation rules, and categorization throughout the system.</p>
+
+    <h3>Critical Lookup Tables</h3>
+    
+    <h4>lookup.MemberStatus <span class="badge badge-critical">Most Important</span></h4>
+    <table>
+        <tr>
+            <th>Id</th>
+            <th>Description</th>
+            <th>Usage</th>
+        </tr>
+        <tr>
+            <td>10</td>
+            <td>Member</td>
+            <td>Full church members - voting, leadership eligible</td>
+        </tr>
+        <tr>
+            <td>20</td>
+            <td>Prospect</td>
+            <td>Potential members - follow-up focus</td>
+        </tr>
+        <tr>
+            <td>30</td>
+            <td>Not Member</td>
+            <td>Regular attenders, not members</td>
+        </tr>
+        <tr>
+            <td>40</td>
+            <td>Previous Member</td>
+            <td>Former members - different communication</td>
+        </tr>
+        <tr>
+            <td>50</td>
+            <td>Just Added</td>
+            <td>New records - need data cleanup</td>
+        </tr>
+    </table>
+
+    <h4>lookup.AttendType <span class="badge badge-critical">Important</span></h4>
+    <table>
+        <tr>
+            <th>Id</th>
+            <th>Description</th>
+            <th>Worker</th>
+            <th>Guest</th>
+            <th>Usage</th>
+        </tr>
+        <tr>
+            <td>10</td>
+            <td>Member</td>
+            <td>0</td>
+            <td>0</td>
+            <td>Regular members</td>
+        </tr>
+        <tr>
+            <td>20</td>
+            <td>Leader</td>
+            <td>1</td>
+            <td>0</td>
+            <td>Leadership roles</td>
+        </tr>
+        <tr>
+            <td>30</td>
+            <td>Volunteer</td>
+            <td>1</td>
+            <td>0</td>
+            <td>Volunteer workers</td>
+        </tr>
+        <tr>
+            <td>40</td>
+            <td>New Guest</td>
+            <td>0</td>
+            <td>1</td>
+            <td>First-time visitors</td>
+        </tr>
+        <tr>
+            <td>50</td>
+            <td>Recent Guest</td>
+            <td>0</td>
+            <td>1</td>
+            <td>Return visitors</td>
+        </tr>
+        <tr>
+            <td>60</td>
+            <td>Visiting Member</td>
+            <td>0</td>
+            <td>0</td>
+            <td>Members from other churches</td>
+        </tr>
+    </table>
+
+    <h4>lookup.FamilyPosition</h4>
+    <table>
+        <tr>
+            <th>Id</th>
+            <th>Description</th>
+            <th>Usage</th>
+        </tr>
+        <tr>
+            <td>10</td>
+            <td>Primary Adult</td>
+            <td>Head of household</td>
+        </tr>
+        <tr>
+            <td>20</td>
+            <td>Secondary Adult</td>
+            <td>Spouse/partner</td>
+        </tr>
+        <tr>
+            <td>30</td>
+            <td>Child</td>
+            <td>Dependent children</td>
+        </tr>
+    </table>
+
+    <h4>Other Important Lookup Tables</h4>
+    <pre><code>-- Common lookup tables and their purposes
+SELECT 'Gender' as LookupTable, Id, Description FROM lookup.Gender
+UNION ALL
+SELECT 'MaritalStatus', Id, Description FROM lookup.MaritalStatus
+UNION ALL
+SELECT 'Campus', Id, Description FROM lookup.Campus
+UNION ALL
+SELECT 'OrganizationStatus', Id, Description FROM lookup.OrganizationStatus
+UNION ALL
+SELECT 'ContributionType', Id, Description FROM lookup.ContributionType
+UNION ALL
+SELECT 'BaptismStatus', Id, Description FROM lookup.BaptismStatus
+UNION ALL
+SELECT 'DecisionType', Id, Description FROM lookup.DecisionType
+UNION ALL
+SELECT 'DropType', Id, Description FROM lookup.DropType
+ORDER BY LookupTable, Id</code></pre>
+</div>
+
+<div id="common-reports" class="section">
+    <h2>📈 Common Report Patterns</h2>
+    
+    <h3>Church Dashboard Metrics</h3>
+    <pre><code>-- Executive Dashboard Query
+WITH Metrics AS (
+    SELECT 
+        -- People Metrics
+        (SELECT COUNT(*) FROM People WHERE IsDeceased = 0 AND ArchivedFlag = 0 AND MemberStatusId = 10) as ActiveMembers,
+        (SELECT COUNT(*) FROM People WHERE IsDeceased = 0 AND ArchivedFlag = 0 AND MemberStatusId = 20) as Prospects,
+        
+        -- Attendance Metrics (Last Week)
+        (SELECT COUNT(DISTINCT a.PeopleId) 
+         FROM Attend a 
+         WHERE a.AttendanceFlag = 1 
+           AND a.MeetingDate >= DATEADD(week, -1, GETDATE())) as WeeklyAttendance,
+        
+        -- Attendance Metrics (Last Month)
+        (SELECT COUNT(DISTINCT a.PeopleId) 
+         FROM Attend a 
+         WHERE a.AttendanceFlag = 1 
+           AND a.MeetingDate >= DATEADD(month, -1, GETDATE())) as MonthlyAttendance,
+        
+        -- Financial Metrics
+        (SELECT SUM(ContributionAmount) 
+         FROM Contribution 
+         WHERE ContributionTypeId != 99 
+           AND ContributionDate >= DATEADD(month, -1, GETDATE())) as MonthlyGiving,
+        
+        (SELECT COUNT(DISTINCT PeopleId) 
+         FROM Contribution 
+         WHERE ContributionTypeId != 99 
+           AND ContributionDate >= DATEADD(month, -1, GETDATE())) as MonthlyGivers,
+        
+        -- Organization Metrics
+        (SELECT COUNT(*) FROM Organizations WHERE OrganizationStatusId = 30) as ActiveOrganizations,
+        
+        -- New People
+        (SELECT COUNT(*) 
+         FROM People 
+         WHERE CreatedDate >= DATEADD(month, -1, GETDATE()) 
+           AND IsDeceased = 0 AND ArchivedFlag = 0) as NewPeopleThisMonth
+)
+SELECT * FROM Metrics</code></pre>
+
+    <h3>Attendance Trends Report</h3>
+    <pre><code>-- Weekly attendance trends over 12 weeks
+WITH WeeklyAttendance AS (
+    SELECT 
+        DATEPART(year, a.MeetingDate) as Year,
+        DATEPART(week, a.MeetingDate) as Week,
+        MIN(CAST(a.MeetingDate as DATE)) as WeekStart,
+        COUNT(DISTINCT a.PeopleId) as UniqueAttenders,
+        COUNT(*) as TotalAttendances,
+        COUNT(DISTINCT a.OrganizationId) as OrgsWithMeetings,
+        COUNT(DISTINCT CASE WHEN at.Guest = 1 THEN a.PeopleId END) as Guests,
+        COUNT(DISTINCT CASE WHEN at.Worker = 1 THEN a.PeopleId END) as Workers
+    FROM Attend a
+    JOIN lookup.AttendType at ON a.AttendanceTypeId = at.Id
+    WHERE a.AttendanceFlag = 1
+      AND a.MeetingDate >= DATEADD(week, -12, GETDATE())
+    GROUP BY DATEPART(year, a.MeetingDate), DATEPART(week, a.MeetingDate)
+)
+SELECT 
+    WeekStart,
+    UniqueAttenders,
+    Guests,
+    Workers,
+    UniqueAttenders - Guests - Workers as Members,
+    TotalAttendances,
+    OrgsWithMeetings,
+    CAST(TotalAttendances as float) / NULLIF(UniqueAttenders, 0) as AvgAttendancesPerPerson
+FROM WeeklyAttendance
+ORDER BY WeekStart DESC</code></pre>
+
+    <h3>Giving Analysis Report</h3>
+    <pre><code>-- Comprehensive giving analysis
+WITH GivingStats AS (
+    SELECT 
+        p.PeopleId,
+        p.Name,
+        COUNT(*) as GiftCount,
+        SUM(c.ContributionAmount) as TotalGiven,
+        MIN(c.ContributionDate) as FirstGift,
+        MAX(c.ContributionDate) as LastGift,
+        DATEDIFF(day, MAX(c.ContributionDate), GETDATE()) as DaysSinceLastGift
+    FROM Contribution c
+    JOIN People p ON c.PeopleId = p.PeopleId
+    WHERE c.ContributionTypeId != 99
+      AND c.ContributionDate >= DATEADD(year, -1, GETDATE())
+      AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+    GROUP BY p.PeopleId, p.Name
+)
+SELECT 
+    CASE 
+        WHEN TotalGiven >= 10000 THEN 'Major Donor ($10K+)'
+        WHEN TotalGiven >= 5000 THEN 'Significant Donor ($5K-$10K)'
+        WHEN TotalGiven >= 1000 THEN 'Regular Donor ($1K-$5K)'
+        WHEN TotalGiven >= 100 THEN 'Small Donor ($100-$1K)'
+        ELSE 'Micro Donor (<$100)'
+    END as DonorLevel,
+    COUNT(*) as DonorCount,
+    SUM(TotalGiven) as TotalFromLevel,
+    AVG(TotalGiven) as AvgGiftPerDonor,
+    AVG(GiftCount) as AvgGiftsPerDonor
+FROM GivingStats
+GROUP BY 
+    CASE 
+        WHEN TotalGiven >= 10000 THEN 'Major Donor ($10K+)'
+        WHEN TotalGiven >= 5000 THEN 'Significant Donor ($5K-$10K)'
+        WHEN TotalGiven >= 1000 THEN 'Regular Donor ($1K-$5K)'
+        WHEN TotalGiven >= 100 THEN 'Small Donor ($100-$1K)'
+        ELSE 'Micro Donor (<$100)'
+    END
+ORDER BY MIN(TotalGiven) DESC</code></pre>
+
+    <h3>Group Health Report</h3>
+    <pre><code>-- Organization/group health metrics
+SELECT 
+    o.OrganizationName,
+    o.Location,
+    leader.Name as Leader,
+    o.MemberCount,
+    o.Limit as Capacity,
+    
+    -- Capacity Metrics
+    CASE 
+        WHEN o.Limit > 0 THEN CAST(o.MemberCount as float) / o.Limit * 100 
+        ELSE NULL 
+    END as PercentFull,
+    
+    -- Meeting Metrics
+    (SELECT COUNT(*) 
+     FROM Meetings m 
+     WHERE m.OrganizationId = o.OrganizationId 
+       AND m.MeetingDate >= DATEADD(month, -3, GETDATE())
+       AND m.DidNotMeet = 0) as MeetingsLast3Months,
+    
+    -- Attendance Metrics
+    (SELECT AVG(CAST(NumPresent as float))
+     FROM Meetings m 
+     WHERE m.OrganizationId = o.OrganizationId 
+       AND m.MeetingDate >= DATEADD(month, -3, GETDATE())
+       AND m.DidNotMeet = 0) as AvgAttendance,
+    
+    -- Engagement
+    (SELECT AVG(om.AttendPct)
+     FROM OrganizationMembers om
+     WHERE om.OrganizationId = o.OrganizationId
+       AND om.InactiveDate IS NULL) as AvgMemberEngagement,
+    
+    -- Growth
+    (SELECT COUNT(*)
+     FROM OrganizationMembers om
+     WHERE om.OrganizationId = o.OrganizationId
+       AND om.EnrollmentDate >= DATEADD(month, -3, GETDATE())) as NewMembersLast3Months
+    
+FROM Organizations o
+LEFT JOIN People leader ON o.LeaderId = leader.PeopleId
+WHERE o.OrganizationStatusId = 30
+ORDER BY o.MemberCount DESC</code></pre>
+</div>
+
+<div id="common-issues" class="section">
+    <h2>🔧 Common Issues & Solutions</h2>
+    
+    <h3>Issue: Query Times Out</h3>
+    <div class="warning">
+        <p><strong>Problem:</strong> Query runs forever or times out</p>
+        <p><strong>Solutions:</strong></p>
+        <ol>
+            <li>Add <code>TOP 100</code> to limit results</li>
+            <li>Add date filters: <code>WHERE DateField >= DATEADD(month, -1, GETDATE())</code></li>
+            <li>Check for missing filters on large tables (TagPerson, EmailResponses, etc.)</li>
+            <li>Verify indexes exist on join columns</li>
+        </ol>
+    </div>
+
+    <h3>Issue: Attendance Numbers Don't Match UI</h3>
+    <div class="warning">
+        <p><strong>Problem:</strong> Attendance counts differ from TouchPoint interface</p>
+        <p><strong>Solution:</strong> Verify these filters are applied:</p>
+        <pre><code>WHERE a.AttendanceFlag = 1  -- Only count actual attendance
+  AND m.DidNotMeet = 0      -- Exclude cancelled meetings
+  AND p.IsDeceased = 0      -- Exclude deceased
+  AND p.ArchivedFlag = 0    -- Exclude archived</code></pre>
+    </div>
+
+    <h3>Issue: Giving Reports Include Event Fees</h3>
+    <div class="warning">
+        <p><strong>Problem:</strong> Donation totals are inflated</p>
+        <p><strong>Solution:</strong> Always exclude event registration fees:</p>
+        <pre><code>WHERE c.ContributionTypeId != 99  -- Exclude event fees</code></pre>
+    </div>
+
+    <h3>Issue: Deceased People Appearing</h3>
+    <div class="warning">
+        <p><strong>Problem:</strong> Reports include deceased individuals</p>
+        <p><strong>Solution:</strong> Always include both filters:</p>
+        <pre><code>WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
+    </div>
+
+    <h3>Issue: Organizations Show as Inactive</h3>
+    <div class="warning">
+        <p><strong>Problem:</strong> Active organizations not appearing</p>
+        <p><strong>Solution:</strong> Use correct status value:</p>
+        <pre><code>WHERE o.OrganizationStatusId = 30  -- NOT 1!</code></pre>
+    </div>
+
+    <h3>Issue: Can't Find Custom Fields</h3>
+    <div class="warning">
+        <p><strong>Problem:</strong> Church-specific fields not found</p>
+        <p><strong>Solution:</strong> Query Extra Value tables:</p>
+        <pre><code>-- Discover available custom fields
+SELECT DISTINCT Field, COUNT(*) as Uses
+FROM PeopleExtra
+GROUP BY Field
+ORDER BY COUNT(*) DESC</code></pre>
+    </div>
+</div>
+
+<div id="best-practices" class="section">
+    <h2>✅ Best Practices & Tips</h2>
+    
+    <h3>🎯 Query Development Process</h3>
+    <ol>
+        <li><strong>Start Small:</strong> Use <code>TOP 10</code> to test logic</li>
+        <li><strong>Add Filters Early:</strong> Apply mandatory filters immediately</li>
+        <li><strong>Test Incrementally:</strong> Build complex queries step by step</li>
+        <li><strong>Check Performance:</strong> Monitor execution time</li>
+        <li><strong>Document Assumptions:</strong> Comment your business logic</li>
+    </ol>
+
+    <h3>📋 Mandatory Filter Checklist</h3>
+    <pre><code>-- Copy this template for every query
+WHERE 1=1
+  -- People filters
+  AND p.IsDeceased = 0 
+  AND p.ArchivedFlag = 0
+  
+  -- Attendance filters
+  AND a.AttendanceFlag = 1
+  AND m.DidNotMeet = 0
+  
+  -- Organization filters
+  AND o.OrganizationStatusId = 30
+  AND om.InactiveDate IS NULL
+  
+  -- Contribution filters
+  AND c.ContributionTypeId != 99
+  
+  -- Performance filters
+  AND DateField >= DATEADD(month, -3, GETDATE())</code></pre>
+
+    <h3>🚀 Performance Optimization</h3>
+    <table>
+        <tr>
+            <th>Technique</th>
+            <th>When to Use</th>
+            <th>Example</th>
+        </tr>
+        <tr>
+            <td>Use TOP</td>
+            <td>Exploration & testing</td>
+            <td><code>SELECT TOP 100</code></td>
+        </tr>
+        <tr>
+            <td>Date filters</td>
+            <td>Always on large tables</td>
+            <td><code>WHERE Date >= DATEADD(month, -1, GETDATE())</code></td>
+        </tr>
+        <tr>
+            <td>Specific IDs</td>
+            <td>When possible</td>
+            <td><code>WHERE PeopleId IN (1,2,3)</code></td>
+        </tr>
+        <tr>
+            <td>EXISTS vs JOIN</td>
+            <td>Checking existence</td>
+            <td><code>WHERE EXISTS (SELECT 1...)</code></td>
+        </tr>
+        <tr>
+            <td>Column list</td>
+            <td>Always specify</td>
+            <td>Avoid <code>SELECT *</code></td>
+        </tr>
+    </table>
+
+    <h3>📝 Documentation Standards</h3>
+    <pre><code>-- Query: Monthly Giving Summary
+-- Purpose: Summarize giving by fund for board report
+-- Author: [Your Name]
+-- Date: [Current Date]
+-- Performance: ~2 seconds on production
+-- Dependencies: Contribution, ContributionFund, People tables
+-- Business Rules:
+--   - Excludes event fees (TypeId != 99)
+--   - Only includes completed transactions
+--   - Groups by calendar month
+
+SELECT 
+    /* Month grouping */
+    YEAR(c.ContributionDate) as GiftYear,
+    MONTH(c.ContributionDate) as GiftMonth,
+    
+    /* Fund analysis */
+    cf.FundName,
+    COUNT(DISTINCT c.PeopleId) as UniqueGivers,
+    SUM(c.ContributionAmount) as TotalAmount
+    
+FROM Contribution c
+JOIN ContributionFund cf ON c.FundId = cf.FundId
+WHERE c.ContributionTypeId != 99  -- Exclude event fees
+  AND c.ContributionDate >= '2024-01-01'
+GROUP BY 
+    YEAR(c.ContributionDate),
+    MONTH(c.ContributionDate),
+    cf.FundId,
+    cf.FundName
+ORDER BY 
+    GiftYear DESC,
+    GiftMonth DESC,
+    TotalAmount DESC</code></pre>
+</div>
+
+<div id="relationship-diagram" class="section">
+    <h2>🔗 Essential Table Relationships</h2>
+    
+    <h3>Core Relationships</h3>
+    <pre><code>People (PeopleId) ←─────────────────────────┐
+    │                                        │
+    ├──→ Families (FamilyId)                 │
+    │    Groups family members               │
+    │                                        │
+    ├──→ People (SpouseId)                   │
+    │    Direct spouse link                  │
+    │                                        │
+    ├──→ OrganizationMembers ←───────────────┤
+    │    │                                   │
+    │    └──→ Organizations (OrganizationId) │
+    │         │                              │
+    │         ├──→ Meetings (MeetingId) ←────┤
+    │         │                              │
+    │         └──→ Attend ←──────────────────┘
+    │              (PeopleId + MeetingId + OrganizationId)
+    │
+    ├──→ Contribution (ContributionId)
+    │    │
+    │    └──→ ContributionFund (FundId)
+    │
+    ├──→ Registration (RegistrationId)
+    │    │
+    │    └──→ RegPeople (RegPeopleId)
+    │         │
+    │         └──→ RegAnswer (RegAnswerId)
+    │              │
+    │              └──→ RegQuestion (RegQuestionId)
+    │
+    ├──→ TaskNote (TaskNoteId)
+    │    About person tasks/notes
+    │
+    ├──→ EmailQueueTo (EmailQueueToId)
+    │    │
+    │    └──→ EmailResponses (Event tracking)
+    │
+    └──→ TagPerson (138M+ records!)
+         │
+         └──→ Tag (TagId)</code></pre>
+
+    <h3>Lookup Relationships</h3>
+    <pre><code>People Table Lookups:
+    ├──→ lookup.MemberStatus (MemberStatusId)
+    ├──→ lookup.Gender (GenderId)
+    ├──→ lookup.MaritalStatus (MaritalStatusId)
+    ├──→ lookup.FamilyPosition (PositionInFamilyId)
+    ├──→ lookup.Campus (CampusId)
+    ├──→ lookup.EntryPoint (EntryPointId)
+    ├──→ lookup.BaptismStatus (BaptismStatusId)
+    └──→ lookup.DropType (DropCodeId)
+
+Organization Table Lookups:
+    ├──→ lookup.OrganizationStatus (OrganizationStatusId = 30 for Active)
+    ├──→ lookup.OrganizationType (OrganizationTypeId)
+    ├──→ lookup.Campus (CampusId)
+    └──→ Division → Program (Hierarchy)
+
+Attendance Lookups:
+    ├──→ lookup.AttendType (AttendanceTypeId)
+    └──→ lookup.MemberType (MemberTypeId)
+         └──→ lookup.AttendType (AttendanceTypeId)</code></pre>
+</div>
+
+<div class="section">
+    <h2>🎉 Conclusion</h2>
+    
+    <p>This comprehensive guide covers TouchPoint's extensive database architecture, from basic queries to advanced analytics. Remember these key principles:</p>
+    
+    <div class="success">
+        <h3>✅ Key Takeaways</h3>
+        <ul>
+            <li><strong>Always use TOP clauses</strong> when exploring data</li>
+            <li><strong>Apply mandatory filters</strong> (IsDeceased, ArchivedFlag, AttendanceFlag)</li>
+            <li><strong>Use date ranges</strong> on large tables</li>
+            <li><strong>Exclude event fees</strong> from giving reports (TypeId != 99)</li>
+            <li><strong>Check OrganizationStatusId = 30</strong> for active organizations</li>
+            <li><strong>Respect communication preferences</strong> before contacting people</li>
+            <li><strong>Test incrementally</strong> with small datasets first</li>
+        </ul>
+    </div>
+    
+    <div class="info">
+        <h3>📚 Additional Resources</h3>
+        <ul>
+            <li><strong>TouchPoint Documentation:</strong> <a href="https://docs.touchpoint.church">docs.touchpoint.church</a></li>
+            <li><strong>Community Forum:</strong> <a href="https://community.touchpoint.church">community.touchpoint.church</a></li>
+            <li><strong>GitHub Repository:</strong> <a href="https://github.com/bswaby/touchpoint">github.com/bswaby/touchpoint</a></li>
+        </ul>
+    </div>
     
     <div class="highlight">
-        <h3>🏗️ Understanding TouchPoint Family Logic</h3>
-        <p>TouchPoint uses <strong>dual relationship tracking:</strong></p>
+        <h3>🙏 Contributing</h3>
+        <p>This guide is maintained by the TouchPoint community. If you discover new patterns, corrections, or useful queries, please contribute back to help other churches maximize their use of TouchPoint.</p>
+        <p><strong>Contact:</strong> For questions or contributions, please open an issue on GitHub or contact the community forum.</p>
+    </div>
+</div>
+
+<a href="#" class="back-to-top">↑ Top</a>
+
+<script>
+// Add copy buttons to code blocks
+document.addEventListener('DOMContentLoaded', function() {
+    const codeBlocks = document.querySelectorAll('pre');
+    
+    codeBlocks.forEach(function(block) {
+        // Create copy button
+        const button = document.createElement('button');
+        button.className = 'copy-button';
+        button.textContent = 'Copy';
+        
+        // Make pre position relative for absolute button positioning
+        block.style.position = 'relative';
+        
+        // Add click handler
+        button.addEventListener('click', function() {
+            const code = block.querySelector('code');
+            const text = code ? code.textContent : block.textContent;
+            
+            navigator.clipboard.writeText(text).then(function() {
+                button.textContent = 'Copied!';
+                setTimeout(function() {
+                    button.textContent = 'Copy';
+                }, 2000);
+            }).catch(function(err) {
+                console.error('Failed to copy:', err);
+                // Fallback for older browsers
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    button.textContent = 'Copied!';
+                    setTimeout(function() {
+                        button.textContent = 'Copy';
+                    }, 2000);
+                } catch (err) {
+                    console.error('Fallback copy failed:', err);
+                }
+                document.body.removeChild(textarea);
+            });
+        });
+        
+        block.appendChild(button);
+    });
+    
+    // Smooth scroll for anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+            e.preventDefault();
+            const target = document.querySelector(this.getAttribute('href'));
+            if (target) {
+                target.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start'
+                });
+            }
+        });
+    });
+    
+    // Back to top button visibility
+    const backToTop = document.querySelector('.back-to-top');
+    window.addEventListener('scroll', function() {
+        if (window.pageYOffset > 300) {
+            backToTop.style.display = 'block';
+        } else {
+            backToTop.style.display = 'none';
+        }
+    });
+});
+</script>
+
+</body>
+</html> Notes</th>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Unique person identifier</td>
+        </tr>
+        <tr>
+            <td><code>FirstName</code></td>
+            <td>nvarchar(25)</td>
+            <td>First name</td>
+            <td>Legal first name</td>
+        </tr>
+        <tr>
+            <td><code>LastName</code></td>
+            <td>nvarchar(100)</td>
+            <td>Last name</td>
+            <td>Family name</td>
+        </tr>
+        <tr>
+            <td><code>NickName</code></td>
+            <td>nvarchar(25)</td>
+            <td>Preferred name</td>
+            <td>May override FirstName in displays</td>
+        </tr>
+        <tr>
+            <td><code>Name</code></td>
+            <td>nvarchar(139)</td>
+            <td>Full name (computed)</td>
+            <td>✅ USE FOR DISPLAY</td>
+        </tr>
+        <tr>
+            <td><code>Name2</code></td>
+            <td>nvarchar(139)</td>
+            <td>Last, First format</td>
+            <td>✅ USE FOR SORTING</td>
+        </tr>
+        <tr>
+            <td><code>AltName</code></td>
+            <td>nvarchar(100)</td>
+            <td>Alternative name</td>
+            <td>Used for search optimization</td>
+        </tr>
+    </table>
+
+    <h3>Demographics</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>BirthDay</code></td>
+            <td>int</td>
+            <td>Day of birth</td>
+            <td>1-31</td>
+        </tr>
+        <tr>
+            <td><code>BirthMonth</code></td>
+            <td>int</td>
+            <td>Month of birth</td>
+            <td>1-12</td>
+        </tr>
+        <tr>
+            <td><code>BirthYear</code></td>
+            <td>int</td>
+            <td>Year of birth</td>
+            <td>4-digit year</td>
+        </tr>
+        <tr>
+            <td><code>BDate</code></td>
+            <td>datetime</td>
+            <td>Full birth date</td>
+            <td>⚠️ Includes time, cast to date</td>
+        </tr>
+        <tr>
+            <td><code>Age</code></td>
+            <td>int</td>
+            <td>Current age</td>
+            <td>Computed, updated regularly</td>
+        </tr>
+        <tr>
+            <td><code>GenderId</code></td>
+            <td>int</td>
+            <td>Gender</td>
+            <td>→ lookup.Gender (1=Male, 2=Female)</td>
+        </tr>
+        <tr>
+            <td><code>MaritalStatusId</code></td>
+            <td>int</td>
+            <td>Marital status</td>
+            <td>→ lookup.MaritalStatus</td>
+        </tr>
+    </table>
+
+    <h3>Family Relationships</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>FamilyId</code></td>
+            <td>int</td>
+            <td>Family grouping</td>
+            <td>→ Families.FamilyId</td>
+        </tr>
+        <tr>
+            <td><code>SpouseId</code></td>
+            <td>int</td>
+            <td>Spouse link</td>
+            <td>→ People.PeopleId (direct link)</td>
+        </tr>
+        <tr>
+            <td><code>PositionInFamilyId</code></td>
+            <td>int</td>
+            <td>Family position</td>
+            <td>→ lookup.FamilyPosition</td>
+        </tr>
+    </table>
+
+    <h3>Contact Information</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>EmailAddress</code></td>
+            <td>nvarchar(150)</td>
+            <td>Primary email</td>
+            <td>Main contact email</td>
+        </tr>
+        <tr>
+            <td><code>EmailAddress2</code></td>
+            <td>nvarchar(150)</td>
+            <td>Secondary email</td>
+            <td>Alternative email</td>
+        </tr>
+        <tr>
+            <td><code>SendEmailAddress1</code> <span class="badge badge-critical">Critical</span></td>
+            <td>bit</td>
+            <td>Email permission 1</td>
+            <td>Check before emailing</td>
+        </tr>
+        <tr>
+            <td><code>SendEmailAddress2</code> <span class="badge badge-critical">Critical</span></td>
+            <td>bit</td>
+            <td>Email permission 2</td>
+            <td>Check before emailing</td>
+        </tr>
+        <tr>
+            <td><code>CellPhone</code></td>
+            <td>nvarchar(20)</td>
+            <td>Cell phone</td>
+            <td>Formatted number</td>
+        </tr>
+        <tr>
+            <td><code>HomePhone</code></td>
+            <td>nvarchar(20)</td>
+            <td>Home phone</td>
+            <td>10 digits</td>
+        </tr>
+        <tr>
+            <td><code>WorkPhone</code></td>
+            <td>nvarchar(20)</td>
+            <td>Work phone</td>
+            <td>Business number</td>
+        </tr>
+        <tr>
+            <td><code>CellPhoneValidated</code></td>
+            <td>bit</td>
+            <td>Phone verified</td>
+            <td>Verification status</td>
+        </tr>
+        <tr>
+            <td><code>CellPhoneIsValid</code></td>
+            <td>bit</td>
+            <td>Phone working</td>
+            <td>Active number check</td>
+        </tr>
+        <tr>
+            <td><code>ReceiveSMS</code> <span class="badge badge-critical">Critical</span></td>
+            <td>bit</td>
+            <td>SMS permission</td>
+            <td>Check before texting</td>
+        </tr>
+    </table>
+
+    <h3>Address Information</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>PrimaryAddress</code></td>
+            <td>nvarchar(100)</td>
+            <td>Street address</td>
+            <td>✅ Use for mailings</td>
+        </tr>
+        <tr>
+            <td><code>PrimaryAddress2</code></td>
+            <td>nvarchar(100)</td>
+            <td>Apt/Suite</td>
+            <td>Secondary line</td>
+        </tr>
+        <tr>
+            <td><code>PrimaryCity</code></td>
+            <td>nvarchar(30)</td>
+            <td>City</td>
+            <td>Primary city</td>
+        </tr>
+        <tr>
+            <td><code>PrimaryState</code></td>
+            <td>nvarchar(20)</td>
+            <td>State</td>
+            <td>State abbreviation</td>
+        </tr>
+        <tr>
+            <td><code>PrimaryZip</code></td>
+            <td>nvarchar(15)</td>
+            <td>ZIP code</td>
+            <td>Postal code</td>
+        </tr>
+        <tr>
+            <td><code>PrimaryCountry</code></td>
+            <td>nvarchar(40)</td>
+            <td>Country</td>
+            <td>Country name</td>
+        </tr>
+        <tr>
+            <td><code>PrimaryBadAddrFlag</code></td>
+            <td>bit</td>
+            <td>Invalid address</td>
+            <td>Filter bad addresses</td>
+        </tr>
+    </table>
+
+    <h3>Church Membership</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>MemberStatusId</code> <span class="badge badge-critical">Critical</span></td>
+            <td>int</td>
+            <td>Member status</td>
+            <td>→ lookup.MemberStatus</td>
+        </tr>
+        <tr>
+            <td><code>JoinDate</code></td>
+            <td>datetime</td>
+            <td>Joined church</td>
+            <td>Membership start</td>
+        </tr>
+        <tr>
+            <td><code>DropDate</code></td>
+            <td>datetime</td>
+            <td>Left church</td>
+            <td>Membership end</td>
+        </tr>
+        <tr>
+            <td><code>DropCodeId</code></td>
+            <td>int</td>
+            <td>Reason left</td>
+            <td>→ lookup.DropType</td>
+        </tr>
+        <tr>
+            <td><code>BaptismDate</code></td>
+            <td>datetime</td>
+            <td>Baptized date</td>
+            <td>Baptism completion</td>
+        </tr>
+        <tr>
+            <td><code>BaptismStatusId</code></td>
+            <td>int</td>
+            <td>Baptism status</td>
+            <td>→ lookup.BaptismStatus</td>
+        </tr>
+        <tr>
+            <td><code>DecisionDate</code></td>
+            <td>datetime</td>
+            <td>Salvation date</td>
+            <td>Faith decision</td>
+        </tr>
+        <tr>
+            <td><code>NewMemberClassDate</code></td>
+            <td>datetime</td>
+            <td>Class completion</td>
+            <td>New member training</td>
+        </tr>
+    </table>
+
+    <h3>Communication Preferences</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>DoNotMailFlag</code> <span class="badge badge-critical">Critical</span></td>
+            <td>bit</td>
+            <td>No postal mail</td>
+            <td>Filter marketing</td>
+        </tr>
+        <tr>
+            <td><code>DoNotCallFlag</code> <span class="badge badge-critical">Critical</span></td>
+            <td>bit</td>
+            <td>No phone calls</td>
+            <td>Filter campaigns</td>
+        </tr>
+        <tr>
+            <td><code>DoNotVisitFlag</code> <span class="badge badge-critical">Critical</span></td>
+            <td>bit</td>
+            <td>No visits</td>
+            <td>Filter assignments</td>
+        </tr>
+        <tr>
+            <td><code>DoNotPublishPhones</code></td>
+            <td>bit</td>
+            <td>Directory privacy</td>
+            <td>Hide from directory</td>
+        </tr>
+        <tr>
+            <td><code>ElectronicStatement</code></td>
+            <td>bit</td>
+            <td>Email statements</td>
+            <td>Prefers electronic</td>
+        </tr>
+    </table>
+
+    <h3>System & Status Fields</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>IsDeceased</code> <span class="badge badge-critical">Critical</span></td>
+            <td>bit</td>
+            <td>Person deceased</td>
+            <td>ALWAYS filter = 0</td>
+        </tr>
+        <tr>
+            <td><code>ArchivedFlag</code> <span class="badge badge-critical">Critical</span></td>
+            <td>bit</td>
+            <td>Record archived</td>
+            <td>ALWAYS filter = 0</td>
+        </tr>
+        <tr>
+            <td><code>CreatedDate</code></td>
+            <td>datetime</td>
+            <td>Record created</td>
+            <td>Creation timestamp</td>
+        </tr>
+        <tr>
+            <td><code>CreatedBy</code></td>
+            <td>int</td>
+            <td>Created by</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>ModifiedDate</code></td>
+            <td>datetime</td>
+            <td>Last modified</td>
+            <td>Update timestamp</td>
+        </tr>
+        <tr>
+            <td><code>ModifiedBy</code></td>
+            <td>int</td>
+            <td>Modified by</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>CampusId</code></td>
+            <td>int</td>
+            <td>Campus</td>
+            <td>→ lookup.Campus</td>
+        </tr>
+    </table>
+
+    <h3>Mobile & Check-in</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>BlockMobileAccess</code></td>
+            <td>bit</td>
+            <td>Block mobile app</td>
+            <td>Security restriction</td>
+        </tr>
+        <tr>
+            <td><code>BarcodeId</code></td>
+            <td>bigint</td>
+            <td>Check-in barcode</td>
+            <td>Unique identifier</td>
+        </tr>
+        <tr>
+            <td><code>BarcodeExpires</code></td>
+            <td>datetime</td>
+            <td>Barcode expiration</td>
+            <td>Security timeout</td>
+        </tr>
+        <tr>
+            <td><code>PictureId</code></td>
+            <td>int</td>
+            <td>Profile photo</td>
+            <td>→ Picture.PictureId</td>
+        </tr>
+    </table>
+</div>
+
+<div id="family-structure" class="section">
+    <h2>👨‍👩‍👧‍👦 Family Relationships & Household Management</h2>
+    
+    <h3>Understanding TouchPoint's Family Model</h3>
+    <div class="highlight">
+        <p><strong>TouchPoint uses dual relationship tracking:</strong></p>
         <ul>
-            <li><strong>FamilyId:</strong> Groups all family members together</li>
-            <li><strong>SpouseId:</strong> Direct link between spouses (more reliable than family grouping)</li>
+            <li><strong>FamilyId:</strong> Groups all household members together</li>
+            <li><strong>SpouseId:</strong> Direct link between married couples (more reliable than family grouping)</li>
+            <li><strong>PositionInFamilyId:</strong> Defines role within household (Primary Adult, Secondary Adult, Child)</li>
         </ul>
     </div>
 
-    <h3>👨‍👩‍👧‍👦 Complete Family Analysis</h3>
-    <pre><code>SELECT TOP 500
-    f.FamilyId,
-    primary_adult.Name as PrimaryAdult,
-    spouse.Name as Spouse,
-    child.Name as Child,
-    child.Age as ChildAge,
-    
-    -- Family Stats
-    COUNT(family_members.PeopleId) as FamilySize,
-    SUM(CASE WHEN family_members.MemberStatusId = 10 THEN 1 ELSE 0 END) as MembersInFamily
-    
-FROM Families f
--- Primary Adult (head of household)
+    <h3>Family Structure Query</h3>
+    <pre><code>-- Complete family units with all members
+WITH FamilyStructure AS (
+    SELECT 
+        f.FamilyId,
+        p.PeopleId,
+        p.Name,
+        p.Age,
+        fp.Description as FamilyPosition,
+        p.SpouseId,
+        ROW_NUMBER() OVER (PARTITION BY f.FamilyId ORDER BY p.PositionInFamilyId, p.Age DESC) as PersonOrder
+    FROM Families f
+    JOIN People p ON f.FamilyId = p.FamilyId
+    JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
+    WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+)
+SELECT 
+    fs.FamilyId,
+    MAX(CASE WHEN fs.FamilyPosition = 'Primary Adult' THEN fs.Name END) as PrimaryAdult,
+    MAX(CASE WHEN fs.FamilyPosition = 'Secondary Adult' THEN fs.Name END) as SecondaryAdult,
+    STRING_AGG(CASE WHEN fs.FamilyPosition = 'Child' THEN fs.Name END, ', ') as Children,
+    COUNT(*) as FamilySize
+FROM FamilyStructure fs
+GROUP BY fs.FamilyId
+HAVING COUNT(*) > 1  -- Multi-person families only
+ORDER BY FamilySize DESC</code></pre>
+
+    <h3>Spouse Relationships</h3>
+    <pre><code>-- Direct spouse relationships (most reliable)
+SELECT 
+    p1.PeopleId as Person1Id,
+    p1.Name as Person1,
+    p2.PeopleId as Person2Id,
+    p2.Name as Person2,
+    p1.WeddingDate,
+    DATEDIFF(year, p1.WeddingDate, GETDATE()) as YearsMarried
+FROM People p1
+JOIN People p2 ON p1.SpouseId = p2.PeopleId
+WHERE p1.IsDeceased = 0 AND p1.ArchivedFlag = 0
+  AND p2.IsDeceased = 0 AND p2.ArchivedFlag = 0
+  AND p1.PeopleId < p2.PeopleId  -- Avoid duplicates
+ORDER BY p1.Name</code></pre>
+
+    <h3>Children and Parents</h3>
+    <pre><code>-- Find all children with their parents
+SELECT 
+    child.Name as ChildName,
+    child.Age,
+    primary_adult.Name as Parent1,
+    secondary_adult.Name as Parent2,
+    f.FamilyId
+FROM People child
+JOIN Families f ON child.FamilyId = f.FamilyId
 LEFT JOIN People primary_adult ON f.FamilyId = primary_adult.FamilyId 
     AND primary_adult.PositionInFamilyId = 10  -- Primary Adult
     AND primary_adult.IsDeceased = 0 AND primary_adult.ArchivedFlag = 0
--- Spouse (through direct link - more reliable)
-LEFT JOIN People spouse ON primary_adult.SpouseId = spouse.PeopleId
-    AND spouse.IsDeceased = 0 AND spouse.ArchivedFlag = 0
--- Children
-LEFT JOIN People child ON f.FamilyId = child.FamilyId
-    AND child.PositionInFamilyId = 30  -- Child
-    AND child.IsDeceased = 0 AND child.ArchivedFlag = 0
--- All family members for stats
-LEFT JOIN People family_members ON f.FamilyId = family_members.FamilyId
-    AND family_members.IsDeceased = 0 AND family_members.ArchivedFlag = 0
-    
-GROUP BY f.FamilyId, primary_adult.Name, spouse.Name, child.Name, child.Age
-HAVING COUNT(family_members.PeopleId) > 1  -- Multi-person families only
-ORDER BY primary_adult.Name;</code></pre>
+LEFT JOIN People secondary_adult ON f.FamilyId = secondary_adult.FamilyId 
+    AND secondary_adult.PositionInFamilyId = 20  -- Secondary Adult
+    AND secondary_adult.IsDeceased = 0 AND secondary_adult.ArchivedFlag = 0
+WHERE child.PositionInFamilyId = 30  -- Child
+  AND child.Age < 18
+  AND child.IsDeceased = 0 AND child.ArchivedFlag = 0
+ORDER BY child.Age DESC, child.Name</code></pre>
 </div>
 
-<div id="contact-info" class="section">
-    <h2>📞 Contact Information & Communication Preferences</h2>
+<div id="contact-permissions" class="section">
+    <h2>📞 Contact Information & Communication Permissions</h2>
     
     <div class="critical">
-        <p><strong>CRITICAL:</strong> Always check communication preferences before sending emails, calls, or mail</p>
+        <h3>⚠️ Critical: Always Check Permissions Before Communication</h3>
+        <p>TouchPoint tracks detailed communication preferences. <strong>Violating these preferences can result in complaints and legal issues.</strong></p>
     </div>
 
-    <h3>📧 Contact Data with Permissions</h3>
-    <pre><code>SELECT TOP 100
-    p.PeopleId, p.Name,
-    
-    -- 📧 Email Information
-    p.EmailAddress,         -- Primary email
-    p.EmailAddress2,        -- Secondary email  
-    p.SendEmailAddress1,    -- ✅ Permission for primary email
-    p.SendEmailAddress2,    -- ✅ Permission for secondary email
-    
-    -- 📱 Phone Information
-    p.CellPhone,            -- Cell phone (formatted)
-    p.HomePhone,            -- Home phone (10 digits)
-    p.WorkPhone,            -- Work phone
-    p.CellPhoneValidated,   -- Cell phone verified
-    p.CellPhoneIsValid,     -- Cell phone working
-    p.ReceiveSMS,           -- ✅ Permission for SMS
-    
-    -- 🏠 Address Information (Use Primary* fields)
-    p.PrimaryAddress,       -- ✅ Primary street address
-    p.PrimaryAddress2,      -- Apartment/suite
-    p.PrimaryCity,          -- City
-    p.PrimaryState,         -- State
-    p.PrimaryZip,           -- ZIP code
-    p.PrimaryBadAddrFlag,   -- ❌ Address is invalid
-    
-    -- 🚫 Communication Restrictions (CRITICAL)
-    p.DoNotMailFlag,        -- ❌ No postal mail
-    p.DoNotCallFlag,        -- ❌ No phone calls  
-    p.DoNotVisitFlag,       -- ❌ No visits
-    p.DoNotPublishPhones    -- ❌ Don't publish in directory
-    
+    <h3>Safe Email List</h3>
+    <pre><code>-- People who CAN receive emails
+SELECT TOP 1000
+    p.PeopleId,
+    p.Name,
+    p.EmailAddress,
+    p.EmailAddress2,
+    CASE 
+        WHEN p.SendEmailAddress1 = 1 AND p.EmailAddress IS NOT NULL THEN p.EmailAddress
+        WHEN p.SendEmailAddress2 = 1 AND p.EmailAddress2 IS NOT NULL THEN p.EmailAddress2
+        ELSE NULL
+    END as PreferredEmail
 FROM People p
 WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-ORDER BY p.Name;</code></pre>
+  AND p.DoNotMailFlag = 0  -- General mail permission
+  AND (
+    (p.SendEmailAddress1 = 1 AND p.EmailAddress IS NOT NULL AND p.EmailAddress != '')
+    OR 
+    (p.SendEmailAddress2 = 1 AND p.EmailAddress2 IS NOT NULL AND p.EmailAddress2 != '')
+  )
+  AND p.PrimaryBadAddrFlag = 0  -- Good address on file
+ORDER BY p.Name</code></pre>
 
-    <h3>💌 Safe Communication Query Pattern</h3>
-    <pre><code>-- People you CAN email safely
-SELECT TOP 1000 p.Name, p.EmailAddress
+    <h3>Safe Text/SMS List</h3>
+    <pre><code>-- People who CAN receive text messages
+SELECT TOP 1000
+    p.PeopleId,
+    p.Name,
+    p.CellPhone,
+    p.CellPhoneValidated,
+    p.CellPhoneIsValid
 FROM People p
 WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-  AND p.DoNotMailFlag = 0  -- Permission to mail
-  AND p.SendEmailAddress1 = 1  -- Permission for primary email
-  AND p.EmailAddress IS NOT NULL AND p.EmailAddress != ''
-  AND p.PrimaryBadAddrFlag = 0  -- Good address
-ORDER BY p.Name;
+  AND p.DoNotCallFlag = 0      -- Can call/text
+  AND p.ReceiveSMS = 1         -- SMS specifically allowed
+  AND p.CellPhoneIsValid = 1   -- Valid phone number
+  AND p.CellPhone IS NOT NULL AND p.CellPhone != ''
+ORDER BY p.Name</code></pre>
 
--- People you CAN text safely  
-SELECT TOP 1000 p.Name, p.CellPhone
+    <h3>Safe Mailing List</h3>
+    <pre><code>-- People who CAN receive postal mail
+SELECT TOP 1000
+    p.PeopleId,
+    p.Name,
+    p.PrimaryAddress,
+    p.PrimaryAddress2,
+    p.PrimaryCity,
+    p.PrimaryState,
+    p.PrimaryZip
 FROM People p
 WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-  AND p.DoNotCallFlag = 0  -- Permission to call/text
-  AND p.ReceiveSMS = 1  -- Permission for SMS
-  AND p.CellPhoneIsValid = 1  -- Valid phone number
-ORDER BY p.Name;</code></pre>
+  AND p.DoNotMailFlag = 0        -- Mail allowed
+  AND p.PrimaryBadAddrFlag = 0   -- Valid address
+  AND p.PrimaryAddress IS NOT NULL AND p.PrimaryAddress != ''
+ORDER BY p.PrimaryZip, p.Name</code></pre>
+
+    <h3>Visitation List</h3>
+    <pre><code>-- People who CAN be visited
+SELECT TOP 1000
+    p.PeopleId,
+    p.Name,
+    p.PrimaryAddress,
+    p.PrimaryCity,
+    p.CellPhone,
+    rc.Description as ResidentCode
+FROM People p
+LEFT JOIN lookup.ResidentCode rc ON p.ResCodeId = rc.Id
+WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+  AND p.DoNotVisitFlag = 0       -- Visits allowed
+  AND p.PrimaryBadAddrFlag = 0   -- Valid address
+  AND p.ResCodeId IN (1, 2)      -- Metro or Marginal (close enough to visit)
+ORDER BY p.PrimaryCity, p.Name</code></pre>
 </div>
 
-<div id="membership-status" class="section">
-    <h2>🏛️ Church Membership & Status Tracking</h2>
+<div id="membership-workflow" class="section">
+    <h2>🏛️ Church Membership Status & Workflow</h2>
     
-    <div class="highlight">
-        <h3>📊 Understanding TouchPoint's Membership Workflow</h3>
-        <p><strong>Just Added → Prospect → Member</strong></p>
-    </div>
+    <h3>Membership Status Values</h3>
+    <table>
+        <tr>
+            <th>Id</th>
+            <th>Status</th>
+            <th>Description</th>
+            <th>Typical Use</th>
+        </tr>
+        <tr>
+            <td>10</td>
+            <td>Member</td>
+            <td>Full church member</td>
+            <td>Voting, leadership eligible</td>
+        </tr>
+        <tr>
+            <td>20</td>
+            <td>Prospect</td>
+            <td>Potential member</td>
+            <td>Follow-up, engagement tracking</td>
+        </tr>
+        <tr>
+            <td>30</td>
+            <td>Not Member</td>
+            <td>Regular attender</td>
+            <td>Non-member participant</td>
+        </tr>
+        <tr>
+            <td>40</td>
+            <td>Previous Member</td>
+            <td>Former member</td>
+            <td>Different communication approach</td>
+        </tr>
+        <tr>
+            <td>50</td>
+            <td>Just Added</td>
+            <td>New record</td>
+            <td>Needs data validation</td>
+        </tr>
+    </table>
 
-    <pre><code>SELECT TOP 100
-    p.PeopleId, p.Name,
-    ms.Description as MemberStatus,
+    <h3>Membership Journey Tracking</h3>
+    <pre><code>-- Complete membership journey analysis
+SELECT 
+    p.PeopleId,
+    p.Name,
+    ms.Description as CurrentStatus,
     
-    -- 📅 Key Membership Dates
-    p.JoinDate,                 -- Date joined church
-    p.DropDate,                 -- Date left church  
-    dt.Description as DropReason,
+    -- Key Dates
+    p.CreatedDate as FirstRecorded,
+    p.DecisionDate,
+    p.BaptismDate,
+    p.NewMemberClassDate,
+    p.JoinDate,
+    p.DropDate,
     
-    -- ✝️ Baptism Tracking
-    p.BaptismDate,              -- Date baptized
+    -- Status Details
+    dt.Description as DecisionType,
     bs.Description as BaptismStatus,
-    bt.Description as BaptismType,
-    p.BaptismSchedDate,         -- Scheduled baptism date
+    nmcs.Description as NewMemberClassStatus,
+    drop_type.Description as DropReason,
     
-    -- 🙏 Decision Information  
-    p.DecisionDate,             -- Date of salvation decision
-    dt2.Description as DecisionType,
-    
-    -- 🎓 New Member Process
-    p.NewMemberClassDate,       -- Class completion
-    nmcs.Description as NewMemberClassStatus
+    -- Journey Metrics
+    DATEDIFF(day, p.CreatedDate, p.JoinDate) as DaysToMembership,
+    DATEDIFF(day, p.DecisionDate, p.BaptismDate) as DaysToBaptism,
+    CASE 
+        WHEN p.DropDate IS NOT NULL THEN 'Inactive'
+        WHEN p.JoinDate IS NOT NULL THEN 'Member'
+        WHEN p.BaptismDate IS NOT NULL THEN 'Baptized'
+        WHEN p.DecisionDate IS NOT NULL THEN 'Decided'
+        ELSE 'Exploring'
+    END as JourneyStage
     
 FROM People p
-JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
-LEFT JOIN lookup.DropType dt ON p.DropCodeId = dt.Id  
+LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+LEFT JOIN lookup.DecisionType dt ON p.DecisionTypeId = dt.Id
 LEFT JOIN lookup.BaptismStatus bs ON p.BaptismStatusId = bs.Id
-LEFT JOIN lookup.BaptismType bt ON p.BaptismTypeId = bt.Id
-LEFT JOIN lookup.DecisionType dt2 ON p.DecisionTypeId = dt2.Id
 LEFT JOIN lookup.NewMemberClassStatus nmcs ON p.NewMemberClassStatusId = nmcs.Id
+LEFT JOIN lookup.DropType drop_type ON p.DropCodeId = drop_type.Id
 WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-ORDER BY p.Name;</code></pre>
+ORDER BY p.JoinDate DESC</code></pre>
+
+    <h3>New Member Pipeline</h3>
+    <pre><code>-- Track new member pipeline
+SELECT 
+    CASE 
+        WHEN p.JoinDate IS NOT NULL THEN '5. Member'
+        WHEN p.NewMemberClassDate IS NOT NULL THEN '4. Class Complete'
+        WHEN p.BaptismDate IS NOT NULL THEN '3. Baptized'
+        WHEN p.DecisionDate IS NOT NULL THEN '2. Decision Made'
+        WHEN p.MemberStatusId = 20 THEN '1. Prospect'
+        ELSE '0. Visitor'
+    END as Stage,
+    COUNT(*) as PeopleCount,
+    AVG(DATEDIFF(day, p.CreatedDate, GETDATE())) as AvgDaysInStage
+FROM People p
+WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+  AND p.CreatedDate >= DATEADD(year, -1, GETDATE())
+  AND p.MemberStatusId IN (20, 50)  -- Prospects and Just Added
+GROUP BY 
+    CASE 
+        WHEN p.JoinDate IS NOT NULL THEN '5. Member'
+        WHEN p.NewMemberClassDate IS NOT NULL THEN '4. Class Complete'
+        WHEN p.BaptismDate IS NOT NULL THEN '3. Baptized'
+        WHEN p.DecisionDate IS NOT NULL THEN '2. Decision Made'
+        WHEN p.MemberStatusId = 20 THEN '1. Prospect'
+        ELSE '0. Visitor'
+    END
+ORDER BY Stage</code></pre>
 </div>
 
 <div id="organizations-table" class="section">
-    <h2>🏛️ Organizations Table - "Involvements"</h2>
+    <h2>🏛️ Organizations Table (Involvements)</h2>
     
-    <p><strong>Purpose:</strong> Groups, classes, ministries, events (called "Involvements" in UI)<br>  
-    <strong>Primary Key:</strong> OrganizationId<br>  
-    <strong>Scale:</strong> 188 columns with 16 foreign key relationships<br>  
-    <strong>UI Note:</strong> These are called "Involvements" in the TouchPoint interface</p>
+    <p><strong>Purpose:</strong> Groups, classes, ministries, events (called "Involvements" in UI)<br>
+    <strong>Primary Key:</strong> <code>OrganizationId</code><br>
+    <strong>Scale:</strong> 188 columns with 16 foreign key relationships<br>
+    <strong>Hierarchy:</strong> Program → Division → Organization</p>
 
-    <h3>🏢 Basic Organization Information</h3>
-    <pre><code>SELECT TOP 100
-    o.OrganizationId,
-    o.OrganizationName,     -- Display name
-    o.Description,          -- Detailed description
-    
-    -- 📊 Status & Classification
-    os.Description as Status,           -- Active/Inactive
-    ot.Description as OrgType,          -- Class, Ministry, Event
-    c.Description as Campus,            -- Campus location
-    
-    -- 👑 Leadership
-    leader.Name as Leader,
-    main_leader.Name as MainLeader,
-    
-    -- 📈 Membership Statistics
-    o.MemberCount,          -- Current members (auto-updated)
-    o.PrevMemberCount,      -- Previous count
-    o.ProspectCount,        -- Prospects
-    o.Limit,                -- Maximum capacity
-    o.ClassFilled           -- At capacity flag
-    
-FROM Organizations o
-LEFT JOIN lookup.OrganizationStatus os ON o.OrganizationStatusId = os.Id
-LEFT JOIN lookup.OrganizationType ot ON o.OrganizationTypeId = ot.Id  
-LEFT JOIN lookup.Campus c ON o.CampusId = c.Id
-LEFT JOIN People leader ON o.LeaderId = leader.PeopleId
-LEFT JOIN People main_leader ON o.MainLeaderId = main_leader.PeopleId
-WHERE o.OrganizationStatusId = 30  -- ✅ Active organizations only
-ORDER BY o.OrganizationName;</code></pre>
+    <div class="info">
+        <p><strong>Note:</strong> Organizations are called "Involvements" in the TouchPoint user interface</p>
+    </div>
+
+    <h3>Core Organization Fields</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>OrganizationId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Unique identifier</td>
+        </tr>
+        <tr>
+            <td><code>OrganizationName</code></td>
+            <td>nvarchar(100)</td>
+            <td>Display name</td>
+            <td>Public name</td>
+        </tr>
+        <tr>
+            <td><code>Description</code></td>
+            <td>ntext</td>
+            <td>Detailed description</td>
+            <td>Full text description</td>
+        </tr>
+        <tr>
+            <td><code>OrganizationStatusId</code> <span class="badge badge-critical">Critical</span></td>
+            <td>int</td>
+            <td>Status</td>
+            <td>30 = Active (not 1!)</td>
+        </tr>
+        <tr>
+            <td><code>OrganizationTypeId</code></td>
+            <td>int</td>
+            <td>Type</td>
+            <td>→ lookup.OrganizationType</td>
+        </tr>
+        <tr>
+            <td><code>DivisionId</code></td>
+            <td>int</td>
+            <td>Division</td>
+            <td>→ Division.Id</td>
+        </tr>
+        <tr>
+            <td><code>CampusId</code></td>
+            <td>int</td>
+            <td>Campus</td>
+            <td>→ lookup.Campus</td>
+        </tr>
+    </table>
+
+    <h3>Leadership & Management</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>LeaderId</code></td>
+            <td>int</td>
+            <td>Primary leader</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>LeaderName</code></td>
+            <td>nvarchar(50)</td>
+            <td>Leader name</td>
+            <td>Computed field</td>
+        </tr>
+        <tr>
+            <td><code>MainLeaderId</code></td>
+            <td>int</td>
+            <td>Main leader</td>
+            <td>If different from Leader</td>
+        </tr>
+        <tr>
+            <td><code>LeaderMemberTypeId</code></td>
+            <td>int</td>
+            <td>Leader role</td>
+            <td>→ lookup.MemberType</td>
+        </tr>
+    </table>
+
+    <h3>Membership & Capacity</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>MemberCount</code></td>
+            <td>int</td>
+            <td>Current members</td>
+            <td>Auto-updated</td>
+        </tr>
+        <tr>
+            <td><code>PrevMemberCount</code></td>
+            <td>int</td>
+            <td>Previous count</td>
+            <td>Historical tracking</td>
+        </tr>
+        <tr>
+            <td><code>ProspectCount</code></td>
+            <td>int</td>
+            <td>Prospects</td>
+            <td>Potential members</td>
+        </tr>
+        <tr>
+            <td><code>Limit</code></td>
+            <td>int</td>
+            <td>Max capacity</td>
+            <td>Room/resource limit</td>
+        </tr>
+        <tr>
+            <td><code>ClassFilled</code></td>
+            <td>bit</td>
+            <td>At capacity</td>
+            <td>Registration closed</td>
+        </tr>
+    </table>
+
+    <h3>Registration System Fields <span class="badge badge-new">Important</span></h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>RegistrationTypeId</code></td>
+            <td>int</td>
+            <td>Registration type</td>
+            <td>0=none, others=form types</td>
+        </tr>
+        <tr>
+            <td><code>RegStart</code></td>
+            <td>datetime</td>
+            <td>Registration opens</td>
+            <td>Start accepting signups</td>
+        </tr>
+        <tr>
+            <td><code>RegEnd</code></td>
+            <td>datetime</td>
+            <td>Registration closes</td>
+            <td>Stop accepting signups</td>
+        </tr>
+        <tr>
+            <td><code>RegLimit</code></td>
+            <td>int</td>
+            <td>Registration limit</td>
+            <td>Max registrations</td>
+        </tr>
+        <tr>
+            <td><code>RegistrationClosed</code></td>
+            <td>bit</td>
+            <td>Manually closed</td>
+            <td>Override dates</td>
+        </tr>
+        <tr>
+            <td><code>RegFeePerPerson</code></td>
+            <td>money</td>
+            <td>Fee amount</td>
+            <td>Cost per person</td>
+        </tr>
+        <tr>
+            <td><code>RegFeeType</code></td>
+            <td>int</td>
+            <td>Fee type</td>
+            <td>→ lookup.ContributionType</td>
+        </tr>
+        <tr>
+            <td><code>RegDepositAmount</code></td>
+            <td>money</td>
+            <td>Deposit required</td>
+            <td>Upfront payment</td>
+        </tr>
+        <tr>
+            <td><code>RegFundId</code></td>
+            <td>int</td>
+            <td>Payment fund</td>
+            <td>→ ContributionFund</td>
+        </tr>
+    </table>
+
+    <h3>Check-In System Fields <span class="badge badge-new">Important</span></h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>CanSelfCheckin</code></td>
+            <td>bit</td>
+            <td>Allow self check-in</td>
+            <td>Kiosk enabled</td>
+        </tr>
+        <tr>
+            <td><code>NumCheckInLabels</code></td>
+            <td>int</td>
+            <td>Labels per person</td>
+            <td>Print count</td>
+        </tr>
+        <tr>
+            <td><code>NumWorkerCheckInLabels</code></td>
+            <td>int</td>
+            <td>Worker labels</td>
+            <td>Volunteer labels</td>
+        </tr>
+        <tr>
+            <td><code>ShowOnlyRegisteredAtCheckIn</code></td>
+            <td>bit</td>
+            <td>Restrict check-in</td>
+            <td>Members only</td>
+        </tr>
+        <tr>
+            <td><code>AllowNonCampusCheckIn</code></td>
+            <td>bit</td>
+            <td>Cross-campus</td>
+            <td>Other locations OK</td>
+        </tr>
+        <tr>
+            <td><code>SuspendCheckin</code></td>
+            <td>bit</td>
+            <td>Disable check-in</td>
+            <td>Temporary hold</td>
+        </tr>
+        <tr>
+            <td><code>EarlyCheckin</code></td>
+            <td>int</td>
+            <td>Minutes early</td>
+            <td>Before meeting time</td>
+        </tr>
+        <tr>
+            <td><code>LateCheckin</code></td>
+            <td>int</td>
+            <td>Minutes late</td>
+            <td>After meeting time</td>
+        </tr>
+    </table>
+
+    <h3>Mobile App Integration <span class="badge badge-new">New</span></h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>AllowMobileView</code></td>
+            <td>bit</td>
+            <td>Show in app</td>
+            <td>Mobile visibility</td>
+        </tr>
+        <tr>
+            <td><code>ShowInSites</code></td>
+            <td>bit</td>
+            <td>Show in sites</td>
+            <td>Web visibility</td>
+        </tr>
+        <tr>
+            <td><code>RecommendInMobile</code></td>
+            <td>bit</td>
+            <td>Recommend</td>
+            <td>Featured in app</td>
+        </tr>
+        <tr>
+            <td><code>CategoryMobileId</code></td>
+            <td>int</td>
+            <td>Mobile category</td>
+            <td>App organization</td>
+        </tr>
+    </table>
+
+    <h3>Mission Trips <span class="badge badge-new">Special</span></h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>IsMissionTrip</code></td>
+            <td>bit</td>
+            <td>Mission trip flag</td>
+            <td>Special handling</td>
+        </tr>
+        <tr>
+            <td><code>TripFundingPagesEnable</code></td>
+            <td>bit</td>
+            <td>Funding pages</td>
+            <td>Fundraising enabled</td>
+        </tr>
+        <tr>
+            <td><code>TripFundingPagesPublic</code></td>
+            <td>bit</td>
+            <td>Public funding</td>
+            <td>External visibility</td>
+        </tr>
+        <tr>
+            <td><code>TripFundingPagesShowAmounts</code></td>
+            <td>bit</td>
+            <td>Show amounts</td>
+            <td>Display progress</td>
+        </tr>
+    </table>
 </div>
 
-<div id="organization-membership" class="section">
+<div id="organization-members" class="section">
     <h2>👥 Organization Membership & Roles</h2>
     
-    <h3>🎭 Organization Members with Roles</h3>
-    <pre><code>SELECT TOP 500
+    <p><strong>Purpose:</strong> Links people to organizations with specific roles<br>
+    <strong>Composite Key:</strong> <code>OrganizationId + PeopleId</code><br>
+    <strong>Critical Rule:</strong> Use <code>InactiveDate IS NULL</code> for current members</p>
+
+    <h3>OrganizationMembers Table</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>OrganizationId</code></td>
+            <td>int</td>
+            <td>Organization</td>
+            <td>→ Organizations</td>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Person</td>
+            <td>→ People</td>
+        </tr>
+        <tr>
+            <td><code>MemberTypeId</code></td>
+            <td>int</td>
+            <td>Role in org</td>
+            <td>→ lookup.MemberType</td>
+        </tr>
+        <tr>
+            <td><code>EnrollmentDate</code></td>
+            <td>datetime</td>
+            <td>Joined date</td>
+            <td>When enrolled</td>
+        </tr>
+        <tr>
+            <td><code>InactiveDate</code></td>
+            <td>datetime</td>
+            <td>Left date</td>
+            <td>NULL = active</td>
+        </tr>
+        <tr>
+            <td><code>LastAttended</code></td>
+            <td>datetime</td>
+            <td>Last attendance</td>
+            <td>Most recent</td>
+        </tr>
+        <tr>
+            <td><code>AttendPct</code></td>
+            <td>decimal</td>
+            <td>Attendance %</td>
+            <td>Engagement metric</td>
+        </tr>
+        <tr>
+            <td><code>Pending</code></td>
+            <td>bit</td>
+            <td>Pending approval</td>
+            <td>Awaiting confirmation</td>
+        </tr>
+        <tr>
+            <td><code>Hidden</code></td>
+            <td>bit</td>
+            <td>Hide from lists</td>
+            <td>Privacy setting</td>
+        </tr>
+    </table>
+
+    <h3>Organization Roster Query</h3>
+    <pre><code>-- Complete organization roster with roles
+SELECT 
     o.OrganizationName,
     p.Name,
     mt.Description as Role,
+    at.Description as RoleCategory,
     om.EnrollmentDate,
-    om.InactiveDate,
-    om.Pending
-    
+    om.LastAttended,
+    om.AttendPct,
+    CASE 
+        WHEN at.Worker = 1 THEN 'Worker'
+        WHEN at.Guest = 1 THEN 'Guest'
+        ELSE 'Member'
+    END as PersonType
 FROM OrganizationMembers om
 JOIN People p ON om.PeopleId = p.PeopleId
 JOIN Organizations o ON om.OrganizationId = o.OrganizationId
-LEFT JOIN lookup.MemberType mt ON om.MemberTypeId = mt.Id
+JOIN lookup.MemberType mt ON om.MemberTypeId = mt.Id
+JOIN lookup.AttendType at ON mt.AttendanceTypeId = at.Id
 WHERE om.InactiveDate IS NULL  -- Current members only
+  AND o.OrganizationStatusId = 30  -- Active orgs
   AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+ORDER BY o.OrganizationName, at.Worker DESC, p.Name</code></pre>
+
+    <h3>Leadership Analysis</h3>
+    <pre><code>-- Find all leaders across organizations
+SELECT 
+    p.Name as LeaderName,
+    STRING_AGG(o.OrganizationName, ', ') as Organizations,
+    COUNT(*) as LeadershipRoles
+FROM OrganizationMembers om
+JOIN People p ON om.PeopleId = p.PeopleId
+JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+JOIN lookup.MemberType mt ON om.MemberTypeId = mt.Id
+JOIN lookup.AttendType at ON mt.AttendanceTypeId = at.Id
+WHERE om.InactiveDate IS NULL
+  AND at.Worker = 1  -- Leaders and volunteers
+  AND at.Id = 20  -- Specifically leaders
   AND o.OrganizationStatusId = 30
-ORDER BY o.OrganizationName, mt.Description, p.Name;</code></pre>
+  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+GROUP BY p.PeopleId, p.Name
+HAVING COUNT(*) > 1  -- Leading multiple orgs
+ORDER BY COUNT(*) DESC</code></pre>
 </div>
 
 <div id="program-hierarchy" class="section">
-    <h2>📊 Program → Division → Organization Hierarchy</h2>
+    <h2>📊 Program → Division → Organization Structure</h2>
     
-    <h3>🏗️ Understanding the Three-Level Hierarchy</h3>
-    <pre><code>SELECT 
-    pr.Name as Program,
-    d.Name as Division,
-    o.OrganizationName,
-    o.MemberCount
-    
-FROM Organizations o
-LEFT JOIN Division d ON o.DivisionId = d.Id
-LEFT JOIN Program pr ON d.ProgId = pr.Id
-WHERE o.OrganizationStatusId = 30
-ORDER BY pr.Name, d.Name, o.OrganizationName;</code></pre>
+    <div class="highlight">
+        <h3>Three-Level Hierarchy</h3>
+        <ul>
+            <li><strong>Program:</strong> Top level (e.g., "Adult Ministry", "Children's Ministry")</li>
+            <li><strong>Division:</strong> Second level (e.g., "Small Groups", "Sunday School")</li>
+            <li><strong>Organization:</strong> Third level - actual groups/classes (e.g., "Men's Bible Study")</li>
+        </ul>
+    </div>
+
+    <h3>Organization Structure View</h3>
+    <pre><code>-- Complete organizational hierarchy
+SELECT 
+    Program,        -- Top level
+    Division,       -- Second level
+    Organization,   -- Third level (actual group)
+    OrgStatus,
+    Members,
+    Previous,
+    Visitors,
+    Meetings,
+    ProgId,         -- Program ID for joins
+    DivId,          -- Division ID for joins
+    OrgId           -- Organization ID for joins
+FROM OrganizationStructure
+WHERE OrgStatus = 'Active'
+ORDER BY Program, Division, Organization</code></pre>
+
+    <h3>Program Summary</h3>
+    <pre><code>-- Program-level statistics
+SELECT 
+    Program,
+    COUNT(DISTINCT DivId) as Divisions,
+    COUNT(DISTINCT OrgId) as Organizations,
+    SUM(Members) as TotalMembers,
+    SUM(Visitors) as TotalVisitors,
+    SUM(Meetings) as TotalMeetings
+FROM OrganizationStructure
+WHERE OrgStatus = 'Active'
+GROUP BY Program, ProgId
+ORDER BY SUM(Members) DESC</code></pre>
+
+    <h3>Division Analysis</h3>
+    <pre><code>-- Division-level breakdown
+SELECT 
+    Program,
+    Division,
+    COUNT(OrgId) as OrgCount,
+    SUM(Members) as TotalMembers,
+    AVG(Members) as AvgOrgSize,
+    MAX(Members) as LargestOrg,
+    SUM(CASE WHEN Members >= Limit AND Limit > 0 THEN 1 ELSE 0 END) as AtCapacity
+FROM OrganizationStructure os
+JOIN Organizations o ON os.OrgId = o.OrganizationId
+WHERE os.OrgStatus = 'Active'
+GROUP BY Program, Division, DivId
+ORDER BY Program, Division</code></pre>
 </div>
 
 <div id="attend-table" class="section">
-    <h2>📅 Attend Table - The AttendanceFlag=1 Rule</h2>
+    <h2>📅 Attend Table - The AttendanceFlag Rule</h2>
     
     <div class="critical">
-        <p><strong>🚨 CRITICAL RULE:</strong> <code>AttendanceFlag = 1</code> for actual attendance, <code>0</code> for absences</p>
+        <h3>🚨 CRITICAL RULE: AttendanceFlag = 1</h3>
+        <p><strong>AttendanceFlag = 1</strong> means the person attended<br>
+        <strong>AttendanceFlag = 0</strong> means the person was absent<br>
+        <strong>ALWAYS filter WHERE AttendanceFlag = 1 for attendance counts</strong></p>
     </div>
 
-    <p><strong>Purpose:</strong> Individual attendance records - tracks who attended what meeting<br>  
-    <strong>Scale:</strong> 1.2M+ records<br>  
-    <strong>Key Fields:</strong> AttendId (Primary), PeopleId + MeetingId + OrganizationId</p>
+    <h3>Attend Table Structure</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>AttendId</code></td>
+            <td>bigint</td>
+            <td>Primary key</td>
+            <td>Unique record ID</td>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Person</td>
+            <td>→ People</td>
+        </tr>
+        <tr>
+            <td><code>MeetingId</code></td>
+            <td>int</td>
+            <td>Meeting</td>
+            <td>→ Meetings</td>
+        </tr>
+        <tr>
+            <td><code>OrganizationId</code></td>
+            <td>int</td>
+            <td>Organization</td>
+            <td>→ Organizations</td>
+        </tr>
+        <tr>
+            <td><code>MeetingDate</code></td>
+            <td>datetime</td>
+            <td>Meeting date/time</td>
+            <td>When it occurred</td>
+        </tr>
+        <tr>
+            <td><code>AttendanceFlag</code> <span class="badge badge-critical">CRITICAL</span></td>
+            <td>bit</td>
+            <td>Present/Absent</td>
+            <td>1=present, 0=absent</td>
+        </tr>
+        <tr>
+            <td><code>AttendanceTypeId</code></td>
+            <td>int</td>
+            <td>Attendance type</td>
+            <td>→ lookup.AttendType</td>
+        </tr>
+        <tr>
+            <td><code>MemberTypeId</code></td>
+            <td>int</td>
+            <td>Detailed role</td>
+            <td>→ lookup.MemberType</td>
+        </tr>
+        <tr>
+            <td><code>NoShow</code></td>
+            <td>bit</td>
+            <td>No-show flag</td>
+            <td>Registered but absent</td>
+        </tr>
+        <tr>
+            <td><code>SubGroupName</code></td>
+            <td>nvarchar</td>
+            <td>Sub-group</td>
+            <td>Group within org</td>
+        </tr>
+        <tr>
+            <td><code>Commitment</code></td>
+            <td>int</td>
+            <td>RSVP status</td>
+            <td>99/NULL=uncommitted, 0=regrets, 1=attending</td>
+        </tr>
+    </table>
 
-    <h3>📅 Basic Attendance Tracking</h3>
-    <pre><code>SELECT TOP 1000
-    a.AttendId,             -- Primary key
-    a.PeopleId,             -- → People.PeopleId
-    a.MeetingId,            -- → Meetings.MeetingId  
-    a.OrganizationId,       -- → Organizations.OrganizationId
-    a.MeetingDate,          -- Meeting date/time
-    a.AttendanceFlag,       -- 🚨 CRITICAL: 1=present, 0=absent
-    
-    -- 🎭 Attendance Classification
-    at.Description as AttendanceType,   -- Member, Leader, Guest, etc.
-    mt.Description as DetailedRole,     -- Specific role
-    
-    -- 📝 Additional Details
-    a.SubGroupName,         -- Sub-group within organization
-    a.Commitment,           -- Attendance commitment level: (99 OR NULL)=UNCOMMITTED; 0=REGRETS; 1=ATTENDING; 2=FIND_SUB; 3=SUB_FOUND
-    a.NoShow,               -- Registered but didn't attend
-    a.Registered            -- Was registered for meeting
-    
-FROM Attend a
-JOIN lookup.AttendType at ON a.AttendanceTypeId = at.Id
-JOIN lookup.MemberType mt ON a.MemberTypeId = mt.Id
-WHERE a.AttendanceFlag = 1  -- 🚨 MUST FILTER: only actual attendance
-  AND a.MeetingDate >= DATEADD(month, -3, GETDATE())
-ORDER BY a.MeetingDate DESC;</code></pre>
-</div>
-
-<div id="meetings-table" class="section">
-    <h2>📅 Meetings & Event Scheduling</h2>
-    
-    <h3>🗓️ Meeting Records</h3>
-    <pre><code>SELECT TOP 100
-    m.MeetingId,
-    m.OrganizationId,
+    <h3>Basic Attendance Query</h3>
+    <pre><code>-- Attendance records with full details
+SELECT 
+    p.Name,
     o.OrganizationName,
     m.MeetingDate,
     m.Location,
-    m.NumPresent,           -- Attendance count
-    m.NumMembers,           -- Member attendance
-    m.NumNewVisit,          -- New Visitors
-	m.NumOfCheckedOut,		-- Checked Out
-	m.NumOtherAttends,		-- Other Attends
-	m.NumOutTown,			-- Out of town
-	m.NumRepeatVst,			-- Repeat Vistors
-	m.NumVstMembers,		-- Visiting Members
-    m.HeadCount,            -- Total head count
-    m.DidNotMeet            -- Meeting cancelled flag
-    
-FROM Meetings m
-JOIN Organizations o ON m.OrganizationId = o.OrganizationId
-WHERE m.DidNotMeet = 0  -- Only completed meetings
+    at.Description as AttendanceType,
+    mt.Description as SpecificRole,
+    a.SubGroupName,
+    CASE a.Commitment
+        WHEN 1 THEN 'Attending'
+        WHEN 0 THEN 'Regrets'
+        WHEN 2 THEN 'Find Sub'
+        WHEN 3 THEN 'Sub Found'
+        ELSE 'Uncommitted'
+    END as CommitmentStatus
+FROM Attend a
+JOIN People p ON a.PeopleId = p.PeopleId
+JOIN Organizations o ON a.OrganizationId = o.OrganizationId
+JOIN Meetings m ON a.MeetingId = m.MeetingId
+JOIN lookup.AttendType at ON a.AttendanceTypeId = at.Id
+JOIN lookup.MemberType mt ON a.MemberTypeId = mt.Id
+WHERE a.AttendanceFlag = 1  -- CRITICAL: Only actual attendance
   AND m.MeetingDate >= DATEADD(month, -1, GETDATE())
-ORDER BY m.MeetingDate DESC;</code></pre>
+  AND m.DidNotMeet = 0  -- Meeting actually happened
+  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+ORDER BY m.MeetingDate DESC, o.OrganizationName, p.Name</code></pre>
+
+    <h3>Attendance Patterns</h3>
+    <pre><code>-- Individual attendance patterns
+WITH AttendanceHistory AS (
+    SELECT 
+        p.PeopleId,
+        p.Name,
+        COUNT(*) as TimesAttended,
+        COUNT(DISTINCT a.OrganizationId) as DifferentOrgs,
+        COUNT(DISTINCT CAST(a.MeetingDate as DATE)) as UniqueDays,
+        MIN(a.MeetingDate) as FirstAttended,
+        MAX(a.MeetingDate) as LastAttended
+    FROM Attend a
+    JOIN People p ON a.PeopleId = p.PeopleId
+    WHERE a.AttendanceFlag = 1
+      AND a.MeetingDate >= DATEADD(month, -6, GETDATE())
+      AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+    GROUP BY p.PeopleId, p.Name
+)
+SELECT 
+    Name,
+    TimesAttended,
+    DifferentOrgs,
+    UniqueDays,
+    DATEDIFF(day, FirstAttended, LastAttended) as DaySpan,
+    CAST(TimesAttended as float) / NULLIF(DATEDIFF(week, FirstAttended, LastAttended), 0) as AvgPerWeek
+FROM AttendanceHistory
+WHERE TimesAttended > 1
+ORDER BY TimesAttended DESC</code></pre>
 </div>
 
-<div id="checkin-system" class="section">
-    <h2>🎫 Check-In System Tables</h2>
+<div id="meetings-table" class="section">
+    <h2>📅 Meetings & Scheduling</h2>
     
-    <h3>📱 Check-In Activity</h3>
-    <pre><code>SELECT 
-    cia.Id,
-    p.Name,
-    cia.CheckInTime,
-    cia.SecurityCode,
-    cia.AccessTypeId,
-    bl.Name as CheckInLocation,
-    
-FROM CheckInActivity cia
-JOIN People p ON cia.PeopleId = p.PeopleId
-LEFT JOIN BuildingLabel bl ON cia.LabelId = bl.Id
-WHERE cia.CheckInTime >= DATEADD(day, -7, GETDATE())
-ORDER BY cia.CheckInTime DESC;</code></pre>
+    <h3>Meetings Table Structure</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>MeetingId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Unique meeting ID</td>
+        </tr>
+        <tr>
+            <td><code>OrganizationId</code></td>
+            <td>int</td>
+            <td>Organization</td>
+            <td>→ Organizations</td>
+        </tr>
+        <tr>
+            <td><code>MeetingDate</code></td>
+            <td>datetime</td>
+            <td>Start time</td>
+            <td>Meeting begins</td>
+        </tr>
+        <tr>
+            <td><code>MeetingEnd</code></td>
+            <td>datetime</td>
+            <td>End time</td>
+            <td>Meeting ends</td>
+        </tr>
+        <tr>
+            <td><code>Location</code></td>
+            <td>nvarchar</td>
+            <td>Location</td>
+            <td>Where held</td>
+        </tr>
+        <tr>
+            <td><code>NumPresent</code></td>
+            <td>int</td>
+            <td>Total attendance</td>
+            <td>Recorded count</td>
+        </tr>
+        <tr>
+            <td><code>HeadCount</code></td>
+            <td>int</td>
+            <td>Manual count</td>
+            <td>Override count</td>
+        </tr>
+        <tr>
+            <td><code>NumMembers</code></td>
+            <td>int</td>
+            <td>Members present</td>
+            <td>Regular members</td>
+        </tr>
+        <tr>
+            <td><code>NumNewVisit</code></td>
+            <td>int</td>
+            <td>First-time visitors</td>
+            <td>New guests</td>
+        </tr>
+        <tr>
+            <td><code>NumRepeatVst</code></td>
+            <td>int</td>
+            <td>Repeat visitors</td>
+            <td>Returning guests</td>
+        </tr>
+        <tr>
+            <td><code>DidNotMeet</code> <span class="badge badge-critical">Important</span></td>
+            <td>bit</td>
+            <td>Cancelled</td>
+            <td>1=cancelled, 0=held</td>
+        </tr>
+    </table>
+
+    <h3>Meeting Schedule Query</h3>
+    <pre><code>-- Upcoming meetings schedule
+SELECT 
+    o.OrganizationName,
+    m.MeetingDate,
+    m.MeetingEnd,
+    m.Location,
+    DATEDIFF(minute, m.MeetingDate, m.MeetingEnd) as DurationMinutes,
+    p.Name as Leader
+FROM Meetings m
+JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+LEFT JOIN People p ON o.LeaderId = p.PeopleId
+WHERE m.MeetingDate >= GETDATE()
+  AND m.MeetingDate <= DATEADD(week, 2, GETDATE())
+  AND m.DidNotMeet = 0  -- Not cancelled
+  AND o.OrganizationStatusId = 30  -- Active orgs
+ORDER BY m.MeetingDate</code></pre>
+
+    <h3>Meeting Analytics</h3>
+    <pre><code>-- Meeting attendance analytics
+SELECT 
+    o.OrganizationName,
+    COUNT(*) as MeetingsHeld,
+    AVG(m.NumPresent) as AvgAttendance,
+    MAX(m.NumPresent) as MaxAttendance,
+    MIN(m.NumPresent) as MinAttendance,
+    SUM(m.NumNewVisit) as TotalNewVisitors,
+    SUM(m.NumRepeatVst) as TotalRepeatVisitors,
+    AVG(CAST(m.NumPresent as float) / NULLIF(o.MemberCount, 0)) * 100 as AvgAttendancePct
+FROM Meetings m
+JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+WHERE m.MeetingDate >= DATEADD(month, -3, GETDATE())
+  AND m.DidNotMeet = 0  -- Actually met
+  AND o.OrganizationStatusId = 30
+GROUP BY o.OrganizationId, o.OrganizationName, o.MemberCount
+HAVING COUNT(*) > 3  -- At least 3 meetings
+ORDER BY AVG(m.NumPresent) DESC</code></pre>
 </div>
 
 <div id="contribution-table" class="section">
     <h2>💰 Contribution Table - The TypeId≠99 Rule</h2>
     
     <div class="critical">
-        <p><strong>🚨 CRITICAL RULE:</strong> <code>ContributionTypeId = 99</code> represents event registration fees, NOT charitable donations</p>
+        <h3>🚨 CRITICAL RULE: ContributionTypeId = 99</h3>
+        <p><strong>ContributionTypeId = 99</strong> represents EVENT REGISTRATION FEES, not charitable donations<br>
+        <strong>ALWAYS exclude these from giving reports:</strong> <code>WHERE ContributionTypeId != 99</code></p>
     </div>
 
-    <p><strong>Purpose:</strong> Financial giving records<br>  
-    <strong>Primary Key:</strong> ContributionId<br>  
-    <strong>Scale:</strong> 673K+ records</p>
+    <h3>Contribution Table Structure</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>ContributionId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Unique gift ID</td>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Giver</td>
+            <td>→ People</td>
+        </tr>
+        <tr>
+            <td><code>ContributionAmount</code></td>
+            <td>money</td>
+            <td>Gift amount</td>
+            <td>Dollar value</td>
+        </tr>
+        <tr>
+            <td><code>ContributionDate</code></td>
+            <td>datetime</td>
+            <td>Gift date</td>
+            <td>When received</td>
+        </tr>
+        <tr>
+            <td><code>FundId</code></td>
+            <td>int</td>
+            <td>Fund designation</td>
+            <td>→ ContributionFund</td>
+        </tr>
+        <tr>
+            <td><code>ContributionTypeId</code> <span class="badge badge-critical">CRITICAL</span></td>
+            <td>int</td>
+            <td>Gift type</td>
+            <td>99 = event fee!</td>
+        </tr>
+        <tr>
+            <td><code>ContributionStatusId</code></td>
+            <td>int</td>
+            <td>Processing status</td>
+            <td>→ lookup.ContributionStatus</td>
+        </tr>
+        <tr>
+            <td><code>CheckNo</code></td>
+            <td>nvarchar</td>
+            <td>Check number</td>
+            <td>Payment reference</td>
+        </tr>
+        <tr>
+            <td><code>BundleHeaderId</code></td>
+            <td>int</td>
+            <td>Batch ID</td>
+            <td>→ BundleHeader</td>
+        </tr>
+    </table>
 
-    <h3>💰 Basic Giving Analysis</h3>
-    <pre><code>SELECT TOP 500
-    c.ContributionId,
-    p.Name as Giver,
-    c.ContributionAmount,   -- Gift amount
-    c.ContributionDate,     -- Date of gift
-    cf.FundName,            -- Fund designation
-    c.ContributionTypeId,   -- 🚨 CRITICAL: 99 = event fee (NOT donation)
-    c.CheckNo               -- Check number or payment reference
-    
+    <h3>Giving Analysis Query</h3>
+    <pre><code>-- Individual giving summary
+SELECT 
+    p.Name,
+    COUNT(*) as GiftCount,
+    SUM(c.ContributionAmount) as TotalGiven,
+    AVG(c.ContributionAmount) as AvgGift,
+    MIN(c.ContributionDate) as FirstGift,
+    MAX(c.ContributionDate) as LastGift,
+    STRING_AGG(DISTINCT cf.FundName, ', ') as Funds
 FROM Contribution c
 JOIN People p ON c.PeopleId = p.PeopleId
 JOIN ContributionFund cf ON c.FundId = cf.FundId
-WHERE c.ContributionTypeId != 99  -- 🚨 EXCLUDE event registration fees
-  AND c.ContributionDate >= '2024-01-01'
+WHERE c.ContributionTypeId != 99  -- CRITICAL: Exclude event fees
+  AND c.ContributionDate >= DATEADD(year, -1, GETDATE())
   AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-ORDER BY c.ContributionDate DESC, c.ContributionAmount DESC;</code></pre>
-</div>
+GROUP BY p.PeopleId, p.Name
+HAVING SUM(c.ContributionAmount) > 0
+ORDER BY SUM(c.ContributionAmount) DESC</code></pre>
 
-<div id="financial-processing" class="section">
-    <h2>💳 Financial Processing & Batch System</h2>
-    
-    <h3>📦 Batch Processing</h3>
-    <pre><code>SELECT 
-    bh.BundleHeaderId as BatchId,
-	bht.Description as [BundleType],
-    bh.ContributionDate,
-	bh.BankDepositDate,
-	bh.DepositDate,
-    bh.TotalCash,
-    bh.TotalChecks,
-    bh.TotalEnvelopes,
-    bh.RecordStatus
-    
-FROM BundleHeader bh
-LEFT JOIN lookup.BundleHeaderTypes bht ON bht.Id = bh.BundleHeaderTypeId
-WHERE bh.ContributionDate >= DATEADD(month, -1, GETDATE())
-
-ORDER BY bh.ContributionDate DESC;</code></pre>
-</div>
-
-<div id="outstanding-payments" class="section">
-    <h2>💳 Outstanding Payments & Fee Tracking</h2>
-    
-    <h3>📊 Outstanding Transactions</h3>
-    <pre><code>SELECT TOP 500
-    p.Name,
-    t.TransactionDate,
-    t.amt,
-    t.amtdue,
-    t.ChargedFee,
-	t.coupon,
-	t.donate,
-	t.regfees,
-    t.Description
-    
-FROM TransactionPeople tp
-JOIN People p ON tp.PeopleId = p.PeopleId
-JOIN [Transaction] t ON tp.Id = t.Id
-WHERE t.amtdue > 0  -- Outstanding balance
-  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-ORDER BY t.TransactionDate DESC;</code></pre>
-</div>
-
-<div id="registration-flow" class="section">
-    <h2>🎟️ Registration System Flow</h2>
-    
-    <h3>📝 Registration → People → Answers</h3>
-    <pre><code>-- Registration with participant details
+    <h3>Fund Analysis</h3>
+    <pre><code>-- Giving by fund
 SELECT 
-    r.RegistrationId,
-    o.OrganizationName as Event,
-    p.Name as Participant,
-    rp.CompletedDate,
-    rp.SentEmail,
-    rp.Status,
-	rp.Total
+    cf.FundName,
+    COUNT(DISTINCT c.PeopleId) as Givers,
+    COUNT(*) as Gifts,
+    SUM(c.ContributionAmount) as TotalAmount,
+    AVG(c.ContributionAmount) as AvgGift,
+    MAX(c.ContributionAmount) as LargestGift
+FROM Contribution c
+JOIN ContributionFund cf ON c.FundId = cf.FundId
+WHERE c.ContributionTypeId != 99
+  AND c.ContributionDate >= DATEADD(month, -3, GETDATE())
+GROUP BY cf.FundId, cf.FundName
+ORDER BY SUM(c.ContributionAmount) DESC</code></pre>
+
+    <h3>Giving Trends</h3>
+    <pre><code>-- Monthly giving trends
+SELECT 
+    YEAR(c.ContributionDate) as Year,
+    MONTH(c.ContributionDate) as Month,
+    DATENAME(month, c.ContributionDate) as MonthName,
+    COUNT(DISTINCT c.PeopleId) as UniqueGivers,
+    COUNT(*) as TotalGifts,
+    SUM(c.ContributionAmount) as TotalAmount,
+    AVG(c.ContributionAmount) as AvgGift
+FROM Contribution c
+WHERE c.ContributionTypeId != 99
+  AND c.ContributionDate >= DATEADD(year, -2, GETDATE())
+GROUP BY YEAR(c.ContributionDate), MONTH(c.ContributionDate), DATENAME(month, c.ContributionDate)
+ORDER BY Year DESC, Month DESC</code></pre>
+</div>
+
+<div id="registration-system" class="section">
+    <h2>📝 Registration System Architecture</h2>
     
+    <div class="highlight">
+        <h3>Registration Flow</h3>
+        <p><strong>Registration</strong> → <strong>RegPeople</strong> → <strong>RegAnswer</strong></p>
+        <ul>
+            <li><strong>Registration:</strong> Overall registration transaction</li>
+            <li><strong>RegPeople:</strong> Individual people in the registration</li>
+            <li><strong>RegAnswer:</strong> Their answers to custom questions</li>
+            <li><strong>RegQuestion:</strong> The questions being answered</li>
+        </ul>
+    </div>
+
+    <h3>Registration Tables</h3>
+    
+    <h4>Registration Table</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>RegistrationId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Registration ID</td>
+        </tr>
+        <tr>
+            <td><code>OrganizationId</code></td>
+            <td>int</td>
+            <td>Event/Org</td>
+            <td>→ Organizations</td>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Registrant</td>
+            <td>Person who registered</td>
+        </tr>
+        <tr>
+            <td><code>CreatedDate</code></td>
+            <td>datetime</td>
+            <td>Started</td>
+            <td>Registration begun</td>
+        </tr>
+        <tr>
+            <td><code>CompletedDate</code></td>
+            <td>datetime</td>
+            <td>Completed</td>
+            <td>Registration finished</td>
+        </tr>
+    </table>
+
+    <h4>RegPeople Table</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>RegPeopleId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Person in registration</td>
+        </tr>
+        <tr>
+            <td><code>RegistrationId</code></td>
+            <td>int</td>
+            <td>Registration</td>
+            <td>→ Registration</td>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Person</td>
+            <td>→ People</td>
+        </tr>
+        <tr>
+            <td><code>FirstName</code></td>
+            <td>nvarchar</td>
+            <td>First name</td>
+            <td>As entered</td>
+        </tr>
+        <tr>
+            <td><code>LastName</code></td>
+            <td>nvarchar</td>
+            <td>Last name</td>
+            <td>As entered</td>
+        </tr>
+        <tr>
+            <td><code>Email</code></td>
+            <td>nvarchar</td>
+            <td>Email</td>
+            <td>Contact email</td>
+        </tr>
+        <tr>
+            <td><code>Fee</code></td>
+            <td>money</td>
+            <td>Fee amount</td>
+            <td>Cost for this person</td>
+        </tr>
+    </table>
+
+    <h3>Registration Report Query</h3>
+    <pre><code>-- Event registration details
+SELECT 
+    o.OrganizationName as Event,
+    r.RegistrationId,
+    registrant.Name as RegisteredBy,
+    r.CreatedDate as RegistrationStarted,
+    r.CompletedDate as RegistrationCompleted,
+    rp.FirstName + ' ' + rp.LastName as Participant,
+    rp.Email,
+    rp.Fee,
+    CASE 
+        WHEN rp.CompletedDate IS NOT NULL THEN 'Complete'
+        ELSE 'Incomplete'
+    END as Status
 FROM Registration r
 JOIN Organizations o ON r.OrganizationId = o.OrganizationId
+JOIN People registrant ON r.PeopleId = registrant.PeopleId
 JOIN RegPeople rp ON r.RegistrationId = rp.RegistrationId
-JOIN People p ON rp.PeopleId = p.PeopleId
-WHERE r.CompletedDate is NOT NULL  -- Completed registrations
-  AND rp.CompletedDate >= DATEADD(month, -3, GETDATE())
-ORDER BY rp.CompletedDate DESC;	</code></pre>
-</div>
+WHERE o.RegistrationTypeId > 0  -- Has registration
+  AND r.CreatedDate >= DATEADD(month, -3, GETDATE())
+ORDER BY r.CreatedDate DESC</code></pre>
 
-<div id="form-questions" class="section">
-    <h2>📋 Form Questions & Responses</h2>
-    
-    <h3>❓ Registration Form Answers</h3>
-    <pre><code>SELECT 
-    p.Name,
-    rq.Question,
-    ra.Text as Answer,
-    
+    <h3>Registration Questions & Answers</h3>
+    <pre><code>-- Custom form responses
+SELECT 
+    o.OrganizationName,
+    p.Name as Participant,
+    rq.Label as Question,
+    rq.Order as QuestionOrder,
+    ra.AnswerValue as Answer,
+    CASE 
+        WHEN rq.IsRequired = 1 THEN 'Required'
+        ELSE 'Optional'
+    END as QuestionType
 FROM RegAnswer ra
-JOIN RegPeople rp ON ra.RegPersonId = rp.Id
+JOIN RegPeople rp ON ra.RegPeopleId = rp.RegPeopleId
 JOIN People p ON rp.PeopleId = p.PeopleId
-JOIN RegQuestion rq ON ra.QuestionId = rq.Id
-WHERE rp.DateRegistered >= DATEADD(month, -1, GETDATE())
-ORDER BY p.Name, rq.Question;</code></pre>
+JOIN RegQuestion rq ON ra.RegQuestionId = rq.RegQuestionId
+JOIN Registration r ON rp.RegistrationId = r.RegistrationId
+JOIN Organizations o ON r.OrganizationId = o.OrganizationId
+WHERE r.CompletedDate >= DATEADD(month, -1, GETDATE())
+ORDER BY o.OrganizationName, p.Name, rq.Order</code></pre>
 </div>
 
-<div id="event-management" class="section">
-    <h2>🎯 Event Management Tables</h2>
+<div id="checkin-overview" class="section">
+    <h2>🎫 Check-In System Overview</h2>
     
-    <h3>📅 Scheduled Events</h3>
-    <pre><code>SELECT 
-    s.Id,
-    s.Name as EventName,
-    s.MeetingTime,
-    s.Location,
-    cat.Description as Category,
+    <p>TouchPoint's check-in system provides secure child and event check-in with barcode scanning, security labels, and real-time tracking.</p>
+
+    <h3>Check-In Tables</h3>
     
-FROM Schedule s
-LEFT JOIN lookup.ScheduleCategory cat ON s.CategoryId = cat.Id
-WHERE s.MeetingTime >= GETDATE()
-ORDER BY s.MeetingTime;</code></pre>
+    <h4>CheckInActivity Table</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Activity record</td>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Person</td>
+            <td>→ People</td>
+        </tr>
+        <tr>
+            <td><code>OrganizationId</code></td>
+            <td>int</td>
+            <td>Organization</td>
+            <td>→ Organizations</td>
+        </tr>
+        <tr>
+            <td><code>CheckInTime</code></td>
+            <td>datetime</td>
+            <td>Check-in time</td>
+            <td>When checked in</td>
+        </tr>
+        <tr>
+            <td><code>CheckInBy</code></td>
+            <td>int</td>
+            <td>Checked in by</td>
+            <td>→ People (worker)</td>
+        </tr>
+    </table>
+
+    <h4>CheckInTimes Table</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Time record</td>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Person</td>
+            <td>→ People</td>
+        </tr>
+        <tr>
+            <td><code>OrganizationId</code></td>
+            <td>int</td>
+            <td>Organization</td>
+            <td>→ Organizations</td>
+        </tr>
+        <tr>
+            <td><code>MeetingId</code></td>
+            <td>int</td>
+            <td>Meeting</td>
+            <td>→ Meetings</td>
+        </tr>
+        <tr>
+            <td><code>CheckInTime</code></td>
+            <td>datetime</td>
+            <td>Time stamp</td>
+            <td>Exact check-in</td>
+        </tr>
+    </table>
+
+    <h3>Check-In Activity Query</h3>
+    <pre><code>-- Recent check-in activity
+SELECT TOP 100
+    p.Name,
+    o.OrganizationName,
+    cia.CheckInTime,
+    worker.Name as CheckedInBy,
+    DATEDIFF(minute, m.MeetingDate, cia.CheckInTime) as MinutesEarlyLate
+FROM CheckInActivity cia
+JOIN People p ON cia.PeopleId = p.PeopleId
+JOIN Organizations o ON cia.OrganizationId = o.OrganizationId
+LEFT JOIN People worker ON cia.CheckInBy = worker.PeopleId
+LEFT JOIN CheckInTimes cit ON cia.PeopleId = cit.PeopleId 
+    AND cia.OrganizationId = cit.OrganizationId
+    AND CAST(cia.CheckInTime as DATE) = CAST(cit.CheckInTime as DATE)
+LEFT JOIN Meetings m ON cit.MeetingId = m.MeetingId
+WHERE cia.CheckInTime >= DATEADD(day, -7, GETDATE())
+ORDER BY cia.CheckInTime DESC</code></pre>
+
+    <h3>Check-In Statistics</h3>
+    <pre><code>-- Check-in statistics by organization
+SELECT 
+    o.OrganizationName,
+    COUNT(DISTINCT cia.PeopleId) as UniqueCheckIns,
+    COUNT(*) as TotalCheckIns,
+    AVG(DATEDIFF(minute, m.MeetingDate, cia.CheckInTime)) as AvgMinutesEarly,
+    MIN(cia.CheckInTime) as EarliestCheckIn,
+    MAX(cia.CheckInTime) as LatestCheckIn
+FROM CheckInActivity cia
+JOIN Organizations o ON cia.OrganizationId = o.OrganizationId
+JOIN CheckInTimes cit ON cia.PeopleId = cit.PeopleId 
+    AND cia.OrganizationId = cit.OrganizationId
+    AND CAST(cia.CheckInTime as DATE) = CAST(cit.CheckInTime as DATE)
+JOIN Meetings m ON cit.MeetingId = m.MeetingId
+WHERE cia.CheckInTime >= DATEADD(month, -1, GETDATE())
+GROUP BY o.OrganizationId, o.OrganizationName
+ORDER BY COUNT(*) DESC</code></pre>
 </div>
 
 <div id="email-system" class="section">
-    <h2>📧 Email Marketing System (3.9M+ records)</h2>
+    <h2>📧 Email Marketing System</h2>
     
     <div class="warning">
-        <p><strong>⚠️ PERFORMANCE WARNING:</strong> EmailResponses table has 3.9M+ records - ALWAYS use date filters</p>
+        <h3>⚠️ Performance Warning</h3>
+        <p>Email tables contain millions of records. <strong>Always use date filters and TOP clauses:</strong></p>
+        <ul>
+            <li>EmailResponses: 3.9M+ records</li>
+            <li>EmailQueueTo: 3.8M+ records</li>
+        </ul>
     </div>
 
-    <h3>📧 Email Campaign Management</h3>
-    <pre><code>-- Email campaigns with engagement metrics
-SELECT 
+    <h3>Email System Tables</h3>
+    
+    <h4>EmailQueue Table</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Email campaign ID</td>
+        </tr>
+        <tr>
+            <td><code>Subject</code></td>
+            <td>nvarchar(100)</td>
+            <td>Email subject</td>
+            <td>Subject line</td>
+        </tr>
+        <tr>
+            <td><code>Body</code></td>
+            <td>ntext</td>
+            <td>Email content</td>
+            <td>HTML/text body</td>
+        </tr>
+        <tr>
+            <td><code>FromAddress</code></td>
+            <td>nvarchar(50)</td>
+            <td>From email</td>
+            <td>Sender address</td>
+        </tr>
+        <tr>
+            <td><code>QueuedBy</code></td>
+            <td>int</td>
+            <td>Queued by</td>
+            <td>→ People</td>
+        </tr>
+        <tr>
+            <td><code>SendAt</code></td>
+            <td>datetime</td>
+            <td>Send time</td>
+            <td>Scheduled/sent</td>
+        </tr>
+    </table>
+
+    <h3>Email Campaign Analytics</h3>
+    <pre><code>-- Email campaign performance (with date filter for performance)
+SELECT TOP 100
     eq.Id,
-    eq.Subject,             -- Email subject
-    sender.Name as Sender,
-    eq.SendAt,              -- When sent
-    
-    -- 📊 Engagement Metrics
-    COUNT(eqt.Id) as Recipients,
-    COUNT(CASE WHEN er.Event = 'open' THEN 1 END) as Opens,
-    COUNT(CASE WHEN er.Event = 'click' THEN 1 END) as Clicks,
+    eq.Subject,
+    eq.SendAt,
+    sender.Name as SentBy,
+    COUNT(DISTINCT eqt.Id) as Recipients,
+    COUNT(DISTINCT CASE WHEN er.Event = 'open' THEN er.PeopleId END) as UniqueOpens,
+    COUNT(DISTINCT CASE WHEN er.Event = 'click' THEN er.PeopleId END) as UniqueClicks,
     COUNT(CASE WHEN er.Event = 'bounce' THEN 1 END) as Bounces,
-    
-    -- 📈 Engagement Rates
-    CAST(COUNT(CASE WHEN er.Event = 'open' THEN 1 END) AS FLOAT) / 
-        NULLIF(COUNT(eqt.Id), 0) * 100 as OpenRate,
-    CAST(COUNT(CASE WHEN er.Event = 'click' THEN 1 END) AS FLOAT) / 
-        NULLIF(COUNT(eqt.Id), 0) * 100 as ClickRate
-    
+    CAST(COUNT(DISTINCT CASE WHEN er.Event = 'open' THEN er.PeopleId END) as float) / 
+        NULLIF(COUNT(DISTINCT eqt.Id), 0) * 100 as OpenRate,
+    CAST(COUNT(DISTINCT CASE WHEN er.Event = 'click' THEN er.PeopleId END) as float) / 
+        NULLIF(COUNT(DISTINCT eqt.Id), 0) * 100 as ClickRate
 FROM EmailQueue eq
 JOIN People sender ON eq.QueuedBy = sender.PeopleId
 LEFT JOIN EmailQueueTo eqt ON eq.Id = eqt.EmailQueueId
 LEFT JOIN EmailResponses er ON eqt.Id = er.EmailQueueToId
-WHERE eq.SendAt >= DATEADD(month, -1, GETDATE())  -- ⚠️ PERFORMANCE: Date filter required
-GROUP BY eq.Id, eq.Subject, sender.Name, eq.SendAt
-HAVING COUNT(eqt.Id) > 0
-ORDER BY eq.SendAt DESC;</code></pre>
-</div>
+WHERE eq.SendAt >= DATEADD(month, -1, GETDATE())  -- REQUIRED for performance
+GROUP BY eq.Id, eq.Subject, eq.SendAt, sender.Name
+ORDER BY eq.SendAt DESC</code></pre>
 
-<div id="sms-system" class="section">
-    <h2>📱 SMS/Text Messaging</h2>
-    
-    <h3>💬 SMS Messages</h3>
-    <pre><code>SELECT 
-    sm.Id,
-    p.Name as Recipient,
-    sm.Message,
-    sm.SentDate,
-    sm.Delivered,
-    sm.Status,
-    
-FROM SMSMessage sm
-JOIN People p ON sm.PeopleId = p.PeopleId
-WHERE sm.SentDate >= DATEADD(week, -1, GETDATE())
-ORDER BY sm.SentDate DESC;</code></pre>
-</div>
-
-<div id="task-communication" class="section">
-    <h2>📋 Task & Ministry Communication</h2>
-    
-    <h3>✅ Task Management</h3>
-    <pre><code>SELECT 
-    tn.Id,
-    owner.Name as Owner,
-    assigned.Name as AssignedTo,
-    tn.CreatedOn,
-    tn.DueDate,
-    tn.Notes,
-    tn.CompletedOn,
-    
-FROM TaskNote tn
-JOIN People owner ON tn.OwnerId = owner.PeopleId
-LEFT JOIN People assigned ON tn.AboutId = assigned.PeopleId
-WHERE tn.CompletedOn IS NULL  -- Open tasks
-ORDER BY tn.DueDate;</code></pre>
+    <h3>Email Engagement by Person</h3>
+    <pre><code>-- Individual email engagement (limited timeframe for performance)
+SELECT TOP 500
+    p.Name,
+    p.EmailAddress,
+    COUNT(DISTINCT eq.Id) as EmailsReceived,
+    COUNT(DISTINCT CASE WHEN er.Event = 'open' THEN eq.Id END) as EmailsOpened,
+    COUNT(DISTINCT CASE WHEN er.Event = 'click' THEN eq.Id END) as EmailsClicked,
+    MAX(CASE WHEN er.Event = 'open' THEN er.EventTime END) as LastOpened,
+    MAX(CASE WHEN er.Event = 'click' THEN er.EventTime END) as LastClicked
+FROM People p
+JOIN EmailQueueTo eqt ON p.PeopleId = eqt.PeopleId
+JOIN EmailQueue eq ON eqt.EmailQueueId = eq.Id
+LEFT JOIN EmailResponses er ON eqt.Id = er.EmailQueueToId
+WHERE eq.SendAt >= DATEADD(month, -3, GETDATE())  -- REQUIRED
+  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+GROUP BY p.PeopleId, p.Name, p.EmailAddress
+HAVING COUNT(DISTINCT eq.Id) > 0
+ORDER BY COUNT(DISTINCT CASE WHEN er.Event = 'open' THEN eq.Id END) DESC</code></pre>
 </div>
 
 <div id="engagement-scoring" class="section">
-    <h2>📊 Engagement Scoring System (1.4M+ records)</h2>
+    <h2>📊 Engagement Scoring System</h2>
     
     <div class="warning">
-        <p><strong>⚠️ PERFORMANCE WARNING:</strong> EngagementScoreTag table has 1.4M+ records - ALWAYS use date filters</p>
+        <p><strong>⚠️ Performance Note:</strong> EngagementScoreTag has 1.4M+ records. Always filter by WeekDate.</p>
     </div>
 
-    <h3>📈 Engagement Scores</h3>
-    <pre><code>SELECT 
-    p.Name,
-    es.WeekDate,
-    es.Attended,
-    es.Gave,
-    es.Served,
-    es.TotalScore,
+    <h3>Engagement Tables</h3>
     
+    <h4>EngagementScore Table</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Score record</td>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Person</td>
+            <td>→ People</td>
+        </tr>
+        <tr>
+            <td><code>WeekDate</code></td>
+            <td>datetime</td>
+            <td>Week</td>
+            <td>Week of scoring</td>
+        </tr>
+        <tr>
+            <td><code>TotalScore</code></td>
+            <td>int</td>
+            <td>Total points</td>
+            <td>Week's total</td>
+        </tr>
+    </table>
+
+    <h3>Engagement Analysis</h3>
+    <pre><code>-- Top engaged members (recent)
+SELECT TOP 100
+    p.Name,
+    SUM(es.TotalScore) as TotalEngagement,
+    AVG(es.TotalScore) as AvgWeeklyScore,
+    COUNT(DISTINCT es.WeekDate) as ActiveWeeks,
+    STRING_AGG(DISTINCT sfl.Name, ', ') as Activities
 FROM EngagementScore es
 JOIN People p ON es.PeopleId = p.PeopleId
-WHERE es.WeekDate >= DATEADD(month, -3, GETDATE())  -- ⚠️ PERFORMANCE
+LEFT JOIN EngagementScoreTag est ON es.Id = est.EngagementScoreId
+LEFT JOIN StatusFlagList sfl ON est.StatusFlagId = sfl.Flag
+WHERE es.WeekDate >= DATEADD(month, -3, GETDATE())  -- REQUIRED
   AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-ORDER BY es.WeekDate DESC, es.TotalScore DESC;</code></pre>
+GROUP BY p.PeopleId, p.Name
+HAVING SUM(es.TotalScore) > 0
+ORDER BY SUM(es.TotalScore) DESC</code></pre>
+
+    <h3>Engagement Trends</h3>
+    <pre><code>-- Weekly engagement trends
+SELECT 
+    es.WeekDate,
+    COUNT(DISTINCT es.PeopleId) as EngagedPeople,
+    SUM(es.TotalScore) as TotalPoints,
+    AVG(es.TotalScore) as AvgScore,
+    MAX(es.TotalScore) as MaxScore
+FROM EngagementScore es
+WHERE es.WeekDate >= DATEADD(month, -6, GETDATE())
+GROUP BY es.WeekDate
+ORDER BY es.WeekDate DESC</code></pre>
 </div>
 
 <div id="tag-system" class="section">
-    <h2>🏷️ Tag System (138M+ records)</h2>
+    <h2>🏷️ Tag System</h2>
     
     <div class="critical">
-        <p><strong>🚨 EXTREME PERFORMANCE WARNING:</strong> TagPerson table has 138M+ records - NEVER query without date filters!</p>
-    </div>
-
-    <h3>🏷️ Tag Management</h3>
-    <pre><code>-- Recent tags only (CRITICAL for performance)
-SELECT TOP 1000
-    p.Name,
-    t.Name as TagName,
-    tp.DateCreated,
-    
-FROM TagPerson tp
-JOIN People p ON tp.PeopleId = p.PeopleId
-JOIN Tag t ON tp.TagId = t.Id
-WHERE tp.DateCreated >= DATEADD(day, -7, GETDATE())  -- 🚨 CRITICAL
-  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-ORDER BY tp.DateCreated DESC;</code></pre>
-</div>
-
-<div id="activity-logging" class="section">
-    <h2>📝 Activity Logging & Change Tracking</h2>
-    
-    <h3>🔍 Activity Log (3.4M+ records)</h3>
-    <pre><code>SELECT TOP 100
-    al.ActivityDate,
-    u.Name as User,
-    al.Machine,
-    al.PageUrl,
-    al.Activity,
-    
-FROM ActivityLog al
-LEFT JOIN Users u ON al.UserId = u.UserId
-WHERE al.ActivityDate >= DATEADD(day, -1, GETDATE())  -- ⚠️ PERFORMANCE
-ORDER BY al.ActivityDate DESC;</code></pre>
-</div>
-
-<div id="users-security" class="section">
-    <h2>🔐 Users, Roles & Security</h2>
-    
-    <h3>👤 User Management</h3>
-    <pre><code>SELECT 
-    u.UserId,
-    u.Name,
-    u.EmailAddress,
-    u.LastActivityDate,
-    u.MustChangePassword,
-    r.RoleName,
-    
-FROM Users u
-LEFT JOIN UserRole ur ON u.UserId = ur.UserId
-LEFT JOIN Roles r ON ur.RoleId = r.RoleId
-WHERE u.IsApproved = 1
-ORDER BY u.Name;</code></pre>
-</div>
-
-<div id="settings-framework" class="section">
-    <h2>⚙️ Settings & Configuration Framework</h2>
-    
-    <h3>🔧 System Settings</h3>
-    <pre><code>SELECT 
-    SettingId,
-    Setting,
-    Description,
-    DataType,
-    
-FROM Setting
-WHERE UserId = 0  -- System-wide settings
-ORDER BY Setting;</code></pre>
-</div>
-
-<div id="content-management" class="section">
-    <h2>📄 Content & Template Management</h2>
-    
-    <h3>📝 Content Management</h3>
-    <pre><code>SELECT 
-    c.Id,
-    c.Name,
-    c.Title,
-    c.Body,
-    c.DateCreated,
-    c.DateModified,
-    ct.Description as ContentType,
-    
-FROM Content c
-LEFT JOIN lookup.ContentType ct ON c.TypeId = ct.Id
-ORDER BY c.DateModified DESC;</code></pre>
-</div>
-
-<div id="mobile-config" class="section">
-    <h2>📱 Mobile App Configuration Tables</h2>
-    
-    <h3>📲 Mobile App Settings</h3>
-    <pre><code>SELECT 
-    mas.Id,
-    mas.SettingName,
-    mas.SettingValue,
-    mas.LastModified,
-    
-FROM MobileAppSettings mas
-ORDER BY mas.SettingName;</code></pre>
-</div>
-
-<div id="picture-management" class="section">
-    <h2>🖼️ Picture & Media Management</h2>
-    
-    <h3>📸 Picture Storage</h3>
-    <pre><code>SELECT 
-    p.Name,
-    pic.PictureId,
-    pic.CreatedDate,
-    pic.ThumbId,
-    pic.SmallId,
-    pic.MediumId,
-    pic.LargeId,
-    
-FROM Picture pic
-JOIN People p ON pic.PeopleId = p.PeopleId
-WHERE pic.CreatedDate >= DATEADD(month, -1, GETDATE())
-ORDER BY pic.CreatedDate DESC;</code></pre>
-</div>
-
-<div id="search-optimization" class="section">
-    <h2>🔍 Search Optimization System</h2>
-    
-    <h3>🔎 Search Tokens (1.7M+ records)</h3>
-    <pre><code>-- Search optimization tokens
-SELECT TOP 100
-    pst.PeopleId,
-    pst.Token,
-    pst.TokenType,
-    
-FROM PeopleSearchTokens pst
-WHERE pst.Token LIKE 'smith%'  -- Example search
-ORDER BY pst.PeopleId;</code></pre>
-</div>
-
-<div id="extra-value-tables" class="section">
-    <h2>🎛️ Extra Value Tables (17+ tables)</h2>
-    
-    <h3>📊 Custom Field Storage</h3>
-    <pre><code>-- People Extra Values
-SELECT 
-    p.Name,
-    pev.Field,
-    pev.StrValue,
-    pev.DateValue,
-    pev.IntValue,
-    pev.BitValue,
-    
-FROM PeopleExtra pev
-JOIN People p ON pev.PeopleId = p.PeopleId
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-ORDER BY p.Name, pev.Field;</code></pre>
-</div>
-
-<div id="lookup-tables" class="section">
-    <h2>📚 Lookup Tables Reference (67+ tables)</h2>
-    
-    <h3>🏛️ Church Membership (Most Important)</h3>
-    <pre><code>-- Member Status (CRITICAL for targeting)
-SELECT Id, Description FROM lookup.MemberStatus;
--- 10=Member, 20=Prospect, 30=Not Member, 40=Previous Member, 50=Just Added
-
--- Attendance Classification (CRITICAL for roles)
-SELECT Id, Description, Worker, Guest FROM lookup.AttendType;
--- 10=Member, 20=Leader, 30=Volunteer, 40=New Guest, 50=Recent Guest
-
--- Detailed Member Roles
-SELECT Id, Description, AttendanceTypeId FROM lookup.MemberType;</code></pre>
-
-    <h3>👤 Demographics & Personal</h3>
-    <pre><code>SELECT Id, Description FROM lookup.Gender;          -- 1=Male, 2=Female
-SELECT Id, Description FROM lookup.MaritalStatus;   -- 1=Single, 2=Married, 3=Divorced, 4=Widowed
-SELECT Id, Description FROM lookup.FamilyPosition;  -- 10=Primary Adult, 20=Secondary Adult, 30=Child
-SELECT Id, Description FROM lookup.GradeLevel;      -- School grades
-SELECT Id, Description FROM lookup.ShirtSize;       -- Event/volunteer sizing</code></pre>
-
-    <h3>💰 Financial (CRITICAL)</h3>
-    <pre><code>SELECT Id, Description FROM lookup.ContributionType;    -- 🚨 CRITICAL: 99=event registration
-SELECT Id, Description FROM lookup.ContributionStatus;
-SELECT Id, Description FROM lookup.AccountCode;</code></pre>
-</div>
-
-<div id="church-customizations" class="section">
-    <h2>⛪ Church-Specific Customizations</h2>
-    
-    <h3>🏛️ Custom Reports</h3>
-    <pre><code>SELECT 
-    cr.Id,
-    cr.Name,
-    cr.Description,
-    cr.Body,  -- SQL or Python code
-    cr.IsPublic,
-    
-FROM CustomReports cr
-WHERE cr.IsPublic = 1
-ORDER BY cr.Name;</code></pre>
-</div>
-
-<div id="performance-guidelines" class="section">
-    <h2>⚡ Query Performance Guidelines</h2>
-    
-    <div class="critical">
-        <h3>🎯 The Golden Rule: Always Use TOP for Exploration</h3>
-        <p>TouchPoint's database is massive. <strong>NEVER run unlimited queries without TOP clauses</strong> unless you're generating a specific report that requires all records. Use these guidelines:</p>
+        <h3>🚨 EXTREME PERFORMANCE WARNING</h3>
+        <p><strong>TagPerson table contains 138 MILLION+ records!</strong></p>
+        <p><strong>NEVER query without:</strong></p>
         <ul>
-            <li><strong>TOP 100</strong> - Initial exploration and testing</li>
-            <li><strong>TOP 500</strong> - Reviewing sample data sets</li>
-            <li><strong>TOP 1000</strong> - Larger samples for analysis</li>
-            <li><strong>TOP 5000</strong> - Comprehensive samples (use with caution)</li>
-            <li><strong>No TOP</strong> - ONLY for final production reports after testing</li>
+            <li>TOP clause (TOP 100 or less)</li>
+            <li>Date filter on DateCreated</li>
+            <li>Specific TagId or PeopleId filter</li>
         </ul>
     </div>
+
+    <h3>Tag System Tables</h3>
     
-    <h3>🚨 Large Table Performance Rules</h3>
-    
-    <div class="critical">
-        <h4>Always Filter These High-Volume Tables:</h4>
-        <pre><code>-- TagPerson (138M+ records) - ALWAYS use date ranges AND TOP
-SELECT TOP 100 * FROM TagPerson tp
-WHERE tp.DateCreated >= DATEADD(month, -1, GETDATE())
+    <h4>Tag Table</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Tag ID</td>
+        </tr>
+        <tr>
+            <td><code>Name</code></td>
+            <td>nvarchar(100)</td>
+            <td>Tag name</td>
+            <td>Display name</td>
+        </tr>
+        <tr>
+            <td><code>TypeId</code></td>
+            <td>int</td>
+            <td>Tag type</td>
+            <td>→ TagType</td>
+        </tr>
+        <tr>
+            <td><code>Owner</code></td>
+            <td>int</td>
+            <td>Tag owner</td>
+            <td>→ People</td>
+        </tr>
+    </table>
 
--- EmailResponses (3.9M+ records) - ALWAYS use date ranges AND TOP
-SELECT TOP 100 * FROM EmailResponses er  
-WHERE er.EventTime >= DATEADD(week, -1, GETDATE())
+    <h3>Safe Tag Query Pattern</h3>
+    <pre><code>-- SAFE: Query specific tag with date filter
+SELECT TOP 100
+    t.Name as TagName,
+    p.Name as PersonName,
+    tp.DateCreated
+FROM TagPerson tp
+JOIN Tag t ON tp.TagId = t.Id
+JOIN People p ON tp.PeopleId = p.PeopleId
+WHERE t.Name = 'Volunteer'  -- Specific tag
+  AND tp.DateCreated >= DATEADD(month, -1, GETDATE())  -- REQUIRED
+  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+ORDER BY tp.DateCreated DESC
 
--- ActivityLog (3.4M+ records) - ALWAYS use date ranges AND TOP
-SELECT TOP 100 * FROM ActivityLog al
-WHERE al.ActivityDate >= DATEADD(month, -1, GETDATE())
+-- NEVER DO THIS:
+-- SELECT * FROM TagPerson  -- 138M+ records!</code></pre>
 
--- EngagementScoreTag (1.4M+ records) - ALWAYS use date ranges AND TOP
-SELECT TOP 100 * FROM EngagementScoreTag es
-WHERE es.WeekDate >= DATEADD(month, -3, GETDATE())</code></pre>
-    </div>
-
-    <h3>📝 Safe Exploration Pattern</h3>
-    <pre><code>-- STEP 1: Always start with TOP 100 for initial exploration
-SELECT TOP 100 * 
-FROM LargeTableName
-WHERE DateField >= DATEADD(week, -1, GETDATE())
-ORDER BY DateField DESC;
-
--- STEP 2: If you need more data, increase gradually
-SELECT TOP 500 * 
-FROM LargeTableName
-WHERE DateField >= DATEADD(month, -1, GETDATE())
-ORDER BY DateField DESC;
-
--- STEP 3: Only remove TOP after confirming the query works
--- and you truly need ALL records for your report</code></pre>
+    <h3>Tag Summary</h3>
+    <pre><code>-- Tag usage summary (aggregated, not detail)
+SELECT TOP 50
+    t.Name as TagName,
+    COUNT(*) as PeopleTagged,
+    MIN(tp.DateCreated) as FirstUsed,
+    MAX(tp.DateCreated) as LastUsed
+FROM Tag t
+JOIN TagPerson tp ON t.Id = tp.TagId
+WHERE tp.DateCreated >= DATEADD(month, -6, GETDATE())  -- REQUIRED
+GROUP BY t.Id, t.Name
+HAVING COUNT(*) > 10
+ORDER BY COUNT(*) DESC</code></pre>
 </div>
 
-<div id="common-patterns" class="section">
-    <h2>🎯 Common Query Patterns</h2>
+<div id="extra-values" class="section">
+    <h2>🎛️ Extra Value Tables (Custom Fields)</h2>
     
-    <h3>📊 Dashboard Metrics</h3>
-    <pre><code>-- Church Dashboard Metrics
-SELECT 
-    (SELECT COUNT(*) FROM People WHERE IsDeceased = 0 AND ArchivedFlag = 0 AND MemberStatusId = 10) as ActiveMembers,
-    (SELECT COUNT(*) FROM Attend WHERE AttendanceFlag = 1 AND MeetingDate >= DATEADD(week, -1, GETDATE())) as WeeklyAttendance,
-    (SELECT SUM(ContributionAmount) FROM Contribution WHERE ContributionTypeId != 99 AND ContributionDate >= DATEADD(month, -1, GETDATE())) as MonthlyGiving,
-    (SELECT COUNT(*) FROM Organizations WHERE OrganizationStatusId = 30) as ActiveOrganizations;</code></pre>
-</div>
+    <p>TouchPoint provides 17 Extra Value tables allowing churches to add unlimited custom fields without modifying the database schema.</p>
 
-<div id="troubleshooting" class="section">
-    <h2>🔧 Troubleshooting & Data Quality</h2>
-    
-    <h3>🚑 Common Issues & Solutions</h3>
-    
-    <div class="warning">
-        <h4>Problem: Query Times Out</h4>
-        <p><strong>Solution:</strong> Add date filters, use TOP clause, check for missing indexes</p>
-    </div>
-    
-    <div class="warning">
-        <h4>Problem: Attendance Numbers Don't Match</h4>
-        <p><strong>Solution:</strong> Verify <code>AttendanceFlag = 1</code> filter is applied</p>
-    </div>
-    
-    <div class="warning">
-        <h4>Problem: Giving Reports Include Event Fees</h4>
-        <p><strong>Solution:</strong> Add <code>WHERE ContributionTypeId != 99</code> filter</p>
-    </div>
-    
-    <div class="warning">
-        <h4>Problem: Deceased People Appearing</h4>
-        <p><strong>Solution:</strong> Always include <code>WHERE IsDeceased = 0 AND ArchivedFlag = 0</code></p>
-    </div>
+    <h3>Extra Value Table Types</h3>
+    <table>
+        <tr>
+            <th>Table</th>
+            <th>Data Type</th>
+            <th>Usage
