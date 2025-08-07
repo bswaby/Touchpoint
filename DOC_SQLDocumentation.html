@@ -439,6 +439,16 @@
     <h2>🚨 Critical Business Rules (READ FIRST)</h2>
     
     <div class="critical">
+        <h3>⚠️ ALWAYS Use TOP Clause for Initial Queries</h3>
+        <p><strong>CRITICAL:</strong> TouchPoint's database contains millions of records. Always use <code>TOP 100</code> or <code>TOP 1000</code> when exploring data to prevent timeouts and performance issues. Only remove the TOP clause when you need complete datasets for specific reports.</p>
+        <pre><code>-- ✅ ALWAYS start with TOP for exploration
+SELECT TOP 100 * FROM People WHERE IsDeceased = 0 AND ArchivedFlag = 0
+
+-- ❌ NEVER run unlimited queries on large tables without filters
+SELECT * FROM TagPerson  -- This has 138M+ records!</code></pre>
+    </div>
+    
+    <div class="critical">
         <h3>⚠️ Mandatory Filters (Apply to EVERY Query)</h3>
         <pre><code>-- 🚨 CRITICAL: Always filter active people
 WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
@@ -482,7 +492,7 @@ WHERE SomeDate >= DATEADD(month, -6, GETDATE())  -- Use date ranges</code></pre>
     <h3>Quick Start: Essential Patterns</h3>
 
     <h4>👥 Who Are Our Active Members?</h4>
-    <pre><code>SELECT p.Name, p.EmailAddress, p.CellPhone, ms.Description as Status
+    <pre><code>SELECT TOP 1000 p.Name, p.EmailAddress, p.CellPhone, ms.Description as Status
 FROM People p
 JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
 WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
@@ -490,7 +500,7 @@ WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
 ORDER BY p.Name;</code></pre>
 
     <h4>📅 Who Attended What This Week?</h4>
-    <pre><code>SELECT p.Name, o.OrganizationName, m.MeetingDate
+    <pre><code>SELECT TOP 500 p.Name, o.OrganizationName, m.MeetingDate
 FROM People p
 JOIN Attend a ON p.PeopleId = a.PeopleId
 JOIN Meetings m ON a.MeetingId = m.MeetingId
@@ -501,7 +511,7 @@ WHERE a.AttendanceFlag = 1  -- CRITICAL
 ORDER BY m.MeetingDate DESC;</code></pre>
 
     <h4>💰 Who Gave What This Month?</h4>
-    <pre><code>SELECT p.Name, cf.FundName, SUM(c.ContributionAmount) as Total
+    <pre><code>SELECT TOP 500 p.Name, cf.FundName, SUM(c.ContributionAmount) as Total
 FROM People p
 JOIN Contribution c ON p.PeopleId = c.PeopleId
 JOIN ContributionFund cf ON c.FundId = cf.FundId
@@ -513,7 +523,7 @@ ORDER BY Total DESC;</code></pre>
 
     <h4>🎯 Who Needs Follow-Up?</h4>
     <pre><code>-- Recent first-time visitors
-SELECT p.Name, p.EmailAddress, o.OrganizationName, a.MeetingDate
+SELECT TOP 100 p.Name, p.EmailAddress, o.OrganizationName, a.MeetingDate
 FROM People p
 JOIN Attend a ON p.PeopleId = a.PeopleId
 JOIN Organizations o ON a.OrganizationId = o.OrganizationId
@@ -541,7 +551,7 @@ ORDER BY a.MeetingDate DESC;</code></pre>
     <strong>🚨 CRITICAL RULE:</strong> Always filter <code>WHERE IsDeceased = 0 AND ArchivedFlag = 0</code></p>
 
     <h3>🔑 Core Identity Fields</h3>
-    <pre><code>SELECT 
+    <pre><code>SELECT TOP 100
     -- 🔑 Primary Identity
     PeopleId,               -- Primary key, unique person identifier
     
@@ -562,16 +572,18 @@ ORDER BY a.MeetingDate DESC;</code></pre>
     Age                     -- ✅ Current age in years (computed, updated regularly)
     
 FROM People p
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0  -- 🚨 MANDATORY FILTER</code></pre>
+WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0  -- 🚨 MANDATORY FILTER
+ORDER BY p.Name;</code></pre>
 
     <h3>👤 Demographics & Classification</h3>
-    <pre><code>SELECT 
-    p.PeopleId, p.TitleCode, p.Name,
+    <pre><code>SELECT TOP 100
+    p.PeopleId, p.Name,
     
     -- 👤 Basic Demographics
     g.Description as Gender,            -- → lookup.Gender.Id
     ms.Description as MaritalStatus,    -- → lookup.MaritalStatus.Id
     fp.Description as FamilyPosition,   -- → lookup.FamilyPosition.Id
+    tc.Description as Title,            -- → lookup.TitleCode.Id (Mr., Mrs., Dr.)
     gl.Description as GradeLevel,       -- → lookup.GradeLevel.Id
     ss.Description as ShirtSize,        -- → lookup.ShirtSize.Id
     
@@ -586,6 +598,7 @@ FROM People p
 LEFT JOIN lookup.Gender g ON p.GenderId = g.Id
 LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
 LEFT JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
+LEFT JOIN lookup.TitleCode tc ON p.TitleCode = tc.Id
 LEFT JOIN lookup.GradeLevel gl ON p.GradeLevelId = gl.Id
 LEFT JOIN lookup.ShirtSize ss ON p.ShirtSizeId = ss.Id
 LEFT JOIN lookup.MemberStatus memstat ON p.MemberStatusId = memstat.Id
@@ -593,7 +606,8 @@ LEFT JOIN lookup.EntryPoint ep ON p.EntryPointId = ep.Id
 LEFT JOIN lookup.InterestPoint ip ON p.InterestPointId = ip.Id
 LEFT JOIN lookup.ResidentCode rc ON p.ResCodeId = rc.Id
 LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
+WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+ORDER BY p.Name;</code></pre>
 </div>
 
 <div id="family-relationships" class="section">
@@ -609,7 +623,7 @@ WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
     </div>
 
     <h3>👨‍👩‍👧‍👦 Complete Family Analysis</h3>
-    <pre><code>SELECT 
+    <pre><code>SELECT TOP 500
     f.FamilyId,
     primary_adult.Name as PrimaryAdult,
     spouse.Name as Spouse,
@@ -649,7 +663,7 @@ ORDER BY primary_adult.Name;</code></pre>
     </div>
 
     <h3>📧 Contact Data with Permissions</h3>
-    <pre><code>SELECT 
+    <pre><code>SELECT TOP 100
     p.PeopleId, p.Name,
     
     -- 📧 Email Information
@@ -681,25 +695,28 @@ ORDER BY primary_adult.Name;</code></pre>
     p.DoNotPublishPhones    -- ❌ Don't publish in directory
     
 FROM People p
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
+WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+ORDER BY p.Name;</code></pre>
 
     <h3>💌 Safe Communication Query Pattern</h3>
     <pre><code>-- People you CAN email safely
-SELECT p.Name, p.EmailAddress
+SELECT TOP 1000 p.Name, p.EmailAddress
 FROM People p
 WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
   AND p.DoNotMailFlag = 0  -- Permission to mail
   AND p.SendEmailAddress1 = 1  -- Permission for primary email
   AND p.EmailAddress IS NOT NULL AND p.EmailAddress != ''
-  AND p.PrimaryBadAddrFlag = 0;  -- Good address
+  AND p.PrimaryBadAddrFlag = 0  -- Good address
+ORDER BY p.Name;
 
 -- People you CAN text safely  
-SELECT p.Name, p.CellPhone
+SELECT TOP 1000 p.Name, p.CellPhone
 FROM People p
 WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
   AND p.DoNotCallFlag = 0  -- Permission to call/text
   AND p.ReceiveSMS = 1  -- Permission for SMS
-  AND p.CellPhoneIsValid = 1;  -- Valid phone number</code></pre>
+  AND p.CellPhoneIsValid = 1  -- Valid phone number
+ORDER BY p.Name;</code></pre>
 </div>
 
 <div id="membership-status" class="section">
@@ -710,7 +727,7 @@ WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
         <p><strong>Just Added → Prospect → Member</strong></p>
     </div>
 
-    <pre><code>SELECT 
+    <pre><code>SELECT TOP 100
     p.PeopleId, p.Name,
     ms.Description as MemberStatus,
     
@@ -740,7 +757,8 @@ LEFT JOIN lookup.BaptismStatus bs ON p.BaptismStatusId = bs.Id
 LEFT JOIN lookup.BaptismType bt ON p.BaptismTypeId = bt.Id
 LEFT JOIN lookup.DecisionType dt2 ON p.DecisionTypeId = dt2.Id
 LEFT JOIN lookup.NewMemberClassStatus nmcs ON p.NewMemberClassStatusId = nmcs.Id
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
+WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+ORDER BY p.Name;</code></pre>
 </div>
 
 <div id="organizations-table" class="section">
@@ -752,7 +770,7 @@ WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
     <strong>UI Note:</strong> These are called "Involvements" in the TouchPoint interface</p>
 
     <h3>🏢 Basic Organization Information</h3>
-    <pre><code>SELECT 
+    <pre><code>SELECT TOP 100
     o.OrganizationId,
     o.OrganizationName,     -- Display name
     o.Description,          -- Detailed description
@@ -779,14 +797,15 @@ LEFT JOIN lookup.OrganizationType ot ON o.OrganizationTypeId = ot.Id
 LEFT JOIN lookup.Campus c ON o.CampusId = c.Id
 LEFT JOIN People leader ON o.LeaderId = leader.PeopleId
 LEFT JOIN People main_leader ON o.MainLeaderId = main_leader.PeopleId
-WHERE o.OrganizationStatusId = 30  -- ✅ Active organizations only</code></pre>
+WHERE o.OrganizationStatusId = 30  -- ✅ Active organizations only
+ORDER BY o.OrganizationName;</code></pre>
 </div>
 
 <div id="organization-membership" class="section">
     <h2>👥 Organization Membership & Roles</h2>
     
     <h3>🎭 Organization Members with Roles</h3>
-    <pre><code>SELECT 
+    <pre><code>SELECT TOP 500
     o.OrganizationName,
     p.Name,
     mt.Description as Role,
@@ -834,7 +853,7 @@ ORDER BY pr.Name, d.Name, o.OrganizationName;</code></pre>
     <strong>Key Fields:</strong> AttendId (Primary), PeopleId + MeetingId + OrganizationId</p>
 
     <h3>📅 Basic Attendance Tracking</h3>
-    <pre><code>SELECT 
+    <pre><code>SELECT TOP 1000
     a.AttendId,             -- Primary key
     a.PeopleId,             -- → People.PeopleId
     a.MeetingId,            -- → Meetings.MeetingId  
@@ -856,14 +875,15 @@ FROM Attend a
 JOIN lookup.AttendType at ON a.AttendanceTypeId = at.Id
 JOIN lookup.MemberType mt ON a.MemberTypeId = mt.Id
 WHERE a.AttendanceFlag = 1  -- 🚨 MUST FILTER: only actual attendance
-  AND a.MeetingDate >= DATEADD(month, -3, GETDATE())</code></pre>
+  AND a.MeetingDate >= DATEADD(month, -3, GETDATE())
+ORDER BY a.MeetingDate DESC;</code></pre>
 </div>
 
 <div id="meetings-table" class="section">
     <h2>📅 Meetings & Event Scheduling</h2>
     
     <h3>🗓️ Meeting Records</h3>
-    <pre><code>SELECT 
+    <pre><code>SELECT TOP 100
     m.MeetingId,
     m.OrganizationId,
     o.OrganizationName,
@@ -892,7 +912,7 @@ ORDER BY m.MeetingDate DESC;</code></pre>
     cia.CheckInTime,
     cia.SecurityCode,
     cia.AccessTypeId,
-    bl.Name as CheckInLocation
+    bl.Name as CheckInLocation,
     
 FROM CheckInActivity cia
 JOIN People p ON cia.PeopleId = p.PeopleId
@@ -913,7 +933,7 @@ ORDER BY cia.CheckInTime DESC;</code></pre>
     <strong>Scale:</strong> 673K+ records</p>
 
     <h3>💰 Basic Giving Analysis</h3>
-    <pre><code>SELECT 
+    <pre><code>SELECT TOP 500
     c.ContributionId,
     p.Name as Giver,
     c.ContributionAmount,   -- Gift amount
@@ -943,7 +963,7 @@ ORDER BY c.ContributionDate DESC, c.ContributionAmount DESC;</code></pre>
     bh.TotalEnvelopes,
     bh.TotalOnline,
     bh.TotalCredit,
-    bh.IsOpen
+    bh.IsOpen,
     
 FROM BundleHeader bh
 WHERE bh.BatchDate >= DATEADD(month, -1, GETDATE())
@@ -960,7 +980,7 @@ ORDER BY bh.BatchDate DESC;</code></pre>
     t.OriginalAmount,
     t.AmountDue,
     t.AmountPaid,
-    t.Description
+    t.Description,
     
 FROM TransactionPeople tp
 JOIN People p ON tp.PeopleId = p.PeopleId
@@ -981,7 +1001,7 @@ SELECT
     p.Name as Participant,
     rp.DateRegistered,
     rp.AmountToPay,
-    rp.AmountPaid
+    rp.AmountPaid,
     
 FROM Registration r
 JOIN Organizations o ON r.OrganizationId = o.OrganizationId
@@ -999,7 +1019,7 @@ ORDER BY rp.DateRegistered DESC;</code></pre>
     <pre><code>SELECT 
     p.Name,
     rq.Question,
-    ra.Text as Answer
+    ra.Text as Answer,
     
 FROM RegAnswer ra
 JOIN RegPeople rp ON ra.RegPersonId = rp.Id
@@ -1018,7 +1038,7 @@ ORDER BY p.Name, rq.Question;</code></pre>
     s.Name as EventName,
     s.MeetingTime,
     s.Location,
-    cat.Description as Category
+    cat.Description as Category,
     
 FROM Schedule s
 LEFT JOIN lookup.ScheduleCategory cat ON s.CategoryId = cat.Id
@@ -1073,7 +1093,7 @@ ORDER BY eq.SendAt DESC;</code></pre>
     sm.Message,
     sm.SentDate,
     sm.Delivered,
-    sm.Status
+    sm.Status,
     
 FROM SMSMessage sm
 JOIN People p ON sm.PeopleId = p.PeopleId
@@ -1092,7 +1112,7 @@ ORDER BY sm.SentDate DESC;</code></pre>
     tn.CreatedOn,
     tn.DueDate,
     tn.Notes,
-    tn.CompletedOn
+    tn.CompletedOn,
     
 FROM TaskNote tn
 JOIN People owner ON tn.OwnerId = owner.PeopleId
@@ -1115,7 +1135,7 @@ ORDER BY tn.DueDate;</code></pre>
     es.Attended,
     es.Gave,
     es.Served,
-    es.TotalScore
+    es.TotalScore,
     
 FROM EngagementScore es
 JOIN People p ON es.PeopleId = p.PeopleId
@@ -1136,7 +1156,7 @@ ORDER BY es.WeekDate DESC, es.TotalScore DESC;</code></pre>
 SELECT TOP 1000
     p.Name,
     t.Name as TagName,
-    tp.DateCreated
+    tp.DateCreated,
     
 FROM TagPerson tp
 JOIN People p ON tp.PeopleId = p.PeopleId
@@ -1155,7 +1175,7 @@ ORDER BY tp.DateCreated DESC;</code></pre>
     u.Name as User,
     al.Machine,
     al.PageUrl,
-    al.Activity
+    al.Activity,
     
 FROM ActivityLog al
 LEFT JOIN Users u ON al.UserId = u.UserId
@@ -1173,7 +1193,7 @@ ORDER BY al.ActivityDate DESC;</code></pre>
     u.EmailAddress,
     u.LastActivityDate,
     u.MustChangePassword,
-    r.RoleName
+    r.RoleName,
     
 FROM Users u
 LEFT JOIN UserRole ur ON u.UserId = ur.UserId
@@ -1190,7 +1210,7 @@ ORDER BY u.Name;</code></pre>
     SettingId,
     Setting,
     Description,
-    DataType
+    DataType,
     
 FROM Setting
 WHERE UserId = 0  -- System-wide settings
@@ -1208,7 +1228,7 @@ ORDER BY Setting;</code></pre>
     c.Body,
     c.DateCreated,
     c.DateModified,
-    ct.Description as ContentType
+    ct.Description as ContentType,
     
 FROM Content c
 LEFT JOIN lookup.ContentType ct ON c.TypeId = ct.Id
@@ -1223,7 +1243,7 @@ ORDER BY c.DateModified DESC;</code></pre>
     mas.Id,
     mas.SettingName,
     mas.SettingValue,
-    mas.LastModified
+    mas.LastModified,
     
 FROM MobileAppSettings mas
 ORDER BY mas.SettingName;</code></pre>
@@ -1240,7 +1260,7 @@ ORDER BY mas.SettingName;</code></pre>
     pic.ThumbId,
     pic.SmallId,
     pic.MediumId,
-    pic.LargeId
+    pic.LargeId,
     
 FROM Picture pic
 JOIN People p ON pic.PeopleId = p.PeopleId
@@ -1256,7 +1276,7 @@ ORDER BY pic.CreatedDate DESC;</code></pre>
 SELECT TOP 100
     pst.PeopleId,
     pst.Token,
-    pst.TokenType
+    pst.TokenType,
     
 FROM PeopleSearchTokens pst
 WHERE pst.Token LIKE 'smith%'  -- Example search
@@ -1274,7 +1294,7 @@ SELECT
     pev.StrValue,
     pev.DateValue,
     pev.IntValue,
-    pev.BitValue
+    pev.BitValue,
     
 FROM PeopleExtra pev
 JOIN People p ON pev.PeopleId = p.PeopleId
@@ -1319,7 +1339,7 @@ SELECT Id, Description FROM lookup.AccountCode;</code></pre>
     cr.Name,
     cr.Description,
     cr.Body,  -- SQL or Python code
-    cr.IsPublic
+    cr.IsPublic,
     
 FROM CustomReports cr
 WHERE cr.IsPublic = 1
@@ -1329,29 +1349,54 @@ ORDER BY cr.Name;</code></pre>
 <div id="performance-guidelines" class="section">
     <h2>⚡ Query Performance Guidelines</h2>
     
+    <div class="critical">
+        <h3>🎯 The Golden Rule: Always Use TOP for Exploration</h3>
+        <p>TouchPoint's database is massive. <strong>NEVER run unlimited queries without TOP clauses</strong> unless you're generating a specific report that requires all records. Use these guidelines:</p>
+        <ul>
+            <li><strong>TOP 100</strong> - Initial exploration and testing</li>
+            <li><strong>TOP 500</strong> - Reviewing sample data sets</li>
+            <li><strong>TOP 1000</strong> - Larger samples for analysis</li>
+            <li><strong>TOP 5000</strong> - Comprehensive samples (use with caution)</li>
+            <li><strong>No TOP</strong> - ONLY for final production reports after testing</li>
+        </ul>
+    </div>
+    
     <h3>🚨 Large Table Performance Rules</h3>
     
     <div class="critical">
         <h4>Always Filter These High-Volume Tables:</h4>
-        <pre><code>-- TagPerson (138M+ records) - ALWAYS use date ranges
+        <pre><code>-- TagPerson (138M+ records) - ALWAYS use date ranges AND TOP
+SELECT TOP 100 * FROM TagPerson tp
 WHERE tp.DateCreated >= DATEADD(month, -1, GETDATE())
 
--- EmailResponses (3.9M+ records) - ALWAYS use date ranges  
+-- EmailResponses (3.9M+ records) - ALWAYS use date ranges AND TOP
+SELECT TOP 100 * FROM EmailResponses er  
 WHERE er.EventTime >= DATEADD(week, -1, GETDATE())
 
--- ActivityLog (3.4M+ records) - ALWAYS use date ranges
+-- ActivityLog (3.4M+ records) - ALWAYS use date ranges AND TOP
+SELECT TOP 100 * FROM ActivityLog al
 WHERE al.ActivityDate >= DATEADD(month, -1, GETDATE())
 
--- EngagementScoreTag (1.4M+ records) - ALWAYS use date ranges
+-- EngagementScoreTag (1.4M+ records) - ALWAYS use date ranges AND TOP
+SELECT TOP 100 * FROM EngagementScoreTag es
 WHERE es.WeekDate >= DATEADD(month, -3, GETDATE())</code></pre>
     </div>
 
     <h3>📝 Safe Exploration Pattern</h3>
-    <pre><code>-- Use TOP for initial exploration
+    <pre><code>-- STEP 1: Always start with TOP 100 for initial exploration
 SELECT TOP 100 * 
 FROM LargeTableName
 WHERE DateField >= DATEADD(week, -1, GETDATE())
-ORDER BY DateField DESC;</code></pre>
+ORDER BY DateField DESC;
+
+-- STEP 2: If you need more data, increase gradually
+SELECT TOP 500 * 
+FROM LargeTableName
+WHERE DateField >= DATEADD(month, -1, GETDATE())
+ORDER BY DateField DESC;
+
+-- STEP 3: Only remove TOP after confirming the query works
+-- and you truly need ALL records for your report</code></pre>
 </div>
 
 <div id="common-patterns" class="section">
