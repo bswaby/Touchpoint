@@ -559,7 +559,7 @@ ORDER BY a.MeetingDate DESC;</code></pre>
     BirthMonth,             -- Month of birth (1-12) 
     BirthYear,              -- Year of birth
     BDate,                  -- ⚠️ Full birth date (includes time - cast to date for age calc)
-    Age,                    -- ✅ Current age in years (computed, updated regularly)
+    Age                     -- ✅ Current age in years (computed, updated regularly)
     
 FROM People p
 WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0  -- 🚨 MANDATORY FILTER</code></pre>
@@ -581,7 +581,7 @@ WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0  -- 🚨 MANDATORY FILTER</code></
     ep.Description as EntryPoint,           -- → lookup.EntryPoint.Id (how found church)
     ip.Description as InterestPoint,        -- → lookup.InterestPoint.Id (what attracted)
     rc.Description as ResidentCode,         -- → lookup.ResidentCode.Id (proximity)
-    c.Description as Campus,                -- → lookup.Campus.Id
+    c.Description as Campus                 -- → lookup.Campus.Id
     
 FROM People p
 LEFT JOIN lookup.Gender g ON p.GenderId = g.Id
@@ -680,7 +680,7 @@ ORDER BY primary_adult.Name;</code></pre>
     p.DoNotMailFlag,        -- ❌ No postal mail
     p.DoNotCallFlag,        -- ❌ No phone calls  
     p.DoNotVisitFlag,       -- ❌ No visits
-    p.DoNotPublishPhones,   -- ❌ Don't publish in directory
+    p.DoNotPublishPhones    -- ❌ Don't publish in directory
     
 FROM People p
 WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
@@ -733,7 +733,7 @@ WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
     
     -- 🎓 New Member Process
     p.NewMemberClassDate,       -- Class completion
-    nmcs.Description as NewMemberClassStatus,
+    nmcs.Description as NewMemberClassStatus
     
 FROM People p
 JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
@@ -773,7 +773,7 @@ WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
     o.PrevMemberCount,      -- Previous count
     o.ProspectCount,        -- Prospects
     o.Limit,                -- Maximum capacity
-    o.ClassFilled,          -- At capacity flag
+    o.ClassFilled           -- At capacity flag
     
 FROM Organizations o
 LEFT JOIN lookup.OrganizationStatus os ON o.OrganizationStatusId = os.Id
@@ -795,7 +795,7 @@ WHERE o.OrganizationStatusId = 30  -- ✅ Active organizations only</code></pre>
     om.JoinDate,
     om.InactiveDate,
     om.IsPending,
-    om.IsMemChecked,
+    om.IsMemChecked
     
 FROM OrganizationMembers om
 JOIN People p ON om.PeopleId = p.PeopleId
@@ -815,7 +815,7 @@ ORDER BY o.OrganizationName, mt.Description, p.Name;</code></pre>
     pr.Name as Program,
     d.Name as Division,
     o.OrganizationName,
-    o.MemberCount,
+    o.MemberCount
     
 FROM Organizations o
 LEFT JOIN Division d ON o.DivisionId = d.Id
@@ -852,7 +852,7 @@ ORDER BY pr.Name, d.Name, o.OrganizationName;</code></pre>
     a.SubGroupName,         -- Sub-group within organization
     a.Commitment,           -- Attendance commitment level: (99 OR NULL)=UNCOMMITTED; 0=REGRETS; 1=ATTENDING; 2=FIND_SUB; 3=SUB_FOUND
     a.NoShow,               -- Registered but didn't attend
-    a.Registered,           -- Was registered for meeting
+    a.Registered            -- Was registered for meeting
     
 FROM Attend a
 JOIN lookup.AttendType at ON a.AttendanceTypeId = at.Id
@@ -875,7 +875,7 @@ WHERE a.AttendanceFlag = 1  -- 🚨 MUST FILTER: only actual attendance
     m.NumMembers,           -- Member attendance
     m.NumGuests,            -- Guest attendance
     m.HeadCount,            -- Total head count
-    m.DidNotMeet,           -- Meeting cancelled flag
+    m.DidNotMeet            -- Meeting cancelled flag
     
 FROM Meetings m
 JOIN Organizations o ON m.OrganizationId = o.OrganizationId
@@ -894,7 +894,7 @@ ORDER BY m.MeetingDate DESC;</code></pre>
     cia.CheckInTime,
     cia.SecurityCode,
     cia.AccessTypeId,
-    bl.Name as CheckInLocation,
+    bl.Name as CheckInLocation
     
 FROM CheckInActivity cia
 JOIN People p ON cia.PeopleId = p.PeopleId
@@ -922,7 +922,7 @@ ORDER BY cia.CheckInTime DESC;</code></pre>
     c.ContributionDate,     -- Date of gift
     cf.FundName,            -- Fund designation
     c.ContributionTypeId,   -- 🚨 CRITICAL: 99 = event fee (NOT donation)
-    c.CheckNo,              -- Check number or payment reference
+    c.CheckNo               -- Check number or payment reference
     
 FROM Contribution c
 JOIN People p ON c.PeopleId = p.PeopleId
@@ -945,7 +945,7 @@ ORDER BY c.ContributionDate DESC, c.ContributionAmount DESC;</code></pre>
     bh.TotalEnvelopes,
     bh.TotalOnline,
     bh.TotalCredit,
-    bh.IsOpen,
+    bh.IsOpen
     
 FROM BundleHeader bh
 WHERE bh.BatchDate >= DATEADD(month, -1, GETDATE())
@@ -962,7 +962,7 @@ ORDER BY bh.BatchDate DESC;</code></pre>
     t.OriginalAmount,
     t.AmountDue,
     t.AmountPaid,
-    t.Description,
+    t.Description
     
 FROM TransactionPeople tp
 JOIN People p ON tp.PeopleId = p.PeopleId
@@ -983,7 +983,7 @@ SELECT
     p.Name as Participant,
     rp.DateRegistered,
     rp.AmountToPay,
-    rp.AmountPaid,
+    rp.AmountPaid
     
 FROM Registration r
 JOIN Organizations o ON r.OrganizationId = o.OrganizationId
@@ -1001,7 +1001,7 @@ ORDER BY rp.DateRegistered DESC;</code></pre>
     <pre><code>SELECT 
     p.Name,
     rq.Question,
-    ra.Text as Answer,
+    ra.Text as Answer
     
 FROM RegAnswer ra
 JOIN RegPeople rp ON ra.RegPersonId = rp.Id
@@ -1020,7 +1020,7 @@ ORDER BY p.Name, rq.Question;</code></pre>
     s.Name as EventName,
     s.MeetingTime,
     s.Location,
-    cat.Description as Category,
+    cat.Description as Category
     
 FROM Schedule s
 LEFT JOIN lookup.ScheduleCategory cat ON s.CategoryId = cat.Id
@@ -1075,7 +1075,7 @@ ORDER BY eq.SendAt DESC;</code></pre>
     sm.Message,
     sm.SentDate,
     sm.Delivered,
-    sm.Status,
+    sm.Status
     
 FROM SMSMessage sm
 JOIN People p ON sm.PeopleId = p.PeopleId
@@ -1094,7 +1094,7 @@ ORDER BY sm.SentDate DESC;</code></pre>
     tn.CreatedOn,
     tn.DueDate,
     tn.Notes,
-    tn.CompletedOn,
+    tn.CompletedOn
     
 FROM TaskNote tn
 JOIN People owner ON tn.OwnerId = owner.PeopleId
@@ -1117,7 +1117,7 @@ ORDER BY tn.DueDate;</code></pre>
     es.Attended,
     es.Gave,
     es.Served,
-    es.TotalScore,
+    es.TotalScore
     
 FROM EngagementScore es
 JOIN People p ON es.PeopleId = p.PeopleId
@@ -1138,7 +1138,7 @@ ORDER BY es.WeekDate DESC, es.TotalScore DESC;</code></pre>
 SELECT TOP 1000
     p.Name,
     t.Name as TagName,
-    tp.DateCreated,
+    tp.DateCreated
     
 FROM TagPerson tp
 JOIN People p ON tp.PeopleId = p.PeopleId
@@ -1157,7 +1157,7 @@ ORDER BY tp.DateCreated DESC;</code></pre>
     u.Name as User,
     al.Machine,
     al.PageUrl,
-    al.Activity,
+    al.Activity
     
 FROM ActivityLog al
 LEFT JOIN Users u ON al.UserId = u.UserId
@@ -1175,7 +1175,7 @@ ORDER BY al.ActivityDate DESC;</code></pre>
     u.EmailAddress,
     u.LastActivityDate,
     u.MustChangePassword,
-    r.RoleName,
+    r.RoleName
     
 FROM Users u
 LEFT JOIN UserRole ur ON u.UserId = ur.UserId
@@ -1192,7 +1192,7 @@ ORDER BY u.Name;</code></pre>
     SettingId,
     Setting,
     Description,
-    DataType,
+    DataType
     
 FROM Setting
 WHERE UserId = 0  -- System-wide settings
@@ -1210,7 +1210,7 @@ ORDER BY Setting;</code></pre>
     c.Body,
     c.DateCreated,
     c.DateModified,
-    ct.Description as ContentType,
+    ct.Description as ContentType
     
 FROM Content c
 LEFT JOIN lookup.ContentType ct ON c.TypeId = ct.Id
@@ -1225,7 +1225,7 @@ ORDER BY c.DateModified DESC;</code></pre>
     mas.Id,
     mas.SettingName,
     mas.SettingValue,
-    mas.LastModified,
+    mas.LastModified
     
 FROM MobileAppSettings mas
 ORDER BY mas.SettingName;</code></pre>
@@ -1242,7 +1242,7 @@ ORDER BY mas.SettingName;</code></pre>
     pic.ThumbId,
     pic.SmallId,
     pic.MediumId,
-    pic.LargeId,
+    pic.LargeId
     
 FROM Picture pic
 JOIN People p ON pic.PeopleId = p.PeopleId
@@ -1258,7 +1258,7 @@ ORDER BY pic.CreatedDate DESC;</code></pre>
 SELECT TOP 100
     pst.PeopleId,
     pst.Token,
-    pst.TokenType,
+    pst.TokenType
     
 FROM PeopleSearchTokens pst
 WHERE pst.Token LIKE 'smith%'  -- Example search
@@ -1276,7 +1276,7 @@ SELECT
     pev.StrValue,
     pev.DateValue,
     pev.IntValue,
-    pev.BitValue,
+    pev.BitValue
     
 FROM PeopleExtra pev
 JOIN People p ON pev.PeopleId = p.PeopleId
@@ -1321,7 +1321,7 @@ SELECT Id, Description FROM lookup.AccountCode;</code></pre>
     cr.Name,
     cr.Description,
     cr.Body,  -- SQL or Python code
-    cr.IsPublic,
+    cr.IsPublic
     
 FROM CustomReports cr
 WHERE cr.IsPublic = 1
