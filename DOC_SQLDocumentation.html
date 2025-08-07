@@ -3333,7 +3333,7 @@ ORDER BY Year DESC, Month DESC</code></pre>
 
     <h3>Registration Report Query</h3>
     <pre><code>-- Event registration details
-SELECT 
+SELECT TOP 500
     o.OrganizationName as Event,
     r.RegistrationId,
     registrant.Name as RegisteredBy,
@@ -3356,7 +3356,7 @@ ORDER BY r.CreatedDate DESC</code></pre>
 
     <h3>Registration Questions & Answers</h3>
     <pre><code>-- Custom form responses
-SELECT 
+SELECT TOP 1000
     o.OrganizationName,
     p.Name as Participant,
     rq.Label as Question,
@@ -4044,7 +4044,7 @@ FROM SMSMetrics</code></pre>
 
     <h3>Text Conversation Threading</h3>
     <pre><code>-- SMS conversation history for a person
-SELECT 
+SELECT TOP 100
     COALESCE(p.Name, 'Unknown') as Person,
     CASE 
         WHEN sl.ID IS NOT NULL THEN 'Sent'
@@ -4055,10 +4055,11 @@ SELECT
 FROM (
     SELECT SenderID as PeopleId, Message, SendAt, NULL as DateReceived 
     FROM SMSList 
-    WHERE Sent = 1
+    WHERE Sent = 1 AND SendAt >= DATEADD(month, -6, GETDATE())
     UNION ALL
     SELECT FromPeopleId, Body, NULL, DateReceived 
     FROM SmsReceived
+    WHERE DateReceived >= DATEADD(month, -6, GETDATE())
 ) messages
 LEFT JOIN People p ON messages.PeopleId = p.PeopleId
 LEFT JOIN SMSList sl ON messages.SendAt IS NOT NULL
@@ -4295,7 +4296,7 @@ ORDER BY cm.DisplayOrder, o.OrganizationName</code></pre>
 
     <h3>Picture Usage Query</h3>
     <pre><code>-- People with pictures
-SELECT 
+SELECT TOP 1000
     p.Name,
     pic.PictureId,
     pic.ThumbUrl,
@@ -4419,7 +4420,7 @@ GROUP BY u.UserId, u.Username, u.Name, u.EmailAddress, u.LastLoginDate, u.MFAEna
 ORDER BY u.LastLoginDate DESC
 
 -- Users who haven't logged in recently
-SELECT 
+SELECT TOP 100
     u.Name,
     u.Username,
     u.LastLoginDate,
