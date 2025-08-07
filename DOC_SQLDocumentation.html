@@ -958,36 +958,42 @@ ORDER BY c.ContributionDate DESC, c.ContributionAmount DESC;</code></pre>
     
     <h3>📦 Batch Processing</h3>
     <pre><code>SELECT 
-    bh.Id as BatchId,
-    bh.BatchDate,
+    bh.BundleHeaderId as BatchId,
+	bht.Description as [BundleType],
+    bh.ContributionDate,
+	bh.BankDepositDate,
+	bh.DepositDate,
     bh.TotalCash,
     bh.TotalChecks,
     bh.TotalEnvelopes,
-    bh.TotalOnline,
-    bh.TotalCredit,
-    bh.IsOpen,
+    bh.RecordStatus
     
 FROM BundleHeader bh
-WHERE bh.BatchDate >= DATEADD(month, -1, GETDATE())
-ORDER BY bh.BatchDate DESC;</code></pre>
+LEFT JOIN lookup.BundleHeaderTypes bht ON bht.Id = bh.BundleHeaderTypeId
+WHERE bh.ContributionDate >= DATEADD(month, -1, GETDATE())
+
+ORDER BY bh.ContributionDate DESC;</code></pre>
 </div>
 
 <div id="outstanding-payments" class="section">
     <h2>💳 Outstanding Payments & Fee Tracking</h2>
     
     <h3>📊 Outstanding Transactions</h3>
-    <pre><code>SELECT 
+    <pre><code>SELECT TOP 500
     p.Name,
     t.TransactionDate,
-    t.OriginalAmount,
-    t.AmountDue,
-    t.AmountPaid,
-    t.Description,
+    t.amt,
+    t.amtdue,
+    t.ChargedFee,
+	t.coupon,
+	t.donate,
+	t.regfees,
+    t.Description
     
 FROM TransactionPeople tp
 JOIN People p ON tp.PeopleId = p.PeopleId
-JOIN Transactions t ON tp.TransactionId = t.Id
-WHERE t.AmountDue > 0  -- Outstanding balance
+JOIN [Transaction] t ON tp.Id = t.Id
+WHERE t.amtdue > 0  -- Outstanding balance
   AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
 ORDER BY t.TransactionDate DESC;</code></pre>
 </div>
