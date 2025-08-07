@@ -577,13 +577,12 @@ ORDER BY p.Name;</code></pre>
 
     <h3>👤 Demographics & Classification</h3>
     <pre><code>SELECT TOP 100
-    p.PeopleId, p.Name,
+    p.PeopleId, p.TitleCode, p.Name,
     
     -- 👤 Basic Demographics
     g.Description as Gender,            -- → lookup.Gender.Id
     ms.Description as MaritalStatus,    -- → lookup.MaritalStatus.Id
     fp.Description as FamilyPosition,   -- → lookup.FamilyPosition.Id
-    tc.Description as Title,            -- → lookup.TitleCode.Id (Mr., Mrs., Dr.)
     gl.Description as GradeLevel,       -- → lookup.GradeLevel.Id
     ss.Description as ShirtSize,        -- → lookup.ShirtSize.Id
     
@@ -598,7 +597,6 @@ FROM People p
 LEFT JOIN lookup.Gender g ON p.GenderId = g.Id
 LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
 LEFT JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
-LEFT JOIN lookup.TitleCode tc ON p.TitleCode = tc.Id
 LEFT JOIN lookup.GradeLevel gl ON p.GradeLevelId = gl.Id
 LEFT JOIN lookup.ShirtSize ss ON p.ShirtSizeId = ss.Id
 LEFT JOIN lookup.MemberStatus memstat ON p.MemberStatusId = memstat.Id
@@ -809,10 +807,9 @@ ORDER BY o.OrganizationName;</code></pre>
     o.OrganizationName,
     p.Name,
     mt.Description as Role,
-    om.JoinDate,
+    om.EnrollmentDate,
     om.InactiveDate,
-    om.IsPending,
-    om.IsMemChecked
+    om.Pending
     
 FROM OrganizationMembers om
 JOIN People p ON om.PeopleId = p.PeopleId
@@ -891,7 +888,12 @@ ORDER BY a.MeetingDate DESC;</code></pre>
     m.Location,
     m.NumPresent,           -- Attendance count
     m.NumMembers,           -- Member attendance
-    m.NumGuests,            -- Guest attendance
+    m.NumNewVisit,          -- New Visitors
+	m.NumOfCheckedOut,		-- Checked Out
+	m.NumOtherAttends,		-- Other Attends
+	m.NumOutTown,			-- Out of town
+	m.NumRepeatVst,			-- Repeat Vistors
+	m.NumVstMembers,		-- Visiting Members
     m.HeadCount,            -- Total head count
     m.DidNotMeet            -- Meeting cancelled flag
     
