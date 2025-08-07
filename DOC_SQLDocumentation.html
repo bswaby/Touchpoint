@@ -3763,8 +3763,8 @@ HAVING COUNT(*) > 10
 ORDER BY COUNT(*) DESC</code></pre>
 </div>
 
-<div id="extra-values" class="section">
-    <h2>🎛️ Extra Value Tables (Custom Fields)</h2>
+<div id="extra-values-complete" class="section">
+    <h2>🎛️ Extra Value Tables (Custom Fields) - Complete</h2>
     
     <p>TouchPoint provides 17 Extra Value tables allowing churches to add unlimited custom fields without modifying the database schema.</p>
 
@@ -3773,4 +3773,1253 @@ ORDER BY COUNT(*) DESC</code></pre>
         <tr>
             <th>Table</th>
             <th>Data Type</th>
-            <th>Usage
+            <th>Usage</th>
+        </tr>
+        <tr>
+            <td><code>PeopleExtra</code></td>
+            <td>Mixed</td>
+            <td>Person-specific custom fields (most common)</td>
+        </tr>
+        <tr>
+            <td><code>ExtraValueBit</code></td>
+            <td>Boolean</td>
+            <td>Yes/No checkbox fields</td>
+        </tr>
+        <tr>
+            <td><code>ExtraValueDate</code></td>
+            <td>DateTime</td>
+            <td>Date picker fields</td>
+        </tr>
+        <tr>
+            <td><code>ExtraValueInt</code></td>
+            <td>Integer</td>
+            <td>Whole number fields</td>
+        </tr>
+        <tr>
+            <td><code>ExtraValueText</code></td>
+            <td>Text</td>
+            <td>Free text fields</td>
+        </tr>
+        <tr>
+            <td><code>ExtraValueCode</code></td>
+            <td>Code</td>
+            <td>Dropdown/lookup fields</td>
+        </tr>
+        <tr>
+            <td><code>OrgExtra</code></td>
+            <td>Mixed</td>
+            <td>Organization-specific custom fields</td>
+        </tr>
+        <tr>
+            <td><code>MeetingExtra</code></td>
+            <td>Mixed</td>
+            <td>Meeting-specific custom fields</td>
+        </tr>
+        <tr>
+            <td><code>ContributionExtra</code></td>
+            <td>Mixed</td>
+            <td>Contribution custom fields</td>
+        </tr>
+        <tr>
+            <td><code>FamilyExtra</code></td>
+            <td>Mixed</td>
+            <td>Family-level custom fields</td>
+        </tr>
+        <tr>
+            <td><code>ContactExtra</code></td>
+            <td>Mixed</td>
+            <td>Contact-specific fields</td>
+        </tr>
+        <tr>
+            <td><code>TaskExtra</code></td>
+            <td>Mixed</td>
+            <td>Task custom fields</td>
+        </tr>
+        <tr>
+            <td><code>VolunteerExtra</code></td>
+            <td>Mixed</td>
+            <td>Volunteer-specific fields</td>
+        </tr>
+        <tr>
+            <td><code>MemberExtra</code></td>
+            <td>Mixed</td>
+            <td>Membership custom fields</td>
+        </tr>
+        <tr>
+            <td><code>ResourceExtra</code></td>
+            <td>Mixed</td>
+            <td>Resource tracking fields</td>
+        </tr>
+        <tr>
+            <td><code>EventExtra</code></td>
+            <td>Mixed</td>
+            <td>Event-specific fields</td>
+        </tr>
+        <tr>
+            <td><code>AdminExtra</code></td>
+            <td>Mixed</td>
+            <td>Administrative custom fields</td>
+        </tr>
+    </table>
+
+    <h3>Discovering Custom Fields in Your Database</h3>
+    <pre><code>-- Find all custom fields in use
+SELECT 
+    'PeopleExtra' as TableType,
+    Field,
+    COUNT(*) as RecordCount,
+    COUNT(DISTINCT PeopleId) as PeopleWithValue,
+    MIN(TransactionTime) as FirstUsed,
+    MAX(TransactionTime) as LastUsed
+FROM PeopleExtra
+GROUP BY Field
+HAVING COUNT(*) > 10  -- Only show fields with significant usage
+ORDER BY COUNT(*) DESC
+
+-- Find custom fields for a specific person
+SELECT 
+    p.Name,
+    'PeopleExtra' as Source,
+    pev.Field,
+    pev.Data as Value,
+    pev.TransactionTime as LastUpdated
+FROM People p
+JOIN PeopleExtra pev ON p.PeopleId = pev.PeopleId
+WHERE p.PeopleId = 12345  -- Specific person
+ORDER BY pev.Field</code></pre>
+
+    <h3>Working with Custom Fields</h3>
+    <pre><code>-- Example: Church-specific membership covenant field
+SELECT 
+    p.Name,
+    p.MemberStatusId,
+    pev.Data as MembershipCovenantDate
+FROM People p
+LEFT JOIN PeopleExtra pev ON p.PeopleId = pev.PeopleId 
+    AND pev.Field = 'MembershipCovenant'
+WHERE p.MemberStatusId = 10  -- Members only
+  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+ORDER BY p.Name
+
+-- Example: Multiple custom fields
+SELECT 
+    p.Name,
+    MAX(CASE WHEN pev.Field = 'BackgroundCheck' THEN pev.Data END) as BackgroundCheckDate,
+    MAX(CASE WHEN pev.Field = 'SafetyTraining' THEN pev.Data END) as SafetyTrainingDate,
+    MAX(CASE WHEN pev.Field = 'VolunteerAgreement' THEN pev.Data END) as VolunteerAgreement
+FROM People p
+LEFT JOIN PeopleExtra pev ON p.PeopleId = pev.PeopleId
+WHERE pev.Field IN ('BackgroundCheck', 'SafetyTraining', 'VolunteerAgreement')
+  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+GROUP BY p.PeopleId, p.Name
+HAVING MAX(CASE WHEN pev.Field = 'BackgroundCheck' THEN pev.Data END) IS NOT NULL</code></pre>
+
+    <h3>Organization Extra Values</h3>
+    <pre><code>-- Find custom fields on organizations
+SELECT 
+    o.OrganizationName,
+    oev.Field,
+    oev.Data,
+    oev.TransactionTime
+FROM Organizations o
+JOIN OrgExtra oev ON o.OrganizationId = oev.OrganizationId
+WHERE o.OrganizationStatusId = 30
+ORDER BY o.OrganizationName, oev.Field</code></pre>
+</div>
+
+<div id="sms-system-complete" class="section">
+    <h2>📱 SMS/Text Messaging System</h2>
+    
+    <h3>SMS System Tables</h3>
+    
+    <h4>SMSList Table (Sent Messages)</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>ID</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Message batch ID</td>
+        </tr>
+        <tr>
+            <td><code>SenderID</code></td>
+            <td>int</td>
+            <td>Sender</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>Message</code></td>
+            <td>ntext</td>
+            <td>SMS content</td>
+            <td>Message text</td>
+        </tr>
+        <tr>
+            <td><code>SendAt</code></td>
+            <td>datetime</td>
+            <td>Send timestamp</td>
+            <td>When sent</td>
+        </tr>
+        <tr>
+            <td><code>SentSMS</code></td>
+            <td>int</td>
+            <td>Count sent</td>
+            <td>Number of recipients</td>
+        </tr>
+        <tr>
+            <td><code>Sent</code></td>
+            <td>bit</td>
+            <td>Sent flag</td>
+            <td>Successfully sent</td>
+        </tr>
+    </table>
+
+    <h4>SmsReceived Table (Incoming Messages)</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Received message ID</td>
+        </tr>
+        <tr>
+            <td><code>FromPeopleId</code></td>
+            <td>int</td>
+            <td>Sender</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>FromNumber</code></td>
+            <td>nvarchar(15)</td>
+            <td>Sender phone</td>
+            <td>Phone number</td>
+        </tr>
+        <tr>
+            <td><code>Body</code></td>
+            <td>ntext</td>
+            <td>Message content</td>
+            <td>Text received</td>
+        </tr>
+        <tr>
+            <td><code>DateReceived</code></td>
+            <td>datetime</td>
+            <td>Received timestamp</td>
+            <td>When received</td>
+        </tr>
+    </table>
+
+    <h3>SMS Analytics Query</h3>
+    <pre><code>-- SMS engagement analytics
+WITH SMSMetrics AS (
+    SELECT 
+        -- Sent messages
+        (SELECT COUNT(*) FROM SMSList WHERE Sent = 1 AND SendAt >= DATEADD(month, -1, GETDATE())) as MessagesSent,
+        (SELECT SUM(SentSMS) FROM SMSList WHERE Sent = 1 AND SendAt >= DATEADD(month, -1, GETDATE())) as TotalRecipients,
+        
+        -- Received messages
+        (SELECT COUNT(*) FROM SmsReceived WHERE DateReceived >= DATEADD(month, -1, GETDATE())) as MessagesReceived,
+        (SELECT COUNT(DISTINCT FromPeopleId) FROM SmsReceived WHERE DateReceived >= DATEADD(month, -1, GETDATE()) AND FromPeopleId IS NOT NULL) as UniqueResponders
+)
+SELECT 
+    MessagesSent,
+    TotalRecipients,
+    MessagesReceived,
+    UniqueResponders,
+    CASE 
+        WHEN TotalRecipients > 0 
+        THEN CAST(UniqueResponders as float) / TotalRecipients * 100 
+        ELSE 0 
+    END as ResponseRate
+FROM SMSMetrics</code></pre>
+
+    <h3>Text Conversation Threading</h3>
+    <pre><code>-- SMS conversation history for a person
+SELECT 
+    COALESCE(p.Name, 'Unknown') as Person,
+    CASE 
+        WHEN sl.ID IS NOT NULL THEN 'Sent'
+        ELSE 'Received'
+    END as Direction,
+    COALESCE(sl.Message, sr.Body) as Message,
+    COALESCE(sl.SendAt, sr.DateReceived) as MessageTime
+FROM (
+    SELECT SenderID as PeopleId, Message, SendAt, NULL as DateReceived 
+    FROM SMSList 
+    WHERE Sent = 1
+    UNION ALL
+    SELECT FromPeopleId, Body, NULL, DateReceived 
+    FROM SmsReceived
+) messages
+LEFT JOIN People p ON messages.PeopleId = p.PeopleId
+LEFT JOIN SMSList sl ON messages.SendAt IS NOT NULL
+LEFT JOIN SmsReceived sr ON messages.DateReceived IS NOT NULL
+WHERE p.PeopleId = 12345  -- Specific person
+ORDER BY MessageTime DESC</code></pre>
+</div>
+
+<div id="task-system-complete" class="section">
+    <h2>📋 Tasks & Ministry Communication</h2>
+    
+    <h3>TaskNote Table Structure</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>TaskNoteId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Task/Note ID</td>
+        </tr>
+        <tr>
+            <td><code>AboutPersonId</code></td>
+            <td>int</td>
+            <td>Subject person</td>
+            <td>→ People (about whom)</td>
+        </tr>
+        <tr>
+            <td><code>OwnerId</code></td>
+            <td>int</td>
+            <td>Task owner</td>
+            <td>→ People (responsible)</td>
+        </tr>
+        <tr>
+            <td><code>AssigneeId</code></td>
+            <td>int</td>
+            <td>Assigned to</td>
+            <td>→ People (doing task)</td>
+        </tr>
+        <tr>
+            <td><code>IsNote</code></td>
+            <td>bit</td>
+            <td>Type flag</td>
+            <td>1=note, 0=task</td>
+        </tr>
+        <tr>
+            <td><code>StatusId</code></td>
+            <td>int</td>
+            <td>Task status</td>
+            <td>→ lookup.TaskStatus</td>
+        </tr>
+        <tr>
+            <td><code>Instructions</code></td>
+            <td>ntext</td>
+            <td>Task description</td>
+            <td>What to do</td>
+        </tr>
+        <tr>
+            <td><code>Notes</code></td>
+            <td>ntext</td>
+            <td>Additional notes</td>
+            <td>Extra information</td>
+        </tr>
+        <tr>
+            <td><code>DueDate</code></td>
+            <td>datetime</td>
+            <td>Due date</td>
+            <td>Task deadline</td>
+        </tr>
+        <tr>
+            <td><code>CompletedDate</code></td>
+            <td>datetime</td>
+            <td>Completion date</td>
+            <td>When finished</td>
+        </tr>
+    </table>
+
+    <h3>Task Management Queries</h3>
+    <pre><code>-- Open tasks by assignee
+SELECT 
+    assignee.Name as AssignedTo,
+    owner.Name as TaskOwner,
+    about.Name as AboutPerson,
+    tn.Instructions,
+    tn.DueDate,
+    DATEDIFF(day, GETDATE(), tn.DueDate) as DaysUntilDue,
+    ts.Description as Status
+FROM TaskNote tn
+JOIN People assignee ON tn.AssigneeId = assignee.PeopleId
+JOIN People owner ON tn.OwnerId = owner.PeopleId
+LEFT JOIN People about ON tn.AboutPersonId = about.PeopleId
+LEFT JOIN lookup.TaskStatus ts ON tn.StatusId = ts.Id
+WHERE tn.IsNote = 0  -- Tasks only
+  AND tn.CompletedDate IS NULL  -- Not completed
+  AND tn.DueDate >= GETDATE()  -- Not overdue
+ORDER BY tn.DueDate, assignee.Name
+
+-- Overdue tasks
+SELECT 
+    assignee.Name as AssignedTo,
+    tn.Instructions,
+    tn.DueDate,
+    DATEDIFF(day, tn.DueDate, GETDATE()) as DaysOverdue,
+    owner.Name as TaskOwner
+FROM TaskNote tn
+JOIN People assignee ON tn.AssigneeId = assignee.PeopleId
+JOIN People owner ON tn.OwnerId = owner.PeopleId
+WHERE tn.IsNote = 0  -- Tasks only
+  AND tn.CompletedDate IS NULL  -- Not completed
+  AND tn.DueDate < GETDATE()  -- Overdue
+ORDER BY tn.DueDate</code></pre>
+
+    <h3>Ministry Notes</h3>
+    <pre><code>-- Recent notes about people
+SELECT 
+    about.Name as AboutPerson,
+    creator.Name as CreatedBy,
+    tn.CreatedDate,
+    tn.Instructions as NoteContent,
+    tn.Notes as AdditionalInfo
+FROM TaskNote tn
+JOIN People about ON tn.AboutPersonId = about.PeopleId
+JOIN People creator ON tn.CreatedBy = creator.PeopleId
+WHERE tn.IsNote = 1  -- Notes only
+  AND tn.CreatedDate >= DATEADD(month, -1, GETDATE())
+ORDER BY tn.CreatedDate DESC</code></pre>
+</div>
+
+<div id="mobile-app-complete" class="section">
+    <h2>📱 Mobile App Configuration</h2>
+    
+    <h3>Mobile Configuration Tables</h3>
+    <table>
+        <tr>
+            <th>Table</th>
+            <th>Purpose</th>
+            <th>Key Fields</th>
+        </tr>
+        <tr>
+            <td><code>CategoryMobile</code></td>
+            <td>Mobile app categories</td>
+            <td>Id, Name, DisplayOrder</td>
+        </tr>
+        <tr>
+            <td><code>LocationMobile</code></td>
+            <td>Mobile location types</td>
+            <td>Id, Description, Address</td>
+        </tr>
+        <tr>
+            <td><code>RegistrationMobile</code></td>
+            <td>Mobile registration types</td>
+            <td>Id, Type, Settings</td>
+        </tr>
+        <tr>
+            <td><code>AnswersMobileSettings</code></td>
+            <td>Mobile form answers</td>
+            <td>Id, QuestionId, Answer</td>
+        </tr>
+        <tr>
+            <td><code>QuestionsMobileSettings</code></td>
+            <td>Mobile form questions</td>
+            <td>Id, Question, Type</td>
+        </tr>
+    </table>
+
+    <h3>Mobile-Enabled Organizations</h3>
+    <pre><code>-- Organizations visible in mobile app
+SELECT 
+    o.OrganizationName,
+    cm.Description as MobileCategory,
+    o.AllowMobileView,
+    o.RecommendInMobile,
+    o.ShowInSites,
+    o.ShowMobileRegStart,
+    o.ShowMobileRegEnd,
+    o.ShowMobileButtonText
+FROM Organizations o
+LEFT JOIN CategoryMobile cm ON o.CategoryMobileId = cm.Id
+WHERE o.AllowMobileView = 1
+  AND o.OrganizationStatusId = 30
+ORDER BY cm.DisplayOrder, o.OrganizationName</code></pre>
+</div>
+
+<div id="picture-system-complete" class="section">
+    <h2>🖼️ Picture & Media Management</h2>
+    
+    <h3>Picture Table Structure</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>PictureId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Picture ID</td>
+        </tr>
+        <tr>
+            <td><code>ThumbUrl</code></td>
+            <td>nvarchar</td>
+            <td>Thumbnail URL</td>
+            <td>Small preview</td>
+        </tr>
+        <tr>
+            <td><code>SmallUrl</code></td>
+            <td>nvarchar</td>
+            <td>Small size URL</td>
+            <td>Mobile size</td>
+        </tr>
+        <tr>
+            <td><code>MediumUrl</code></td>
+            <td>nvarchar</td>
+            <td>Medium size URL</td>
+            <td>Standard display</td>
+        </tr>
+        <tr>
+            <td><code>LargeUrl</code></td>
+            <td>nvarchar</td>
+            <td>Large size URL</td>
+            <td>Full resolution</td>
+        </tr>
+    </table>
+
+    <div class="warning">
+        <p><strong>Note:</strong> When a picture is uploaded, it takes up to 15 minutes for ThumbUrl, SmallUrl, and MediumUrl to be generated</p>
+    </div>
+
+    <h3>Picture Usage Query</h3>
+    <pre><code>-- People with pictures
+SELECT 
+    p.Name,
+    pic.PictureId,
+    pic.ThumbUrl,
+    pic.MediumUrl,
+    pic.LargeUrl,
+    CASE 
+        WHEN pic.ThumbUrl IS NOT NULL THEN 'Processed'
+        ELSE 'Processing'
+    END as Status
+FROM People p
+JOIN Picture pic ON p.PictureId = pic.PictureId
+WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+ORDER BY p.Name</code></pre>
+</div>
+
+<div id="users-roles-complete" class="section">
+    <h2>🔐 Users, Roles & Permissions</h2>
+    
+    <h3>Users Table Structure</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>UserId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>User account ID</td>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Person link</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>Username</code></td>
+            <td>nvarchar</td>
+            <td>Login name</td>
+            <td>Unique username</td>
+        </tr>
+        <tr>
+            <td><code>Name</code></td>
+            <td>nvarchar</td>
+            <td>Display name</td>
+            <td>User's full name</td>
+        </tr>
+        <tr>
+            <td><code>EmailAddress</code></td>
+            <td>nvarchar</td>
+            <td>Login email</td>
+            <td>Authentication email</td>
+        </tr>
+        <tr>
+            <td><code>IsApproved</code></td>
+            <td>bit</td>
+            <td>Account active</td>
+            <td>Can login</td>
+        </tr>
+        <tr>
+            <td><code>LastLoginDate</code></td>
+            <td>datetime</td>
+            <td>Last login</td>
+            <td>Most recent access</td>
+        </tr>
+        <tr>
+            <td><code>MustChangePassword</code></td>
+            <td>bit</td>
+            <td>Password reset</td>
+            <td>Force change</td>
+        </tr>
+        <tr>
+            <td><code>MFAEnabled</code></td>
+            <td>bit</td>
+            <td>2FA enabled</td>
+            <td>Multi-factor auth</td>
+        </tr>
+    </table>
+
+    <h3>Roles Table</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>RoleId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Role ID</td>
+        </tr>
+        <tr>
+            <td><code>RoleName</code></td>
+            <td>nvarchar</td>
+            <td>Role name</td>
+            <td>Admin, Finance, etc.</td>
+        </tr>
+    </table>
+
+    <h3>User Security Report</h3>
+    <pre><code>-- Active users with roles
+SELECT 
+    u.UserId,
+    u.Username,
+    u.Name,
+    u.EmailAddress,
+    u.LastLoginDate,
+    DATEDIFF(day, u.LastLoginDate, GETDATE()) as DaysSinceLogin,
+    u.MFAEnabled,
+    STRING_AGG(r.RoleName, ', ') as Roles
+FROM Users u
+LEFT JOIN UserRole ur ON u.UserId = ur.UserId
+LEFT JOIN Roles r ON ur.RoleId = r.RoleId
+WHERE u.IsApproved = 1
+GROUP BY u.UserId, u.Username, u.Name, u.EmailAddress, u.LastLoginDate, u.MFAEnabled
+ORDER BY u.LastLoginDate DESC
+
+-- Users who haven't logged in recently
+SELECT 
+    u.Name,
+    u.Username,
+    u.LastLoginDate,
+    DATEDIFF(day, u.LastLoginDate, GETDATE()) as DaysInactive
+FROM Users u
+WHERE u.IsApproved = 1
+  AND u.LastLoginDate < DATEADD(month, -3, GETDATE())
+ORDER BY u.LastLoginDate</code></pre>
+</div>
+
+<div id="activity-logging-complete" class="section">
+    <h2>📝 Activity Logging & Audit Trail</h2>
+    
+    <div class="warning">
+        <p><strong>⚠️ Performance Warning:</strong> ActivityLog contains 3.4M+ records. Always use date filters.</p>
+    </div>
+
+    <h3>ActivityLog Table</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>bigint</td>
+            <td>Primary key</td>
+            <td>Activity ID</td>
+        </tr>
+        <tr>
+            <td><code>ActivityDate</code></td>
+            <td>datetime</td>
+            <td>When occurred</td>
+            <td>Timestamp</td>
+        </tr>
+        <tr>
+            <td><code>UserId</code></td>
+            <td>int</td>
+            <td>User</td>
+            <td>→ Users.UserId</td>
+        </tr>
+        <tr>
+            <td><code>ActivityType</code></td>
+            <td>nvarchar(50)</td>
+            <td>Activity type</td>
+            <td>Login, Update, etc.</td>
+        </tr>
+        <tr>
+            <td><code>Machine</code></td>
+            <td>nvarchar(50)</td>
+            <td>Computer/device</td>
+            <td>Client info</td>
+        </tr>
+        <tr>
+            <td><code>Activity</code></td>
+            <td>ntext</td>
+            <td>Activity details</td>
+            <td>Full description</td>
+        </tr>
+    </table>
+
+    <h3>Audit Queries</h3>
+    <pre><code>-- Recent user activity (MUST have date filter)
+SELECT TOP 100
+    al.ActivityDate,
+    u.Name as User,
+    al.ActivityType,
+    al.Machine,
+    al.Activity
+FROM ActivityLog al
+LEFT JOIN Users u ON al.UserId = u.UserId
+WHERE al.ActivityDate >= DATEADD(day, -7, GETDATE())  -- REQUIRED
+ORDER BY al.ActivityDate DESC
+
+-- Activity summary by type
+SELECT 
+    al.ActivityType,
+    COUNT(*) as ActivityCount,
+    COUNT(DISTINCT al.UserId) as UniqueUsers,
+    MIN(al.ActivityDate) as FirstOccurrence,
+    MAX(al.ActivityDate) as LastOccurrence
+FROM ActivityLog al
+WHERE al.ActivityDate >= DATEADD(month, -1, GETDATE())  -- REQUIRED
+GROUP BY al.ActivityType
+ORDER BY COUNT(*) DESC</code></pre>
+</div>
+
+<div id="change-tracking-complete" class="section">
+    <h2>🔄 Change Tracking & History</h2>
+    
+    <h3>Change Tracking Tables</h3>
+    
+    <h4>ChangeLog Table</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Change ID</td>
+        </tr>
+        <tr>
+            <td><code>UserPeopleId</code></td>
+            <td>int</td>
+            <td>Who changed</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>Changed</code></td>
+            <td>datetime</td>
+            <td>When changed</td>
+            <td>Timestamp</td>
+        </tr>
+        <tr>
+            <td><code>TableName</code></td>
+            <td>nvarchar</td>
+            <td>Table affected</td>
+            <td>What was changed</td>
+        </tr>
+    </table>
+
+    <h4>ChangeDetails Table</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Detail ID</td>
+        </tr>
+        <tr>
+            <td><code>ChangeId</code></td>
+            <td>int</td>
+            <td>Change log</td>
+            <td>→ ChangeLog.Id</td>
+        </tr>
+        <tr>
+            <td><code>Field</code></td>
+            <td>nvarchar</td>
+            <td>Field changed</td>
+            <td>Column name</td>
+        </tr>
+        <tr>
+            <td><code>Before</code></td>
+            <td>nvarchar</td>
+            <td>Old value</td>
+            <td>Previous data</td>
+        </tr>
+        <tr>
+            <td><code>After</code></td>
+            <td>nvarchar</td>
+            <td>New value</td>
+            <td>Updated data</td>
+        </tr>
+    </table>
+
+    <h3>Change History Queries</h3>
+    <pre><code>-- Recent changes to People records
+SELECT TOP 100
+    cl.Changed,
+    p.Name as ChangedBy,
+    cl.TableName,
+    cd.Field,
+    cd.Before,
+    cd.After
+FROM ChangeLog cl
+JOIN People p ON cl.UserPeopleId = p.PeopleId
+JOIN ChangeDetails cd ON cl.Id = cd.ChangeId
+WHERE cl.TableName = 'People'
+  AND cl.Changed >= DATEADD(day, -7, GETDATE())
+ORDER BY cl.Changed DESC
+
+-- Track specific person's history
+SELECT 
+    cl.Changed,
+    modifier.Name as ModifiedBy,
+    cd.Field,
+    cd.Before,
+    cd.After
+FROM ChangeLog cl
+JOIN ChangeDetails cd ON cl.Id = cd.ChangeId
+LEFT JOIN People modifier ON cl.UserPeopleId = modifier.PeopleId
+WHERE cl.TableName = 'People'
+  AND cl.PrimaryKey = 12345  -- Specific PeopleId
+ORDER BY cl.Changed DESC</code></pre>
+</div>
+
+<div id="financial-system-complete" class="section">
+    <h2>💳 Financial System Details</h2>
+    
+    <h3>Bundle System (Batch Processing)</h3>
+    
+    <h4>BundleHeader Table</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>BundleHeaderId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Batch ID</td>
+        </tr>
+        <tr>
+            <td><code>ContributionDate</code></td>
+            <td>datetime</td>
+            <td>Contribution date</td>
+            <td>When received</td>
+        </tr>
+        <tr>
+            <td><code>DepositDate</code></td>
+            <td>datetime</td>
+            <td>Bank deposit</td>
+            <td>When deposited</td>
+        </tr>
+        <tr>
+            <td><code>TotalCash</code></td>
+            <td>money</td>
+            <td>Cash total</td>
+            <td>Cash in batch</td>
+        </tr>
+        <tr>
+            <td><code>TotalChecks</code></td>
+            <td>money</td>
+            <td>Check total</td>
+            <td>Checks in batch</td>
+        </tr>
+        <tr>
+            <td><code>TotalEnvelopes</code></td>
+            <td>int</td>
+            <td>Envelope count</td>
+            <td>Number processed</td>
+        </tr>
+    </table>
+
+    <h4>BundleDetail Table</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>BundleDetailId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Detail ID</td>
+        </tr>
+        <tr>
+            <td><code>BundleHeaderId</code></td>
+            <td>int</td>
+            <td>Batch</td>
+            <td>→ BundleHeader</td>
+        </tr>
+        <tr>
+            <td><code>ContributionId</code></td>
+            <td>int</td>
+            <td>Contribution</td>
+            <td>→ Contribution</td>
+        </tr>
+        <tr>
+            <td><code>CreatedDate</code></td>
+            <td>datetime</td>
+            <td>Entry date</td>
+            <td>When entered</td>
+        </tr>
+    </table>
+
+    <h3>Batch Processing Queries</h3>
+    <pre><code>-- Recent batch summary
+SELECT 
+    bh.BundleHeaderId,
+    bh.ContributionDate,
+    bh.DepositDate,
+    bh.TotalCash + bh.TotalChecks as TotalAmount,
+    bh.TotalEnvelopes,
+    COUNT(bd.BundleDetailId) as ContributionCount
+FROM BundleHeader bh
+LEFT JOIN BundleDetail bd ON bh.BundleHeaderId = bd.BundleHeaderId
+WHERE bh.ContributionDate >= DATEADD(month, -1, GETDATE())
+GROUP BY bh.BundleHeaderId, bh.ContributionDate, bh.DepositDate, 
+         bh.TotalCash, bh.TotalChecks, bh.TotalEnvelopes
+ORDER BY bh.ContributionDate DESC</code></pre>
+</div>
+
+<div id="transaction-system-complete" class="section">
+    <h2>💰 Transactions & Outstanding Balances</h2>
+    
+    <h3>Transaction Tables</h3>
+    
+    <h4>Transaction Table</h4>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Transaction ID</td>
+        </tr>
+        <tr>
+            <td><code>TransactionDate</code></td>
+            <td>datetime</td>
+            <td>Date</td>
+            <td>When occurred</td>
+        </tr>
+        <tr>
+            <td><code>amt</code></td>
+            <td>money</td>
+            <td>Amount</td>
+            <td>Total amount</td>
+        </tr>
+        <tr>
+            <td><code>amtdue</code></td>
+            <td>money</td>
+            <td>Amount due</td>
+            <td>Outstanding balance</td>
+        </tr>
+        <tr>
+            <td><code>Description</code></td>
+            <td>nvarchar</td>
+            <td>Description</td>
+            <td>Transaction details</td>
+        </tr>
+    </table>
+
+    <h3>Outstanding Balance Query</h3>
+    <pre><code>-- People with outstanding balances
+SELECT 
+    p.Name,
+    SUM(t.amtdue) as TotalDue,
+    COUNT(*) as OpenTransactions,
+    MIN(t.TransactionDate) as OldestTransaction,
+    DATEDIFF(day, MIN(t.TransactionDate), GETDATE()) as DaysOutstanding
+FROM TransactionPeople tp
+JOIN People p ON tp.PeopleId = p.PeopleId
+JOIN [Transaction] t ON tp.Id = t.Id
+WHERE t.amtdue > 0
+  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+GROUP BY p.PeopleId, p.Name
+HAVING SUM(t.amtdue) > 0
+ORDER BY SUM(t.amtdue) DESC</code></pre>
+</div>
+
+<!-- Add the complete JavaScript section -->
+<script>
+// Complete JavaScript for all interactive features
+document.addEventListener('DOMContentLoaded', function() {
+    // Add copy buttons to all code blocks
+    const codeBlocks = document.querySelectorAll('pre');
+    
+    codeBlocks.forEach(function(block) {
+        // Create copy button
+        const button = document.createElement('button');
+        button.className = 'copy-button';
+        button.textContent = 'Copy';
+        button.style.position = 'absolute';
+        button.style.top = '10px';
+        button.style.right = '10px';
+        button.style.background = '#4299e1';
+        button.style.color = 'white';
+        button.style.border = 'none';
+        button.style.padding = '6px 12px';
+        button.style.borderRadius = '4px';
+        button.style.cursor = 'pointer';
+        button.style.fontSize = '12px';
+        button.style.fontWeight = '500';
+        
+        // Make pre position relative for absolute button positioning
+        block.style.position = 'relative';
+        
+        // Add click handler
+        button.addEventListener('click', function() {
+            const code = block.querySelector('code');
+            const text = code ? code.textContent : block.textContent;
+            
+            // Try modern clipboard API first
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(function() {
+                    button.textContent = 'Copied!';
+                    button.style.background = '#38a169';
+                    setTimeout(function() {
+                        button.textContent = 'Copy';
+                        button.style.background = '#4299e1';
+                    }, 2000);
+                }).catch(function(err) {
+                    fallbackCopy(text);
+                });
+            } else {
+                fallbackCopy(text);
+            }
+            
+            function fallbackCopy(text) {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    button.textContent = 'Copied!';
+                    button.style.background = '#38a169';
+                    setTimeout(function() {
+                        button.textContent = 'Copy';
+                        button.style.background = '#4299e1';
+                    }, 2000);
+                } catch (err) {
+                    button.textContent = 'Failed';
+                    button.style.background = '#e53e3e';
+                    setTimeout(function() {
+                        button.textContent = 'Copy';
+                        button.style.background = '#4299e1';
+                    }, 2000);
+                }
+                document.body.removeChild(textarea);
+            }
+        });
+        
+        block.appendChild(button);
+    });
+    
+    // Smooth scrolling for anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+            e.preventDefault();
+            const targetId = this.getAttribute('href');
+            if (targetId === '#') {
+                window.scrollTo({
+                    top: 0,
+                    behavior: 'smooth'
+                });
+            } else {
+                const target = document.querySelector(targetId);
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            }
+        });
+    });
+    
+    // Back to top button visibility
+    const backToTop = document.querySelector('.back-to-top');
+    if (backToTop) {
+        // Hide initially
+        backToTop.style.display = 'none';
+        
+        // Show/hide based on scroll position
+        window.addEventListener('scroll', function() {
+            if (window.pageYOffset > 300) {
+                backToTop.style.display = 'block';
+            } else {
+                backToTop.style.display = 'none';
+            }
+        });
+    }
+    
+    // Add table of contents highlighting based on scroll position
+    const sections = document.querySelectorAll('.section[id]');
+    const tocLinks = document.querySelectorAll('.toc a[href^="#"]');
+    
+    window.addEventListener('scroll', function() {
+        let current = '';
+        
+        sections.forEach(section => {
+            const sectionTop = section.offsetTop;
+            const sectionHeight = section.clientHeight;
+            if (pageYOffset >= sectionTop - 100) {
+                current = section.getAttribute('id');
+            }
+        });
+        
+        tocLinks.forEach(link => {
+            link.style.fontWeight = '500';
+            link.style.background = 'transparent';
+            if (link.getAttribute('href') === '#' + current) {
+                link.style.fontWeight = '700';
+                link.style.background = '#ebf8ff';
+                link.style.padding = '5px 10px';
+                link.style.borderRadius = '5px';
+            }
+        });
+    });
+});
+</script>
+
+<!-- CSS for missing styles -->
+<style>
+.section {
+    background: white;
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    margin-bottom: 30px;
+}
+
+.field-table {
+    font-size: 0.95em;
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+}
+
+.field-table th {
+    background: #edf2f7;
+    font-weight: 600;
+    padding: 12px;
+    text-align: left;
+    border: 1px solid #e2e8f0;
+}
+
+.field-table td {
+    padding: 10px 12px;
+    border: 1px solid #e2e8f0;
+}
+
+.field-table th:first-child {
+    width: 25%;
+}
+
+.field-table th:nth-child(2) {
+    width: 15%;
+}
+
+.field-table code {
+    background: #f7fafc !important;
+    color: #e53e3e !important;
+    padding: 2px 6px !important;
+    border-radius: 3px !important;
+    font-size: 0.9em !important;
+}
+
+.warning {
+    background: #fed7e2;
+    border: 2px solid #e53e3e;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 20px 0;
+}
+
+.info {
+    background: #bee3f8;
+    border: 2px solid #3182ce;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 20px 0;
+}
+
+.highlight {
+    background: #fef5e7;
+    border-left: 5px solid #ed8936;
+    padding: 15px;
+    margin: 20px 0;
+    border-radius: 0 8px 8px 0;
+}
+
+.badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    font-weight: 600;
+    margin-left: 8px;
+}
+
+.badge-critical {
+    background: #fed7e2;
+    color: #c53030;
+}
+
+.badge-new {
+    background: #c6f6d5;
+    color: #22543d;
+}
+
+.badge-performance {
+    background: #fef5e7;
+    color: #c05621;
+}
+</style>
