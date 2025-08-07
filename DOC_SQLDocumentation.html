@@ -1004,20 +1004,21 @@ ORDER BY t.TransactionDate DESC;</code></pre>
     <h3>📝 Registration → People → Answers</h3>
     <pre><code>-- Registration with participant details
 SELECT 
-    r.Id as RegistrationId,
+    r.RegistrationId,
     o.OrganizationName as Event,
     p.Name as Participant,
-    rp.DateRegistered,
-    rp.AmountToPay,
-    rp.AmountPaid,
+    rp.CompletedDate,
+    rp.SentEmail,
+    rp.Status,
+	rp.Total
     
 FROM Registration r
 JOIN Organizations o ON r.OrganizationId = o.OrganizationId
-JOIN RegPeople rp ON r.Id = rp.RegistrationId
+JOIN RegPeople rp ON r.RegistrationId = rp.RegistrationId
 JOIN People p ON rp.PeopleId = p.PeopleId
-WHERE r.Completed = 1  -- Completed registrations
-  AND rp.DateRegistered >= DATEADD(month, -3, GETDATE())
-ORDER BY rp.DateRegistered DESC;</code></pre>
+WHERE r.CompletedDate is NOT NULL  -- Completed registrations
+  AND rp.CompletedDate >= DATEADD(month, -3, GETDATE())
+ORDER BY rp.CompletedDate DESC;	</code></pre>
 </div>
 
 <div id="form-questions" class="section">
