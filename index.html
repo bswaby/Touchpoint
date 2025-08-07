@@ -1,1101 +1,534 @@
-model.Header = '📝 TouchPoint SQL Database Reference'
-print """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TouchPoint SQL Database Reference - Ben Swaby</title>
+    <title>Ben Swaby - TouchPoint Solutions Developer</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1e40af;
+            --text-dark: #1f2937;
+            --text-light: #6b7280;
+            --bg-light: #f9fafb;
+            --white: #ffffff;
+            --accent: #10b981;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             line-height: 1.6;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f8fafc;
-            color: #1a202c;
-        }
-        
-        .header {
+            color: var(--text-dark);
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            border-radius: 10px;
-            margin-bottom: 30px;
-            text-align: center;
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
         }
-        
-        .header h1 {
-            margin: 0 0 10px 0;
-            font-size: 2.5em;
-            font-weight: 700;
-        }
-        
-        .header .subtitle {
-            font-size: 1.2em;
-            opacity: 0.9;
-            margin: 0;
-        }
-        
-        .about-section {
-            background: #e2e8f0;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 30px;
-            border-left: 4px solid #4299e1;
-        }
-        
-        .warning {
-            background: #fed7e2;
-            border: 2px solid #e53e3e;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
-        }
-        
-        .toc {
-            background: white;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            margin-bottom: 30px;
-        }
-        
-        .toc h2 {
-            margin-top: 0;
-            color: #2d3748;
-            border-bottom: 2px solid #4299e1;
-            padding-bottom: 10px;
-        }
-        
-        .toc ul {
-            list-style: none;
-            padding-left: 0;
-        }
-        
-        .toc li {
-            margin: 8px 0;
-        }
-        
-        .toc a {
-            color: #4299e1;
-            text-decoration: none;
-            font-weight: 500;
-            padding: 5px 10px;
-            border-radius: 5px;
-            transition: background-color 0.2s;
-        }
-        
-        .toc a:hover {
-            background: #ebf8ff;
-            text-decoration: underline;
-        }
-        
-        .section {
-            background: white;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            margin-bottom: 30px;
-        }
-        
-        h1, h2, h3, h4 {
-            color: #2d3748;
-        }
-        
-        h2 {
-            border-bottom: 2px solid #4299e1;
-            padding-bottom: 10px;
-            margin-top: 0;
-        }
-        
-        h3 {
-            color: #4299e1;
-            margin-top: 25px;
-        }
-        
-        pre {
-            background: #2d3748;
-            color: #e2e8f0;
-            padding: 15px;
-            border-radius: 8px;
-            overflow-x: auto;
-            font-family: 'SF Mono', Monaco, 'Inconsolata', 'Roboto Mono', Consolas, 'Droid Sans Mono', monospace;
-            line-height: 1.4;
-        }
-        
-        code {
-            background: #edf2f7;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: 'SF Mono', Monaco, monospace;
-            color: #e53e3e;
-            font-size: 0.9em;
-        }
-        
-        .highlight {
-            background: #fef5e7;
-            border-left: 4px solid #ed8936;
-            padding: 15px;
-            margin: 15px 0;
-            border-radius: 0 8px 8px 0;
-        }
-        
-        .critical {
-            background: #fed7e2;
-            border-left: 4px solid #e53e3e;
-            padding: 15px;
-            margin: 15px 0;
-            border-radius: 0 8px 8px 0;
-        }
-        
-        .success {
-            background: #f0fff4;
-            border-left: 4px solid #38a169;
-            padding: 15px;
-            margin: 15px 0;
-            border-radius: 0 8px 8px 0;
-        }
-        
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 15px 0;
-            background: white;
-        }
-        
-        th, td {
-            border: 1px solid #e2e8f0;
-            padding: 12px;
-            text-align: left;
-        }
-        
-        th {
-            background: #edf2f7;
-            font-weight: 600;
-            color: #2d3748;
-        }
-        
-        tr:nth-child(even) {
-            background: #f7fafc;
-        }
-        
-        .back-to-top {
+
+        .background-pattern {
             position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: #4299e1;
-            color: white;
-            padding: 10px 15px;
-            border-radius: 50px;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            opacity: 0.1;
+            background-image: 
+                radial-gradient(circle at 20% 80%, rgba(255,255,255,0.3) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(255,255,255,0.3) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        .card {
+            background: var(--white);
+            border-radius: 20px;
+            padding: 3rem;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+            animation: slideUp 0.6s ease-out;
+            margin-bottom: 2rem;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 3rem;
+            margin-bottom: 3rem;
+            flex-wrap: wrap;
+        }
+
+        .profile-img {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 4px solid var(--primary);
+            box-shadow: 0 10px 30px rgba(37, 99, 235, 0.3);
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        .header-content {
+            flex: 1;
+            min-width: 300px;
+        }
+
+        h1 {
+            font-size: 3rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary) 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .tagline {
+            color: var(--text-light);
+            font-size: 1.3rem;
+            font-weight: 500;
+            animation: fadeIn 1s ease-out 0.2s both;
+        }
+
+        .touchpoint-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--primary) 100%);
+            color: var(--white);
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-top: 0.5rem;
+            animation: fadeIn 1s ease-out 0.3s both;
+        }
+
+        .intro {
+            background: linear-gradient(135deg, var(--bg-light) 0%, rgba(99, 102, 241, 0.05) 100%);
+            border-radius: 15px;
+            padding: 2rem;
+            margin-bottom: 2.5rem;
+            border-left: 4px solid var(--primary);
+            animation: slideIn 0.8s ease-out 0.3s both;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .intro p {
+            font-size: 1.1rem;
+            line-height: 1.8;
+            color: var(--text-dark);
+            margin-bottom: 1rem;
+        }
+
+        .intro p:last-child {
+            margin-bottom: 0;
+        }
+
+        .section {
+            margin-bottom: 2.5rem;
+            animation: fadeIn 0.8s ease-out 0.4s both;
+        }
+
+        h2 {
+            font-size: 1.8rem;
+            color: var(--primary-dark);
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        h2::before {
+            content: '';
+            display: inline-block;
+            width: 40px;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary) 0%, var(--accent) 100%);
+            border-radius: 2px;
+        }
+
+        .quick-links {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .link-card {
+            background: var(--white);
+            border: 2px solid rgba(99, 102, 241, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
             text-decoration: none;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            transition: background-color 0.2s;
+            color: inherit;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
         }
-        
-        .back-to-top:hover {
-            background: #3182ce;
+
+        .link-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary) 0%, var(--accent) 100%);
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
         }
-        
-        @media print {
-            body { background: white; }
-            .section { box-shadow: none; border: 1px solid #e2e8f0; }
-            .back-to-top { display: none; }
+
+        .link-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(99, 102, 241, 0.2);
+        }
+
+        .link-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .link-card-title {
+            color: var(--primary-dark);
+            font-weight: 700;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .link-card-title svg {
+            width: 24px;
+            height: 24px;
+            fill: var(--primary);
+        }
+
+        .link-card-description {
+            color: var(--text-light);
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .offerings {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .offering-card {
+            background: var(--white);
+            border: 2px solid rgba(99, 102, 241, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .offering-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary) 0%, var(--accent) 100%);
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .offering-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(99, 102, 241, 0.2);
+        }
+
+        .offering-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .offering-card h3 {
+            color: var(--primary-dark);
+            margin-bottom: 0.75rem;
+            font-size: 1.2rem;
+        }
+
+        .offering-card p {
+            color: var(--text-light);
+            line-height: 1.6;
+        }
+
+        .docs-section {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(99, 102, 241, 0.05) 100%);
+            border-radius: 15px;
+            padding: 2rem;
+            margin-bottom: 2.5rem;
+            border: 2px solid rgba(99, 102, 241, 0.1);
+        }
+
+        .docs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .doc-link {
+            background: var(--white);
+            border-radius: 10px;
+            padding: 1.25rem;
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .doc-link:hover {
+            transform: translateX(5px);
+            box-shadow: 0 5px 20px rgba(99, 102, 241, 0.15);
+        }
+
+        .doc-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .doc-icon svg {
+            width: 24px;
+            height: 24px;
+            fill: var(--white);
+        }
+
+        .doc-content h4 {
+            color: var(--primary-dark);
+            margin-bottom: 0.25rem;
+            font-size: 1.1rem;
+        }
+
+        .doc-content p {
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        .mission {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(99, 102, 241, 0.05) 100%);
+            border-radius: 15px;
+            padding: 2rem;
+            text-align: center;
+            border: 2px solid rgba(99, 102, 241, 0.1);
+            animation: fadeIn 0.8s ease-out 0.5s both;
+        }
+
+        .mission p {
+            font-size: 1.15rem;
+            line-height: 1.8;
+            color: var(--text-dark);
+            font-style: italic;
+        }
+
+        .footer {
+            text-align: center;
+            color: var(--white);
+            padding: 2rem;
+            animation: fadeIn 0.8s ease-out 0.7s both;
+        }
+
+        .footer p {
+            opacity: 0.9;
+            font-size: 1rem;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .card {
+                padding: 2rem 1.5rem;
+            }
+
+            .header {
+                flex-direction: column;
+                text-align: center;
+                gap: 2rem;
+            }
+
+            h1 {
+                font-size: 2rem;
+            }
+
+            .tagline {
+                font-size: 1.1rem;
+            }
+
+            .offerings {
+                grid-template-columns: 1fr;
+            }
+
+            .quick-links {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
-
-<div class="header">
-    <h1>TouchPoint SQL Database Reference</h1>
-    <p class="subtitle">Ben Swaby's Definitive Guide to TouchPoint's 378-Table (and counting) Database</p>
-</div>
-
-<div class="about-section">
-    <h3>📧 About This Guide</h3>
-    <p><strong>Author:</strong> Ben Swaby (<a href="mailto:bswaby@fbchtn.org">bswaby@fbchtn.org</a>)<br>
-    <strong>Focus:</strong> SQL Database Schema & Query Reference Only<br>
-    <strong>Important Limitations:</strong> This guide covers TouchPoint's SQL database structure for <strong>read-only queries</strong> and analysis.</p>
+    <div class="background-pattern"></div>
     
-    <div class="critical">
-        <h4>🚨 Critical Database Access Limitations</h4>
-        <p><strong>READ-ONLY ACCESS:</strong> TouchPoint's SQL interface provides <strong>read-only access</strong> to the database. You <strong>CANNOT</strong>:</p>
-        <ul>
-            <li>❌ INSERT new records</li>
-            <li>❌ UPDATE existing data</li>
-            <li>❌ DELETE records</li>
-            <li>❌ MODIFY any database structure</li>
-            <li>❌ Execute stored procedures that change data</li>
-        </ul>
-        
-        <p><strong>For Data Modifications:</strong> All data changes (adding people, updating records, creating organizations, etc.) must be done through:</p>
-        <ul>
-            <li>✅ <strong>TouchPoint's Python scripting system</strong></li>
-            <li>✅ <strong>TouchPoint's web interface</strong></li>
-            <li>✅ <strong>TouchPoint's mobile app</strong></li>
-            <li>✅ <strong>TouchPoint's API endpoints</strong></li>
-        </ul>
-        
-        <p><strong>This Guide's Purpose:</strong> Understand database structure, build reports, create analytics, and extract data for external systems using SQL SELECT statements only.</p>
+    <div class="container">
+        <div class="card">
+            <header class="header">
+                <img src="https://fbchville.com/wp-content/uploads/2022/08/BenSwaby.jpg" alt="Ben Swaby" class="profile-img">
+                <div class="header-content">
+                    <h1>Ben Swaby</h1>
+                    <p class="tagline">TouchPoint Solutions Developer</p>
+                    <span class="touchpoint-badge">Specializing in TouchPoint CMS</span>
+                </div>
+            </header>
+
+            <div class="quick-links">
+                <a href="https://github.com/bswaby/TouchPoint" class="link-card">
+                    <div class="link-card-title">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        </svg>
+                        TouchPoint Repository
+                    </div>
+                    <div class="link-card-description">
+                        Access my TouchPoint tools, scripts, and custom solutions
+                    </div>
+                </a>
+                <a href="https://github.com/bswaby/TouchPoint/blob/main/DOC_SQLDocumentation.html" class="link-card">
+                    <div class="link-card-title">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                        </svg>
+                        SQL Documentation
+                    </div>
+                    <div class="link-card-description">
+                        Complete TouchPoint SQL table structure documentation
+                    </div>
+                </a>
+            </div>
+
+            <div class="intro">
+                <p>As a husband, father of two beautiful daughters, and dad to a special needs child, I've seen firsthand the importance of tools that truly serve people well. With extensive experience in church leadership and TouchPoint development, I've built practical solutions to help ministries overcome everyday challenges.</p>
+                
+                <p>I specialize in leveraging TouchPoint's powerful APIs and database resources to create custom solutions that transform how churches manage their data and serve their communities. Whether you need automation scripts, advanced analytics, or custom features, I'm here to help your ministry work smarter.</p>
+            </div>
+
+            <section class="docs-section">
+                <h2>TouchPoint Documentation</h2>
+                <p style="color: var(--text-light); margin-bottom: 1rem;">Building comprehensive resources to help developers understand and leverage TouchPoint effectively.</p>
+                <div class="docs-grid">
+                    <a href="https://github.com/bswaby/TouchPoint/blob/main/DOC_SQLDocumentation.html" class="doc-link">
+                        <div class="doc-icon">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                            </svg>
+                        </div>
+                        <div class="doc-content">
+                            <h4>SQL Table Structure</h4>
+                            <p>Complete reference for TouchPoint database tables and relationships</p>
+                        </div>
+                    </a>
+                    <a href="#" class="doc-link" style="opacity: 0.7; cursor: not-allowed;">
+                        <div class="doc-icon">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm2 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+                            </svg>
+                        </div>
+                        <div class="doc-content">
+                            <h4>API Reference Guide</h4>
+                            <p>Coming soon - Complete API documentation with examples</p>
+                        </div>
+                    </a>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>TouchPoint Solutions I Offer</h2>
+                <div class="offerings">
+                    <div class="offering-card">
+                        <h3>Custom Python Scripts</h3>
+                        <p>Automate repetitive tasks, data processing, and reporting within TouchPoint using Python scripts</p>
+                    </div>
+                    <div class="offering-card">
+                        <h3>SQL Reports & Analytics</h3>
+                        <p>Custom SQL queries and reports to extract meaningful insights from your TouchPoint database</p>
+                    </div>
+                    <div class="offering-card">
+                        <h3>API Integrations</h3>
+                        <p>Connect TouchPoint with other church systems and third-party services through custom API development</p>
+                    </div>
+                    <div class="offering-card">
+                        <h3>Database Optimization</h3>
+                        <p>Improve TouchPoint performance with optimized queries and database structure recommendations</p>
+                    </div>
+                    <div class="offering-card">
+                        <h3>Custom Workflows</h3>
+                        <p>Build automated workflows for member management, event registration, and communication</p>
+                    </div>
+                    <div class="offering-card">
+                        <h3>Training & Support</h3>
+                        <p>Help your team understand and leverage TouchPoint's full potential through documentation and training</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="mission">
+                <p>"My prayer is that these TouchPoint tools and solutions help your team work smarter, uncover meaningful insights, and focus more on what matters most: loving people and growing the Kingdom."</p>
+            </section>
+        </div>
+
+        <footer class="footer">
+            <p>© 2024 Ben Swaby • TouchPoint Solutions for Kingdom Impact</p>
+        </footer>
     </div>
-</div>
-
-<div class="toc">
-    <h2>📚 Table of Contents</h2>
-    
-    <h3>🚀 Quick Start</h3>
-    <ul>
-        <li><a href="#database-overview">Database Overview & Scale</a></li>
-        <li><a href="#critical-rules">Critical Business Rules (READ FIRST)</a></li>
-        <li><a href="#essential-filters">Essential Filters & Safety Rules</a></li>
-        <li><a href="#common-queries">Most Common Queries (80% of Use Cases)</a></li>
-    </ul>
-
-    <h3>👥 People & Families</h3>
-    <ul>
-        <li><a href="#people-table">People Table - "Single Source of Truth"</a></li>
-        <li><a href="#family-relationships">Family Relationships & Structures</a></li>
-        <li><a href="#contact-info">Contact Information & Communication Preferences</a></li>
-        <li><a href="#membership-status">Church Membership & Status Tracking</a></li>
-    </ul>
-
-    <h3>🏛️ Organizations & Ministry</h3>
-    <ul>
-        <li><a href="#organizations-table">Organizations Table - "Involvements"</a></li>
-        <li><a href="#organization-membership">Organization Membership & Roles</a></li>
-        <li><a href="#program-hierarchy">Program → Division → Organization Hierarchy</a></li>
-    </ul>
-
-    <h3>📅 Attendance & Meetings</h3>
-    <ul>
-        <li><a href="#attend-table">Attend Table - The AttendanceFlag=1 Rule</a></li>
-        <li><a href="#meetings-table">Meetings & Event Scheduling</a></li>
-        <li><a href="#checkin-system">Check-In System Tables</a></li>
-    </ul>
-
-    <h3>💰 Financial & Giving</h3>
-    <ul>
-        <li><a href="#contribution-table">Contribution Table - The TypeId≠99 Rule</a></li>
-        <li><a href="#financial-processing">Financial Processing & Batch System</a></li>
-        <li><a href="#outstanding-payments">Outstanding Payments & Fee Tracking</a></li>
-    </ul>
-
-    <h3>📝 Events & Registration</h3>
-    <ul>
-        <li><a href="#registration-flow">Registration System Flow</a></li>
-        <li><a href="#form-questions">Form Questions & Responses</a></li>
-        <li><a href="#event-management">Event Management Tables</a></li>
-    </ul>
-
-    <h3>📧 Communication Systems</h3>
-    <ul>
-        <li><a href="#email-system">Email Marketing System (3.9M+ records)</a></li>
-        <li><a href="#sms-system">SMS/Text Messaging</a></li>
-        <li><a href="#task-communication">Task & Ministry Communication</a></li>
-    </ul>
-
-    <h3>📊 Advanced Analytics</h3>
-    <ul>
-        <li><a href="#engagement-scoring">Engagement Scoring System (1.4M+ records)</a></li>
-        <li><a href="#tag-system">Tag System (138M+ records)</a></li>
-        <li><a href="#activity-logging">Activity Logging & Change Tracking</a></li>
-    </ul>
-
-    <h3>🔧 System Administration</h3>
-    <ul>
-        <li><a href="#users-security">Users, Roles & Security</a></li>
-        <li><a href="#settings-framework">Settings & Configuration Framework</a></li>
-        <li><a href="#content-management">Content & Template Management</a></li>
-    </ul>
-
-    <h3>📱 Mobile & Integration</h3>
-    <ul>
-        <li><a href="#mobile-config">Mobile App Configuration Tables</a></li>
-        <li><a href="#picture-management">Picture & Media Management</a></li>
-        <li><a href="#search-optimization">Search Optimization System</a></li>
-    </ul>
-
-    <h3>🎛️ Customization Systems</h3>
-    <ul>
-        <li><a href="#extra-value-tables">Extra Value Tables (17+ tables)</a></li>
-        <li><a href="#lookup-tables">Lookup Tables Reference (67+ tables)</a></li>
-        <li><a href="#church-customizations">Church-Specific Customizations</a></li>
-    </ul>
-
-    <h3>⚡ Performance & Best Practices</h3>
-    <ul>
-        <li><a href="#performance-guidelines">Query Performance Guidelines</a></li>
-        <li><a href="#common-patterns">Common Query Patterns</a></li>
-        <li><a href="#troubleshooting">Troubleshooting & Data Quality</a></li>
-    </ul>
-
-    <h3>🔍 Quick Reference</h3>
-    <ul>
-        <li><a href="#relationships-diagram">Essential Table Relationships Diagram</a></li>
-        <li><a href="#filter-checklist">Mandatory Filter Checklist</a></li>
-        <li><a href="#large-table-warnings">Large Table Warning List</a></li>
-    </ul>
-</div>
-
-<div id="database-overview" class="section">
-    <h2>📊 Database Overview & Scale</h2>
-    
-    <p>TouchPoint is a comprehensive church management system with a massive, enterprise-level database containing <strong>378 tables and 3,364 columns</strong>. Far more extensive than typical documentation suggests, this is one of the largest church management databases available.</p>
-
-    <div class="highlight">
-        <h4>🏗️ Database Architecture:</h4>
-        <ul>
-            <li><strong>378 total tables</strong> with complex relationships</li>
-            <li><strong>3,364 columns</strong> across all tables</li>
-            <li><strong>452 foreign key relationships</strong> ensuring data integrity</li>
-            <li><strong>67 lookup tables</strong> providing business logic</li>
-            <li><strong>17 extra value tables</strong> for unlimited customization</li>
-            <li><strong>20 special content tables</strong> for system configuration</li>
-            <li><strong>495 stored procedures</strong> for complex operations</li>
-        </ul>
-    </div>
-
-    <div class="success">
-        <h4>📈 Massive Data Volumes (Real Production Scale):</h4>
-        <ul>
-            <li><strong>138M+ records:</strong> TagPerson (flexible categorization system)</li>
-            <li><strong>3.9M+ records:</strong> EmailResponses (email engagement tracking)</li>
-            <li><strong>3.8M+ records:</strong> EmailQueueTo (email recipients)</li>
-            <li><strong>3.4M+ records:</strong> ActivityLog (comprehensive audit trail)</li>
-            <li><strong>1.7M+ records:</strong> PeopleSearchTokens (search optimization)</li>
-            <li><strong>1.4M+ records:</strong> EngagementScoreTag (activity scoring details)</li>
-            <li><strong>1.2M+ records:</strong> Attend (attendance tracking)</li>
-            <li><strong>673K+ records:</strong> Contribution (financial giving)</li>
-            <li><strong>498K+ records:</strong> ChangeDetails (field-level change tracking)</li>
-            <li><strong>313K+ records:</strong> CheckInActivity & CheckInTimes (check-in system)</li>
-        </ul>
-    </div>
-</div>
-
-<div id="critical-rules" class="section">
-    <h2>🚨 Critical Business Rules (READ FIRST)</h2>
-    
-    <div class="critical">
-        <h3>⚠️ Mandatory Filters (Apply to EVERY Query)</h3>
-        <pre><code>-- 🚨 CRITICAL: Always filter active people
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-
--- 🚨 CRITICAL: AttendanceFlag = 1 for actual attendance
-WHERE a.AttendanceFlag = 1
-
--- 🚨 CRITICAL: Exclude event registration fees from giving reports
-WHERE c.ContributionTypeId != 99
-
--- ✅ RECOMMENDED: Current organization members
-WHERE om.InactiveDate IS NULL
-
--- ✅ RECOMMENDED: Active organizations only
-WHERE o.OrganizationStatusId = 30
-
--- ✅ RECOMMENDED: Completed meetings (not cancelled)
-WHERE m.DidNotMeet = 0</code></pre>
-    </div>
-
-    <div id="essential-filters" class="highlight">
-        <h3>📋 Essential Safety Rules</h3>
-        <pre><code>-- Communication Compliance
-WHERE p.DoNotMailFlag = 0     -- Can mail
-WHERE p.DoNotCallFlag = 0     -- Can call  
-WHERE p.DoNotVisitFlag = 0    -- Can visit
-WHERE p.ReceiveSMS = 1        -- Can text
-
--- Data Quality
-WHERE p.PrimaryBadAddrFlag = 0    -- Good addresses only
-WHERE p.CellPhoneIsValid = 1      -- Valid phone numbers
-
--- Performance (for large tables)
-WHERE SomeDate >= DATEADD(month, -6, GETDATE())  -- Use date ranges</code></pre>
-    </div>
-</div>
-
-<div id="common-queries" class="section">
-    <h2>🎯 Most Common Queries (80% of Use Cases)</h2>
-    
-    <h3>Quick Start: Essential Patterns</h3>
-
-    <h4>👥 Who Are Our Active Members?</h4>
-    <pre><code>SELECT p.Name, p.EmailAddress, p.CellPhone, ms.Description as Status
-FROM People p
-JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-  AND p.MemberStatusId IN (10, 20)  -- Members and Prospects
-ORDER BY p.Name;</code></pre>
-
-    <h4>📅 Who Attended What This Week?</h4>
-    <pre><code>SELECT p.Name, o.OrganizationName, m.MeetingDate
-FROM People p
-JOIN Attend a ON p.PeopleId = a.PeopleId
-JOIN Meetings m ON a.MeetingId = m.MeetingId
-JOIN Organizations o ON a.OrganizationId = o.OrganizationId
-WHERE a.AttendanceFlag = 1  -- CRITICAL
-  AND m.MeetingDate >= DATEADD(week, -1, GETDATE())
-  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-ORDER BY m.MeetingDate DESC;</code></pre>
-
-    <h4>💰 Who Gave What This Month?</h4>
-    <pre><code>SELECT p.Name, cf.FundName, SUM(c.ContributionAmount) as Total
-FROM People p
-JOIN Contribution c ON p.PeopleId = c.PeopleId
-JOIN ContributionFund cf ON c.FundId = cf.FundId
-WHERE c.ContributionTypeId != 99  -- CRITICAL: Exclude event fees
-  AND c.ContributionDate >= DATEADD(month, -1, GETDATE())
-  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-GROUP BY p.PeopleId, p.Name, cf.FundName
-ORDER BY Total DESC;</code></pre>
-
-    <h4>🎯 Who Needs Follow-Up?</h4>
-    <pre><code>-- Recent first-time visitors
-SELECT p.Name, p.EmailAddress, o.OrganizationName, a.MeetingDate
-FROM People p
-JOIN Attend a ON p.PeopleId = a.PeopleId
-JOIN Organizations o ON a.OrganizationId = o.OrganizationId
-JOIN lookup.AttendType at ON a.AttendanceTypeId = at.Id
-WHERE a.AttendanceFlag = 1
-  AND at.Guest = 1  -- Guest attendance types
-  AND a.MeetingDate >= DATEADD(day, -7, GETDATE())
-  AND p.DoNotCallFlag = 0 AND p.DoNotVisitFlag = 0
-  -- First visit check
-  AND NOT EXISTS (
-    SELECT 1 FROM Attend a2 
-    WHERE a2.PeopleId = p.PeopleId 
-      AND a2.AttendanceFlag = 1
-      AND a2.MeetingDate < a.MeetingDate
-  )
-ORDER BY a.MeetingDate DESC;</code></pre>
-</div>
-
-<div id="people-table" class="section">
-    <h2>👥 People Table - "Single Source of Truth"</h2>
-    
-    <p><strong>Purpose:</strong> Central demographic and contact data serving as the "single source of truth" for all personal details, activities, communication, giving, roles and family relationships<br>
-    <strong>Primary Key:</strong> PeopleId<br>  
-    <strong>Scale:</strong> 136 columns with 23 foreign key relationships<br>  
-    <strong>🚨 CRITICAL RULE:</strong> Always filter <code>WHERE IsDeceased = 0 AND ArchivedFlag = 0</code></p>
-
-    <h3>🔑 Core Identity Fields</h3>
-    <pre><code>SELECT 
-    -- 🔑 Primary Identity
-    PeopleId,               -- Primary key, unique person identifier
-    
-    -- 📛 Names (Multiple formats for different uses)
-    FirstName,              -- First name
-    LastName,               -- Last name  
-    NickName,               -- Preferred name (may override FirstName)
-    Name,                   -- ✅ Full name (computed field, USE FOR DISPLAY)
-    Name2,                  -- ✅ Last, First format (USE FOR SORTING)
-    AltName,                -- Alternative name/alias (search optimization)
-    MiddleName, MaidenName, SuffixCode, PreferredName,
-    
-    -- 🎂 Birth Information
-    BirthDay,               -- Day of birth (1-31)
-    BirthMonth,             -- Month of birth (1-12) 
-    BirthYear,              -- Year of birth
-    BDate,                  -- ⚠️ Full birth date (includes time - cast to date for age calc)
-    Age,                    -- ✅ Current age in years (computed, updated regularly)
-    
-FROM People p
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0  -- 🚨 MANDATORY FILTER</code></pre>
-
-    <h3>👤 Demographics & Classification</h3>
-    <pre><code>SELECT 
-    p.PeopleId, p.Name,
-    
-    -- 👤 Basic Demographics
-    g.Description as Gender,            -- → lookup.Gender.Id
-    ms.Description as MaritalStatus,    -- → lookup.MaritalStatus.Id
-    fp.Description as FamilyPosition,   -- → lookup.FamilyPosition.Id
-    tc.Description as Title,            -- → lookup.TitleCode.Id (Mr., Mrs., Dr.)
-    gl.Description as GradeLevel,       -- → lookup.GradeLevel.Id
-    ss.Description as ShirtSize,        -- → lookup.ShirtSize.Id
-    
-    -- 🏛️ Church Classification
-    memstat.Description as MemberStatus,    -- → lookup.MemberStatus.Id (CRITICAL)
-    ep.Description as EntryPoint,           -- → lookup.EntryPoint.Id (how found church)
-    ip.Description as InterestPoint,        -- → lookup.InterestPoint.Id (what attracted)
-    rc.Description as ResidentCode,         -- → lookup.ResidentCode.Id (proximity)
-    c.Description as Campus,                -- → lookup.Campus.Id
-    
-FROM People p
-LEFT JOIN lookup.Gender g ON p.GenderId = g.Id
-LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
-LEFT JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
-LEFT JOIN lookup.TitleCode tc ON p.TitleCode = tc.Id
-LEFT JOIN lookup.GradeLevel gl ON p.GradeLevelId = gl.Id
-LEFT JOIN lookup.ShirtSize ss ON p.ShirtSizeId = ss.Id
-LEFT JOIN lookup.MemberStatus memstat ON p.MemberStatusId = memstat.Id
-LEFT JOIN lookup.EntryPoint ep ON p.EntryPointId = ep.Id
-LEFT JOIN lookup.InterestPoint ip ON p.InterestPointId = ip.Id
-LEFT JOIN lookup.ResidentCode rc ON p.ResCodeId = rc.Id
-LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
-</div>
-
-<div id="family-relationships" class="section">
-    <h2>👨‍👩‍👧‍👦 Family Relationships & Structures</h2>
-    
-    <div class="highlight">
-        <h3>🏗️ Understanding TouchPoint Family Logic</h3>
-        <p>TouchPoint uses <strong>dual relationship tracking:</strong></p>
-        <ul>
-            <li><strong>FamilyId:</strong> Groups all family members together</li>
-            <li><strong>SpouseId:</strong> Direct link between spouses (more reliable than family grouping)</li>
-        </ul>
-    </div>
-
-    <h3>👨‍👩‍👧‍👦 Complete Family Analysis</h3>
-    <pre><code>SELECT 
-    f.FamilyId,
-    primary_adult.Name as PrimaryAdult,
-    spouse.Name as Spouse,
-    child.Name as Child,
-    child.Age as ChildAge,
-    
-    -- Family Stats
-    COUNT(family_members.PeopleId) as FamilySize,
-    SUM(CASE WHEN family_members.MemberStatusId = 10 THEN 1 ELSE 0 END) as MembersInFamily
-    
-FROM Families f
--- Primary Adult (head of household)
-LEFT JOIN People primary_adult ON f.FamilyId = primary_adult.FamilyId 
-    AND primary_adult.PositionInFamilyId = 10  -- Primary Adult
-    AND primary_adult.IsDeceased = 0 AND primary_adult.ArchivedFlag = 0
--- Spouse (through direct link - more reliable)
-LEFT JOIN People spouse ON primary_adult.SpouseId = spouse.PeopleId
-    AND spouse.IsDeceased = 0 AND spouse.ArchivedFlag = 0
--- Children
-LEFT JOIN People child ON f.FamilyId = child.FamilyId
-    AND child.PositionInFamilyId = 30  -- Child
-    AND child.IsDeceased = 0 AND child.ArchivedFlag = 0
--- All family members for stats
-LEFT JOIN People family_members ON f.FamilyId = family_members.FamilyId
-    AND family_members.IsDeceased = 0 AND family_members.ArchivedFlag = 0
-    
-GROUP BY f.FamilyId, primary_adult.Name, spouse.Name, child.Name, child.Age
-HAVING COUNT(family_members.PeopleId) > 1  -- Multi-person families only
-ORDER BY primary_adult.Name;</code></pre>
-</div>
-
-<div id="contact-info" class="section">
-    <h2>📞 Contact Information & Communication Preferences</h2>
-    
-    <div class="critical">
-        <p><strong>CRITICAL:</strong> Always check communication preferences before sending emails, calls, or mail</p>
-    </div>
-
-    <h3>📧 Contact Data with Permissions</h3>
-    <pre><code>SELECT 
-    p.PeopleId, p.Name,
-    
-    -- 📧 Email Information
-    p.EmailAddress,         -- Primary email
-    p.EmailAddress2,        -- Secondary email  
-    p.SendEmailAddress1,    -- ✅ Permission for primary email
-    p.SendEmailAddress2,    -- ✅ Permission for secondary email
-    
-    -- 📱 Phone Information
-    p.CellPhone,            -- Cell phone (formatted)
-    p.HomePhone,            -- Home phone (10 digits)
-    p.WorkPhone,            -- Work phone
-    p.CellPhoneValidated,   -- Cell phone verified
-    p.CellPhoneIsValid,     -- Cell phone working
-    p.ReceiveSMS,           -- ✅ Permission for SMS
-    
-    -- 🏠 Address Information (Use Primary* fields)
-    p.PrimaryAddress,       -- ✅ Primary street address
-    p.PrimaryAddress2,      -- Apartment/suite
-    p.PrimaryCity,          -- City
-    p.PrimaryState,         -- State
-    p.PrimaryZip,           -- ZIP code
-    p.PrimaryBadAddrFlag,   -- ❌ Address is invalid
-    
-    -- 🚫 Communication Restrictions (CRITICAL)
-    p.DoNotMailFlag,        -- ❌ No postal mail
-    p.DoNotCallFlag,        -- ❌ No phone calls  
-    p.DoNotVisitFlag,       -- ❌ No visits
-    p.DoNotPublishPhones,   -- ❌ Don't publish in directory
-    
-FROM People p
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
-
-    <h3>💌 Safe Communication Query Pattern</h3>
-    <pre><code>-- People you CAN email safely
-SELECT p.Name, p.EmailAddress
-FROM People p
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-  AND p.DoNotMailFlag = 0  -- Permission to mail
-  AND p.SendEmailAddress1 = 1  -- Permission for primary email
-  AND p.EmailAddress IS NOT NULL AND p.EmailAddress != ''
-  AND p.PrimaryBadAddrFlag = 0;  -- Good address
-
--- People you CAN text safely  
-SELECT p.Name, p.CellPhone
-FROM People p
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-  AND p.DoNotCallFlag = 0  -- Permission to call/text
-  AND p.ReceiveSMS = 1  -- Permission for SMS
-  AND p.CellPhoneIsValid = 1;  -- Valid phone number</code></pre>
-</div>
-
-<div id="membership-status" class="section">
-    <h2>🏛️ Church Membership & Status Tracking</h2>
-    
-    <div class="highlight">
-        <h3>📊 Understanding TouchPoint's Membership Workflow</h3>
-        <p><strong>Just Added → Prospect → Member</strong></p>
-    </div>
-
-    <pre><code>SELECT 
-    p.PeopleId, p.Name,
-    ms.Description as MemberStatus,
-    
-    -- 📅 Key Membership Dates
-    p.JoinDate,                 -- Date joined church
-    p.DropDate,                 -- Date left church  
-    dt.Description as DropReason,
-    
-    -- ✝️ Baptism Tracking
-    p.BaptismDate,              -- Date baptized
-    bs.Description as BaptismStatus,
-    bt.Description as BaptismType,
-    p.BaptismSchedDate,         -- Scheduled baptism date
-    
-    -- 🙏 Decision Information  
-    p.DecisionDate,             -- Date of salvation decision
-    dt2.Description as DecisionType,
-    
-    -- 🎓 New Member Process
-    p.NewMemberClassDate,       -- Class completion
-    nmcs.Description as NewMemberClassStatus,
-    
-FROM People p
-JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
-LEFT JOIN lookup.DropType dt ON p.DropCodeId = dt.Id  
-LEFT JOIN lookup.BaptismStatus bs ON p.BaptismStatusId = bs.Id
-LEFT JOIN lookup.BaptismType bt ON p.BaptismTypeId = bt.Id
-LEFT JOIN lookup.DecisionType dt2 ON p.DecisionTypeId = dt2.Id
-LEFT JOIN lookup.NewMemberClassStatus nmcs ON p.NewMemberClassStatusId = nmcs.Id
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
-</div>
-
-<div id="organizations-table" class="section">
-    <h2>🏛️ Organizations Table - "Involvements"</h2>
-    
-    <p><strong>Purpose:</strong> Groups, classes, ministries, events (called "Involvements" in UI)<br>  
-    <strong>Primary Key:</strong> OrganizationId<br>  
-    <strong>Scale:</strong> 188 columns with 16 foreign key relationships<br>  
-    <strong>UI Note:</strong> These are called "Involvements" in the TouchPoint interface</p>
-
-    <h3>🏢 Basic Organization Information</h3>
-    <pre><code>SELECT 
-    o.OrganizationId,
-    o.OrganizationName,     -- Display name
-    o.Description,          -- Detailed description
-    
-    -- 📊 Status & Classification
-    os.Description as Status,           -- Active/Inactive
-    ot.Description as OrgType,          -- Class, Ministry, Event
-    c.Description as Campus,            -- Campus location
-    
-    -- 👑 Leadership
-    leader.Name as Leader,
-    main_leader.Name as MainLeader,
-    
-    -- 📈 Membership Statistics
-    o.MemberCount,          -- Current members (auto-updated)
-    o.PrevMemberCount,      -- Previous count
-    o.ProspectCount,        -- Prospects
-    o.Limit,                -- Maximum capacity
-    o.ClassFilled,          -- At capacity flag
-    
-FROM Organizations o
-LEFT JOIN lookup.OrganizationStatus os ON o.OrganizationStatusId = os.Id
-LEFT JOIN lookup.OrganizationType ot ON o.OrganizationTypeId = ot.Id  
-LEFT JOIN lookup.Campus c ON o.CampusId = c.Id
-LEFT JOIN People leader ON o.LeaderId = leader.PeopleId
-LEFT JOIN People main_leader ON o.MainLeaderId = main_leader.PeopleId
-WHERE o.OrganizationStatusId = 30  -- ✅ Active organizations only</code></pre>
-</div>
-
-<div id="attend-table" class="section">
-    <h2>📅 Attend Table - The AttendanceFlag=1 Rule</h2>
-    
-    <div class="critical">
-        <p><strong>🚨 CRITICAL RULE:</strong> <code>AttendanceFlag = 1</code> for actual attendance, <code>0</code> for absences</p>
-    </div>
-
-    <p><strong>Purpose:</strong> Individual attendance records - tracks who attended what meeting<br>  
-    <strong>Scale:</strong> 1.2M+ records<br>  
-    <strong>Key Fields:</strong> AttendId (Primary), PeopleId + MeetingId + OrganizationId</p>
-
-    <h3>📅 Basic Attendance Tracking</h3>
-    <pre><code>SELECT 
-    a.AttendId,             -- Primary key
-    a.PeopleId,             -- → People.PeopleId
-    a.MeetingId,            -- → Meetings.MeetingId  
-    a.OrganizationId,       -- → Organizations.OrganizationId
-    a.MeetingDate,          -- Meeting date/time
-    a.AttendanceFlag,       -- 🚨 CRITICAL: 1=present, 0=absent
-    
-    -- 🎭 Attendance Classification
-    at.Description as AttendanceType,   -- Member, Leader, Guest, etc.
-    mt.Description as DetailedRole,     -- Specific role
-    
-    -- 📝 Additional Details
-    a.SubGroupName,         -- Sub-group within organization
-    a.Commitment,           -- Attendance commitment level: (99 OR NULL)=UNCOMMITTED; 0=REGRETS; 1=ATTENDING; 2=FIND_SUB; 3=SUB_FOUND
-    a.NoShow,               -- Registered but didn't attend
-    a.Registered,           -- Was registered for meeting
-    
-FROM Attend a
-JOIN lookup.AttendType at ON a.AttendanceTypeId = at.Id
-JOIN lookup.MemberType mt ON a.MemberTypeId = mt.Id
-WHERE a.AttendanceFlag = 1  -- 🚨 MUST FILTER: only actual attendance
-  AND a.MeetingDate >= DATEADD(month, -3, GETDATE())</code></pre>
-</div>
-
-<div id="contribution-table" class="section">
-    <h2>💰 Contribution Table - The TypeId≠99 Rule</h2>
-    
-    <div class="critical">
-        <p><strong>🚨 CRITICAL RULE:</strong> <code>ContributionTypeId = 99</code> represents event registration fees, NOT charitable donations</p>
-    </div>
-
-    <p><strong>Purpose:</strong> Financial giving records<br>  
-    <strong>Primary Key:</strong> ContributionId<br>  
-    <strong>Scale:</strong> 673K+ records</p>
-
-    <h3>💰 Basic Giving Analysis</h3>
-    <pre><code>SELECT 
-    c.ContributionId,
-    p.Name as Giver,
-    c.ContributionAmount,   -- Gift amount
-    c.ContributionDate,     -- Date of gift
-    cf.FundName,            -- Fund designation
-    c.ContributionTypeId,   -- 🚨 CRITICAL: 99 = event fee (NOT donation)
-    c.CheckNo,              -- Check number or payment reference
-    
-FROM Contribution c
-JOIN People p ON c.PeopleId = p.PeopleId
-JOIN ContributionFund cf ON c.FundId = cf.FundId
-WHERE c.ContributionTypeId != 99  -- 🚨 EXCLUDE event registration fees
-  AND c.ContributionDate >= '2024-01-01'
-  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-ORDER BY c.ContributionDate DESC, c.ContributionAmount DESC;</code></pre>
-</div>
-
-<div id="email-system" class="section">
-    <h2>📧 Email Marketing System (3.9M+ records)</h2>
-    
-    <div class="warning">
-        <p><strong>⚠️ PERFORMANCE WARNING:</strong> EmailResponses table has 3.9M+ records - ALWAYS use date filters</p>
-    </div>
-
-    <h3>📧 Email Campaign Management</h3>
-    <pre><code>-- Email campaigns with engagement metrics
-SELECT 
-    eq.Id,
-    eq.Subject,             -- Email subject
-    sender.Name as Sender,
-    eq.SendAt,              -- When sent
-    
-    -- 📊 Engagement Metrics
-    COUNT(eqt.Id) as Recipients,
-    COUNT(CASE WHEN er.Event = 'open' THEN 1 END) as Opens,
-    COUNT(CASE WHEN er.Event = 'click' THEN 1 END) as Clicks,
-    COUNT(CASE WHEN er.Event = 'bounce' THEN 1 END) as Bounces,
-    
-    -- 📈 Engagement Rates
-    CAST(COUNT(CASE WHEN er.Event = 'open' THEN 1 END) AS FLOAT) / 
-        NULLIF(COUNT(eqt.Id), 0) * 100 as OpenRate,
-    CAST(COUNT(CASE WHEN er.Event = 'click' THEN 1 END) AS FLOAT) / 
-        NULLIF(COUNT(eqt.Id), 0) * 100 as ClickRate
-    
-FROM EmailQueue eq
-JOIN People sender ON eq.QueuedBy = sender.PeopleId
-LEFT JOIN EmailQueueTo eqt ON eq.Id = eqt.EmailQueueId
-LEFT JOIN EmailResponses er ON eqt.Id = er.EmailQueueToId
-WHERE eq.SendAt >= DATEADD(month, -1, GETDATE())  -- ⚠️ PERFORMANCE: Date filter required
-GROUP BY eq.Id, eq.Subject, sender.Name, eq.SendAt
-HAVING COUNT(eqt.Id) > 0
-ORDER BY eq.SendAt DESC;</code></pre>
-</div>
-
-<div id="lookup-tables" class="section">
-    <h2>📚 Lookup Tables Reference (67+ tables)</h2>
-    
-    <h3>🏛️ Church Membership (Most Important)</h3>
-    <pre><code>-- Member Status (CRITICAL for targeting)
-SELECT Id, Description FROM lookup.MemberStatus;
--- 10=Member, 20=Prospect, 30=Not Member, 40=Previous Member, 50=Just Added
-
--- Attendance Classification (CRITICAL for roles)
-SELECT Id, Description, Worker, Guest FROM lookup.AttendType;
--- 10=Member, 20=Leader, 30=Volunteer, 40=New Guest, 50=Recent Guest
-
--- Detailed Member Roles
-SELECT Id, Description, AttendanceTypeId FROM lookup.MemberType;</code></pre>
-
-    <h3>👤 Demographics & Personal</h3>
-    <pre><code>SELECT Id, Description FROM lookup.Gender;          -- 1=Male, 2=Female
-SELECT Id, Description FROM lookup.MaritalStatus;   -- 1=Single, 2=Married, 3=Divorced, 4=Widowed
-SELECT Id, Description FROM lookup.FamilyPosition;  -- 10=Primary Adult, 20=Secondary Adult, 30=Child
-SELECT Id, Description FROM lookup.GradeLevel;      -- School grades
-SELECT Id, Description FROM lookup.ShirtSize;       -- Event/volunteer sizing</code></pre>
-
-    <h3>💰 Financial (CRITICAL)</h3>
-    <pre><code>SELECT Id, Description FROM lookup.ContributionType;    -- 🚨 CRITICAL: 99=event registration
-SELECT Id, Description FROM lookup.ContributionStatus;
-SELECT Id, Description FROM lookup.AccountCode;</code></pre>
-</div>
-
-<div id="performance-guidelines" class="section">
-    <h2>⚡ Query Performance Guidelines</h2>
-    
-    <h3>🚨 Large Table Performance Rules</h3>
-    
-    <div class="critical">
-        <h4>Always Filter These High-Volume Tables:</h4>
-        <pre><code>-- TagPerson (138M+ records) - ALWAYS use date ranges
-WHERE tp.DateCreated >= DATEADD(month, -1, GETDATE())
-
--- EmailResponses (3.9M+ records) - ALWAYS use date ranges  
-WHERE er.EventTime >= DATEADD(week, -1, GETDATE())
-
--- ActivityLog (3.4M+ records) - ALWAYS use date ranges
-WHERE al.ActivityDate >= DATEADD(month, -1, GETDATE())
-
--- EngagementScoreTag (1.4M+ records) - ALWAYS use date ranges
-WHERE es.WeekDate >= DATEADD(month, -3, GETDATE())</code></pre>
-    </div>
-
-    <h3>📝 Safe Exploration Pattern</h3>
-    <pre><code>-- Use TOP for initial exploration
-SELECT TOP 100 * 
-FROM LargeTableName
-WHERE DateField >= DATEADD(week, -1, GETDATE())
-ORDER BY DateField DESC;</code></pre>
-</div>
-
-<div id="relationships-diagram" class="section">
-    <h2>🔍 Essential Table Relationships Diagram</h2>
-    
-    <pre><code>👥 PEOPLE (Central Hub)
-├── 👨‍👩‍👧‍👦 FamilyId → Families
-├── 💑 SpouseId → People.PeopleId
-├── 🏛️ Organizations (via OrganizationMembers)
-│   ├── 📅 Meetings
-│   └── 📝 Attend (AttendanceFlag=1)
-├── 💰 Contributions (TypeId≠99)
-├── 📋 TaskNote (ministry tasks)
-├── 🎟️ Registration → RegPeople → RegAnswer
-├── 📧 EmailQueueTo → EmailResponses
-└── 🏷️ TagPerson (138M+ records)
-
-🏛️ ORGANIZATIONS ("Involvements")
-├── 📊 Program → Division → Organization
-├── 👥 OrganizationMembers (roles)
-├── 📅 Meetings → Attend
-├── 🎟️ Registration System
-└── 🎫 Check-in System
-
-💾 SYSTEM TABLES
-├── 🔐 Users → Roles → UserRole
-├── ⚙️ Settings Framework
-├── 📧 Email Marketing System
-├── 📱 Mobile Configuration
-└── 🎛️ 67 Lookup Tables</code></pre>
-</div>
-
-<div id="filter-checklist" class="section">
-    <h2>✅ Mandatory Filter Checklist</h2>
-    
-    <h3>Before Running ANY Query:</h3>
-    
-    <div class="success">
-        <pre><code>-- ✅ People Queries - ALWAYS include:
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-
--- ✅ Attendance Queries - ALWAYS include:
-WHERE a.AttendanceFlag = 1
-
--- ✅ Giving Queries - ALWAYS include:
-WHERE c.ContributionTypeId != 99
-
--- ✅ Organization Queries - RECOMMENDED:
-WHERE o.OrganizationStatusId = 30
-
--- ✅ Large Table Queries - ALWAYS include:
-WHERE SomeDateField >= DATEADD(month, -6, GETDATE())</code></pre>
-    </div>
-</div>
-
-<div id="large-table-warnings" class="section">
-    <h2>⚠️ Large Table Warning List</h2>
-    
-    <p><strong>Tables Requiring Special Care (Date Filters Mandatory):</strong></p>
-    
-    <table>
-        <thead>
-            <tr>
-                <th>Table Name</th>
-                <th>Record Count</th>
-                <th>Required Filter</th>
-                <th>Performance Impact</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr style="background-color: #fed7e2;">
-                <td>TagPerson</td>
-                <td>138M+</td>
-                <td>DateCreated</td>
-                <td>🔴 EXTREME</td>
-            </tr>
-            <tr style="background-color: #fed7e2;">
-                <td>EmailResponses</td>
-                <td>3.9M+</td>
-                <td>EventTime</td>
-                <td>🔴 HIGH</td>
-            </tr>
-            <tr style="background-color: #fed7e2;">
-                <td>EmailQueueTo</td>
-                <td>3.8M+</td>
-                <td>Sent</td>
-                <td>🔴 HIGH</td>
-            </tr>
-            <tr style="background-color: #fed7e2;">
-                <td>ActivityLog</td>
-                <td>3.4M+</td>
-                <td>ActivityDate</td>
-                <td>🔴 HIGH</td>
-            </tr>
-            <tr style="background-color: #fef5e7;">
-                <td>PeopleSearchTokens</td>
-                <td>1.7M+</td>
-                <td>N/A</td>
-                <td>🟡 MODERATE</td>
-            </tr>
-            <tr style="background-color: #fef5e7;">
-                <td>EngagementScoreTag</td>
-                <td>1.4M+</td>
-                <td>WeekDate</td>
-                <td>🟡 MODERATE</td>
-            </tr>
-            <tr style="background-color: #fef5e7;">
-                <td>Attend</td>
-                <td>1.2M+</td>
-                <td>MeetingDate</td>
-                <td>🟡 MODERATE</td>
-            </tr>
-            <tr style="background-color: #fef5e7;">
-                <td>BundleDetail</td>
-                <td>673K+</td>
-                <td>CreatedDate</td>
-                <td>🟡 MODERATE</td>
-            </tr>
-            <tr style="background-color: #fef5e7;">
-                <td>CheckInActivity</td>
-                <td>313K+</td>
-                <td>CheckInTime</td>
-                <td>🟡 MODERATE</td>
-            </tr>
-            <tr style="background-color: #fef5e7;">
-                <td>TaskNoteKeyword</td>
-                <td>296K+</td>
-                <td>N/A</td>
-                <td>🟡 MODERATE</td>
-            </tr>
-        </tbody>
-    </table>
-</div>
-
-<div class="section">
-    <h2>📝 Summary: Is This Complete?</h2>
-    
-    <h3>✅ What This Reference Provides:</h3>
-    <ul>
-        <li><strong>Core ministry tables</strong> with complete field documentation</li>
-        <li><strong>Critical business rules</strong> clearly highlighted</li>
-        <li><strong>User-friendly structure</strong> organized by ministry function</li>
-        <li><strong>Performance guidelines</strong> for the 378-table scale</li>
-        <li><strong>Real-world query patterns</strong> from production environments</li>
-        <li><strong>Complete lookup table reference</strong> (67 tables)</li>
-        <li><strong>Safety checklists</strong> and mandatory filters</li>
-    </ul>
-
-    <h3>⚠️ What May Still Be Missing:</h3>
-    <ul>
-        <li><strong>Specialized modules</strong> some churches may have</li>
-        <li><strong>Newer feature tables</strong> (TouchPoint continuously evolving)</li>
-        <li><strong>Advanced integration tables</strong> (API, external systems)</li>
-        <li><strong>Complete volunteer scheduling</strong> system tables</li>
-    </ul>
-
-    <div class="success">
-        <h3>🎯 Bottom Line:</h3>
-        <p>This reference will handle <strong>90%+ of TouchPoint SQL queries</strong> effectively and safely. For complete table discovery, you'll need database backup access as noted in TouchPoint's official documentation.</p>
-        <p><strong>Perfect for:</strong> Daily ministry queries, reporting, analysis, and AI-powered database tools<br>
-        <strong>Limitation:</strong> Some advanced/specialized tables may require direct schema exploration</p>
-    </div>
-    
-    <div class="about-section">
-        <p><strong>Questions or Suggestions?</strong> Contact Ben Swaby at <a href="mailto:bswaby@fbchtn.org">bswaby@fbchtn.org</a></p>
-        <p><em>This guide focuses exclusively on SQL database queries. For data modifications, use TouchPoint's Python scripting system or web interface.</em></p>
-    </div>
-</div>
-
-<a href="#" class="back-to-top" onclick="window.scrollTo({top: 0, behavior: 'smooth'}); return false;">↑ Top</a>
-
-<script>
-    // Smooth scrolling for anchor links
-    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-        anchor.addEventListener('click', function (e) {
-            e.preventDefault();
-            const target = document.querySelector(this.getAttribute('href'));
-            if (target) {
-                target.scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'start'
-                });
-            }
-        });
-    });
-    
-    // Add copy button to code blocks
-    document.querySelectorAll('pre code').forEach(block => {
-        const button = document.createElement('button');
-        button.textContent = 'Copy SQL';
-        button.style.cssText = `
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: #4299e1;
-            color: white;
-            border: none;
-            padding: 5px 10px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-        `;
-        
-        button.addEventListener('click', () => {
-            navigator.clipboard.writeText(block.textContent).then(() => {
-                button.textContent = 'Copied!';
-                setTimeout(() => button.textContent = 'Copy SQL', 2000);
-            });
-        });
-        
-        block.parentElement.style.position = 'relative';
-        block.parentElement.appendChild(button);
-    });
-</script>
-
 </body>
 </html>
-
-"""
