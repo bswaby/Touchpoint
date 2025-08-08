@@ -3385,7 +3385,7 @@ SELECT TOP 1000
     o.OrganizationName,
     p.Name as Participant,
     rq.Label as Question,
-    rq.Order as QuestionOrder,
+    rq.[Order] as QuestionOrder,
     ra.AnswerValue as Answer,
     CASE 
         WHEN rq.IsRequired = 1 THEN 'Required'
@@ -3398,7 +3398,7 @@ JOIN RegQuestion rq ON ra.RegQuestionId = rq.RegQuestionId
 JOIN Registration r ON rp.RegistrationId = r.RegistrationId
 JOIN Organizations o ON r.OrganizationId = o.OrganizationId
 WHERE r.CompletedDate >= DATEADD(month, -1, GETDATE())
-ORDER BY o.OrganizationName, p.Name, rq.Order</code></pre>
+ORDER BY o.OrganizationName, p.Name, rq.[Order]</code></pre>
 </div>
 
 <div id="checkin-overview" class="section">
