@@ -934,7 +934,7 @@ ORDER BY o.MemberCount DESC</code></pre>
 
     <h3>Discovering Custom Fields</h3>
     <pre><code>-- Find what custom fields your church uses
-SELECT 
+SELECT TOP 500
     'PeopleExtra' as TableType,
     Field,
     COUNT(*) as RecordCount,
@@ -1235,7 +1235,7 @@ ORDER BY MIN(TotalGiven) DESC</code></pre>
 
     <h3>Group Health Report</h3>
     <pre><code>-- Organization/group health metrics
-SELECT 
+SELECT TOP 500
     o.OrganizationName,
     o.Location,
     leader.Name as Leader,
@@ -1417,7 +1417,7 @@ WHERE 1=1
 --   - Only includes completed transactions
 --   - Groups by calendar month
 
-SELECT 
+SELECT TOP 500
     /* Month grouping */
     YEAR(c.ContributionDate) as GiftYear,
     MONTH(c.ContributionDate) as GiftMonth,
@@ -2070,7 +2070,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <h3>Family Structure Query</h3>
     <pre><code>-- Complete family units with all members
 WITH FamilyStructure AS (
-    SELECT 
+    SELECT TOP 500
         f.FamilyId,
         p.PeopleId,
         p.Name,
@@ -2112,7 +2112,7 @@ ORDER BY p1.Name</code></pre>
 
     <h3>Children and Parents</h3>
     <pre><code>-- Find all children with their parents
-SELECT 
+SELECT TOP 500
     child.Name as ChildName,
     child.Age,
     primary_adult.Name as Parent1,
@@ -2259,7 +2259,7 @@ ORDER BY p.PrimaryCity, p.Name</code></pre>
 
     <h3>Membership Journey Tracking</h3>
     <pre><code>-- Complete membership journey analysis
-SELECT 
+SELECT TOP 500
     p.PeopleId,
     p.Name,
     ms.Description as CurrentStatus,
@@ -2300,7 +2300,7 @@ ORDER BY p.JoinDate DESC</code></pre>
 
     <h3>New Member Pipeline</h3>
     <pre><code>-- Track new member pipeline
-SELECT 
+SELECT TOP 500
     CASE 
         WHEN p.JoinDate IS NOT NULL THEN '5. Member'
         WHEN p.NewMemberClassDate IS NOT NULL THEN '4. Class Complete'
@@ -2729,7 +2729,7 @@ ORDER BY Stage</code></pre>
 
     <h3>Organization Roster Query</h3>
     <pre><code>-- Complete organization roster with roles
-SELECT 
+SELECT TOP 500
     o.OrganizationName,
     p.Name,
     mt.Description as Role,
@@ -2754,7 +2754,7 @@ ORDER BY o.OrganizationName, at.Worker DESC, p.Name</code></pre>
 
     <h3>Leadership Analysis</h3>
     <pre><code>-- Find all leaders across organizations
-SELECT 
+SELECT TOP 500
     p.Name as LeaderName,
     STRING_AGG(o.OrganizationName, ', ') as Organizations,
     COUNT(*) as LeadershipRoles
@@ -2787,7 +2787,7 @@ ORDER BY COUNT(*) DESC</code></pre>
 
     <h3>Organization Structure View</h3>
     <pre><code>-- Complete organizational hierarchy
-SELECT 
+SELECT TOP 500
     Program,        -- Top level
     Division,       -- Second level
     Organization,   -- Third level (actual group)
@@ -2805,7 +2805,7 @@ ORDER BY Program, Division, Organization</code></pre>
 
     <h3>Program Summary</h3>
     <pre><code>-- Program-level statistics
-SELECT 
+SELECT TOP 500
     Program,
     COUNT(DISTINCT DivId) as Divisions,
     COUNT(DISTINCT OrgId) as Organizations,
@@ -2819,7 +2819,7 @@ ORDER BY SUM(Members) DESC</code></pre>
 
     <h3>Division Analysis</h3>
     <pre><code>-- Division-level breakdown
-SELECT 
+SELECT TOP 500
     Program,
     Division,
     COUNT(OrgId) as OrgCount,
@@ -2922,7 +2922,7 @@ ORDER BY Program, Division</code></pre>
 
     <h3>Basic Attendance Query</h3>
     <pre><code>-- Attendance records with full details
-SELECT 
+SELECT TOP 500
     p.Name,
     o.OrganizationName,
     m.MeetingDate,
@@ -3484,7 +3484,7 @@ ORDER BY cia.CheckInTime DESC</code></pre>
 
     <h3>Check-In Statistics</h3>
     <pre><code>-- Check-in statistics by organization
-SELECT 
+SELECT TOP 500
     o.OrganizationName,
     COUNT(DISTINCT cia.PeopleId) as UniqueCheckIns,
     COUNT(*) as TotalCheckIns,
@@ -4143,7 +4143,7 @@ ORDER BY MessageTime DESC</code></pre>
 
     <h3>Task Management Queries</h3>
     <pre><code>-- Open tasks by assignee
-SELECT 
+SELECT TOP 500
     assignee.Name as AssignedTo,
     owner.Name as TaskOwner,
     about.Name as AboutPerson,
@@ -4162,7 +4162,7 @@ WHERE tn.IsNote = 0  -- Tasks only
 ORDER BY tn.DueDate, assignee.Name
 
 -- Overdue tasks
-SELECT 
+SELECT TOP 500
     assignee.Name as AssignedTo,
     tn.Instructions,
     tn.DueDate,
@@ -4178,7 +4178,7 @@ ORDER BY tn.DueDate</code></pre>
 
     <h3>Ministry Notes</h3>
     <pre><code>-- Recent notes about people
-SELECT 
+SELECT TOP 500
     about.Name as AboutPerson,
     creator.Name as CreatedBy,
     tn.CreatedDate,
@@ -4231,7 +4231,7 @@ ORDER BY tn.CreatedDate DESC</code></pre>
 
     <h3>Mobile-Enabled Organizations</h3>
     <pre><code>-- Organizations visible in mobile app
-SELECT 
+SELECT TOP 500
     o.OrganizationName,
     cm.Description as MobileCategory,
     o.AllowMobileView,
@@ -4403,7 +4403,7 @@ ORDER BY p.Name</code></pre>
 
     <h3>User Security Report</h3>
     <pre><code>-- Active users with roles
-SELECT 
+SELECT TOP 500
     u.UserId,
     u.Username,
     u.Name,
@@ -4707,7 +4707,7 @@ ORDER BY cl.Changed DESC</code></pre>
 
     <h3>Batch Processing Queries</h3>
     <pre><code>-- Recent batch summary
-SELECT 
+SELECT TOP 500
     bh.BundleHeaderId,
     bh.ContributionDate,
     bh.DepositDate,
@@ -4769,7 +4769,7 @@ ORDER BY bh.ContributionDate DESC</code></pre>
 
     <h3>Outstanding Balance Query</h3>
     <pre><code>-- People with outstanding balances
-SELECT 
+SELECT TOP 500
     p.Name,
     SUM(t.amtdue) as TotalDue,
     COUNT(*) as OpenTransactions,
