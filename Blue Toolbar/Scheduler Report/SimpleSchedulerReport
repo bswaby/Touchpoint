@@ -1,5 +1,5 @@
 ########################################################
-### Info 
+### Info
 
 #The built-in calendar view is complicated and this is just a basic simple view
 # to allow team members to see a full calendar over-time along with showing what
@@ -7,10 +7,6 @@
 
 #This can be ran from Bluetoolbar menu or directly with ?CurrentOrgId=#### added
 # to the end of the python url. #### should be replaced with the involvement id
-
-###############################
-### Blue toolbar Implementation
-
 
 #To add this to the Bluetoolbar, navigate to open CustomReport under special content 
 # / text and add in the following line.  Make sure to adjust report name to what
@@ -21,21 +17,6 @@
 # note: CustomReport changes can take 24 hrs to show on the site due to how cache 
 #  has implemented on the TP servers
 
-################################
-### Morning Batch Implementation
-
-# Add the following to the morning batch (admin~advanced~special content~python~morningbatch)
-# update [1,15] with the days you want the report sending out
-# update currentOrgId with the orgid of your volunteer involvement
-
-#from datetime import datetime
-#import ast
-#today = datetime.now()
-#if today.day in [1, 15]: #set the day(s) you want to send the report on
-#    model.Data.sendReport = 'y'
-#    model.Data.reportTo = 'Involvement' #options are Self or Involvement  
-#    model.Data.CurrentOrgId = '2832' #send Safety and Security Schedule Out
-#    print(model.CallScript("ScheduleList"))
 
 ########################################################
 ### User Config Area
@@ -82,7 +63,123 @@ if model.CurrentOrgId is not None and Data.CurrentOrgId != '':
     template = "<h1>{}</h1>".format(org.name)
 
 
-sql = '''
+sqlold = '''
+DECLARE @InvId Int = 904
+DECLARE @days int = 365
+
+;With
+AllServices as 
+(
+SELECT 
+ tsm.MeetingDateTime as ServiceDate
+,format(tsm.MeetingDateTime, 'hh:mm tt') as ServiceTime
+,format(tsm.meetingdatetime, 'M/d/yy h:mm tt') as ServiceDateTime
+--,tstSG.TeamName
+,tstSG.NumberVolunteersNeeded Needed
+,tstSG.Require [Required]
+,tsmt.TimeSlotMeetingTeamId
+,tsgrpvol.TimeSlotMeetingTeamSubGroupId
+,tssg.NumberVolunteersNeeded SubGroupsNeeded
+,p.Name2 
+,p.Name
+,CASE WHEN mt.Name is NULL THEN tsmt.TeamName ELSE mt.Name END AS SubGroupTeam
+,tsmt.TeamName
+
+
+FROM TimeSlotMeetingTeams tsmt 
+LEFT JOIN TimeSlotMeetings tsm ON tsmt.TimeSlotMeetingId = tsm.TimeSlotMeetingId
+LEFT JOIN TimeSlotMeetingTeamSubGroups tssg ON tssg.TimeSlotMeetingTeamId = tsmt.TimeSlotMeetingTeamId
+LEFT JOIN TimeSlotTeamSubGroups tstSG ON tstSG.TimeSlotTeamSubGroupId = tssg.TimeSlotTeamSubGroupId --tsmt.TimeSlotTeamId = tstSG.TimeSlotTeamId  
+LEFT JOIN Meetings m on tsm.MeetingId = m.MeetingId
+LEFT JOIN TimeSlotMeetingTeamSubGroupVolunteers tsGrpVol ON 
+	(tsGrpVol.IsActive <> 0 AND tsGrpVol.TimeSlotMeetingTeamId = tsmt.TimeSlotMeetingTeamId AND tsGrpVol.TimeSlotMeetingTeamSubGroupId is NULL)
+		OR (tsGrpVol.IsActive <> 0 AND tsGrpVol.TimeSlotMeetingTeamSubGroupId = tssg.TimeSlotMeetingTeamSubGroupId  AND tsGrpVol.TimeSlotMeetingTeamSubGroupId is not NULL)
+LEFT JOIN MemberTags mt ON mt.Id = tssg.MemberTagId and mt.OrgId = {0} --904 --@InvId
+LEFT JOIN People p ON p.PeopleId = tsGrpVol.PeopleId
+WHERE 
+tsm.MeetingDateTime > GETDATE() 
+AND tsm.MeetingDateTime < DATEADD(d, {1} , GETDATE()) --@days
+AND OrganizationId = {0} --@InvId 
+)
+
+,allpeeps as (
+SELECT 
+ a.Name2
+,a.Name
+,a.ServiceDate
+,a.ServiceTime
+,a.ServiceDateTime
+--,a.TeamName
+,a.Needed
+,a.TimeSlotMeetingTeamId
+,a.SubGroupTeam
+,a.TeamName
+,a.Required
+FROM AllServices a
+ )
+
+,ServiceCount as
+(
+ Select ServiceDate
+	,ServiceDateTime
+	,ServiceTime
+	,Needed
+	,[Required] 
+	,TimeSlotMeetingTeamId
+	, SubGroupTeam
+	, TeamName
+	, Name2
+	, Count(name) as serving 
+From allpeeps 
+Group By TimeSlotMeetingTeamId,TeamName,subgroupteam, Name2,ServiceDate,ServiceDateTime,ServiceTime,Needed,[Required]  
+
+)
+
+
+,UniqueDates as
+(Select distinct
+DATEADD(dd, DATEDIFF(dd, 0, ServiceDateTime), 0)AS DateOnly
+--convert(varchar, ServiceDateTime, 101) AS DateOnly
+,count(DATEADD(dd, DATEDIFF(dd, 0, ServiceDateTime), 0)) AS countDate 
+From ServiceCount
+Group By DATEADD(dd, DATEDIFF(dd, 0, ServiceDateTime), 0)
+)
+
+SELECT
+sc.ServiceDate as 'Date'
+,sc.ServiceDateTime
+--,convert(varchar(5), sc.ServiceDate, 101) AS DateOnly
+--,DATEADD(dd, DATEDIFF(dd, 0, sc.ServiceDate), 0)AS DateOnly
+,FORMAT(sc.ServiceDate, 'dddd, MMMM dd, yyyy') AS DateOnly
+,ud.countDate
+,convert(char(5), sc.ServiceDate, 108) AS [TimeOnly]
+,a.TeamName [Team]
+,sc.SubGroupTeam
+,CONVERT(VARCHAR(10),sc.Serving)+' of '+CONVERT(VARCHAR(10),sc.Needed) as 'Filled'
+,sc.Serving
+,sc.Needed
+,sc.Required
+,a.TimeSlotMeetingTeamId
+,ISNULL(SUBSTRING(
+(
+	SELECT ', '
+	+a1.Name AS [text()]
+	FROM allpeeps a1
+	WHERE a1.ServiceDateTime = sc.ServiceDateTime
+		AND a1.SubGroupTeam = sc.SubGroupTeam 
+		--AND a1.ServiceDateTime = sc.ServiceDateTime--AND a1.TimeOnly = sc.ServiceTime
+	ORDER BY a1.Name2
+	FOR XML PATH ('')), 2, 1000),'--->none<---') Names
+FROM ServiceCount sc
+LEFT JOIN allpeeps a ON a.TeamName = sc.TeamName AND a.ServiceDateTime = sc.ServiceDateTime AND a.SubGroupTeam = sc.SubGroupTeam 
+LEFT JOIN UniqueDates ud ON ud.DateOnly = DATEADD(dd, DATEDIFF(dd, 0, sc.ServiceDate), 0)
+Where sc.SubGroupTeam NOT LIKE 'EMS' AND sc.SubGroupTeam NOT LIKE 'LEO'
+GROUP BY sc.ServiceDateTime,a.TeamName,sc.SubGroupTeam, sc.ServiceDate, sc.Serving, sc.Needed,a.TimeSlotMeetingTeamId,sc.Required,ud.countDate,a.Name2,a.Name--,a.ServiceDateTime
+ORDER BY sc.ServiceDate
+
+'''
+
+sqlold2 = '''
 DECLARE @InvId Int = 904 --2832
 DECLARE @days int = 365
 
@@ -113,6 +210,139 @@ LEFT JOIN Meetings m on tsm.MeetingId = m.MeetingId
 LEFT JOIN TimeSlotMeetingTeamSubGroupVolunteers tsGrpVol ON 
 	(tsGrpVol.IsActive <> 0 AND tsGrpVol.TimeSlotMeetingTeamId = tsmt.TimeSlotMeetingTeamId AND tsGrpVol.TimeSlotMeetingTeamSubGroupId is NULL)
 		OR (tsGrpVol.IsActive <> 0 AND tsGrpVol.TimeSlotMeetingTeamSubGroupId = tssg.TimeSlotMeetingTeamSubGroupId  AND tsGrpVol.TimeSlotMeetingTeamSubGroupId is not NULL)
+LEFT JOIN MemberTags mt ON mt.Id = tssg.MemberTagId and mt.OrgId = {0}
+LEFT JOIN People p ON p.PeopleId = tsGrpVol.PeopleId
+WHERE 
+tsm.MeetingDateTime > GETDATE() 
+AND tsm.MeetingDateTime < DATEADD(d, {1} , GETDATE()) --@days
+AND OrganizationId = {0}
+)
+
+--Select * from AllServices
+
+,allpeeps as (
+SELECT 
+ STRING_AGG(a.Name2,', ') AS Name2
+--,a.Name
+,a.ServiceDate
+,a.ServiceTime
+,a.ServiceDateTime
+--,a.TeamName
+,a.Needed
+,a.TimeSlotMeetingTeamId
+,a.SubGroupTeam
+,a.TeamName
+,a.Required
+FROM AllServices a
+Group By 
+a.ServiceDate
+,a.ServiceTime
+,a.ServiceDateTime
+--,a.TeamName
+,a.Needed
+,a.TimeSlotMeetingTeamId
+,a.SubGroupTeam
+,a.TeamName
+,a.Required
+ )
+
+ --Select * From allpeeps
+
+
+,ServiceCount as
+(
+ Select ServiceDate
+	,ServiceDateTime
+	,ServiceTime
+	,Needed
+	,[Required] 
+	,TimeSlotMeetingTeamId
+	, SubGroupTeam
+	, TeamName
+	--, Name2
+	, Count(Name2) as serving 
+From allpeeps 
+Group By TimeSlotMeetingTeamId,TeamName,subgroupteam,ServiceDate,ServiceDateTime,ServiceTime,Needed,[Required]  
+
+)
+
+
+,UniqueDates as
+(Select distinct
+DATEADD(dd, DATEDIFF(dd, 0, ServiceDateTime), 0)AS DateOnly
+--convert(varchar, ServiceDateTime, 101) AS DateOnly
+,count(DATEADD(dd, DATEDIFF(dd, 0, ServiceDateTime), 0)) AS countDate 
+From ServiceCount
+Group By DATEADD(dd, DATEDIFF(dd, 0, ServiceDateTime), 0)
+)
+
+SELECT
+sc.ServiceDate as 'Date'
+,sc.ServiceDateTime
+--,convert(varchar(5), sc.ServiceDate, 101) AS DateOnly
+--,DATEADD(dd, DATEDIFF(dd, 0, sc.ServiceDate), 0)AS DateOnly
+,FORMAT(sc.ServiceDate, 'dddd, MMMM dd, yyyy') AS DateOnly
+,ud.countDate
+,convert(char(5), sc.ServiceDate, 108) AS [TimeOnly]
+,a.TeamName [Team]
+,sc.SubGroupTeam
+,CONVERT(VARCHAR(10),sc.Serving)+' of '+CONVERT(VARCHAR(10),sc.Needed) as 'Filled'
+,sc.Serving
+,sc.Needed
+,sc.Required
+,a.TimeSlotMeetingTeamId
+,ISNULL(SUBSTRING(
+(
+	SELECT ', '
+	+a1.Name2 AS [text()]
+	FROM allpeeps a1
+	WHERE a1.ServiceDateTime = sc.ServiceDateTime
+		AND a1.SubGroupTeam = sc.SubGroupTeam 
+		--AND sc.TimeSlotMeetingTeamId = a1.TimeSlotMeetingTeamId
+		--AND a1.ServiceDateTime = sc.ServiceDateTime --AND a1.TimeOnly = sc.ServiceTime
+	ORDER BY a1.Name2
+	FOR XML PATH ('')), 2, 1000),'--->none<---') Names
+FROM ServiceCount sc
+LEFT JOIN allpeeps a ON a.TeamName = sc.TeamName AND a.ServiceDateTime = sc.ServiceDateTime AND a.SubGroupTeam = sc.SubGroupTeam 
+LEFT JOIN UniqueDates ud ON ud.DateOnly = DATEADD(dd, DATEDIFF(dd, 0, sc.ServiceDate), 0)
+Where sc.SubGroupTeam NOT LIKE 'EMS' AND sc.SubGroupTeam NOT LIKE 'LEO'
+GROUP BY sc.ServiceDateTime,a.TeamName,sc.SubGroupTeam, sc.ServiceDate, sc.Serving, sc.Needed,a.TimeSlotMeetingTeamId,sc.Required,ud.countDate,a.Name2--,a.ServiceDateTime
+ORDER BY sc.ServiceDate
+
+'''
+
+sql = '''
+DECLARE @InvId Int = 904 --2832
+DECLARE @days int = 365
+
+;With
+AllServices as 
+(
+SELECT 
+ tsm.MeetingDateTime as ServiceDate
+,format(tsm.MeetingDateTime, 'hh:mm tt') as ServiceTime
+,format(tsm.meetingdatetime, 'M/d/yy h:mm tt') as ServiceDateTime
+--,tstSG.TeamName
+,tstSG.NumberVolunteersNeeded Needed
+,tstSG.Require [Required]
+,tsmt.TimeSlotMeetingTeamId
+,tsgrpvol.TimeSlotMeetingTeamSubGroupId
+,tssg.NumberVolunteersNeeded SubGroupsNeeded
+,CASE WHEN (tsmv.VolunteerOption is NOT NULL and tsmv.VolunteerOption <> 'This Time Slot') THEN CONCAT(p.Name2,' (',tsmv.VolunteerOption,')') ELSE p.Name2 END AS Name2
+,p.Name
+,CASE WHEN mt.Name is NULL THEN tsmt.TeamName ELSE mt.Name END AS SubGroupTeam
+,tsmt.TeamName
+
+
+FROM TimeSlotMeetingTeams tsmt 
+LEFT JOIN TimeSlotMeetings tsm ON tsmt.TimeSlotMeetingId = tsm.TimeSlotMeetingId
+LEFT JOIN TimeSlotMeetingTeamSubGroups tssg ON tssg.TimeSlotMeetingTeamId = tsmt.TimeSlotMeetingTeamId
+LEFT JOIN TimeSlotTeamSubGroups tstSG ON tstSG.TimeSlotTeamSubGroupId = tssg.TimeSlotTeamSubGroupId --tsmt.TimeSlotTeamId = tstSG.TimeSlotTeamId  
+LEFT JOIN Meetings m on tsm.MeetingId = m.MeetingId
+LEFT JOIN TimeSlotMeetingTeamSubGroupVolunteers tsGrpVol ON 
+	(tsGrpVol.IsActive <> 0 AND tsGrpVol.TimeSlotMeetingTeamId = tsmt.TimeSlotMeetingTeamId AND tsGrpVol.TimeSlotMeetingTeamSubGroupId is NULL)
+		OR (tsGrpVol.IsActive <> 0 AND tsGrpVol.TimeSlotMeetingTeamSubGroupId = tssg.TimeSlotMeetingTeamSubGroupId  AND tsGrpVol.TimeSlotMeetingTeamSubGroupId is not NULL)
+LEFT JOIN TimeSlotMeetingVolunteers tsmv ON tsmv.TimeSlotMeetingId = tsmt.TimeSlotMeetingId AND tsmv.PeopleId = tsGrpVol.PeopleId 
 LEFT JOIN MemberTags mt ON mt.Id = tssg.MemberTagId and mt.OrgId = {0}
 LEFT JOIN People p ON p.PeopleId = tsGrpVol.PeopleId
 WHERE 
@@ -400,11 +630,16 @@ elif sendReport == 'y' and reportTo == 'Involvement':
     sqlEmailTo = '''Select PeopleId AS emailTo from OrganizationMembers Where OrganizationId = {0}'''
     sqlEmailToData = q.QuerySql(sqlEmailTo.format(OrgId))
     for e in sqlEmailToData:
-        MailToQuery = str(e.emailTo)
-        #Email
-        model.Email(MailToQuery, QueuedBy, FromAddress, FromName, Subject, NMReport)
-
-
+        try:
+            MailToQuery = str(e.emailTo)
+            #Email
+            model.Email(MailToQuery, QueuedBy, FromAddress, FromName, Subject, NMReport)
+        except:
+            MailToQuery = 3134
+            Subject = 'Error sending schedule to: ' + str(e.emailTo)
+            NMReport = 'Error sending schedule to: ' + str(e.emailTo) + '<hr>' + NMReport
+            model.Email(MailToQuery, QueuedBy, FromAddress, FromName, Subject, NMReport)
+            
     #Notifiy User Report Sent
     print('<h3>Report Sent to Involvement</h3>')
 else:
