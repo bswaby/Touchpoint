@@ -728,7 +728,7 @@ WHERE tp.DateCreated >= DATEADD(day, -30, GETDATE())
 
 -- EmailResponses (3.9M+ records)
 SELECT TOP 100 * FROM EmailResponses er
-WHERE er.EventTime >= DATEADD(week, -1, GETDATE())
+WHERE er.Dt >= DATEADD(week, -1, GETDATE())
 
 -- ActivityLog (3.4M+ records)
 SELECT TOP 100 * FROM ActivityLog al
@@ -741,8 +741,8 @@ WHERE es.WeekDate >= DATEADD(month, -3, GETDATE())
 
 -- EmailQueueTo (3.8M+ records)
 SELECT TOP 100 * FROM EmailQueueTo eqt
-JOIN EmailQueue eq ON eqt.EmailQueueId = eq.Id
-WHERE eq.SendAt >= DATEADD(month, -1, GETDATE())</code></pre>
+JOIN EmailQueue eq ON eqt.Id = eq.Id
+WHERE eq.Sent >= DATEADD(month, -1, GETDATE())</code></pre>
     </div>
 
     <h3>✅ Safe Query Development Process</h3>
@@ -2794,7 +2794,7 @@ SELECT TOP 500
     OrgStatus,
     Members,
     Previous,
-    Visitors,
+    Vistors,
     Meetings,
     ProgId,         -- Program ID for joins
     DivId,          -- Division ID for joins
@@ -2810,7 +2810,7 @@ SELECT TOP 500
     COUNT(DISTINCT DivId) as Divisions,
     COUNT(DISTINCT OrgId) as Organizations,
     SUM(Members) as TotalMembers,
-    SUM(Visitors) as TotalVisitors,
+    SUM(Vistors) as TotalVisitors,
     SUM(Meetings) as TotalMeetings
 FROM OrganizationStructure
 WHERE OrgStatus = 'Active'
@@ -3173,22 +3173,47 @@ ORDER BY AVG(m.NumPresent) DESC</code></pre>
     <h3>Giving Analysis Query</h3>
     <pre><code>-- Individual giving summary
 SELECT 
-    p.Name,
-    COUNT(*) as GiftCount,
-    SUM(c.ContributionAmount) as TotalGiven,
-    AVG(c.ContributionAmount) as AvgGift,
-    MIN(c.ContributionDate) as FirstGift,
-    MAX(c.ContributionDate) as LastGift,
-    STRING_AGG(DISTINCT cf.FundName, ', ') as Funds
-FROM Contribution c
-JOIN People p ON c.PeopleId = p.PeopleId
-JOIN ContributionFund cf ON c.FundId = cf.FundId
-WHERE c.ContributionTypeId != 99  -- CRITICAL: Exclude event fees
-  AND c.ContributionDate >= DATEADD(year, -1, GETDATE())
-  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-GROUP BY p.PeopleId, p.Name
-HAVING SUM(c.ContributionAmount) > 0
-ORDER BY SUM(c.ContributionAmount) DESC</code></pre>
+    g.Name,
+    COUNT(*) AS GiftCount,
+    SUM(g.ContributionAmount) AS TotalGiven,
+    AVG(g.ContributionAmount) AS AvgGift,
+    MIN(g.ContributionDate) AS FirstGift,
+    MAX(g.ContributionDate) AS LastGift,
+    STRING_AGG(CAST(df.FundName AS nvarchar(max)), ',') AS Funds
+FROM (
+    -- All gift rows for normal counts/sums
+    SELECT 
+        p.PeopleId,
+        p.Name,
+        c.ContributionAmount,
+        c.ContributionDate,
+        cf.FundName
+    FROM Contribution c
+    JOIN People p ON c.PeopleId = p.PeopleId
+    JOIN ContributionFund cf ON c.FundId = cf.FundId
+    WHERE c.ContributionTypeId != 99
+      AND c.ContributionDate >= DATEADD(year, -1, GETDATE())
+      AND p.IsDeceased = 0
+      AND p.ArchivedFlag = 0
+) AS g
+JOIN (
+    -- Distinct funds per person
+    SELECT DISTINCT 
+        p.PeopleId,
+        cf.FundName
+    FROM Contribution c
+    JOIN People p ON c.PeopleId = p.PeopleId
+    JOIN ContributionFund cf ON c.FundId = cf.FundId
+    WHERE c.ContributionTypeId != 99
+      AND c.ContributionDate >= DATEADD(year, -1, GETDATE())
+      AND p.IsDeceased = 0
+      AND p.ArchivedFlag = 0
+) AS df
+    ON g.PeopleId = df.PeopleId
+GROUP BY g.PeopleId, g.Name
+HAVING SUM(g.ContributionAmount) > 0
+ORDER BY SUM(g.ContributionAmount) DESC;
+</code></pre>
 
     <h3>Fund Analysis</h3>
     <pre><code>-- Giving by fund
