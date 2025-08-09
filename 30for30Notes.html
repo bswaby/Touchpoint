@@ -96,6 +96,54 @@
             gap: 15px;
         }
 
+        .category-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .category-header.rapid-fire {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+
+        .category-title {
+            font-size: 1.4em;
+            font-weight: bold;
+        }
+
+        .category-time {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .tool-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .tool-card.rapid-fire {
+            border-left: 5px solid #f5576c;
+            background: linear-gradient(to right, rgba(245, 87, 108, 0.05), transparent);
+        }
+
         .tool-card {
             background: white;
             border: 2px solid #e0e0e0;
@@ -312,8 +360,14 @@
             <button class="btn btn-secondary" onclick="clearAll()">
                 🔄 Clear All
             </button>
+            <a href="https://bswaby.github.io/Touchpoint/" target="_blank" class="btn btn-secondary">
+                📚 View Documentation
+            </a>
             <a href="https://github.com/bswaby/Touchpoint" target="_blank" class="btn btn-secondary">
-                📚 View on GitHub
+                <svg style="width: 20px; height: 20px; vertical-align: middle; fill: currentColor;" viewBox="0 0 24 24">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+                GitHub
             </a>
         </div>
     </div>
@@ -321,38 +375,49 @@
     <div class="toast" id="toast"></div>
 
     <script>
-        // Tool data - Replace with your actual 30 tools
+        // Tool data organized by presentation flow
         const tools = [
-            { id: 1, name: "Authentication Manager", description: "Secure user authentication system" },
-            { id: 2, name: "Data Visualizer", description: "Interactive charts and graphs" },
-            { id: 3, name: "API Gateway", description: "Centralized API management" },
-            { id: 4, name: "Cache Controller", description: "Intelligent caching system" },
-            { id: 5, name: "Logger Pro", description: "Advanced logging framework" },
-            { id: 6, name: "Form Builder", description: "Dynamic form generation" },
-            { id: 7, name: "Email Service", description: "Automated email handling" },
-            { id: 8, name: "File Manager", description: "Cloud file management" },
-            { id: 9, name: "Search Engine", description: "Full-text search capability" },
-            { id: 10, name: "Task Scheduler", description: "Cron job management" },
-            { id: 11, name: "Database Migrator", description: "Schema migration tool" },
-            { id: 12, name: "Testing Suite", description: "Automated testing framework" },
-            { id: 13, name: "Performance Monitor", description: "Real-time performance metrics" },
-            { id: 14, name: "Security Scanner", description: "Vulnerability detection" },
-            { id: 15, name: "Backup Manager", description: "Automated backup system" },
-            { id: 16, name: "Load Balancer", description: "Traffic distribution tool" },
-            { id: 17, name: "Session Manager", description: "User session handling" },
-            { id: 18, name: "Payment Gateway", description: "Payment processing integration" },
-            { id: 19, name: "Notification Hub", description: "Multi-channel notifications" },
-            { id: 20, name: "Analytics Dashboard", description: "Business intelligence tool" },
-            { id: 21, name: "Content Manager", description: "CMS functionality" },
-            { id: 22, name: "Workflow Engine", description: "Business process automation" },
-            { id: 23, name: "Report Generator", description: "Dynamic report creation" },
-            { id: 24, name: "Image Processor", description: "Image manipulation service" },
-            { id: 25, name: "PDF Generator", description: "Document generation tool" },
-            { id: 26, name: "Translation Service", description: "Multi-language support" },
-            { id: 27, name: "Rate Limiter", description: "API throttling mechanism" },
-            { id: 28, name: "WebSocket Handler", description: "Real-time communication" },
-            { id: 29, name: "Queue Manager", description: "Message queue system" },
-            { id: 30, name: "Config Manager", description: "Configuration management" }
+            // Act 1: Foundation & Structure
+            { id: 1, name: "Ministry Structure", description: "Visual overview of programs/divisions/involvements", category: "Foundation" },
+            { id: 2, name: "Involvement Activity Dashboard", description: "Understanding engagement patterns", category: "Foundation" },
+            { id: 3, name: "Data Quality Dashboard", description: "Foundation of clean data", category: "Foundation" },
+            { id: 4, name: "User Activity", description: "Who's using the system and how", category: "Foundation" },
+            { id: 5, name: "Involvement Owner Audit", description: "Leadership tracking and accountability", category: "Foundation" },
+            { id: 6, name: "Involvement Sync", description: "Keeping related groups synchronized", category: "Foundation" },
+            
+            // Act 2: People & Engagement
+            { id: 7, name: "Weekly Attendance (WAAG 2.0)", description: "Enhanced attendance reporting", category: "People" },
+            { id: 8, name: "Lapsed Attenders", description: "Statistical analysis of attendance patterns", category: "People" },
+            { id: 9, name: "Geographic Distribution Map", description: "Where your people are", category: "People" },
+            { id: 10, name: "Anniversaries Widget", description: "Member milestone tracking", category: "People" },
+            { id: 11, name: "Auxiliary to Group Analytics", description: "Program effectiveness analysis", category: "People" },
+            { id: 12, name: "Communication Dashboard", description: "Email/SMS analytics", category: "People" },
+            { id: 13, name: "TaskNote Activity Dashboard", description: "Task and note monitoring", category: "People" },
+            
+            // Rapid Fire Round: Simple Power Tools
+            { id: 14, name: "Attachment Link Downloader", description: "Bulk document downloads - instant time saver!", category: "Rapid Fire" },
+            { id: 15, name: "Link Generator", description: "Pre-authenticated links", category: "Rapid Fire" },
+            { id: 16, name: "TechStatus", description: "System monitoring at a glance", category: "Rapid Fire" },
+            { id: 17, name: "Widget QuickLinks", description: "Permission-based quick access", category: "Rapid Fire" },
+            { id: 18, name: "Registration Export", description: "Event data exports", category: "Rapid Fire" },
+            
+            // Act 3: Finance & Operations
+            { id: 19, name: "FortisFees", description: "Automated fee breakdown - saves 6-8 hours/month!", category: "Finance" },
+            { id: 20, name: "QCD-Grant Letters", description: "Automated letter generation for windowed envelopes", category: "Finance" },
+            { id: 21, name: "Payment Manager", description: "Outstanding payment tracking", category: "Finance" },
+            { id: 22, name: "Weekly Contribution Report", description: "Finance tracking and reporting", category: "Finance" },
+            { id: 23, name: "FastLaneCheckIn", description: "Streamlined event check-in (100-2500+ attendees)", category: "Operations" },
+            { id: 24, name: "Account Security Monitor", description: "Advanced security analytics", category: "Operations" },
+            
+            // Act 4: Advanced Programs
+            { id: 25, name: "Missions Dashboard", description: "Complete mission trip management", category: "Advanced" },
+            { id: 26, name: "[Advanced Tool #2]", description: "[Description pending]", category: "Advanced" },
+            { id: 27, name: "[Advanced Tool #3]", description: "[Description pending]", category: "Advanced" },
+            { id: 28, name: "[Advanced Tool #4]", description: "[Description pending]", category: "Advanced" },
+            
+            // Finale: Looking Forward
+            { id: 29, name: "[Your Newest/Beta Tool]", description: "[Coming soon feature]", category: "Future" },
+            { id: 30, name: "[Most Impactful Tool]", description: "[End with your best!]", category: "Future" }
         ];
 
         // Initialize state from localStorage
@@ -362,30 +427,64 @@
             notes: {}
         };
 
-        // Render tools
+        // Render tools with categories
         function renderTools() {
             const grid = document.getElementById('toolsGrid');
-            grid.innerHTML = tools.map(tool => `
-                <div class="tool-card ${state.checked[tool.id] ? 'checked' : ''} ${state.starred[tool.id] ? 'starred' : ''}" id="tool-${tool.id}">
-                    <div class="tool-header">
-                        <div class="tool-number">${tool.id}</div>
-                        <div class="tool-name">${tool.name}</div>
-                        <div class="tool-actions">
-                            <input type="checkbox" class="tool-checkbox" 
-                                ${state.checked[tool.id] ? 'checked' : ''}
-                                onchange="toggleCheck(${tool.id})" />
-                            <button class="star-btn ${state.starred[tool.id] ? 'active' : ''}" 
-                                onclick="toggleStar(${tool.id})">
-                                ${state.starred[tool.id] ? '⭐' : '☆'}
-                            </button>
-                        </div>
-                    </div>
-                    <textarea class="tool-notes" 
-                        placeholder="Add your notes here..."
-                        onchange="updateNotes(${tool.id}, this.value)">${state.notes[tool.id] || ''}</textarea>
-                </div>
-            `).join('');
+            let html = '';
+            let currentCategory = '';
             
+            const categoryInfo = {
+                'Foundation': { title: 'Act 1: Foundation & Structure', emoji: '🏗️' },
+                'People': { title: 'Act 2: People & Engagement', emoji: '👥' },
+                'Rapid Fire': { title: '⚡ RAPID FIRE ROUND', emoji: '⚡' },
+                'Finance': { title: 'Act 3: Finance & Operations', emoji: '💰' },
+                'Operations': { title: '', emoji: '' }, // Part of Act 3, no separate header
+                'Advanced': { title: 'Act 4: Advanced Programs', emoji: '🚀' },
+                'Future': { title: 'Finale: Looking Forward', emoji: '🔮' }
+            };
+            
+            tools.forEach(tool => {
+                // Add category header if category changed (skip Operations as it's part of Finance act)
+                if (tool.category !== currentCategory && tool.category !== 'Operations') {
+                    currentCategory = tool.category;
+                    const info = categoryInfo[currentCategory];
+                    if (info && info.title) {
+                        html += `
+                            <div class="category-header ${currentCategory === 'Rapid Fire' ? 'rapid-fire' : ''}">
+                                <div class="category-title">${info.emoji} ${info.title}</div>
+                            </div>
+                        `;
+                    }
+                } else if (tool.category === 'Operations') {
+                    currentCategory = tool.category;
+                }
+                
+                const isRapidFire = tool.category === 'Rapid Fire';
+                
+                html += `
+                    <div class="tool-card ${state.checked[tool.id] ? 'checked' : ''} ${state.starred[tool.id] ? 'starred' : ''} ${isRapidFire ? 'rapid-fire' : ''}" id="tool-${tool.id}">
+                        <div class="tool-header">
+                            <div class="tool-number">${tool.id}</div>
+                            <div class="tool-name">${tool.name}</div>
+                            <div class="tool-actions">
+                                <input type="checkbox" class="tool-checkbox" 
+                                    ${state.checked[tool.id] ? 'checked' : ''}
+                                    onchange="toggleCheck(${tool.id})" />
+                                <button class="star-btn ${state.starred[tool.id] ? 'active' : ''}" 
+                                    onclick="toggleStar(${tool.id})">
+                                    ${state.starred[tool.id] ? '⭐' : '☆'}
+                                </button>
+                            </div>
+                        </div>
+                        <div style="color: #666; font-size: 0.95em; margin: 10px 0;">${tool.description}</div>
+                        <textarea class="tool-notes" 
+                            placeholder="Add your notes here..."
+                            onchange="updateNotes(${tool.id}, this.value)">${state.notes[tool.id] || ''}</textarea>
+                    </div>
+                `;
+            });
+            
+            grid.innerHTML = html;
             updateStats();
         }
 
@@ -476,7 +575,8 @@
                 });
             }
             
-            text += '\n\n🔗 GitHub: https://github.com/bswaby/Touchpoint';
+            text += '\n\n🔗 Documentation: https://bswaby.github.io/Touchpoint/';
+            text += '\n🔗 GitHub: https://github.com/bswaby/Touchpoint';
             
             // Copy to clipboard
             navigator.clipboard.writeText(text).then(() => {
@@ -642,7 +742,8 @@
             }
             
             html += `
-        <a href="https://github.com/bswaby/Touchpoint" class="github-link">View on GitHub</a>
+        <a href="https://bswaby.github.io/Touchpoint/" class="github-link" style="margin-right: 15px;">📚 View Documentation</a>
+        <a href="https://github.com/bswaby/Touchpoint" class="github-link">🔗 View on GitHub</a>
     </div>
 </body>
 </html>`;
