@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>30 for 30 - Touchpoint Tools Tracker</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+
+        .progress-bar {
+            background: rgba(255, 255, 255, 0.2);
+            height: 30px;
+            border-radius: 15px;
+            margin-top: 20px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            background: rgba(255, 255, 255, 0.9);
+            height: 100%;
+            border-radius: 15px;
+            width: 0%;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+
+        .tools-grid {
+            padding: 30px;
+            display: grid;
+            gap: 15px;
+        }
+
+        .tool-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .tool-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .tool-card.checked {
+            border-color: #667eea;
+            background: linear-gradient(to right, rgba(102, 126, 234, 0.05), rgba(118, 75, 162, 0.05));
+        }
+
+        .tool-card.starred {
+            border-color: #ffd700;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+        }
+
+        .tool-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+        }
+
+        .tool-number {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+
+        .tool-name {
+            flex: 1;
+            margin: 0 15px;
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .tool-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .tool-checkbox {
+            width: 25px;
+            height: 25px;
+            cursor: pointer;
+            accent-color: #667eea;
+        }
+
+        .star-btn {
+            background: none;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            transition: transform 0.2s;
+            color: #ddd;
+        }
+
+        .star-btn:hover {
+            transform: scale(1.2);
+        }
+
+        .star-btn.active {
+            color: #ffd700;
+        }
+
+        .tool-notes {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            resize: vertical;
+            min-height: 60px;
+            font-family: inherit;
+            font-size: 0.95em;
+            transition: border-color 0.3s;
+        }
+
+        .tool-notes:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .action-buttons {
+            padding: 30px;
+            background: #f8f9fa;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+        }
+
+        .btn-secondary:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: #333;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        @media (max-width: 600px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+            
+            .tools-grid {
+                padding: 15px;
+            }
+            
+            .tool-name {
+                font-size: 1em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 30 for 30</h1>
+            <p>Touchpoint Tools Presentation Tracker</p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressBar">0%</div>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-number" id="checkedCount">0</div>
+                <div class="stat-label">Reviewed</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number" id="starredCount">0</div>
+                <div class="stat-label">Starred</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number" id="notesCount">0</div>
+                <div class="stat-label">With Notes</div>
+            </div>
+        </div>
+
+        <div class="tools-grid" id="toolsGrid">
+            <!-- Tools will be generated here -->
+        </div>
+
+        <div class="action-buttons">
+            <button class="btn btn-primary" onclick="emailResults()">
+                📧 Email My Selections
+            </button>
+            <button class="btn btn-secondary" onclick="downloadResults()">
+                💾 Download Summary
+            </button>
+            <button class="btn btn-secondary" onclick="clearAll()">
+                🔄 Clear All
+            </button>
+            <a href="https://github.com/bswaby/Touchpoint" target="_blank" class="btn btn-secondary">
+                📚 View on GitHub
+            </a>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // Tool data - Replace with your actual 30 tools
+        const tools = [
+            { id: 1, name: "Authentication Manager", description: "Secure user authentication system" },
+            { id: 2, name: "Data Visualizer", description: "Interactive charts and graphs" },
+            { id: 3, name: "API Gateway", description: "Centralized API management" },
+            { id: 4, name: "Cache Controller", description: "Intelligent caching system" },
+            { id: 5, name: "Logger Pro", description: "Advanced logging framework" },
+            { id: 6, name: "Form Builder", description: "Dynamic form generation" },
+            { id: 7, name: "Email Service", description: "Automated email handling" },
+            { id: 8, name: "File Manager", description: "Cloud file management" },
+            { id: 9, name: "Search Engine", description: "Full-text search capability" },
+            { id: 10, name: "Task Scheduler", description: "Cron job management" },
+            { id: 11, name: "Database Migrator", description: "Schema migration tool" },
+            { id: 12, name: "Testing Suite", description: "Automated testing framework" },
+            { id: 13, name: "Performance Monitor", description: "Real-time performance metrics" },
+            { id: 14, name: "Security Scanner", description: "Vulnerability detection" },
+            { id: 15, name: "Backup Manager", description: "Automated backup system" },
+            { id: 16, name: "Load Balancer", description: "Traffic distribution tool" },
+            { id: 17, name: "Session Manager", description: "User session handling" },
+            { id: 18, name: "Payment Gateway", description: "Payment processing integration" },
+            { id: 19, name: "Notification Hub", description: "Multi-channel notifications" },
+            { id: 20, name: "Analytics Dashboard", description: "Business intelligence tool" },
+            { id: 21, name: "Content Manager", description: "CMS functionality" },
+            { id: 22, name: "Workflow Engine", description: "Business process automation" },
+            { id: 23, name: "Report Generator", description: "Dynamic report creation" },
+            { id: 24, name: "Image Processor", description: "Image manipulation service" },
+            { id: 25, name: "PDF Generator", description: "Document generation tool" },
+            { id: 26, name: "Translation Service", description: "Multi-language support" },
+            { id: 27, name: "Rate Limiter", description: "API throttling mechanism" },
+            { id: 28, name: "WebSocket Handler", description: "Real-time communication" },
+            { id: 29, name: "Queue Manager", description: "Message queue system" },
+            { id: 30, name: "Config Manager", description: "Configuration management" }
+        ];
+
+        // Initialize state from localStorage
+        let state = JSON.parse(localStorage.getItem('touchpoint30for30')) || {
+            checked: {},
+            starred: {},
+            notes: {}
+        };
+
+        // Render tools
+        function renderTools() {
+            const grid = document.getElementById('toolsGrid');
+            grid.innerHTML = tools.map(tool => `
+                <div class="tool-card ${state.checked[tool.id] ? 'checked' : ''} ${state.starred[tool.id] ? 'starred' : ''}" id="tool-${tool.id}">
+                    <div class="tool-header">
+                        <div class="tool-number">${tool.id}</div>
+                        <div class="tool-name">${tool.name}</div>
+                        <div class="tool-actions">
+                            <input type="checkbox" class="tool-checkbox" 
+                                ${state.checked[tool.id] ? 'checked' : ''}
+                                onchange="toggleCheck(${tool.id})" />
+                            <button class="star-btn ${state.starred[tool.id] ? 'active' : ''}" 
+                                onclick="toggleStar(${tool.id})">
+                                ${state.starred[tool.id] ? '⭐' : '☆'}
+                            </button>
+                        </div>
+                    </div>
+                    <textarea class="tool-notes" 
+                        placeholder="Add your notes here..."
+                        onchange="updateNotes(${tool.id}, this.value)">${state.notes[tool.id] || ''}</textarea>
+                </div>
+            `).join('');
+            
+            updateStats();
+        }
+
+        // Toggle check
+        function toggleCheck(id) {
+            state.checked[id] = !state.checked[id];
+            saveState();
+            document.getElementById(`tool-${id}`).classList.toggle('checked');
+            updateStats();
+            showToast(`Tool #${id} ${state.checked[id] ? 'checked' : 'unchecked'}`);
+        }
+
+        // Toggle star
+        function toggleStar(id) {
+            state.starred[id] = !state.starred[id];
+            saveState();
+            const card = document.getElementById(`tool-${id}`);
+            const btn = card.querySelector('.star-btn');
+            card.classList.toggle('starred');
+            btn.classList.toggle('active');
+            btn.textContent = state.starred[id] ? '⭐' : '☆';
+            updateStats();
+            showToast(`Tool #${id} ${state.starred[id] ? 'starred' : 'unstarred'}`);
+        }
+
+        // Update notes
+        function updateNotes(id, value) {
+            if (value.trim()) {
+                state.notes[id] = value;
+            } else {
+                delete state.notes[id];
+            }
+            saveState();
+            updateStats();
+        }
+
+        // Save state to localStorage
+        function saveState() {
+            localStorage.setItem('touchpoint30for30', JSON.stringify(state));
+        }
+
+        // Update statistics
+        function updateStats() {
+            const checkedCount = Object.keys(state.checked).filter(k => state.checked[k]).length;
+            const starredCount = Object.keys(state.starred).filter(k => state.starred[k]).length;
+            const notesCount = Object.keys(state.notes).filter(k => state.notes[k]).length;
+            
+            document.getElementById('checkedCount').textContent = checkedCount;
+            document.getElementById('starredCount').textContent = starredCount;
+            document.getElementById('notesCount').textContent = notesCount;
+            
+            const progress = Math.round((checkedCount / 30) * 100);
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = `${progress}%`;
+            progressBar.textContent = `${progress}%`;
+        }
+
+        // Email results
+        function emailResults() {
+            const checkedTools = tools.filter(t => state.checked[t.id]);
+            const starredTools = tools.filter(t => state.starred[t.id]);
+            const notedTools = tools.filter(t => state.notes[t.id]);
+            
+            let subject = encodeURIComponent('My 30 for 30 Touchpoint Tools Summary');
+            let body = '30 for 30 Presentation Summary\n\n';
+            
+            if (starredTools.length > 0) {
+                body += '⭐ STARRED TOOLS (Priority):\n';
+                starredTools.forEach(t => {
+                    body += `- Tool #${t.id}: ${t.name}\n`;
+                    if (state.notes[t.id]) {
+                        body += `  Notes: ${state.notes[t.id]}\n`;
+                    }
+                });
+                body += '\n';
+            }
+            
+            if (checkedTools.length > 0) {
+                body += '✅ REVIEWED TOOLS:\n';
+                checkedTools.forEach(t => {
+                    body += `- Tool #${t.id}: ${t.name}\n`;
+                    if (state.notes[t.id] && !state.starred[t.id]) {
+                        body += `  Notes: ${state.notes[t.id]}\n`;
+                    }
+                });
+                body += '\n';
+            }
+            
+            body += `\nGitHub: https://github.com/bswaby/Touchpoint`;
+            
+            window.location.href = `mailto:?subject=${subject}&body=${encodeURIComponent(body)}`;
+            showToast('Opening email client...');
+        }
+
+        // Download results
+        function downloadResults() {
+            const checkedTools = tools.filter(t => state.checked[t.id]);
+            const starredTools = tools.filter(t => state.starred[t.id]);
+            
+            let content = '# 30 for 30 - Touchpoint Tools Summary\n\n';
+            content += `Generated: ${new Date().toLocaleString()}\n\n`;
+            
+            if (starredTools.length > 0) {
+                content += '## ⭐ Starred Tools (Priority)\n\n';
+                starredTools.forEach(t => {
+                    content += `### ${t.id}. ${t.name}\n`;
+                    content += `${t.description}\n`;
+                    if (state.notes[t.id]) {
+                        content += `**Notes:** ${state.notes[t.id]}\n`;
+                    }
+                    content += '\n';
+                });
+            }
+            
+            if (checkedTools.length > 0) {
+                content += '## ✅ All Reviewed Tools\n\n';
+                checkedTools.forEach(t => {
+                    content += `### ${t.id}. ${t.name}\n`;
+                    content += `${t.description}\n`;
+                    if (state.notes[t.id]) {
+                        content += `**Notes:** ${state.notes[t.id]}\n`;
+                    }
+                    content += '\n';
+                });
+            }
+            
+            content += '\n---\n';
+            content += 'GitHub: https://github.com/bswaby/Touchpoint\n';
+            
+            const blob = new Blob([content], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `touchpoint-30for30-${Date.now()}.md`;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            showToast('Summary downloaded!');
+        }
+
+        // Clear all data
+        function clearAll() {
+            if (confirm('Are you sure you want to clear all your selections and notes?')) {
+                state = { checked: {}, starred: {}, notes: {} };
+                saveState();
+                renderTools();
+                showToast('All data cleared');
+            }
+        }
+
+        // Show toast notification
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        // Initialize on load
+        renderTools();
+    </script>
+</body>
+</html>
