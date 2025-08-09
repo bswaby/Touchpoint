@@ -18,11 +18,10 @@
 # - Family schedule management buttons
 # 
 # Version 2.1 Updates: Ben Swaby (8/9/25)
-# - Multi-column layout option
-# - Filter family buttons to show only involvement members
-# - Proper function-based code structure
-# - Better organization and maintainability
-# - Fixed print not print color and shading
+# - Got multi-column layout option working
+# - Enhanced filter family buttons to show all family or only family members who are involved
+# - Put in proper function-based code structure
+# - Fixed print not printing color and shading
 
 #To add this to the Bluetoolbar, navigate to open CustomReport under special content 
 # / text and add in the following line.  Make sure to adjust report name to what
