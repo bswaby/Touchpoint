@@ -1,18 +1,17 @@
 ########################################################
 ### Enhanced Scheduler Report
-### Version: 2.0
 ### Original: SimpleSchedulerReport
 ### Updates: Improved layout, error handling, multi-column display
 
 ########################################################
 ### Info
+#Created By: Ben Swaby
+#Email: bswaby@fbchtn.org
 
 # Enhanced scheduler report with improved layout and error handling
 # Features:
-# - Multi-column responsive layout
 # - Better error handling and validation
 # - Visual indicators for staffing levels
-# - Mobile-friendly design
 # - Duplicate volunteer handling
 # - No hardcoded script names - works with any filename
 
