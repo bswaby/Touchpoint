@@ -696,12 +696,14 @@ def build_schedule_columns(results):
     html = ''
     current_date = None
     date_data = {}
+    date_sort_keys = {}  # Store actual dates for sorting
     
     # Group by date and time
     for row in results:
         date_key = str(row.DateOnly)
         if date_key not in date_data:
             date_data[date_key] = {}
+            date_sort_keys[date_key] = row.ServiceDate  # Store actual date for sorting
         
         time_key = row.ServiceTime
         if time_key not in date_data[date_key]:
@@ -713,8 +715,10 @@ def build_schedule_columns(results):
             
         date_data[date_key][time_key].append(row)
     
-    # Build output for each date
-    for date_header, times in sorted(date_data.items()):
+    # Build output for each date, sorted by actual date
+    sorted_dates = sorted(date_data.keys(), key=lambda x: date_sort_keys[x])
+    for date_header in sorted_dates:
+        times = date_data[date_header]
         if times:  # Only show dates with data
             html += build_date_section_grid(date_header, times)
     
@@ -972,4 +976,3 @@ def main():
 
 # Execute main function
 main()
-
