@@ -1,5 +1,5 @@
 ########################################################
-### Enhanced Scheduler Report v2
+### Enhanced Scheduler Report v2.1
 ### Original: SimpleSchedulerReport
 ### Updates: Multi-column layout, family filtering, proper functions
 ########################################################
@@ -17,7 +17,7 @@
 # - New tab for registration links
 # - Family schedule management buttons
 # 
-# Version 3 Updates: Ben Swaby (8/9/25)
+# Version 2.1 Updates: Ben Swaby (8/9/25)
 # - Multi-column layout option
 # - Filter family buttons to show only involvement members
 # - Proper function-based code structure
