@@ -606,7 +606,8 @@
         
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
-            // Map will initialize when tab is clicked
+            // Initialize map immediately since it's the default tab
+            setTimeout(initMap, 100);
         });
     </script>
 </body>
