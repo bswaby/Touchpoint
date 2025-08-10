@@ -191,6 +191,7 @@ LEFT JOIN People p ON p.PeopleId = tsGrpVol.PeopleId
 WHERE 
     tsm.MeetingDateTime > GETDATE() 
     AND tsm.MeetingDateTime < DATEADD(DAY, {1}, GETDATE())
+    AND tssg.IsDeleted = 'False'
     AND OrganizationId = {0}
 ),
 ServiceSummary AS (
