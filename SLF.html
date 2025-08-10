@@ -533,9 +533,14 @@
             });
             document.getElementById(`${tabName}-tab`).classList.add('active');
             
-            // Initialize map if showing map tab
-            if (tabName === 'map' && !map) {
-                setTimeout(initMap, 100);
+            // Initialize map if showing map tab and it exists but might need invalidating
+            if (tabName === 'map') {
+                if (!map) {
+                    setTimeout(initMap, 100);
+                } else {
+                    // Invalidate size to fix display issues
+                    setTimeout(() => map.invalidateSize(), 100);
+                }
             }
             
             // Load schools list if showing schools tab
@@ -607,7 +612,15 @@
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             // Initialize map immediately since it's the default tab
-            setTimeout(initMap, 100);
+            setTimeout(() => {
+                initMap();
+                // Force the map to recalculate its size
+                setTimeout(() => {
+                    if (map) {
+                        map.invalidateSize();
+                    }
+                }, 200);
+            }, 100);
         });
     </script>
 </body>
