@@ -1,5 +1,5 @@
 ########################################################
-### Enhanced Scheduler Report v2.1
+### Enhanced Scheduler Report v2.1.1
 ### Original: SimpleSchedulerReport
 ### Updates: Multi-column layout, family filtering, proper functions
 ########################################################
@@ -22,7 +22,15 @@
 # - Enhanced filter family buttons to show all family or only family members who are involved
 # - Put in proper function-based code structure
 # - Fixed print not printing color and shading
-
+#
+# Enhanced By: Heath Kouns (8/12/25)
+# - Added MinVolunteer Age
+# - Added a Configurable Title
+# - Added an option to have Org Specific over-writing of the default settings for the following variables:
+#   ShowEmptySlots, ShowFamilyButtons, MinVolunteerAge, Title, FromAddress, Subject 
+#   AdHoc ExtraValues are in the form 'SchedulerReport' + variable name  (e.g. SchedulerReportShowEmptySlots)
+#
+#
 #To add this to the Bluetoolbar, navigate to open CustomReport under special content 
 # / text and add in the following line.  Make sure to adjust report name to what
 # you called the Python report
@@ -57,22 +65,27 @@ if model.DateTime.Today.DayOfWeek in [1, 4]:  # Monday, Thursday
     model.Data.CurrentOrgId = '2832'
     print(model.CallScript("YourSchedulerScriptName"))
 '''
+global ShowEmptySlots, ShowFamilyButtons, MinVolunteerAge, Title, FromAddress, Subject
 
 ########################################################
 ### User Config Area
 
+#Default Values - Some can be overwritten with Org ExtraValue
+
 SendRoles = "Admin,ManageGroups"    # Roles that can send report to involvement
 ScheduleDays = '365'                # Days to include in report
-ShowEmptySlots = True               # Show slots with no volunteers
+ShowEmptySlots = True               # Show slots with no volunteers | Org ExtraValue (bool): SchedulerReportShowEmptySlots
 GroupByDate = True                  # Group time slots by date
-ShowFamilyButtons = 2               # 0=No buttons, 1=All family, 2=Only family in involvement
+ShowFamilyButtons = 1               # 0=No buttons, 1=All family, 2=Only family in involvement | Org ExtraValue (int): SchedulerReportShowFamilyButtons
+MinVolunteerAge = 12                # Minimum Age of Family Members to show buttons for | Org ExtraValue (int): SchedulerReportMinVolunteerAge (min: 1)
 UseMultiColumn = True               # Use multi-column layout
 ColumnsPerRow = 2                   # Number of columns (2 or 3 recommended)
+Title = ''                          # Uses '{org name} + Schedule' if empty | or can be overwritten with Org ExtraValue (string): SchedulerReportTitle
 
 # Email Variables
 FromName = 'Scheduler'
-FromAddress = 'scheduler@church.org'  # Update this!
-Subject = ''  # Uses org name if empty
+FromAddress = 'scheduler@church.org'   # Update this! | Org ExtraValue (string): SchedulerReportFromAddress
+Subject = ''                  # Uses org name if empty | Org ExtraValue (string): SchedulerReportSubject
 
 ########################################################
 ### Start of Code
@@ -129,6 +142,52 @@ def validate_organization():
     except Exception as e:
         print('<div class="alert alert-danger">Error: Could not load organization {}: {}</div>'.format(OrgId, e))
         raise SystemExit()
+
+
+# Override default User Config settings with Org Specfic ExtraValues if they exist.
+def pull_org_extra_values():
+    global ShowEmptySlots, ShowFamilyButtons, MinVolunteerAge, FromAddress, Subject, Title
+   
+    if Title == '':
+       Title = orgName + " Schedule"
+       
+    evsql = """
+    SELECT 
+    *
+    FROM OrganizationExtra
+    WHERE OrganizationId = @OrgId
+    AND Field IN (
+        'SchedulerReportShowEmptySlots',
+        'SchedulerReportShowFamilyButtons',
+        'SchedulerReportMinVolunteerAge',
+        'SchedulerReportFromAddress',
+        'SchedulerReportSubject',
+        'SchedulerReportTitle'
+        )
+    """
+    
+    extra_values = q.QuerySql(evsql, {'OrgId': OrgId})
+    
+    for row in extra_values:
+        if row.Field == 'SchedulerReportShowEmptySlots':
+            ShowEmptySlots = row.BitValue
+
+        elif row.Field == 'SchedulerReportShowFamilyButtons':
+            ShowFamilyButtons = row.IntValue
+
+        elif row.Field == 'SchedulerReportMinVolunteerAge' and row.IntValue != 0:
+            MinVolunteerAge = row.IntValue
+
+        elif row.Field == 'SchedulerReportFromAddress' and row.Data != None:
+            FromAddress = row.Data
+
+        elif row.Field == 'SchedulerReportSubject' and row.Data != None:
+            Subject = row.Data
+
+        elif row.Field == 'SchedulerReportTitle' and row.Data != None:
+            Title = row.Data
+
+    return
 
 def get_schedule_sql():
     """Return the main schedule query"""
@@ -191,7 +250,7 @@ LEFT JOIN People p ON p.PeopleId = tsGrpVol.PeopleId
 WHERE 
     tsm.MeetingDateTime > GETDATE() 
     AND tsm.MeetingDateTime < DATEADD(DAY, {1}, GETDATE())
-    AND (tssg.IsDeleted = 'False' OR tssg.IsDeleted IS NULL OR tssg.TimeSlotMeetingTeamSubGroupId IS NULL)
+	AND (tssg.IsDeleted = 'False' OR tssg.IsDeleted IS NULL OR tssg.TimeSlotMeetingTeamSubGroupId IS NULL)
     AND OrganizationId = {0}
 ),
 ServiceSummary AS (
@@ -248,6 +307,7 @@ def get_family_sql():
             AND NOT (p.IsDeceased = 1) 
             AND NOT (p.ArchivedFlag = 1)
             AND p.PeopleId != {0}
+            AND (p.Age >= {2} OR (p.Age IS NULL))
         ORDER BY p.name
         '''
     else:
@@ -260,6 +320,7 @@ def get_family_sql():
             AND NOT (p.IsDeceased = 1) 
             AND NOT (p.ArchivedFlag = 1)
             AND p.PeopleId != {0}
+            AND (p.Age >= {2} OR (p.Age IS NULL))
         ORDER BY p.name
         '''
 
@@ -621,7 +682,7 @@ def build_family_buttons():
     
     try:
         family_sql = get_family_sql()
-        family = q.QuerySql(family_sql.format(model.UserPeopleId, OrgId))
+        family = q.QuerySql(family_sql.format(model.UserPeopleId, OrgId, MinVolunteerAge))
         
         if not family:
             return ''
@@ -891,14 +952,16 @@ def main():
     # Validate org
     org = validate_organization()
     
+    pull_org_extra_values()
+    
     # Get styles
     styles = get_styles()
     
     # Build initial template
     template = '''{}
-<div class="scheduler-container">
-    <div class="print-header">{} Schedule</div>
-    <h1>{} Schedule</h1>
+    <div class="scheduler-container">
+    <div class="print-header">{} </div>
+    <h1>{} </h1>
     
     <div class="action-buttons no-print">
         <a href="{}/OnlineReg/{}" class="btn" target="_blank" rel="noopener noreferrer">
@@ -906,7 +969,7 @@ def main():
         </a>
     </div>
     {}
-'''.format(styles, orgName, orgName, model.CmsHost, OrgId, build_family_buttons())
+'''.format(styles, Title, Title, model.CmsHost, OrgId, build_family_buttons())
     
     # Execute query
     try:
