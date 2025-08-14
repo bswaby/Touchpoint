@@ -216,7 +216,7 @@ SELECT
     FORMAT(tsm.MeetingDateTime, 'dddd, MMMM dd, yyyy') AS DateOnly,
     DATEPART(WEEKDAY, tsm.MeetingDateTime) as DayOfWeek,
     CASE 
-        WHEN (tst.UseSubGroup = 'False') THEN tst.NumberVolunteersNeeded ELSE tssg.NumberVolunteersNeeded END AS Needed,
+        WHEN (tsmt.UseSubGroup = 'False') THEN tst.NumberVolunteersNeeded ELSE tssg.NumberVolunteersNeeded END AS Needed,
     tstSG.Require as [Required],
     tsmt.TimeSlotMeetingTeamId,
     tsgrpvol.TimeSlotMeetingTeamSubGroupId,
