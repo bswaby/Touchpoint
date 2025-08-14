@@ -1,5 +1,5 @@
 ########################################################
-### Enhanced Scheduler Report v2.1.1
+### Enhanced Scheduler Report v2.1.2
 ### Original: SimpleSchedulerReport
 ### Updates: Multi-column layout, family filtering, proper functions
 ########################################################
@@ -29,6 +29,9 @@
 # - Added an option to have Org Specific over-writing of the default settings for the following variables:
 #   ShowEmptySlots, ShowFamilyButtons, MinVolunteerAge, Title, FromAddress, Subject 
 #   AdHoc ExtraValues are in the form 'SchedulerReport' + variable name  (e.g. SchedulerReportShowEmptySlots)
+#
+# Enhanced By: Heath Kouns (8/14/25)
+# - Added Case Statement to use Team Needed Qty if Subgroups are not used
 #
 #
 #To add this to the Bluetoolbar, navigate to open CustomReport under special content 
@@ -212,7 +215,8 @@ SELECT
     FORMAT(tsm.MeetingDateTime, 'M/d/yy h:mm tt') as ServiceDateTime,
     FORMAT(tsm.MeetingDateTime, 'dddd, MMMM dd, yyyy') AS DateOnly,
     DATEPART(WEEKDAY, tsm.MeetingDateTime) as DayOfWeek,
-    tssg.NumberVolunteersNeeded as Needed,
+    CASE 
+        WHEN (tst.UseSubGroup = 'False') THEN tst.NumberVolunteersNeeded ELSE tssg.NumberVolunteersNeeded END AS Needed,
     tstSG.Require as [Required],
     tsmt.TimeSlotMeetingTeamId,
     tsgrpvol.TimeSlotMeetingTeamSubGroupId,
@@ -233,6 +237,8 @@ SELECT
 
 FROM TimeSlotMeetingTeams tsmt 
 LEFT JOIN TimeSlotMeetings tsm ON tsmt.TimeSlotMeetingId = tsm.TimeSlotMeetingId
+LEFT JOIN TimeSlots ts ON tsm.TimeSlotId = ts.TimeSlotId
+LEFT JOIN TimeSlotTeams tst ON tsm.TimeSlotId = tst.TimeSlotId
 LEFT JOIN TimeSlotMeetingTeamSubGroups tssg ON tssg.TimeSlotMeetingTeamId = tsmt.TimeSlotMeetingTeamId
 LEFT JOIN TimeSlotTeamSubGroups tstSG ON tstSG.TimeSlotTeamSubGroupId = tssg.TimeSlotTeamSubGroupId
 LEFT JOIN Meetings m ON tsm.MeetingId = m.MeetingId
@@ -251,7 +257,7 @@ WHERE
     tsm.MeetingDateTime > GETDATE() 
     AND tsm.MeetingDateTime < DATEADD(DAY, {1}, GETDATE())
 	AND (tssg.IsDeleted = 'False' OR tssg.IsDeleted IS NULL OR tssg.TimeSlotMeetingTeamSubGroupId IS NULL)
-    AND OrganizationId = {0}
+    AND m.OrganizationId = {0}
 ),
 ServiceSummary AS (
     SELECT 
