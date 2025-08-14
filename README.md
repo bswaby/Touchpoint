@@ -43,7 +43,7 @@ Whether you’re looking for a simple automation script, advanced analytics, or 
 
 🛠️ **System Tools**</br>
 - 🔗 [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/blob/main/README.md#-attachment-link-downloader) - Bulk document downloads
-- 📧 [Email Technical Diagnostics Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-email-technical-diagnostics) - Email Diagnostics
+- 📧 [Email Technical Diagnostics Dashboard](https://github.com/bswaby/Touchpoint/blob/main/README.md#-email-technical-diagnostics-dashboard) - Email Diagnostics
 - 🛂 [Involvement Owner Audit](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-owner-audit) - Involvement ownership tracking
 - ↻  [Involvement Sync](https://github.com/bswaby/Touchpoint/blob/main/README.md#-involvement-sync) - Multi-involvement synchronization
 - 🔐 [Link Generator](https://github.com/bswaby/Touchpoint/blob/main/README.md#-link-generator) - Pre-authenticated link creation
