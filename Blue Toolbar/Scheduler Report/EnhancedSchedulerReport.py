@@ -212,7 +212,8 @@ SELECT
     FORMAT(tsm.MeetingDateTime, 'M/d/yy h:mm tt') as ServiceDateTime,
     FORMAT(tsm.MeetingDateTime, 'dddd, MMMM dd, yyyy') AS DateOnly,
     DATEPART(WEEKDAY, tsm.MeetingDateTime) as DayOfWeek,
-    tssg.NumberVolunteersNeeded as Needed,
+    --tssg.NumberVolunteersNeeded as Needed,
+    CASE WHEN (tsmt.UseSubGroup = 'False') THEN tst.NumberVolunteersNeeded ELSE tssg.NumberVolunteersNeeded END AS Needed,
     tstSG.Require as [Required],
     tsmt.TimeSlotMeetingTeamId,
     tsgrpvol.TimeSlotMeetingTeamSubGroupId,
@@ -233,6 +234,8 @@ SELECT
 
 FROM TimeSlotMeetingTeams tsmt 
 LEFT JOIN TimeSlotMeetings tsm ON tsmt.TimeSlotMeetingId = tsm.TimeSlotMeetingId
+LEFT JOIN TimeSlots ts ON tsm.TimeSlotId = ts.TimeSlotId
+LEFT JOIN TimeSlotTeams tst ON tsm.TimeSlotId = tst.TimeSlotId
 LEFT JOIN TimeSlotMeetingTeamSubGroups tssg ON tssg.TimeSlotMeetingTeamId = tsmt.TimeSlotMeetingTeamId
 LEFT JOIN TimeSlotTeamSubGroups tstSG ON tstSG.TimeSlotTeamSubGroupId = tssg.TimeSlotTeamSubGroupId
 LEFT JOIN Meetings m ON tsm.MeetingId = m.MeetingId
@@ -251,7 +254,7 @@ WHERE
     tsm.MeetingDateTime > GETDATE() 
     AND tsm.MeetingDateTime < DATEADD(DAY, {1}, GETDATE())
 	AND (tssg.IsDeleted = 'False' OR tssg.IsDeleted IS NULL OR tssg.TimeSlotMeetingTeamSubGroupId IS NULL)
-    AND OrganizationId = {0}
+    AND m.OrganizationId = {0}
 ),
 ServiceSummary AS (
     SELECT 
