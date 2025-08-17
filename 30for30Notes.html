@@ -847,8 +847,69 @@
             progressBar.textContent = `${progress}%`;
         }
 
-        // Export results to clipboard
-        function exportResults() {
+        // Email results
+        function emailResults() {
+            const checkedTools = tools.filter(t => state.checked[t.id]);
+            const starredTools = tools.filter(t => state.starred[t.id]);
+            
+            let subject = '30 for 30 for Ministry - My Implementation Plan';
+            
+            let body = '🚀 30 for 30 for Ministry - Tools Summary%0D%0A';
+            body += '"What If I Told You… I Didn\'t Set out to Build 30 Tools – I Set Out to Build a Ministry?"%0D%0A';
+            body += 'Presented by Ben Swaby (bswaby@fbchtn.org)%0D%0A';
+            body += `Generated: ${new Date().toLocaleString()}%0D%0A%0D%0A`;
+            
+            body += `📊 PROGRESS SUMMARY:%0D%0A`;
+            body += `━━━━━━━━━━━━━━━━━━━━━━━━━━━%0D%0A`;
+            body += `✅ Tools Reviewed: ${checkedTools.length}/31%0D%0A`;
+            body += `⭐ Priority Tools: ${starredTools.length}%0D%0A`;
+            body += `📝 Tools with Notes: ${Object.keys(state.notes).length}%0D%0A%0D%0A`;
+            
+            if (starredTools.length > 0) {
+                body += '⭐ PRIORITY TOOLS FOR IMPLEMENTATION:%0D%0A';
+                body += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%0D%0A';
+                starredTools.forEach(t => {
+                    const displayId = t.id === 0 ? 'Bonus' : `#${t.id}`;
+                    body += `%0D%0A${displayId} - ${encodeURIComponent(t.name)}%0D%0A`;
+                    body += `   💡 ${encodeURIComponent(t.impact)}%0D%0A`;
+                    if (state.notes[t.id]) {
+                        body += `   📝 Notes: ${encodeURIComponent(state.notes[t.id])}%0D%0A`;
+                    }
+                });
+                body += '%0D%0A';
+            }
+            
+            const toolsWithNotes = tools.filter(t => state.notes[t.id] && !state.starred[t.id]);
+            if (toolsWithNotes.length > 0) {
+                body += '%0D%0A📝 OTHER TOOLS WITH NOTES:%0D%0A';
+                body += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%0D%0A';
+                toolsWithNotes.forEach(t => {
+                    const displayId = t.id === 0 ? 'Bonus' : `#${t.id}`;
+                    body += `%0D%0A${displayId} - ${encodeURIComponent(t.name)}%0D%0A`;
+                    body += `   📝 Notes: ${encodeURIComponent(state.notes[t.id])}%0D%0A`;
+                });
+            }
+            
+            body += '%0D%0A%0D%0A🔗 RESOURCES & CONTACT:%0D%0A';
+            body += '━━━━━━━━━━━━━━━━━━━━━━━━━━━%0D%0A';
+            body += '📚 Documentation: https://bswaby.github.io/Touchpoint/%0D%0A';
+            body += '🔗 GitHub Repository: https://github.com/bswaby/Touchpoint%0D%0A';
+            body += '📧 Contact Ben Swaby: bswaby@fbchtn.org%0D%0A';
+            body += '💬 Custom Development: Available for TouchPoint projects%0D%0A';
+            
+            // Create mailto link
+            const mailtoLink = `mailto:?subject=${encodeURIComponent(subject)}&body=${body}`;
+            
+            // Try to open email client
+            try {
+                window.open(mailtoLink);
+                showToast('📧 Email client opened with your summary!');
+            } catch (error) {
+                // Fallback: copy to clipboard
+                exportResults();
+                showToast('📧 Email failed to open - summary copied to clipboard instead');
+            }
+        }
             const checkedTools = tools.filter(t => state.checked[t.id]);
             const starredTools = tools.filter(t => state.starred[t.id]);
             
