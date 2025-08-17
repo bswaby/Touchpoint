@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saturday Night Fever XC Race - Team Guide</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px 10px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+            animation: fadeIn 0.8s ease-in;
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .event-info {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .event-info p {
+            margin: 5px 0;
+            font-size: 1.1em;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .tab-button {
+            padding: 12px 24px;
+            background: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .tab-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        }
+        
+        .tab-button.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .content-area {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            animation: slideUp 0.5s ease-out;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        #map {
+            height: 500px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .filter-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-btn {
+            padding: 8px 16px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+        }
+        
+        .filter-btn.active {
+            background: #667eea;
+            color: white;
+        }
+        
+        .school-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .school-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            border-left: 4px solid #667eea;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .school-card:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .school-card h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+        }
+        
+        .school-info {
+            font-size: 0.9em;
+            color: #666;
+            margin: 5px 0;
+        }
+        
+        .school-info strong {
+            color: #444;
+        }
+        
+        .distance-badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            margin-top: 5px;
+        }
+        
+        .special-badge {
+            display: inline-block;
+            background: #f39c12;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            margin-left: 5px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .stat-card h3 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
+        .stat-card p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .search-box {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            font-size: 1em;
+            margin-bottom: 20px;
+            transition: border-color 0.3s ease;
+        }
+        
+        .search-box:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .leaflet-popup-content {
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .popup-title {
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+        
+        .popup-info {
+            margin: 4px 0;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes slideUp {
+            from { 
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to { 
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.8em;
+            }
+            
+            .school-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            #map {
+                height: 400px;
+            }
+            
+            .tabs {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .tab-button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏃 Saturday Night Fever XC Race 🏃</h1>
+            <div class="event-info">
+                <p>📍 <strong>Sanders Ferry Park, Hendersonville, TN</strong></p>
+                <p>📅 Middle School: Friday, August 22 | High School: Saturday, August 23</p>
+            </div>
+        </header>
+        
+        <div class="tabs">
+            <button class="tab-button active" onclick="showTab('map')">📍 Map View</button>
+            <button class="tab-button" onclick="showTab('schools')">🏫 All Schools</button>
+            <button class="tab-button" onclick="showTab('athletes')">🏃 Athletes</button>
+            <button class="tab-button" onclick="showTab('stats')">📊 Quick Stats</button>
+            <button class="tab-button" onclick="showTab('travel')">🏆 Travel Awards</button>
+        </div>
+        
+        <div class="content-area">
+            <!-- Map Tab -->
+            <div id="map-tab" class="tab-content active">
+                <div class="filter-buttons">
+                    <button class="filter-btn active" onclick="filterMap('all')">All Teams</button>
+                    <button class="filter-btn" onclick="filterMap('hs')">High School Only</button>
+                    <button class="filter-btn" onclick="filterMap('ms')">Middle School Only</button>
+                    <button class="filter-btn" onclick="filterMap('local')">Local Teams (<10 miles)</button>
+                </div>
+                <div id="map"></div>
+            </div>
+            
+            <!-- Schools Tab -->
+            <div id="schools-tab" class="tab-content">
+                <input type="text" class="search-box" placeholder="🔍 Search for a school..." id="schoolSearch" onkeyup="searchSchools()">
+                <div class="filter-buttons">
+                    <button class="filter-btn active" onclick="filterSchools('all')">All Schools</button>
+                    <button class="filter-btn" onclick="filterSchools('hs')">High School</button>
+                    <button class="filter-btn" onclick="filterSchools('ms')">Middle School</button>
+                </div>
+                <div id="schoolsList" class="school-grid"></div>
+            </div>
+            
+            <!-- Athletes Tab -->
+            <div id="athletes-tab" class="tab-content">
+                <h2 style="text-align: center; color: #667eea; margin-bottom: 20px;">🏃 ATHLETE SPOTLIGHT 🏃</h2>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>1,633</h3>
+                        <p>Total Athletes Registered</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>942 M / 690 F</h3>
+                        <p>Boys / Girls</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>614</h3>
+                        <p>Athletes with Seed Times</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>8 Events</h3>
+                        <p>Race Categories</p>
+                    </div>
+                </div>
+                
+                <h3 style="margin-top: 30px; color: #667eea;">🏆 Top Teams by Athlete Count</h3>
+                <div class="school-grid">
+                    <div class="school-card">
+                        <h3>1. Woodland Middle School</h3>
+                        <p class="school-info">85 athletes registered</p>
+                        <span class="special-badge">Largest Team!</span>
+                    </div>
+                    <div class="school-card">
+                        <h3>2. Brentwood High School</h3>
+                        <p class="school-info">78 athletes registered</p>
+                    </div>
+                    <div class="school-card">
+                        <h3>3. Brentwood Middle School</h3>
+                        <p class="school-info">72 athletes registered</p>
+                    </div>
+                    <div class="school-card">
+                        <h3>4. Legacy Middle School</h3>
+                        <p class="school-info">59 athletes registered</p>
+                    </div>
+                    <div class="school-card">
+                        <h3>5. St. Matthew Catholic School</h3>
+                        <p class="school-info">54 athletes registered</p>
+                    </div>
+                    <div class="school-card">
+                        <h3>6. Nolensville High School</h3>
+                        <p class="school-info">54 athletes registered</p>
+                    </div>
+                </div>
+                
+                <h3 style="margin-top: 30px; color: #667eea;">⚡ Athletes to Watch - Top Seeds</h3>
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; margin-top: 20px;">
+                    <p style="font-size: 1.1em; color: #666; margin-bottom: 15px;">
+                        <strong>614 athletes</strong> have submitted seed times! Here are some of the fastest times to watch for:
+                    </p>
+                    
+                    <h4 style="color: #764ba2; margin-top: 20px;">🏃‍♀️ JV Girls 5000m</h4>
+                    <ul style="list-style: none; padding: 0;">
+                        <li style="padding: 5px 0;">⚡ Ollie Fielder (Brentwood HS) - 20:00.02</li>
+                        <li style="padding: 5px 0;">⚡ Violet Roche (Brentwood HS) - 20:21.03</li>
+                        <li style="padding: 5px 0;">⚡ Olivia Cobb (Brentwood HS) - 20:23.31</li>
+                    </ul>
+                    
+                    <h4 style="color: #764ba2; margin-top: 20px;">🏃‍♂️ Varsity Boys 5000m</h4>
+                    <p style="color: #666;">Watch for the sub-16:00 runners battling for the top spots!</p>
+                    
+                    <h4 style="color: #764ba2; margin-top: 20px;">🏃 Middle School 2-Mile</h4>
+                    <p style="color: #666;">The future stars of Tennessee XC - grades 6-8 showing incredible speed!</p>
+                </div>
+                
+                <h3 style="margin-top: 30px; color: #667eea;">📊 Grade Distribution</h3>
+                <div class="stats-grid">
+                    <div class="school-card">
+                        <h3>Middle School</h3>
+                        <p class="school-info">Grade 6: 217 athletes</p>
+                        <p class="school-info">Grade 7: 216 athletes</p>
+                        <p class="school-info">Grade 8: 199 athletes</p>
+                    </div>
+                    <div class="school-card">
+                        <h3>High School</h3>
+                        <p class="school-info">Grade 9: 268 athletes</p>
+                        <p class="school-info">Grade 10: 256 athletes</p>
+                        <p class="school-info">Grade 11: 279 athletes</p>
+                        <p class="school-info">Grade 12: 183 athletes</p>
+                    </div>
+                </div>
+                
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; margin-top: 30px; text-align: center;">
+                    <h3>🎯 Race Day Excitement</h3>
+                    <p style="font-size: 1.1em; margin-top: 10px;">
+                        With over 1,600 athletes from 65 teams across Tennessee and Kentucky, this will be one of the largest XC meets of the season!
+                    </p>
+                    <p style="font-size: 1em; margin-top: 10px; opacity: 0.9;">
+                        Athletes with seed times are ready to PR under the lights at Sanders Ferry Park!
+                    </p>
+                </div>
+            </div>
+            
+            <!-- Stats Tab -->
+            <div id="stats-tab" class="tab-content">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>65</h3>
+                        <p>Total Teams Registered</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>1,633</h3>
+                        <p>Total Athletes</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>41</h3>
+                        <p>High Schools</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>24</h3>
+                        <p>Middle Schools</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>2</h3>
+                        <p>States (TN & KY)</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>614</h3>
+                        <p>Athletes with Seeds</p>
+                    </div>
+                </div>
+                
+                <h3 style="margin-top: 30px; color: #667eea; text-align: center;">📈 Race Events</h3>
+                <div class="school-grid">
+                    <div class="school-card">
+                        <h3>Middle School Events</h3>
+                        <p class="school-info">• JV Girls 2-Mile Run</p>
+                        <p class="school-info">• JV Boys 2-Mile Run</p>
+                        <p class="school-info">• Varsity Girls 2-Mile Run</p>
+                        <p class="school-info">• Varsity Boys 2-Mile Run</p>
+                    </div>
+                    <div class="school-card">
+                        <h3>High School Events</h3>
+                        <p class="school-info">• JV Girls 5000m Run</p>
+                        <p class="school-info">• JV Boys 5000m Run</p>
+                        <p class="school-info">• Varsity Girls 5000m Run</p>
+                        <p class="school-info">• Varsity Boys 5000m Run</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Travel Awards Tab -->
+            <div id="travel-tab" class="tab-content">
+                <div class="school-grid">
+                    <div class="school-card">
+                        <h3>🥇 Longest Travel - Middle School</h3>
+                        <p class="school-info"><strong>Towering Oaks Christian MS</strong></p>
+                        <p class="school-info">Greeneville, TN • 225 miles</p>
+                        <p class="school-info">3.5+ hour journey from East Tennessee!</p>
+                    </div>
+                    <div class="school-card">
+                        <h3>🥇 Longest Travel - High School</h3>
+                        <p class="school-info"><strong>Houston High School</strong></p>
+                        <p class="school-info">Germantown, TN • 215 miles</p>
+                        <p class="school-info">Memphis area powerhouse making the trek!</p>
+                    </div>
+                    <div class="school-card">
+                        <h3>🥈 Second Longest - High School</h3>
+                        <p class="school-info"><strong>Memphis University School</strong></p>
+                        <p class="school-info">Memphis, TN • 210 miles</p>
+                        <p class="school-info">Elite private school • Boys team</p>
+                    </div>
+                    <div class="school-card">
+                        <h3>🌟 Out-of-State Team</h3>
+                        <p class="school-info"><strong>Owensboro High School</strong></p>
+                        <p class="school-info">Owensboro, KY • 115 miles</p>
+                        <p class="school-info">Kentucky representation • Girls team</p>
+                    </div>
+                    <div class="school-card">
+                        <h3>🏠 Host City Champions</h3>
+                        <p class="school-info"><strong>7 Hendersonville Schools</strong></p>
+                        <p class="school-info">Hendersonville HS, Beech HS, Pope John Paul II, Merrol Hyde, Knox Doss MS, T.W. Hunter MS, Robert Ellis MS</p>
+                    </div>
+                    <div class="school-card">
+                        <h3>🚗 100+ Mile Club</h3>
+                        <p class="school-info">Chester County HS (95 mi), Owensboro KY (115 mi), Karns HS (135 mi), Hardin Valley Academy (140 mi), Houston HS (215 mi), Memphis University School (210 mi), Collierville schools (200 mi), Towering Oaks Christian MS (225 mi)</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // School data
+        const schools = [
+            // High Schools
+            {name: "Beech Senior High School", city: "Hendersonville, TN", lat: 36.3388, lng: -86.6200, distance: 3.5, division: "hs", mascot: "Buccaneers", colors: "Navy & Orange", enrollment: 1482, notes: "Known as 'Shackle Island' • Strong DECA & Mock Trial"},
+            {name: "Blackman High School", city: "Murfreesboro, TN", lat: 35.8456, lng: -86.3903, distance: 42, division: "hs", mascot: "Blaze", colors: "Black & Gold", notes: "Opened 2000 • Rutherford County powerhouse"},
+            {name: "Brentwood High School", city: "Brentwood, TN", lat: 36.0331, lng: -86.7828, distance: 22, division: "hs", mascot: "Bruins", colors: "Red & Black", notes: "Top-ranked Tennessee public school"},
+            {name: "Centennial High School", city: "Franklin, TN", lat: 35.9251, lng: -86.8689, distance: 25, division: "hs", mascot: "Cougars", colors: "Navy & Silver", notes: "Strong STEM programs • Opened 1996"},
+            {name: "Central Magnet High School", city: "Murfreesboro, TN", lat: 35.8456, lng: -86.3903, distance: 40, division: "hs", mascot: "Tigers", colors: "Orange & Black", notes: "Selective magnet school • Top academics"},
+            {name: "Chapel Hill Christian Academy", city: "Clarksville, TN", lat: 36.5298, lng: -87.3595, distance: 42, division: "hs", mascot: "Lions", colors: "Blue & Gold", notes: "Private Christian school"},
+            {name: "Chester County High School", city: "Henderson, TN", lat: 35.4392, lng: -88.6414, distance: 95, division: "hs", mascot: "Eagles", colors: "Purple & Gold", notes: "Longest HS travel from Tennessee!"},
+            {name: "Clarksville High School", city: "Clarksville, TN", lat: 36.5298, lng: -87.3595, distance: 45, division: "hs", mascot: "Wildcats", colors: "Purple & Gold", notes: "One of Clarksville's oldest schools"},
+            {name: "Cookeville High School", city: "Cookeville, TN", lat: 36.1628, lng: -85.5016, distance: 75, division: "hs", mascot: "Cavaliers", colors: "Red & White", notes: "Upper Cumberland • Near Tennessee Tech"},
+            {name: "Creek Wood High School", city: "Charlotte, TN", lat: 36.1773, lng: -87.3397, distance: 35, division: "hs", mascot: "Red Hawks", colors: "Red & Black", notes: "Opened 2008 • Growing program"},
+            {name: "Franklin Christian Academy", city: "Franklin, TN", lat: 35.9251, lng: -86.8689, distance: 23, division: "both", mascot: "Lions", colors: "Blue & Gold", notes: "Private Christian • MS & HS divisions"},
+            {name: "Franklin High School", city: "Franklin, TN", lat: 35.9251, lng: -86.8689, distance: 24, division: "hs", mascot: "Admirals", colors: "Maroon & White", enrollment: 1794, notes: "Changed from Rebels to Admirals in 2020 • 'The Flagship'"},
+            {name: "Franklin Road Academy", city: "Nashville, TN", lat: 36.1627, lng: -86.7816, distance: 18, division: "both", mascot: "Panthers", colors: "Blue & Gold", notes: "Private school • MS & HS divisions"},
+            {name: "Franklin Road Christian", city: "Murfreesboro, TN", lat: 35.8456, lng: -86.3903, distance: 38, division: "hs", mascot: "Lions", colors: "Blue & White", notes: "Private Christian school"},
+            {name: "Fred J. Page High School", city: "Franklin, TN", lat: 35.9251, lng: -86.8689, distance: 26, division: "hs", mascot: "Patriots", colors: "Red, White & Blue", notes: "Newer Williamson County school"},
+            {name: "Hardin Valley Academy", city: "Knoxville, TN", lat: 35.9606, lng: -83.9207, distance: 140, division: "hs", mascot: "Hawks", colors: "Navy & Vegas Gold", notes: "Second longest travel! • East Tennessee"},
+            {name: "Harpeth Hall School", city: "Nashville, TN", lat: 36.1627, lng: -86.7816, distance: 20, division: "hs", mascot: "Bears", colors: "Green & White", notes: "All-girls school • Elite private education"},
+            {name: "Hendersonville High School", city: "Hendersonville, TN", lat: 36.3048, lng: -86.6200, distance: 2, division: "hs", mascot: "Commandos", colors: "Black & Gold", enrollment: 1534, notes: "HOST CITY TEAM! • 2021 National Cheer Champions"},
+            {name: "Houston High School", city: "Germantown, TN", lat: 35.0868, lng: -89.8101, distance: 215, division: "hs", mascot: "Mustangs", colors: "Red & Black", notes: "LONGEST HS TRAVEL! • Memphis powerhouse"},
+            {name: "Hume-Fogg Academic Magnet", city: "Nashville, TN", lat: 36.1627, lng: -86.7816, distance: 22, division: "hs", mascot: "Blue Knights", colors: "Blue & White", notes: "Downtown Nashville • Selective magnet"},
+            {name: "James Lawson High School", city: "Nashville, TN", lat: 36.1627, lng: -86.7816, distance: 20, division: "hs", mascot: "TBD", colors: "TBD", notes: "Newest Metro Nashville school"},
+            {name: "John Overton High School", city: "Nashville, TN", lat: 36.1627, lng: -86.7816, distance: 18, division: "hs", mascot: "Bobcats", colors: "Blue & Gold", notes: "Metro Nashville school"},
+            {name: "Karns High School", city: "Knoxville, TN", lat: 35.9606, lng: -83.9207, distance: 135, division: "hs", mascot: "Beavers", colors: "Red & Gray", notes: "Knox County • Boys only competing"},
+            {name: "Kirkwood High School", city: "Clarksville, TN", lat: 36.5298, lng: -87.3595, distance: 43, division: "hs", mascot: "TBD", colors: "TBD", notes: "Newer Clarksville school"},
+            {name: "Liberty Creek High School", city: "Gallatin, TN", lat: 36.3883, lng: -86.4469, distance: 12, division: "hs", mascot: "Patriots", colors: "Red, White & Blue", notes: "Newest Sumner County school • Opened 2019"},
+            {name: "Lipscomb Academy", city: "Nashville, TN", lat: 36.1067, lng: -86.8025, distance: 20, division: "hs", mascot: "Mustangs", colors: "Purple & Gold", enrollment: 479, notes: "Private Christian • Associated with Lipscomb University"},
+            {name: "Marshall County High School", city: "Lewisburg, TN", lat: 35.4492, lng: -86.7889, distance: 55, division: "hs", mascot: "Tigers", colors: "Orange & Black", notes: "Rural powerhouse • Serving all Marshall County"},
+            {name: "Memphis University School", city: "Memphis, TN", lat: 35.1495, lng: -89.9711, distance: 210, division: "hs", mascot: "Owls", colors: "Red & Blue", notes: "Elite private • Boys only • 3+ hour journey!"},
+            {name: "Merrol Hyde Magnet", city: "Hendersonville, TN", lat: 36.3048, lng: -86.6200, distance: 4, division: "both", mascot: "Hawks", colors: "Blue & Gold", notes: "Local magnet • MS & HS • Academic excellence"},
+            {name: "Mt. Juliet High School", city: "Mt. Juliet, TN", lat: 36.2001, lng: -86.5186, distance: 18, division: "hs", mascot: "Golden Bears", colors: "Blue & Gold", notes: "Wilson County • Fast-growing program"},
+            {name: "Nolensville High School", city: "Nolensville, TN", lat: 35.9523, lng: -86.6694, distance: 28, division: "hs", mascot: "Knights", colors: "Black & Gold", notes: "One of Tennessee's newest high schools"},
+            {name: "Oakland High School", city: "Murfreesboro, TN", lat: 35.8456, lng: -86.3903, distance: 40, division: "hs", mascot: "Patriots", colors: "Red, White & Blue", notes: "Rutherford County's largest • Athletic powerhouse"},
+            {name: "Owensboro High School", city: "Owensboro, KY", lat: 37.7719, lng: -87.1112, distance: 115, division: "hs", mascot: "Red Devils", colors: "Red & White", notes: "OUT-OF-STATE! • Kentucky • Girls only"},
+            {name: "Pope Saint John Paul II", city: "Hendersonville, TN", lat: 36.3048, lng: -86.6200, distance: 3, division: "hs", mascot: "Knights", colors: "Blue & Gold", enrollment: 753, notes: "Taylor Swift filmed 'You Belong With Me' here!"},
+            {name: "Portland High School", city: "Portland, TN", lat: 36.5817, lng: -86.5164, distance: 22, division: "hs", mascot: "Panthers", colors: "Blue & White", notes: "Sumner County north • Small town pride"},
+            {name: "Powell High School", city: "Powell, TN", lat: 36.0315, lng: -83.9974, distance: 130, division: "hs", mascot: "Panthers", colors: "Blue & Gold", notes: "Knox County • Boys only • East Tennessee"},
+            {name: "Providence Christian Academy", city: "Murfreesboro, TN", lat: 35.8456, lng: -86.3903, distance: 38, division: "both", mascot: "Lions", colors: "Blue & Gold", notes: "Private Christian • MS & HS divisions"},
+            {name: "Rockvale High School", city: "Rockvale, TN", lat: 35.7831, lng: -86.5539, distance: 42, division: "hs", mascot: "Rockets", colors: "Red & Black", notes: "Rutherford County's newest • Opened 2019"},
+            {name: "Rossview High School", city: "Clarksville, TN", lat: 36.5298, lng: -87.3595, distance: 44, division: "hs", mascot: "Hawks", colors: "Green & Gold", notes: "Clarksville-Montgomery County • Growing program"},
+            {name: "Sovereign Grace", city: "Franklin, TN", lat: 35.9251, lng: -86.8689, distance: 25, division: "hs", mascot: "Lions", colors: "Blue & Gold", notes: "Small private Christian • Heart over size"},
+            {name: "St. Cecilia Academy", city: "Nashville, TN", lat: 36.1627, lng: -86.7816, distance: 20, division: "hs", mascot: "Saints", colors: "Blue & White", notes: "All-girls Catholic • Dominican tradition"},
+            {name: "Station Camp High School", city: "Gallatin, TN", lat: 36.3883, lng: -86.4469, distance: 10, division: "hs", mascot: "Bison", colors: "Maroon & Gray", enrollment: 1107, notes: "Opened 2002 • State championships • 'Bison Trail'"},
+            {name: "Wilson Central High School", city: "Lebanon, TN", lat: 36.2081, lng: -86.2911, distance: 25, division: "hs", mascot: "Wildcats", colors: "Blue & Gold", notes: "Wilson County • Strong XC tradition"},
+            
+            // Middle Schools
+            {name: "Brentwood Middle School", city: "Brentwood, TN", lat: 36.0331, lng: -86.7828, distance: 22, division: "ms", mascot: "Bruins", colors: "Red & Black", notes: "Feeder to Brentwood HS"},
+            {name: "Collierville Middle School", city: "Collierville, TN", lat: 35.0426, lng: -89.6648, distance: 200, division: "ms", mascot: "Dragons", colors: "Blue & Gold", notes: "Memphis area • Long Friday night haul!"},
+            {name: "Coopertown Middle School", city: "Springfield, TN", lat: 36.5098, lng: -86.9472, distance: 30, division: "ms", mascot: "Indians", colors: "Blue & Gold", notes: "Robertson County school"},
+            {name: "Foundations Christian Academy MS", city: "Franklin, TN", lat: 35.9251, lng: -86.8689, distance: 24, division: "ms", mascot: "Lions", colors: "Blue & Gold", notes: "Private Christian school"},
+            {name: "Gladeville Middle School", city: "Mount Juliet, TN", lat: 36.2001, lng: -86.5186, distance: 20, division: "ms", mascot: "Tigers", colors: "Orange & Black", notes: "Wilson County school"},
+            {name: "Greenbrier Middle School", city: "Greenbrier, TN", lat: 36.4273, lng: -86.8047, distance: 28, division: "ms", mascot: "Bobcats", colors: "Blue & Gold", notes: "Robertson County school"},
+            {name: "Houston Middle School", city: "Germantown, TN", lat: 35.0868, lng: -89.8101, distance: 215, division: "ms", mascot: "Mustangs", colors: "Red & Black", notes: "Memphis area • Dedicated to make the trip!"},
+            {name: "Knox Doss at Drakes Creek MS", city: "Hendersonville, TN", lat: 36.3048, lng: -86.6200, distance: 5, division: "ms", mascot: "Jaguars", colors: "Green & Black", notes: "Local Sumner County school"},
+            {name: "Legacy Middle School", city: "Franklin, TN", lat: 35.9251, lng: -86.8689, distance: 25, division: "ms", mascot: "Lions", colors: "Blue & Gold", notes: "Williamson County school"},
+            {name: "Liberty Creek Middle School", city: "Gallatin, TN", lat: 36.3883, lng: -86.4469, distance: 12, division: "ms", mascot: "Patriots", colors: "Red, White & Blue", notes: "Newest Sumner County MS"},
+            {name: "Robert Ellis Middle School", city: "Hendersonville, TN", lat: 36.3048, lng: -86.6200, distance: 3, division: "ms", mascot: "Eagles", colors: "Blue & Gold", notes: "Local Hendersonville school"},
+            {name: "Shafer Middle School", city: "Gallatin, TN", lat: 36.3883, lng: -86.4469, distance: 10, division: "ms", mascot: "Generals", colors: "Red & Blue", notes: "Sumner County school"},
+            {name: "Sovereign Grace MS", city: "Brentwood, TN", lat: 36.0331, lng: -86.7828, distance: 23, division: "ms", mascot: "Lions", colors: "Blue & Gold", notes: "Small private Christian school"},
+            {name: "St. Matthew Catholic School", city: "Franklin, TN", lat: 35.9251, lng: -86.8689, distance: 24, division: "ms", mascot: "Crusaders", colors: "Blue & White", notes: "Catholic school"},
+            {name: "Station Camp Middle School", city: "Gallatin, TN", lat: 36.3883, lng: -86.4469, distance: 10, division: "ms", mascot: "Bison", colors: "Maroon & Gray", notes: "Feeder to Station Camp HS"},
+            {name: "T.W. Hunter Middle School", city: "Hendersonville, TN", lat: 36.3048, lng: -86.6200, distance: 4, division: "ms", mascot: "Huskies", colors: "Blue & Silver", notes: "Local Hendersonville school"},
+            {name: "Towering Oaks Christian MS", city: "Greeneville, TN", lat: 36.1632, lng: -82.8310, distance: 225, division: "ms", mascot: "Lions", colors: "Blue & Gold", notes: "LONGEST MS TRAVEL! • East Tennessee • Boys only"},
+            {name: "West Collierville Middle School", city: "Collierville, TN", lat: 35.0426, lng: -89.6648, distance: 200, division: "ms", mascot: "Dragons", colors: "Blue & Gold", notes: "Memphis area school"},
+            {name: "White House Middle School", city: "White House, TN", lat: 36.4703, lng: -86.6514, distance: 18, division: "ms", mascot: "Blue Devils", colors: "Blue & White", notes: "Robertson/Sumner border"},
+            {name: "Woodland Middle School", city: "Brentwood, TN", lat: 36.0331, lng: -86.7828, distance: 22, division: "ms", mascot: "Wildcats", colors: "Blue & Gold", notes: "Williamson County school"}
+        ];
+        
+        // Initialize map
+        let map;
+        let markers = [];
+        let currentFilter = 'all';
+        
+        function initMap() {
+            map = L.map('map').setView([36.3048, -86.6200], 7);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+            
+            addMarkers('all');
+        }
+        
+        function addMarkers(filter) {
+            // Clear existing markers
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+            
+            schools.forEach(school => {
+                if (filter === 'all' || 
+                    (filter === 'hs' && (school.division === 'hs' || school.division === 'both')) ||
+                    (filter === 'ms' && (school.division === 'ms' || school.division === 'both')) ||
+                    (filter === 'local' && school.distance <= 10)) {
+                    
+                    const color = school.division === 'hs' ? 'blue' : school.division === 'ms' ? 'green' : 'purple';
+                    const icon = L.divIcon({
+                        html: `<div style="background-color: ${color}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>`,
+                        iconSize: [12, 12],
+                        className: 'custom-div-icon'
+                    });
+                    
+                    const marker = L.marker([school.lat, school.lng], {icon: icon}).addTo(map);
+                    
+                    const popupContent = `
+                        <div class="popup-title">${school.name}</div>
+                        <div class="popup-info"><strong>Location:</strong> ${school.city}</div>
+                        <div class="popup-info"><strong>Distance:</strong> ${school.distance} miles</div>
+                        ${school.mascot ? `<div class="popup-info"><strong>Mascot:</strong> ${school.mascot}</div>` : ''}
+                        ${school.colors ? `<div class="popup-info"><strong>Colors:</strong> ${school.colors}</div>` : ''}
+                        ${school.enrollment ? `<div class="popup-info"><strong>Enrollment:</strong> ${school.enrollment}</div>` : ''}
+                        ${school.notes ? `<div class="popup-info"><strong>Notes:</strong> ${school.notes}</div>` : ''}
+                    `;
+                    
+                    marker.bindPopup(popupContent);
+                    markers.push(marker);
+                }
+            });
+        }
+        
+        function filterMap(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('#map-tab .filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            addMarkers(filter);
+        }
+        
+        function showTab(tabName) {
+            // Update button states
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Update content visibility
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`${tabName}-tab`).classList.add('active');
+            
+            // Initialize map if showing map tab and it exists but might need invalidating
+            if (tabName === 'map') {
+                if (!map) {
+                    setTimeout(initMap, 100);
+                } else {
+                    // Invalidate size to fix display issues
+                    setTimeout(() => map.invalidateSize(), 100);
+                }
+            }
+            
+            // Load schools list if showing schools tab
+            if (tabName === 'schools') {
+                displaySchools('all');
+            }
+        }
+        
+        function displaySchools(filter) {
+            const container = document.getElementById('schoolsList');
+            container.innerHTML = '';
+            
+            const filteredSchools = schools.filter(school => {
+                if (filter === 'all') return true;
+                if (filter === 'hs') return school.division === 'hs' || school.division === 'both';
+                if (filter === 'ms') return school.division === 'ms' || school.division === 'both';
+                return true;
+            });
+            
+            filteredSchools.forEach(school => {
+                const card = document.createElement('div');
+                card.className = 'school-card';
+                
+                let badges = '';
+                if (school.distance >= 100) {
+                    badges += `<span class="special-badge">100+ miles!</span>`;
+                }
+                if (school.distance <= 5) {
+                    badges += `<span class="special-badge">Local!</span>`;
+                }
+                
+                card.innerHTML = `
+                    <h3>${school.name}</h3>
+                    <p class="school-info">📍 ${school.city}</p>
+                    ${school.mascot ? `<p class="school-info"><strong>Mascot:</strong> ${school.mascot}</p>` : ''}
+                    ${school.colors ? `<p class="school-info"><strong>Colors:</strong> ${school.colors}</p>` : ''}
+                    ${school.enrollment ? `<p class="school-info"><strong>Enrollment:</strong> ${school.enrollment}</p>` : ''}
+                    ${school.notes ? `<p class="school-info">${school.notes}</p>` : ''}
+                    <span class="distance-badge">📍 ${school.distance} miles</span>
+                    ${badges}
+                `;
+                
+                container.appendChild(card);
+            });
+        }
+        
+        function filterSchools(filter) {
+            document.querySelectorAll('#schools-tab .filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            displaySchools(filter);
+        }
+        
+        function searchSchools() {
+            const searchTerm = document.getElementById('schoolSearch').value.toLowerCase();
+            const cards = document.querySelectorAll('#schoolsList .school-card');
+            
+            cards.forEach(card => {
+                const text = card.textContent.toLowerCase();
+                if (text.includes(searchTerm)) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize map immediately since it's the default tab
+            setTimeout(() => {
+                initMap();
+                // Force the map to recalculate its size
+                setTimeout(() => {
+                    if (map) {
+                        map.invalidateSize();
+                    }
+                }, 200);
+            }, 100);
+        });
+    </script>
+</body>
+</html>
