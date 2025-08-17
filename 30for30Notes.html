@@ -79,6 +79,10 @@
             padding: 20px;
             background: #f8f9fa;
             border-bottom: 1px solid #e0e0e0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
 
         .stat {
@@ -334,6 +338,98 @@
             transform: translateY(0);
         }
 
+        .help-btn {
+            position: fixed;
+            bottom: 30px;
+            left: 30px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            transition: all 0.3s ease;
+            z-index: 999;
+        }
+
+        .help-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .help-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .help-modal.show {
+            display: flex;
+        }
+
+        .help-content {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .help-content h2 {
+            color: #667eea;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 2em;
+        }
+
+        .help-content h3 {
+            color: #764ba2;
+            margin-top: 25px;
+            margin-bottom: 10px;
+            font-size: 1.3em;
+        }
+
+        .help-content p, .help-content li {
+            color: #555;
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+
+        .help-content ul {
+            margin-left: 20px;
+        }
+
+        .help-close {
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            color: #999;
+            cursor: pointer;
+            transition: color 0.3s;
+        }
+
+        .help-close:hover {
+            color: #667eea;
+        }
+
+        .help-icon {
+            display: inline-block;
+            margin-right: 8px;
+        }
+
         @media (max-width: 600px) {
             .header h1 {
                 font-size: 1.8em;
@@ -422,6 +518,65 @@
     </div>
 
     <div class="toast" id="toast"></div>
+
+    <!-- Help Button -->
+    <button class="help-btn" onclick="showHelp()" title="Get Help">?</button>
+
+    <!-- Help Modal -->
+    <div class="help-modal" id="helpModal">
+        <div class="help-content">
+            <span class="help-close" onclick="hideHelp()">&times;</span>
+            <h2>📚 How to Use This Tracker</h2>
+            
+            <h3>🎯 Purpose</h3>
+            <p>This tracker helps you follow along with the "30 for 30 for Ministry" presentation, mark tools that interest you, and create your personalized implementation plan.</p>
+            
+            <h3>✅ During the Presentation</h3>
+            <ul>
+                <li><span class="help-icon">☑️</span><strong>Check off tools</strong> as they're presented to track your progress</li>
+                <li><span class="help-icon">⭐</span><strong>Star priority tools</strong> that you want to implement first</li>
+                <li><span class="help-icon">📝</span><strong>Add notes</strong> about implementation ideas, questions, or specific needs</li>
+                <li><span class="help-icon">📊</span><strong>Watch your stats</strong> update in real-time (they stay visible as you scroll!)</li>
+            </ul>
+            
+            <h3>🛠️ Tool Actions</h3>
+            <ul>
+                <li><strong>Checkbox:</strong> Mark tool as reviewed/presented</li>
+                <li><strong>Star:</strong> Flag as priority for your ministry</li>
+                <li><strong>Notes field:</strong> Capture implementation ideas, questions, or customization needs</li>
+            </ul>
+            
+            <h3>📤 Export Options</h3>
+            <ul>
+                <li><span class="help-icon">📋</span><strong>Copy Summary:</strong> Copy text summary to clipboard for pasting anywhere</li>
+                <li><span class="help-icon">📧</span><strong>Email Summary:</strong> Open your email client with a formatted summary</li>
+                <li><span class="help-icon">📄</span><strong>Download Report:</strong> Save a beautiful HTML report for your records</li>
+            </ul>
+            
+            <h3>⚡ Quick Tips</h3>
+            <ul>
+                <li>Use <strong>"Mark Category Complete"</strong> to quickly check all tools in a category</li>
+                <li>Your progress is <strong>automatically saved</strong> in your browser</li>
+                <li>Come back anytime - your notes and selections persist</li>
+                <li>Tools are organized by category with time estimates</li>
+                <li>The presentation follows a countdown format (#30 to #1 plus bonus)</li>
+            </ul>
+            
+            <h3>🎨 Visual Indicators</h3>
+            <ul>
+                <li><strong>Blue border:</strong> Tool has been reviewed</li>
+                <li><strong>Gold glow:</strong> Tool is starred as priority</li>
+                <li><strong>Category colors:</strong> Each category has its own gradient theme</li>
+            </ul>
+            
+            <h3>💡 After the Presentation</h3>
+            <p>Export your personalized implementation plan and share it with your team. Contact Ben Swaby (bswaby@fbchtn.org) for custom development or implementation assistance.</p>
+            
+            <p style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0; text-align: center; color: #999;">
+                Press <strong>ESC</strong> or click the X to close this help window
+            </p>
+        </div>
+    </div>
 
     <script>
         // Tools organized by presentation categories (countdown #30 to #1)
@@ -1301,8 +1456,40 @@
             }, 3000);
         }
 
+        // Show help modal
+        function showHelp() {
+            document.getElementById('helpModal').classList.add('show');
+        }
+
+        // Hide help modal
+        function hideHelp() {
+            document.getElementById('helpModal').classList.remove('show');
+        }
+
+        // Close help modal with ESC key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                hideHelp();
+            }
+        });
+
+        // Close help modal when clicking outside
+        document.getElementById('helpModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                hideHelp();
+            }
+        });
+
         // Initialize on load
         renderTools();
+        
+        // Show help automatically on first visit
+        if (!localStorage.getItem('ministry30for30_helpShown')) {
+            setTimeout(() => {
+                showHelp();
+                localStorage.setItem('ministry30for30_helpShown', 'true');
+            }, 1000);
+        }
     </script>
 </body>
 </html>
