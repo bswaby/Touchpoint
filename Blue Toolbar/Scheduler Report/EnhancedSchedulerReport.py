@@ -1,5 +1,5 @@
 ########################################################
-### Enhanced Scheduler Report v2.1.1
+### Enhanced Scheduler Report v2.1.2
 ### Original: SimpleSchedulerReport
 ### Updates: Multi-column layout, family filtering, proper functions
 ########################################################
@@ -30,6 +30,12 @@
 #   ShowEmptySlots, ShowFamilyButtons, MinVolunteerAge, Title, FromAddress, Subject 
 #   AdHoc ExtraValues are in the form 'SchedulerReport' + variable name  (e.g. SchedulerReportShowEmptySlots)
 #
+# Enhanced By: Heath Kouns (8/14/25)
+# - Added Case Statement to use Team Needed Qty if Subgroups are not used
+#
+# Enhanced By: Heath Kouns (8/20/25)
+# - Bug Fix to show "sign-up" link for Partial Filled
+# - Bug Fix to pull "Required" from correct table
 #
 #To add this to the Bluetoolbar, navigate to open CustomReport under special content 
 # / text and add in the following line.  Make sure to adjust report name to what
@@ -212,9 +218,8 @@ SELECT
     FORMAT(tsm.MeetingDateTime, 'M/d/yy h:mm tt') as ServiceDateTime,
     FORMAT(tsm.MeetingDateTime, 'dddd, MMMM dd, yyyy') AS DateOnly,
     DATEPART(WEEKDAY, tsm.MeetingDateTime) as DayOfWeek,
-    --tssg.NumberVolunteersNeeded as Needed,
     CASE WHEN (tsmt.UseSubGroup = 'False') THEN tst.NumberVolunteersNeeded ELSE tssg.NumberVolunteersNeeded END AS Needed,
-    tstSG.Require as [Required],
+    tssg.Require as [Required],
     tsmt.TimeSlotMeetingTeamId,
     tsgrpvol.TimeSlotMeetingTeamSubGroupId,
     tssg.NumberVolunteersNeeded as SubGroupsNeeded,
@@ -835,8 +840,13 @@ def build_date_section_grid(date_header, times_dict):
             
             # Build compact single line with time inline
             if slot.Names:
-                line_content = '<strong>{}</strong> - {} <span class="{}">({})</span> - {}'.format(
-                    time, slot.SubGroupTeam, status_class, status_text, slot.Names)
+                if status_class == 'status-full':
+                    line_content = '<strong>{}</strong> - {} <span class="{}">({})</span> - {}'.format(
+                        time, slot.SubGroupTeam, status_class, status_text, slot.Names)
+                else:
+                    
+                    line_content = '<strong>{}</strong> - {} <span class="{}">({})</span> - {} - <a href="{}/OnlineReg/{}" class="signup-link" target="_blank">Sign up</a>'.format(
+                        time, slot.SubGroupTeam, status_class, status_text, slot.Names, model.CmsHost, OrgId)
             else:
                 line_content = '<strong>{}</strong> - {} <span class="{}">({})</span> - <a href="{}/OnlineReg/{}" class="signup-link" target="_blank">Sign up</a>'.format(
                     time, slot.SubGroupTeam, status_class, status_text, model.CmsHost, OrgId)
