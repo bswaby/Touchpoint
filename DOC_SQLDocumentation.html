@@ -3406,7 +3406,7 @@ ORDER BY o.OrganizationName, p.Name, rq.[Order]</code></pre>
 
     <h3>Check-In Tables</h3>
     
-    <h4>CheckInActivity Table</h4>
+    <h4>CheckInActivities Table</h4>
     <table class="field-table">
         <tr>
             <th>Field</th>
@@ -4225,9 +4225,9 @@ ORDER BY tn.CreatedDate DESC</code></pre>
             <th>Key Fields</th>
         </tr>
         <tr>
-            <td><code>CategoryMobile</code></td>
+            <td><code>lookup.CategoryMobile</code></td>
             <td>Mobile app categories</td>
-            <td>Id, Name, DisplayOrder</td>
+            <td>Id, Code, Description, SortOrder</td>
         </tr>
         <tr>
             <td><code>LocationMobile</code></td>
@@ -4552,50 +4552,40 @@ ORDER BY u.LastLoginDate</code></pre>
             <td>Change ID</td>
         </tr>
         <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Person changed</td>
+            <td>→ People.PeopleId (NULL for non-person changes)</td>
+        </tr>
+        <tr>
+            <td><code>FamilyId</code></td>
+            <td>int</td>
+            <td>Family changed</td>
+            <td>→ Family.FamilyId (NULL for non-family changes)</td>
+        </tr>
+        <tr>
             <td><code>UserPeopleId</code></td>
             <td>int</td>
-            <td>Who changed</td>
+            <td>Who made the change</td>
             <td>→ People.PeopleId</td>
         </tr>
         <tr>
-            <td><code>Changed</code></td>
+            <td><code>Created</code></td>
             <td>datetime</td>
             <td>When changed</td>
-            <td>Timestamp</td>
-        </tr>
-        <tr>
-            <td><code>TableName</code></td>
-            <td>nvarchar</td>
-            <td>Table affected</td>
-            <td>What was changed</td>
-        </tr>
-    </table>
-
-    <h4>ChangeDetails Table</h4>
-    <table class="field-table">
-        <tr>
-            <th>Field</th>
-            <th>Type</th>
-            <th>Description</th>
-            <th>Usage Notes</th>
-        </tr>
-        <tr>
-            <td><code>Id</code></td>
-            <td>int</td>
-            <td>Primary key</td>
-            <td>Detail ID</td>
-        </tr>
-        <tr>
-            <td><code>ChangeId</code></td>
-            <td>int</td>
-            <td>Change log</td>
-            <td>→ ChangeLog.Id</td>
+            <td>Timestamp of change</td>
         </tr>
         <tr>
             <td><code>Field</code></td>
             <td>nvarchar</td>
             <td>Field changed</td>
-            <td>Column name</td>
+            <td>Column name that was modified</td>
+        </tr>
+        <tr>
+            <td><code>Data</code></td>
+            <td>nvarchar</td>
+            <td>Additional data</td>
+            <td>Extra context about the change</td>
         </tr>
         <tr>
             <td><code>Before</code></td>
@@ -4610,6 +4600,10 @@ ORDER BY u.LastLoginDate</code></pre>
             <td>Updated data</td>
         </tr>
     </table>
+
+    <div class="info">
+        <strong>Note:</strong> TouchPoint stores all change information in a single ChangeLog table. The ChangeDetails table exists but is not used in the standard change tracking queries. All change data (before/after values) is stored directly in the ChangeLog table.
+    </div>
 
     <h3>Change History Queries</h3>
     <pre><code>-- Recent changes to People records
