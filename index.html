@@ -19,6 +19,7 @@
             --bg-light: #f9fafb;
             --white: #ffffff;
             --accent: #10b981;
+            --accent-orange: #f59e0b;
         }
 
         body {
@@ -205,6 +206,11 @@
             gap: 0.5rem;
         }
 
+        .link-card.featured {
+            border: 2px solid var(--accent-orange);
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, rgba(99, 102, 241, 0.05) 100%);
+        }
+
         .link-card::before {
             content: '';
             position: absolute;
@@ -217,13 +223,35 @@
             transition: transform 0.3s ease;
         }
 
+        .link-card.featured::before {
+            background: linear-gradient(90deg, var(--accent-orange) 0%, var(--accent) 100%);
+        }
+
         .link-card:hover {
             transform: translateY(-5px);
             box-shadow: 0 10px 30px rgba(99, 102, 241, 0.2);
         }
 
+        .link-card.featured:hover {
+            box-shadow: 0 10px 30px rgba(245, 158, 11, 0.3);
+        }
+
         .link-card:hover::before {
             transform: scaleX(1);
+        }
+
+        .link-card-badge {
+            position: absolute;
+            top: -8px;
+            right: 12px;
+            background: var(--accent-orange);
+            color: var(--white);
+            padding: 0.25rem 0.6rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .link-card-title {
@@ -235,16 +263,123 @@
             gap: 0.5rem;
         }
 
+        .link-card.featured .link-card-title {
+            color: var(--accent-orange);
+        }
+
         .link-card-title svg {
             width: 24px;
             height: 24px;
             fill: var(--primary);
         }
 
+        .link-card.featured .link-card-title svg {
+            fill: var(--accent-orange);
+        }
+
         .link-card-description {
             color: var(--text-light);
             font-size: 0.95rem;
             line-height: 1.5;
+        }
+
+        .presentations-section {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, rgba(99, 102, 241, 0.05) 100%);
+            border-radius: 15px;
+            padding: 2rem;
+            margin-bottom: 2.5rem;
+            border: 2px solid rgba(245, 158, 11, 0.2);
+        }
+
+        .presentations-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .presentation-card {
+            background: var(--white);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            border: 2px solid rgba(245, 158, 11, 0.1);
+        }
+
+        .presentation-card.coming-soon {
+            opacity: 0.8;
+            border-style: dashed;
+        }
+
+        .presentation-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent-orange) 0%, var(--accent) 100%);
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .presentation-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(245, 158, 11, 0.2);
+        }
+
+        .presentation-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .presentation-card h3 {
+            color: var(--accent-orange);
+            margin-bottom: 0.5rem;
+            font-size: 1.3rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .presentation-card .tagline-text {
+            color: var(--text-light);
+            font-style: italic;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+
+        .presentation-card p {
+            color: var(--text-dark);
+            line-height: 1.6;
+            margin-bottom: 1rem;
+        }
+
+        .presentation-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--accent-orange);
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .presentation-link:hover {
+            color: var(--primary);
+            transform: translateX(3px);
+        }
+
+        .coming-soon-badge {
+            display: inline-block;
+            background: var(--text-light);
+            color: var(--white);
+            padding: 0.25rem 0.6rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
         }
 
         .offerings {
@@ -414,6 +549,10 @@
             .quick-links {
                 grid-template-columns: 1fr;
             }
+
+            .presentations-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -443,6 +582,18 @@
                         Access my TouchPoint tools, scripts, and custom solutions
                     </div>
                 </a>
+                <a href="https://bswaby.github.io/Touchpoint/30for30Notes.html" class="link-card featured">
+                    <div class="link-card-badge">NEW</div>
+                    <div class="link-card-title">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                        </svg>
+                        30 for 30 Tools Tracker
+                    </div>
+                    <div class="link-card-description">
+                        Interactive presentation tracker for my "30 for 30 for Ministry" showcase
+                    </div>
+                </a>
                 <a href="https://bswaby.github.io/Touchpoint/DOC_SQLDocumentation.html" class="link-card">
                     <div class="link-card-title">
                         <svg viewBox="0 0 24 24">
@@ -461,6 +612,37 @@
                 
                 <p>I specialize in leveraging TouchPoint's powerful APIs and database resources to create custom solutions that transform how churches manage their data and serve their communities. Whether you need automation scripts, advanced analytics, or custom features, I'm here to help your ministry work smarter.</p>
             </div>
+
+            <section class="presentations-section">
+                <h2>Presentations & Training</h2>
+                <p style="color: var(--text-light); margin-bottom: 1rem;">Sharing insights and practical solutions for TouchPoint development and ministry technology.</p>
+                <div class="presentations-grid">
+                    <div class="presentation-card">
+                        <h3>
+                            🚀 30 for 30 for Ministry
+                        </h3>
+                        <div class="tagline-text">"What If I Told You… I Didn't Set out to Build 30 Tools – I Set Out to Build a Ministry?"</div>
+                        <p>ESPN 30 for 30 style showcase of 30 TouchPoint tools that transform ministry operations. From finance automation that saves 97% of processing time to predictive analytics for pastoral care.</p>
+                        <a href="https://bswaby.github.io/Touchpoint/30for30Notes.html" class="presentation-link">
+                            📋 Use Presentation Tracker
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/>
+                            </svg>
+                        </a>
+                    </div>
+                    <div class="presentation-card coming-soon">
+                        <h3>
+                            🔧 From Problem to Code
+                            <span class="coming-soon-badge">Coming Soon</span>
+                        </h3>
+                        <div class="tagline-text">A Developer's Approach to Ministry Solutions</div>
+                        <p>Co-hosted workshop teaching the methodology behind building effective ministry tools. Covers problem identification, solution architecture, and implementation strategies for TouchPoint developers.</p>
+                        <div style="color: var(--text-light); font-style: italic;">
+                            📅 Coming 2025 • Watch for updates
+                        </div>
+                    </div>
+                </div>
+            </section>
 
             <section class="docs-section">
                 <h2>TouchPoint Documentation</h2>
