@@ -2198,20 +2198,20 @@ ORDER BY p.PrimaryZip, p.Name</code></pre>
 
     <h3>Visitation List</h3>
     <pre><code>-- People who CAN be visited
-SELECT TOP 1000
-    p.PeopleId,
-    p.Name,
-    p.PrimaryAddress,
-    p.PrimaryCity,
-    p.CellPhone,
-    rc.Description as ResidentCode
-FROM People p
-LEFT JOIN lookup.ResidentCode rc ON p.ResCodeId = rc.Id
-WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-  AND p.DoNotVisitFlag = 0       -- Visits allowed
-  AND p.PrimaryBadAddrFlag = 0   -- Valid address
-  AND p.ResCodeId IN (1, 2)      -- Metro or Marginal (close enough to visit)
-ORDER BY p.PrimaryCity, p.Name</code></pre>
+  SELECT TOP 1000
+      p.PeopleId,
+      p.Name,
+      p.PrimaryAddress,
+      p.PrimaryCity,
+      p.CellPhone,
+      rc.Description as ResidentCode
+  FROM People p
+  LEFT JOIN lookup.ResidentCode rc ON p.ResCodeId = rc.Id
+  WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+    AND p.DoNotVisitFlag = 0       -- Visits allowed
+    AND p.PrimaryBadAddrFlag = 0   -- Valid address
+    AND p.ResCodeId IN (10, 20)    -- Metro or Marginal (close enough to visit)
+  ORDER BY p.PrimaryCity, p.Name</code></pre>
 </div>
 
 <div id="membership-workflow" class="section">
@@ -2753,24 +2753,22 @@ WHERE om.InactiveDate IS NULL  -- Current members only
 ORDER BY o.OrganizationName, at.Worker DESC, p.Name</code></pre>
 
     <h3>Leadership Analysis</h3>
-    <pre><code>-- Find all leaders across organizations
-SELECT TOP 500
-    p.Name as LeaderName,
-    STRING_AGG(o.OrganizationName, ', ') as Organizations,
-    COUNT(*) as LeadershipRoles
-FROM OrganizationMembers om
-JOIN People p ON om.PeopleId = p.PeopleId
-JOIN Organizations o ON om.OrganizationId = o.OrganizationId
-JOIN lookup.MemberType mt ON om.MemberTypeId = mt.Id
-JOIN lookup.AttendType at ON mt.AttendanceTypeId = at.Id
-WHERE om.InactiveDate IS NULL
-  AND at.Worker = 1  -- Leaders and volunteers
-  AND at.Id = 20  -- Specifically leaders
-  AND o.OrganizationStatusId = 30
-  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-GROUP BY p.PeopleId, p.Name
-HAVING COUNT(*) > 1  -- Leading multiple orgs
-ORDER BY COUNT(*) DESC</code></pre>
+    <pre><code>  -- Find all leaders across organizations
+  SELECT TOP 500
+      p.Name as LeaderName,
+      STRING_AGG(o.OrganizationName, ', ') as Organizations,
+      COUNT(*) as LeadershipRoles
+  FROM OrganizationMembers om
+  JOIN People p ON om.PeopleId = p.PeopleId
+  JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+  JOIN lookup.MemberType mt ON om.MemberTypeId = mt.Id
+  WHERE om.InactiveDate IS NULL
+    AND mt.AttendanceTypeId = 10  -- Leaders (not volunteers)
+    AND o.OrganizationStatusId = 30
+    AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+  GROUP BY p.PeopleId, p.Name
+  HAVING COUNT(*) > 1  -- Leading multiple orgs
+  ORDER BY COUNT(*) DESC</code></pre>
 </div>
 
 <div id="program-hierarchy" class="section">
@@ -3489,42 +3487,32 @@ ORDER BY o.OrganizationName, p.Name, rq.[Order]</code></pre>
     </table>
 
     <h3>Check-In Activity Query</h3>
-    <pre><code>-- Recent check-in activity
-SELECT TOP 100
-    p.Name,
-    o.OrganizationName,
-    cia.CheckInTime,
-    worker.Name as CheckedInBy,
-    DATEDIFF(minute, m.MeetingDate, cia.CheckInTime) as MinutesEarlyLate
-FROM CheckInActivity cia
-JOIN People p ON cia.PeopleId = p.PeopleId
-JOIN Organizations o ON cia.OrganizationId = o.OrganizationId
-LEFT JOIN People worker ON cia.CheckInBy = worker.PeopleId
-LEFT JOIN CheckInTimes cit ON cia.PeopleId = cit.PeopleId 
-    AND cia.OrganizationId = cit.OrganizationId
-    AND CAST(cia.CheckInTime as DATE) = CAST(cit.CheckInTime as DATE)
-LEFT JOIN Meetings m ON cit.MeetingId = m.MeetingId
-WHERE cia.CheckInTime >= DATEADD(day, -7, GETDATE())
-ORDER BY cia.CheckInTime DESC</code></pre>
+    <pre><code>  -- Recent check-in activity
+  SELECT TOP 100
+      cia.Name as PersonName,
+      o.OrganizationName,
+      cia.CheckInTime,
+      cia.AccessType,
+      cia.Location,
+      DATEDIFF(minute, cia.ActivityTime, cia.CheckInTime) as MinutesEarlyLate
+  FROM CheckInActivities cia
+  JOIN Organizations o ON cia.OrganizationId = o.OrganizationId
+  WHERE cia.CheckInTime >= DATEADD(day, -7, GETDATE())
+  ORDER BY cia.CheckInTime DESC</code></pre>
 
     <h3>Check-In Statistics</h3>
-    <pre><code>-- Check-in statistics by organization
-SELECT TOP 500
-    o.OrganizationName,
-    COUNT(DISTINCT cia.PeopleId) as UniqueCheckIns,
-    COUNT(*) as TotalCheckIns,
-    AVG(DATEDIFF(minute, m.MeetingDate, cia.CheckInTime)) as AvgMinutesEarly,
-    MIN(cia.CheckInTime) as EarliestCheckIn,
-    MAX(cia.CheckInTime) as LatestCheckIn
-FROM CheckInActivity cia
-JOIN Organizations o ON cia.OrganizationId = o.OrganizationId
-JOIN CheckInTimes cit ON cia.PeopleId = cit.PeopleId 
-    AND cia.OrganizationId = cit.OrganizationId
-    AND CAST(cia.CheckInTime as DATE) = CAST(cit.CheckInTime as DATE)
-JOIN Meetings m ON cit.MeetingId = m.MeetingId
-WHERE cia.CheckInTime >= DATEADD(month, -1, GETDATE())
-GROUP BY o.OrganizationId, o.OrganizationName
-ORDER BY COUNT(*) DESC</code></pre>
+    <pre><code>  -- Check-in statistics by organization
+  SELECT TOP 500
+      o.OrganizationName,
+      COUNT(DISTINCT cia.PeopleId) as UniqueCheckIns,
+      COUNT(*) as TotalCheckIns,
+      MIN(cia.CheckInTime) as EarliestCheckIn,
+      MAX(cia.CheckInTime) as LatestCheckIn
+  FROM CheckInActivities cia
+  JOIN Organizations o ON cia.OrganizationId = o.OrganizationId
+  WHERE cia.CheckInTime >= DATEADD(month, -1, GETDATE())
+  GROUP BY o.OrganizationId, o.OrganizationName
+  ORDER BY COUNT(*) DESC</code></pre>
 </div>
 
 <div id="email-system" class="section">
@@ -3588,47 +3576,47 @@ ORDER BY COUNT(*) DESC</code></pre>
     </table>
 
     <h3>Email Campaign Analytics</h3>
-    <pre><code>-- Email campaign performance (with date filter for performance)
-SELECT TOP 100
-    eq.Id,
-    eq.Subject,
-    eq.SendAt,
-    sender.Name as SentBy,
-    COUNT(DISTINCT eqt.Id) as Recipients,
-    COUNT(DISTINCT CASE WHEN er.Event = 'open' THEN er.PeopleId END) as UniqueOpens,
-    COUNT(DISTINCT CASE WHEN er.Event = 'click' THEN er.PeopleId END) as UniqueClicks,
-    COUNT(CASE WHEN er.Event = 'bounce' THEN 1 END) as Bounces,
-    CAST(COUNT(DISTINCT CASE WHEN er.Event = 'open' THEN er.PeopleId END) as float) / 
-        NULLIF(COUNT(DISTINCT eqt.Id), 0) * 100 as OpenRate,
-    CAST(COUNT(DISTINCT CASE WHEN er.Event = 'click' THEN er.PeopleId END) as float) / 
-        NULLIF(COUNT(DISTINCT eqt.Id), 0) * 100 as ClickRate
-FROM EmailQueue eq
-JOIN People sender ON eq.QueuedBy = sender.PeopleId
-LEFT JOIN EmailQueueTo eqt ON eq.Id = eqt.EmailQueueId
-LEFT JOIN EmailResponses er ON eqt.Id = er.EmailQueueToId
-WHERE eq.SendAt >= DATEADD(month, -1, GETDATE())  -- REQUIRED for performance
-GROUP BY eq.Id, eq.Subject, eq.SendAt, sender.Name
-ORDER BY eq.SendAt DESC</code></pre>
+    <pre><code> -- Email campaign performance (with date filter for performance)
+  SELECT TOP 100
+      eq.Id,
+      eq.Subject,
+      eq.SendWhen,
+      sender.Name as SentBy,
+      COUNT(DISTINCT eqt.PeopleId) as Recipients,
+      COUNT(DISTINCT CASE WHEN er.Type = 'o' THEN er.PeopleId END) as UniqueOpens,
+      COUNT(DISTINCT CASE WHEN eqt.Bounced = 1 THEN eqt.PeopleId END) as Bounces,
+      CAST(COUNT(DISTINCT CASE WHEN er.Type = 'o' THEN er.PeopleId END) as float) /
+          NULLIF(COUNT(DISTINCT eqt.PeopleId), 0) * 100 as OpenRate
+  FROM EmailQueue eq
+  JOIN People sender ON eq.QueuedBy = sender.PeopleId
+  LEFT JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
+  LEFT JOIN EmailResponses er ON eq.Id = er.EmailQueueId
+  WHERE eq.SendWhen >= DATEADD(month, -1, GETDATE())  -- REQUIRED for performance
+  GROUP BY eq.Id, eq.Subject, eq.SendWhen, sender.Name
+  ORDER BY eq.SendWhen DESC</code></pre>
 
     <h3>Email Engagement by Person</h3>
     <pre><code>-- Individual email engagement (limited timeframe for performance)
-SELECT TOP 500
-    p.Name,
-    p.EmailAddress,
-    COUNT(DISTINCT eq.Id) as EmailsReceived,
-    COUNT(DISTINCT CASE WHEN er.Event = 'open' THEN eq.Id END) as EmailsOpened,
-    COUNT(DISTINCT CASE WHEN er.Event = 'click' THEN eq.Id END) as EmailsClicked,
-    MAX(CASE WHEN er.Event = 'open' THEN er.EventTime END) as LastOpened,
-    MAX(CASE WHEN er.Event = 'click' THEN er.EventTime END) as LastClicked
-FROM People p
-JOIN EmailQueueTo eqt ON p.PeopleId = eqt.PeopleId
-JOIN EmailQueue eq ON eqt.EmailQueueId = eq.Id
-LEFT JOIN EmailResponses er ON eqt.Id = er.EmailQueueToId
-WHERE eq.SendAt >= DATEADD(month, -3, GETDATE())  -- REQUIRED
-  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-GROUP BY p.PeopleId, p.Name, p.EmailAddress
-HAVING COUNT(DISTINCT eq.Id) > 0
-ORDER BY COUNT(DISTINCT CASE WHEN er.Event = 'open' THEN eq.Id END) DESC</code></pre>
+  SELECT TOP 500
+      p.Name,
+      p.EmailAddress,
+      COUNT(DISTINCT eq.Id) as EmailsReceived,
+      COUNT(DISTINCT CASE WHEN er.Type = 'o' THEN eq.Id END) as EmailsOpened,
+      MAX(CASE WHEN er.Type = 'o' THEN er.Dt END) as LastOpened,
+      CAST(CASE
+          WHEN COUNT(DISTINCT eq.Id) > 0
+          THEN COUNT(DISTINCT CASE WHEN er.Type = 'o' THEN eq.Id END) * 100.0 / COUNT(DISTINCT eq.Id)
+          ELSE 0
+      END AS DECIMAL(5,2)) as OpenRate
+  FROM People p
+  JOIN EmailQueueTo eqt ON p.PeopleId = eqt.PeopleId
+  JOIN EmailQueue eq ON eqt.Id = eq.Id
+  LEFT JOIN EmailResponses er ON eq.Id = er.EmailQueueId AND p.PeopleId = er.PeopleId
+  WHERE eq.SendWhen >= DATEADD(month, -3, GETDATE())  -- REQUIRED
+    AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+  GROUP BY p.PeopleId, p.Name, p.EmailAddress
+  HAVING COUNT(DISTINCT eq.Id) > 0
+  ORDER BY COUNT(DISTINCT CASE WHEN er.Type = 'o' THEN eq.Id END) DESC</code></pre>
 </div>
 
 <div id="engagement-scoring" class="section">
@@ -3675,22 +3663,21 @@ ORDER BY COUNT(DISTINCT CASE WHEN er.Event = 'open' THEN eq.Id END) DESC</code><
     </table>
 
     <h3>Engagement Analysis</h3>
-    <pre><code>-- Top engaged members (recent)
-SELECT TOP 100
-    p.Name,
-    SUM(es.TotalScore) as TotalEngagement,
-    AVG(es.TotalScore) as AvgWeeklyScore,
-    COUNT(DISTINCT es.WeekDate) as ActiveWeeks,
-    STRING_AGG(DISTINCT sfl.Name, ', ') as Activities
-FROM EngagementScore es
-JOIN People p ON es.PeopleId = p.PeopleId
-LEFT JOIN EngagementScoreTag est ON es.Id = est.EngagementScoreId
-LEFT JOIN StatusFlagList sfl ON est.StatusFlagId = sfl.Flag
-WHERE es.WeekDate >= DATEADD(month, -3, GETDATE())  -- REQUIRED
-  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-GROUP BY p.PeopleId, p.Name
-HAVING SUM(es.TotalScore) > 0
-ORDER BY SUM(es.TotalScore) DESC</code></pre>
+    <pre><code>  -- Top engaged members (recent)
+  SELECT TOP 100
+      p.Name,
+      SUM(es.TotalScore) as TotalEngagement,
+      AVG(es.TotalScore) as AvgWeeklyScore,
+      COUNT(DISTINCT es.WeekDate) as ActiveWeeks,
+      STRING_AGG(sfl.Name, ', ') as Activities
+  FROM EngagementScore es
+  JOIN People p ON es.PeopleId = p.PeopleId
+  LEFT JOIN EngagementScoreTag est ON es.Id = est.EngagementScoreId
+  LEFT JOIN StatusFlagList sfl ON est.StatusFlagId = sfl.Flag
+  WHERE es.WeekDate >= DATEADD(month, -3, GETDATE())  -- REQUIRED
+    AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+  GROUP BY p.PeopleId, p.Name
+  HAVING SUM(es.TotalScore) > 0</code></pre>
 
     <h3>Engagement Trends</h3>
     <pre><code>-- Weekly engagement trends
@@ -3758,34 +3745,34 @@ ORDER BY es.WeekDate DESC</code></pre>
 
     <h3>Safe Tag Query Pattern</h3>
     <pre><code>-- SAFE: Query specific tag with date filter
-SELECT TOP 100
-    t.Name as TagName,
-    p.Name as PersonName,
-    tp.DateCreated
-FROM TagPerson tp
-JOIN Tag t ON tp.TagId = t.Id
-JOIN People p ON tp.PeopleId = p.PeopleId
-WHERE t.Name = 'Volunteer'  -- Specific tag
-  AND tp.DateCreated >= DATEADD(month, -1, GETDATE())  -- REQUIRED
-  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
-ORDER BY tp.DateCreated DESC
+  SELECT TOP 100
+      t.Name as TagName,
+      p.Name as PersonName,
+      tp.DateCreated
+  FROM TagPerson tp
+  JOIN Tag t ON tp.Id = t.Id
+  JOIN People p ON tp.PeopleId = p.PeopleId
+  WHERE t.Name = 'Volunteer'  -- Specific tag
+    AND tp.DateCreated >= DATEADD(month, -1, GETDATE())  -- REQUIRED
+    AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+  ORDER BY tp.DateCreated DESC
 
 -- NEVER DO THIS:
 -- SELECT * FROM TagPerson  -- 138M+ records!</code></pre>
 
     <h3>Tag Summary</h3>
-    <pre><code>-- Tag usage summary (aggregated, not detail)
-SELECT TOP 50
-    t.Name as TagName,
-    COUNT(*) as PeopleTagged,
-    MIN(tp.DateCreated) as FirstUsed,
-    MAX(tp.DateCreated) as LastUsed
-FROM Tag t
-JOIN TagPerson tp ON t.Id = tp.TagId
-WHERE tp.DateCreated >= DATEADD(month, -6, GETDATE())  -- REQUIRED
-GROUP BY t.Id, t.Name
-HAVING COUNT(*) > 10
-ORDER BY COUNT(*) DESC</code></pre>
+    <pre><code> -- Tag usage summary (aggregated, not detail)
+  SELECT TOP 50
+      t.Name as TagName,
+      COUNT(*) as PeopleTagged,
+      MIN(tp.DateCreated) as FirstUsed,
+      MAX(tp.DateCreated) as LastUsed
+  FROM Tag t
+  JOIN TagPerson tp ON t.Id = tp.Id
+  WHERE tp.DateCreated >= DATEADD(month, -6, GETDATE())  -- REQUIRED
+  GROUP BY t.Id, t.Name
+  HAVING COUNT(*) > 10
+  ORDER BY COUNT(*) DESC</code></pre>
 </div>
 
 <div id="extra-values-complete" class="section">
@@ -3915,7 +3902,7 @@ ORDER BY pev.Field</code></pre>
 
     <h3>Working with Custom Fields</h3>
     <pre><code>-- Example: Church-specific membership covenant field
-SELECT 
+SELECT TOP 500
     p.Name,
     p.MemberStatusId,
     pev.Data as MembershipCovenantDate
@@ -3940,16 +3927,20 @@ GROUP BY p.PeopleId, p.Name
 HAVING MAX(CASE WHEN pev.Field = 'BackgroundCheck' THEN pev.Data END) IS NOT NULL</code></pre>
 
     <h3>Organization Extra Values</h3>
-    <pre><code>-- Find custom fields on organizations
-SELECT 
-    o.OrganizationName,
-    oev.Field,
-    oev.Data,
-    oev.TransactionTime
-FROM Organizations o
-JOIN OrgExtra oev ON o.OrganizationId = oev.OrganizationId
-WHERE o.OrganizationStatusId = 30
-ORDER BY o.OrganizationName, oev.Field</code></pre>
+    <pre><code>  -- Find custom fields on organizations
+  SELECT
+      o.OrganizationName,
+      oev.Field,
+      oev.Data,
+      oev.StrValue,
+      oev.DateValue,
+      oev.IntValue,
+      oev.BitValue,
+      oev.TransactionTime
+  FROM Organizations o
+  JOIN OrganizationExtra oev ON o.OrganizationId = oev.OrganizationId
+  WHERE o.OrganizationStatusId = 30
+  ORDER BY o.OrganizationName, oev.Field</code></pre>
 </div>
 
 <div id="sms-system-complete" class="section">
@@ -4168,23 +4159,29 @@ ORDER BY MessageTime DESC</code></pre>
 
     <h3>Task Management Queries</h3>
     <pre><code>-- Open tasks by assignee
-SELECT TOP 500
-    assignee.Name as AssignedTo,
-    owner.Name as TaskOwner,
-    about.Name as AboutPerson,
-    tn.Instructions,
-    tn.DueDate,
-    DATEDIFF(day, GETDATE(), tn.DueDate) as DaysUntilDue,
-    ts.Description as Status
-FROM TaskNote tn
-JOIN People assignee ON tn.AssigneeId = assignee.PeopleId
-JOIN People owner ON tn.OwnerId = owner.PeopleId
-LEFT JOIN People about ON tn.AboutPersonId = about.PeopleId
-LEFT JOIN lookup.TaskStatus ts ON tn.StatusId = ts.Id
-WHERE tn.IsNote = 0  -- Tasks only
-  AND tn.CompletedDate IS NULL  -- Not completed
-  AND tn.DueDate >= GETDATE()  -- Not overdue
-ORDER BY tn.DueDate, assignee.Name
+ SELECT TOP 500
+      assignee.Name as AssignedTo,
+      owner.Name as TaskOwner,
+      about.Name as AboutPerson,
+      tn.Instructions,
+      tn.DueDate,
+      CASE
+          WHEN tn.DueDate IS NULL THEN NULL
+          WHEN tn.DueDate >= GETDATE() THEN DATEDIFF(day, GETDATE(), tn.DueDate)
+          ELSE -DATEDIFF(day, tn.DueDate, GETDATE())
+      END as DaysTillDue,
+      ts.Description as Status
+  FROM TaskNote tn
+  JOIN People assignee ON tn.AssigneeId = assignee.PeopleId
+  JOIN People owner ON tn.OwnerId = owner.PeopleId
+  LEFT JOIN People about ON tn.AboutPersonId = about.PeopleId
+  LEFT JOIN lookup.TaskStatus ts ON tn.StatusId = ts.Id
+  WHERE tn.IsNote = 0  -- Tasks only
+    AND tn.CompletedDate IS NULL  -- Not completed
+  ORDER BY
+      CASE WHEN tn.DueDate IS NULL THEN 1 ELSE 0 END,  -- NULL dates last
+      tn.DueDate,
+      assignee.Name
 
 -- Overdue tasks
 SELECT TOP 500
@@ -4255,21 +4252,21 @@ ORDER BY tn.CreatedDate DESC</code></pre>
     </table>
 
     <h3>Mobile-Enabled Organizations</h3>
-    <pre><code>-- Organizations visible in mobile app
-SELECT TOP 500
-    o.OrganizationName,
-    cm.Description as MobileCategory,
-    o.AllowMobileView,
-    o.RecommendInMobile,
-    o.ShowInSites,
-    o.ShowMobileRegStart,
-    o.ShowMobileRegEnd,
-    o.ShowMobileButtonText
-FROM Organizations o
-LEFT JOIN CategoryMobile cm ON o.CategoryMobileId = cm.Id
-WHERE o.AllowMobileView = 1
-  AND o.OrganizationStatusId = 30
-ORDER BY cm.DisplayOrder, o.OrganizationName</code></pre>
+    <pre><code>  -- Organizations visible in mobile app
+  SELECT TOP 500
+      o.OrganizationName,
+      cm.Description as MobileCategory,
+      o.AllowMobileView,
+      o.RecommendInMobile,
+      o.ShowInSites,
+      o.ShowMobileRegStart,
+      o.ShowMobileRegEnd,
+      o.ShowMobileButtonText
+  FROM Organizations o
+  LEFT JOIN lookup.CategoryMobile cm ON o.CategoryMobileId = cm.Id
+  WHERE o.AllowMobileView = 1
+    AND o.OrganizationStatusId = 30
+  ORDER BY cm.SortOrder, o.OrganizationName</code></pre>
 </div>
 
 <div id="picture-system-complete" class="section">
@@ -4510,29 +4507,29 @@ ORDER BY u.LastLoginDate</code></pre>
     </table>
 
     <h3>Audit Queries</h3>
-    <pre><code>-- Recent user activity (MUST have date filter)
-SELECT TOP 100
-    al.ActivityDate,
-    u.Name as User,
-    al.ActivityType,
-    al.Machine,
-    al.Activity
-FROM ActivityLog al
-LEFT JOIN Users u ON al.UserId = u.UserId
-WHERE al.ActivityDate >= DATEADD(day, -7, GETDATE())  -- REQUIRED
-ORDER BY al.ActivityDate DESC
+    <pre><code>  -- Recent user activity (MUST have date filter)
+  SELECT TOP 100
+      al.ActivityDate,
+      u.Name as UserName,  -- Changed from 'User' to avoid reserved keyword
+      al.Activity,
+      al.Machine,
+      al.PageUrl
+  FROM ActivityLog al
+  LEFT JOIN Users u ON al.UserId = u.UserId
+  WHERE al.ActivityDate >= DATEADD(day, -7, GETDATE())  -- REQUIRED
+  ORDER BY al.ActivityDate DESC
 
--- Activity summary by type
-SELECT 
-    al.ActivityType,
-    COUNT(*) as ActivityCount,
-    COUNT(DISTINCT al.UserId) as UniqueUsers,
-    MIN(al.ActivityDate) as FirstOccurrence,
-    MAX(al.ActivityDate) as LastOccurrence
-FROM ActivityLog al
-WHERE al.ActivityDate >= DATEADD(month, -1, GETDATE())  -- REQUIRED
-GROUP BY al.ActivityType
-ORDER BY COUNT(*) DESC</code></pre>
+  -- Activity summary
+  SELECT
+      al.Activity,
+      COUNT(*) as ActivityCount,
+      COUNT(DISTINCT al.UserId) as UniqueUsers,
+      MIN(al.ActivityDate) as FirstOccurrence,
+      MAX(al.ActivityDate) as LastOccurrence
+  FROM ActivityLog al
+  WHERE al.ActivityDate >= DATEADD(month, -1, GETDATE())  -- REQUIRED
+  GROUP BY al.Activity
+  ORDER BY COUNT(*) DESC</code></pre>
 </div>
 
 <div id="change-tracking-complete" class="section">
@@ -4616,33 +4613,29 @@ ORDER BY COUNT(*) DESC</code></pre>
 
     <h3>Change History Queries</h3>
     <pre><code>-- Recent changes to People records
-SELECT TOP 100
-    cl.Changed,
-    p.Name as ChangedBy,
-    cl.TableName,
-    cd.Field,
-    cd.Before,
-    cd.After
-FROM ChangeLog cl
-JOIN People p ON cl.UserPeopleId = p.PeopleId
-JOIN ChangeDetails cd ON cl.Id = cd.ChangeId
-WHERE cl.TableName = 'People'
-  AND cl.Changed >= DATEADD(day, -7, GETDATE())
-ORDER BY cl.Changed DESC
+  SELECT TOP 100
+      cl.Created,
+      p.Name as ChangedBy,
+      cl.Field,
+      cl.Before,
+      cl.After
+  FROM ChangeLog cl
+  JOIN People p ON cl.UserPeopleId = p.PeopleId
+  WHERE cl.PeopleId IS NOT NULL  -- Changes to people records
+    AND cl.Created >= DATEADD(day, -7, GETDATE())
+  ORDER BY cl.Created DESC
 
--- Track specific person's history
-SELECT 
-    cl.Changed,
-    modifier.Name as ModifiedBy,
-    cd.Field,
-    cd.Before,
-    cd.After
-FROM ChangeLog cl
-JOIN ChangeDetails cd ON cl.Id = cd.ChangeId
-LEFT JOIN People modifier ON cl.UserPeopleId = modifier.PeopleId
-WHERE cl.TableName = 'People'
-  AND cl.PrimaryKey = 12345  -- Specific PeopleId
-ORDER BY cl.Changed DESC</code></pre>
+  -- Track specific person's history
+  SELECT
+      cl.Created,
+      modifier.Name as ModifiedBy,
+      cl.Field,
+      cl.Before,
+      cl.After
+  FROM ChangeLog cl
+  LEFT JOIN People modifier ON cl.UserPeopleId = modifier.PeopleId
+  WHERE cl.PeopleId = 12345  -- Specific PeopleId
+  ORDER BY cl.Created DESC</code></pre>
 </div>
 
 <div id="financial-system-complete" class="section">
