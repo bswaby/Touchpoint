@@ -346,7 +346,7 @@
 <div class="header">
     <h1>Swaby's TouchPoint SQL Database Reference</h1>
     <p class="subtitle">My Personal Guide to the TouchPoint's Church Management Database</p>
-    <div class="version">Version: The smothered, covered, chunked, and diced version.</div>
+    <div class="version">Version: The smothered, covered, chunked, diced, and occasionally topped version</div>
 </div>
 
 <div class="intro-section">
@@ -1619,6 +1619,621 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
+
+<!-- ============================== -->
+<!-- ADDITIONAL CRITICAL TABLES SECTION -->
+<!-- ============================== -->
+
+<div id="families-system" class="section">
+    <h2>👨‍👩‍👧‍👦 Families & Household Management</h2>
+    
+    <div class="warning">
+        <strong>Critical Relationship Table:</strong> The Families table is central to TouchPoint's household structure. Always join with People table for complete household information.
+    </div>
+
+    <h3>Families Table Structure</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td><code>FamilyId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Links to People.FamilyId</td>
+        </tr>
+        <tr>
+            <td><code>HeadOfHouseholdId</code></td>
+            <td>int</td>
+            <td>Primary adult</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>HeadOfHouseholdSpouseId</code></td>
+            <td>int</td>
+            <td>Spouse</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>CoupleFlag</code></td>
+            <td>int</td>
+            <td>Married couple</td>
+            <td>1 = Couple, 0 = Single</td>
+        </tr>
+        <tr>
+            <td><code>AddressLineOne</code></td>
+            <td>nvarchar</td>
+            <td>Primary address</td>
+            <td>Family's main address</td>
+        </tr>
+        <tr>
+            <td><code>HomePhone</code></td>
+            <td>nvarchar</td>
+            <td>Home phone</td>
+            <td>Shared family phone</td>
+        </tr>
+        <tr>
+            <td><code>PictureId</code></td>
+            <td>int</td>
+            <td>Family photo</td>
+            <td>→ Picture.PictureId</td>
+        </tr>
+    </table>
+
+    <h3>Family Queries</h3>
+    <pre><code>-- Get complete family information
+SELECT 
+    f.FamilyId,
+    head.Name as HeadOfHousehold,
+    spouse.Name as Spouse,
+    f.AddressLineOne + ', ' + f.CityName + ', ' + f.StateCode + ' ' + f.ZipCode as FullAddress,
+    COUNT(DISTINCT p.PeopleId) as FamilySize,
+    COUNT(DISTINCT CASE WHEN p.PositionInFamilyId = 30 THEN p.PeopleId END) as ChildCount
+FROM Families f
+LEFT JOIN People head ON f.HeadOfHouseholdId = head.PeopleId
+LEFT JOIN People spouse ON f.HeadOfHouseholdSpouseId = spouse.PeopleId
+LEFT JOIN People p ON f.FamilyId = p.FamilyId
+WHERE f.BadAddressFlag = 0
+GROUP BY f.FamilyId, head.Name, spouse.Name, 
+         f.AddressLineOne, f.CityName, f.StateCode, f.ZipCode
+ORDER BY head.Name
+
+-- Find single-parent families
+SELECT 
+    f.FamilyId,
+    head.Name as SingleParent,
+    COUNT(p.PeopleId) as ChildrenCount
+FROM Families f
+JOIN People head ON f.HeadOfHouseholdId = head.PeopleId
+JOIN People p ON f.FamilyId = p.FamilyId AND p.PositionInFamilyId = 30
+WHERE f.CoupleFlag = 0
+  AND EXISTS (SELECT 1 FROM People WHERE FamilyId = f.FamilyId AND PositionInFamilyId = 30)
+GROUP BY f.FamilyId, head.Name
+HAVING COUNT(p.PeopleId) > 0</code></pre>
+</div>
+
+<div id="financial-system" class="section">
+    <h2>💰 Financial & Transaction Management</h2>
+    
+    <div class="critical">
+        <strong>⚠️ Financial Data Warning:</strong> These tables contain sensitive financial information. Always use appropriate security filters and never expose raw transaction data in reports.
+    </div>
+
+    <h3>Transaction Table (85K+ records)</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Critical Notes</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>int</td>
+            <td>Transaction ID</td>
+            <td>Primary key</td>
+        </tr>
+        <tr>
+            <td><code>OrgId</code></td>
+            <td>int</td>
+            <td>Organization</td>
+            <td>→ Organizations.OrganizationId</td>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Person</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>Amt</code></td>
+            <td>decimal</td>
+            <td>Amount</td>
+            <td>Transaction amount</td>
+        </tr>
+        <tr>
+            <td><code>TransactionDate</code></td>
+            <td>datetime</td>
+            <td>Date</td>
+            <td>When processed</td>
+        </tr>
+        <tr>
+            <td><code>PaymentType</code></td>
+            <td>nvarchar</td>
+            <td>Payment method</td>
+            <td>Credit, Check, Cash, etc.</td>
+        </tr>
+        <tr>
+            <td><code>Approved</code></td>
+            <td>bit</td>
+            <td>Status</td>
+            <td>1 = Approved</td>
+        </tr>
+    </table>
+
+    <h3>EnrollmentTransaction Table (317K+ records)</h3>
+    <table>
+        <tr>
+            <th>Purpose</th>
+            <th>Key Fields</th>
+            <th>Links To</th>
+        </tr>
+        <tr>
+            <td>Registration payments</td>
+            <td>TransactionId, RegPersonId, Amt</td>
+            <td>Transaction, RecReg, People</td>
+        </tr>
+    </table>
+
+    <h3>Financial Queries</h3>
+    <pre><code>-- Monthly giving summary by fund
+SELECT 
+    YEAR(c.ContributionDate) as Year,
+    MONTH(c.ContributionDate) as Month,
+    cf.FundName,
+    COUNT(DISTINCT c.PeopleId) as Givers,
+    COUNT(*) as Gifts,
+    SUM(c.ContributionAmount) as TotalAmount,
+    AVG(c.ContributionAmount) as AvgGift
+FROM Contribution c
+JOIN ContributionFund cf ON c.FundId = cf.FundId
+WHERE c.ContributionDate >= DATEADD(month, -12, GETDATE())
+  AND c.ContributionStatusId = 0  -- Posted
+GROUP BY YEAR(c.ContributionDate), MONTH(c.ContributionDate), cf.FundName
+ORDER BY Year DESC, Month DESC, TotalAmount DESC
+
+-- Registration revenue by event
+SELECT 
+    o.OrganizationName,
+    COUNT(DISTINCT et.RegPersonId) as Registrants,
+    SUM(et.Amt) as TotalRevenue,
+    AVG(et.Amt) as AvgPayment,
+    MIN(t.TransactionDate) as FirstPayment,
+    MAX(t.TransactionDate) as LastPayment
+FROM EnrollmentTransaction et
+JOIN Transaction t ON et.TransactionId = t.Id
+JOIN Organizations o ON t.OrgId = o.OrganizationId
+WHERE t.Approved = 1
+  AND t.TransactionDate >= DATEADD(year, -1, GETDATE())
+GROUP BY o.OrganizationName
+HAVING SUM(et.Amt) > 0
+ORDER BY TotalRevenue DESC</code></pre>
+</div>
+
+<div id="sms-communication" class="section">
+    <h2>📱 SMS & Text Messaging System</h2>
+    
+    <h3>SMS System Tables</h3>
+    <table>
+        <tr>
+            <th>Table</th>
+            <th>Records</th>
+            <th>Purpose</th>
+            <th>Key Fields</th>
+        </tr>
+        <tr>
+            <td><code>SMSGroups</code></td>
+            <td>Varies</td>
+            <td>Text groups</td>
+            <td>Id, Name, Description</td>
+        </tr>
+        <tr>
+            <td><code>SMSGroupMembers</code></td>
+            <td>Varies</td>
+            <td>Group membership</td>
+            <td>GroupId, PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>SMSItems</code></td>
+            <td>332K+</td>
+            <td>Individual messages</td>
+            <td>Id, PeopleId, Message, Sent</td>
+        </tr>
+        <tr>
+            <td><code>SMSList</code></td>
+            <td>147K+</td>
+            <td>Bulk messages</td>
+            <td>Id, SenderId, Message, SendAt</td>
+        </tr>
+        <tr>
+            <td><code>SmsReceived</code></td>
+            <td>Varies</td>
+            <td>Incoming texts</td>
+            <td>FromPeopleId, Body, DateReceived</td>
+        </tr>
+    </table>
+
+    <h3>SMS Queries</h3>
+    <pre><code>-- SMS group activity summary
+SELECT 
+    sg.Name as GroupName,
+    COUNT(DISTINCT sgm.PeopleId) as Members,
+    COUNT(DISTINCT si.Id) as MessagesSent,
+    MAX(si.Sent) as LastActivity
+FROM SMSGroups sg
+LEFT JOIN SMSGroupMembers sgm ON sg.Id = sgm.GroupId
+LEFT JOIN SMSItems si ON sgm.PeopleId = si.PeopleId
+GROUP BY sg.Name
+ORDER BY Members DESC
+
+-- Text messaging engagement
+SELECT 
+    p.Name,
+    COUNT(DISTINCT sl.ID) as MessagesSent,
+    COUNT(DISTINCT sr.ID) as MessagesReceived,
+    MAX(sl.SendAt) as LastSent,
+    MAX(sr.DateReceived) as LastReceived
+FROM People p
+LEFT JOIN SMSList sl ON p.PeopleId = sl.SenderID AND sl.Sent = 1
+LEFT JOIN SmsReceived sr ON p.PeopleId = sr.FromPeopleId
+WHERE sl.ID IS NOT NULL OR sr.ID IS NOT NULL
+GROUP BY p.PeopleId, p.Name
+HAVING COUNT(DISTINCT sl.ID) + COUNT(DISTINCT sr.ID) > 10
+ORDER BY (COUNT(DISTINCT sl.ID) + COUNT(DISTINCT sr.ID)) DESC</code></pre>
+</div>
+
+<div id="security-users" class="section">
+    <h2>🔐 Security & User Management</h2>
+    
+    <h3>Users Table Structure</h3>
+    <table class="field-table">
+        <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Security Notes</th>
+        </tr>
+        <tr>
+            <td><code>UserId</code></td>
+            <td>int</td>
+            <td>User ID</td>
+            <td>Primary key</td>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Person link</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>Username</code></td>
+            <td>nvarchar</td>
+            <td>Login name</td>
+            <td>Unique identifier</td>
+        </tr>
+        <tr>
+            <td><code>IsOnline</code></td>
+            <td>bit</td>
+            <td>Currently active</td>
+            <td>Real-time status</td>
+        </tr>
+        <tr>
+            <td><code>LastActivityDate</code></td>
+            <td>datetime</td>
+            <td>Last action</td>
+            <td>Audit tracking</td>
+        </tr>
+        <tr>
+            <td><code>FailedPasswordAttemptCount</code></td>
+            <td>int</td>
+            <td>Failed logins</td>
+            <td>Security monitoring</td>
+        </tr>
+    </table>
+
+    <h3>BackgroundChecks Table</h3>
+    <table>
+        <tr>
+            <th>Purpose</th>
+            <th>Key Fields</th>
+            <th>Critical for</th>
+        </tr>
+        <tr>
+            <td>Volunteer screening</td>
+            <td>PeopleId, Status, DateCompleted, ExpirationDate</td>
+            <td>Children's ministry, youth work</td>
+        </tr>
+    </table>
+
+    <h3>Security Queries</h3>
+    <pre><code>-- Active users with failed login attempts
+SELECT 
+    u.Username,
+    p.Name,
+    u.LastActivityDate,
+    u.FailedPasswordAttemptCount,
+    u.IsLockedOut,
+    DATEDIFF(day, u.LastActivityDate, GETDATE()) as DaysSinceActive
+FROM Users u
+JOIN People p ON u.PeopleId = p.PeopleId
+WHERE u.FailedPasswordAttemptCount > 0
+   OR u.IsLockedOut = 1
+ORDER BY u.FailedPasswordAttemptCount DESC
+
+-- Background check status for volunteers
+SELECT 
+    p.Name,
+    bc.Status,
+    bc.DateCompleted,
+    bc.ExpirationDate,
+    DATEDIFF(day, GETDATE(), bc.ExpirationDate) as DaysUntilExpiry,
+    STRING_AGG(o.OrganizationName, ', ') as VolunteerRoles
+FROM BackgroundChecks bc
+JOIN People p ON bc.PeopleId = p.PeopleId
+LEFT JOIN OrganizationMembers om ON p.PeopleId = om.PeopleId
+LEFT JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+WHERE om.MemberTypeId IN (140, 150, 160, 710)  -- Leader/volunteer types
+  AND om.InactiveDate IS NULL
+GROUP BY p.Name, bc.Status, bc.DateCompleted, bc.ExpirationDate
+ORDER BY bc.ExpirationDate</code></pre>
+</div>
+
+<div id="registration-system" class="section">
+    <h2>📝 Registration & Event Management</h2>
+    
+    <h3>Registration Tables</h3>
+    <table>
+        <tr>
+            <th>Table</th>
+            <th>Records</th>
+            <th>Purpose</th>
+            <th>Key Relationships</th>
+        </tr>
+        <tr>
+            <td><code>RecReg</code></td>
+            <td>Varies</td>
+            <td>Registration setup</td>
+            <td>→ Organizations</td>
+        </tr>
+        <tr>
+            <td><code>RegistrationData</code></td>
+            <td>179K+</td>
+            <td>Form responses</td>
+            <td>→ People, Organizations</td>
+        </tr>
+        <tr>
+            <td><code>RegPeople</code></td>
+            <td>Varies</td>
+            <td>Registrants</td>
+            <td>→ People, RecReg</td>
+        </tr>
+    </table>
+
+    <h3>Registration Queries</h3>
+    <pre><code>-- Event registration summary
+SELECT 
+    o.OrganizationName,
+    COUNT(DISTINCT rd.PeopleId) as Registrants,
+    COUNT(DISTINCT rd.Id) as TotalResponses,
+    MIN(rd.Stamp) as FirstRegistration,
+    MAX(rd.Stamp) as LastRegistration
+FROM RegistrationData rd
+JOIN Organizations o ON rd.OrganizationId = o.OrganizationId
+WHERE rd.Stamp >= DATEADD(month, -6, GETDATE())
+GROUP BY o.OrganizationName
+ORDER BY Registrants DESC
+
+-- Registration form field analysis
+SELECT 
+    rd.Field,
+    COUNT(*) as ResponseCount,
+    COUNT(DISTINCT rd.PeopleId) as UniqueResponders
+FROM RegistrationData rd
+WHERE rd.OrganizationId = 123  -- Specific event
+GROUP BY rd.Field
+ORDER BY ResponseCount DESC</code></pre>
+</div>
+
+<div id="resource-facilities" class="section">
+    <h2>🏢 Resource & Facility Management</h2>
+    
+    <h3>Resource System Tables</h3>
+    <table>
+        <tr>
+            <th>Table</th>
+            <th>Purpose</th>
+            <th>Key Fields</th>
+        </tr>
+        <tr>
+            <td><code>Resource</code></td>
+            <td>Resource definitions</td>
+            <td>ResourceId, Name, Type, Capacity</td>
+        </tr>
+        <tr>
+            <td><code>Reservable</code></td>
+            <td>Reservation settings</td>
+            <td>ResourceId, StartTime, EndTime</td>
+        </tr>
+        <tr>
+            <td><code>Calendar</code></td>
+            <td>Scheduled events</td>
+            <td>Id, ResourceId, StartTime, EndTime</td>
+        </tr>
+    </table>
+
+    <h3>Facility Queries</h3>
+    <pre><code>-- Room utilization analysis
+SELECT 
+    r.Name as ResourceName,
+    r.Type,
+    r.Capacity,
+    COUNT(c.Id) as TotalReservations,
+    SUM(DATEDIFF(hour, c.StartTime, c.EndTime)) as TotalHours,
+    AVG(DATEDIFF(hour, c.StartTime, c.EndTime)) as AvgHours
+FROM Resource r
+LEFT JOIN Calendar c ON r.ResourceId = c.ResourceId
+WHERE c.StartTime >= DATEADD(month, -3, GETDATE())
+GROUP BY r.Name, r.Type, r.Capacity
+ORDER BY TotalReservations DESC</code></pre>
+</div>
+
+<div id="lookup-tables" class="section">
+    <h2>📋 Critical Lookup Tables Reference</h2>
+    
+    <div class="info">
+        <strong>Schema Note:</strong> Most lookup tables are in the <code>lookup</code> schema. Always use <code>lookup.TableName</code> when joining.
+    </div>
+
+    <h3>Key Lookup Tables</h3>
+    <table>
+        <tr>
+            <th>Table</th>
+            <th>Common Values</th>
+            <th>Usage</th>
+        </tr>
+        <tr>
+            <td><code>lookup.AttendType</code></td>
+            <td>10=Leader, 20=Volunteer, 30=Member, 60=Guest</td>
+            <td>Attendance categories</td>
+        </tr>
+        <tr>
+            <td><code>lookup.MemberType</code></td>
+            <td>140=Leader, 220=Member, 230=Prospect, 500=Visitor</td>
+            <td>Organization roles</td>
+        </tr>
+        <tr>
+            <td><code>lookup.PositionInFamily</code></td>
+            <td>10=Primary Adult, 20=Secondary Adult, 30=Child</td>
+            <td>Family relationships</td>
+        </tr>
+        <tr>
+            <td><code>lookup.MaritalStatus</code></td>
+            <td>10=Single, 20=Married, 30=Divorced, 40=Widowed</td>
+            <td>Marital status</td>
+        </tr>
+        <tr>
+            <td><code>lookup.DecisionType</code></td>
+            <td>10=Statement of Faith, 20=Baptism, 30=Membership</td>
+            <td>Spiritual decisions</td>
+        </tr>
+        <tr>
+            <td><code>lookup.BaptismStatus</code></td>
+            <td>10=Scheduled, 20=Completed, 30=Cancelled</td>
+            <td>Baptism tracking</td>
+        </tr>
+        <tr>
+            <td><code>lookup.OrganizationStatus</code></td>
+            <td>30=Active, 40=Inactive</td>
+            <td>Org status</td>
+        </tr>
+        <tr>
+            <td><code>lookup.ResidentCode</code></td>
+            <td>10=Metro, 20=Marginal, 30=Non-Resident</td>
+            <td>Geographic zones</td>
+        </tr>
+    </table>
+
+    <h3>Lookup Usage Example</h3>
+    <pre><code>-- Complete person profile with all lookups
+SELECT 
+    p.Name,
+    pf.Description as FamilyPosition,
+    ms.Description as MaritalStatus,
+    at.Description as AttendanceType,
+    rc.Description as ResidenceZone,
+    bs.Description as BaptismStatus
+FROM People p
+LEFT JOIN lookup.PositionInFamily pf ON p.PositionInFamilyId = pf.Id
+LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
+LEFT JOIN lookup.AttendType at ON p.AttendTypeId = at.Id
+LEFT JOIN lookup.ResidentCode rc ON p.ResCodeId = rc.Id
+LEFT JOIN lookup.BaptismStatus bs ON p.BaptismStatusId = bs.Id
+WHERE p.PeopleId = 12345</code></pre>
+</div>
+
+<div id="performance-warnings" class="section">
+    <h2>⚠️ Performance-Critical Tables</h2>
+    
+    <div class="critical">
+        <h3>🚨 EXTREME CAUTION - Tables Over 1M Records</h3>
+        <table>
+            <tr>
+                <th>Table</th>
+                <th>Record Count</th>
+                <th>Required Filters</th>
+            </tr>
+            <tr>
+                <td><code>ActivityLog</code></td>
+                <td>3.7M+</td>
+                <td>ALWAYS use date filter</td>
+            </tr>
+            <tr>
+                <td><code>PeopleSearchTokens</code></td>
+                <td>1.7M+</td>
+                <td>Use specific PeopleId</td>
+            </tr>
+            <tr>
+                <td><code>EngagementScoreTag</code></td>
+                <td>1.5M+</td>
+                <td>Date range required</td>
+            </tr>
+            <tr>
+                <td><code>EngagementScore</code></td>
+                <td>1.4M+</td>
+                <td>WeekDate filter mandatory</td>
+            </tr>
+            <tr>
+                <td><code>Tag</code></td>
+                <td>986K+</td>
+                <td>Use specific TagId or Name</td>
+            </tr>
+            <tr>
+                <td><code>Contribution</code></td>
+                <td>687K+</td>
+                <td>Date range required</td>
+            </tr>
+            <tr>
+                <td><code>BundleDetail</code></td>
+                <td>687K+</td>
+                <td>Join through BundleHeader</td>
+            </tr>
+        </table>
+    </div>
+
+    <h3>Safe Query Patterns for Large Tables</h3>
+    <pre><code>-- GOOD: ActivityLog with date filter
+SELECT TOP 1000 * 
+FROM ActivityLog 
+WHERE ActivityDate >= DATEADD(day, -7, GETDATE())
+
+-- BAD: Never do this!
+-- SELECT * FROM ActivityLog
+
+-- GOOD: EngagementScore with filters
+SELECT es.* 
+FROM EngagementScore es
+WHERE es.WeekDate >= DATEADD(month, -3, GETDATE())
+  AND es.PeopleId IN (SELECT PeopleId FROM ...)
+
+-- GOOD: Contribution with date range
+SELECT c.*
+FROM Contribution c
+WHERE c.ContributionDate BETWEEN '2024-01-01' AND '2024-12-31'
+  AND c.FundId = 1</code></pre>
+</div>
 
 </body>
 </html> Notes</th>
