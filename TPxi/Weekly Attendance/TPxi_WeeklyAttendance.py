@@ -2,17 +2,49 @@
 #### REPORT INFORMATION
 #####################################################################
 # Weekly Attendance Dashboard
-# This script creates an attendance dashboard that compares attendance 
-# week-over-week and year-over-year with configurable options for fiscal or calendar year.
-# The report breaks down attendance by Program, Division, and Organization.
-# Also includes fiscal year-to-date comparison.
+#####################################################################
+#  Key Features
+
+#  - Real-time attendance tracking across multiple programs/divisions
+#  - Interactive date range selector with quick presets (This Week, Last Week, Last 30/90 Days)
+#  - Multi-level filtering - Campus, Program, Division, and Organization
+#  - Visual charts showing attendance trends over time
+#  - Sortable data table with attendance counts and percentages
+#  - Export capabilities - Download data as CSV
+#  - Responsive design - Works on desktop and mobile
+#  - Dynamic organization hierarchy - Filters update based on selections
+#  - Attendance metrics including:
+#    - Total attendance per period
+#    - Average attendance
+#    - Attendance trends
+#    - Organization-level breakdowns
+
+#  Data Points Tracked
+
+#  - Meeting dates
+#  - Organization names and IDs
+#  - Attendance counts
+#  - Program/Division associations
+#  - Campus assignments
+#  - Historical attendance patterns
 
 #written by: Ben Swaby
 #email: bswaby@fbchtn.org
-#last updated: 05/2/2025
 
-#written by: Ben Swaby
-#email: bswaby@fbchtn.org
+# Update Notes 8/28/2025:
+# - Added exception to add notes on things that affect attendance (weather, Easter, etc..).  these exceptions will automatically display if they are within the 4 week period 
+# - Added actual and YTD KPI metrics
+# - Added unique counts for involvements, enrollment, and 4 week attendance
+# - Improved performance
+# - Several misc bug fixes.
+
+# Update Notes 12/24/2024:
+# - Updated unique attendance counting to use program-specific time windows (StartHoursOffset/EndHoursOffset)
+# - Ensures accurate unique people counts for programs like Adults (-144 to 24 hours) and Preschool (-24 to 24 hours)
+# - Fixed enrollment queries to use DivOrg table for correct organization-division relationships
+# - All enrollment counts properly exclude prospects (MemberTypeId = 230)
+# - Active organization filtering (OrganizationStatusId = 30) applied consistently
+# - Added exceptions feature to track and display special Sundays (holidays, weather, etc.)
 
 #####################################################################
 #### USER CONFIG FIELDS (Modify these settings as needed)
@@ -93,6 +125,14 @@ ENROLLMENT_RATIO_THRESHOLDS = {
     # Above 55% needs outreach
 }
 
+# Exceptions Configuration
+# Name of the TextContent that stores exception dates
+EXCEPTIONS_CONTENT_NAME = "WeeklyAttendance_Exceptions"
+# Enable/disable showing exceptions in the report
+SHOW_EXCEPTIONS = True
+# Set to True to require Admin role for managing (adding/deleting) exceptions
+# Non-admins will still be able to VIEW exceptions if SHOW_EXCEPTIONS is True
+REQUIRE_ADMIN_FOR_EXCEPTION_MANAGEMENT = True
 
 #####################################################################
 #### START OF CODE - No configuration should be needed beyond this point
@@ -151,15 +191,15 @@ class PerformanceTimer:
         report = "<div class='timing-report' style='margin: 10px; padding: 10px; background-color: #f0f8ff; border: 1px solid #ccc;'>"
         report += "<h3>Performance Report</h3>"
         report += "<table style='width: 100%; border-collapse: collapse;'>"
-        report += "<tr><th style='text-align: left; padding: 8px; border-bottom: 1px solid #ddd;'>Section</th>"
-        report += "<th style='text-align: right; padding: 8px; border-bottom: 1px solid #ddd;'>Time (seconds)</th></tr>"
+        report += "<tr><th style='text-align: left; padding: 4px 8px; border-bottom: 1px solid #ddd;'>Section</th>"
+        report += "<th style='text-align: right; padding: 4px 8px; border-bottom: 1px solid #ddd;'>Time (seconds)</th></tr>"
         
         # Sort results by time (descending)
         sorted_results = sorted(self.results.items(), key=lambda x: x[1], reverse=True)
         
         for section, elapsed in sorted_results:
-            report += "<tr><td style='padding: 8px; border-bottom: 1px solid #eee;'>{}</td>".format(section)
-            report += "<td style='text-align: right; padding: 8px; border-bottom: 1px solid #eee;'>{:.4f}</td></tr>".format(elapsed)
+            report += "<tr><td style='padding: 4px 8px; border-bottom: 1px solid #eee;'>{}</td>".format(section)
+            report += "<td style='text-align: right; padding: 4px 8px; border-bottom: 1px solid #eee;'>{:.4f}</td></tr>".format(elapsed)
         
         report += "</table></div>"
         return report
@@ -353,9 +393,41 @@ class ReportHelper:
         
         # Calculate difference in days and convert to weeks
         days_elapsed = (current_date - fiscal_start_date).days
-        weeks_elapsed = max(1, int(days_elapsed / 7))  # Ensure at least 1 week
+        # Round up to nearest week since worship services happen weekly
+        # Add 6 to round up (e.g., 9 days = (9+6)/7 = 2.14 -> int = 2 weeks)
+        weeks_elapsed = max(1, int((days_elapsed + 6) / 7))  # Ensure at least 1 week
         
         return weeks_elapsed
+    
+    @staticmethod
+    def count_sundays_between(start_date, end_date):
+        """Count the number of Sundays between two dates (inclusive)."""
+        from datetime import timedelta
+        
+        # Ensure we have datetime objects
+        if isinstance(start_date, str):
+            start_date = ReportHelper.parse_date_string(start_date)
+        if isinstance(end_date, str):
+            end_date = ReportHelper.parse_date_string(end_date)
+            
+        # Start from the first Sunday on or after start_date
+        # If start_date is a Sunday, start from that date
+        if start_date.weekday() == 6:  # Sunday
+            current_sunday = start_date
+        else:
+            # Find next Sunday
+            days_until_sunday = (6 - start_date.weekday()) % 7
+            if days_until_sunday == 0:
+                days_until_sunday = 7
+            current_sunday = start_date + timedelta(days=days_until_sunday)
+        
+        # Count Sundays
+        sunday_count = 0
+        while current_sunday <= end_date:
+            sunday_count += 1
+            current_sunday += timedelta(days=7)
+            
+        return max(1, sunday_count)  # Return at least 1
     
     @staticmethod
     def get_date_from_weeks_ago(date_obj, weeks=4):
@@ -373,6 +445,22 @@ class ReportHelper:
         # Go back to the previous Sunday
         last_sunday = today - datetime.timedelta(days=days_since_sunday)
         return last_sunday
+    
+    @staticmethod
+    def get_previous_year_sunday(sunday_date):
+        """Get the Sunday from the same week in the previous year."""
+        # Go back exactly 52 weeks (364 days) to maintain Sunday alignment
+        prev_year = sunday_date - datetime.timedelta(weeks=52)
+        
+        # Make sure it's a Sunday
+        if prev_year.weekday() != 6:  # 6 is Sunday
+            # Adjust to the nearest Sunday
+            days_to_sunday = (6 - prev_year.weekday()) % 7
+            if days_to_sunday == 0 and prev_year.weekday() != 6:
+                days_to_sunday = 7
+            prev_year = prev_year + datetime.timedelta(days=days_to_sunday)
+        
+        return prev_year
     
     @staticmethod
     def parse_date_string(date_string):
@@ -393,6 +481,174 @@ class ReportHelper:
         """Check if a date is a Sunday."""
         return date_obj.weekday() == 6  # Python's weekday() returns 0-6 (Mon-Sun)
 
+class ExceptionsManager:
+    """Manager for handling attendance exceptions (holidays, special events, etc.)"""
+    
+    def __init__(self):
+        """Initialize the exceptions manager."""
+        self.exceptions = []
+        self.load_exceptions()
+    
+    def load_exceptions(self):
+        """Load exceptions from TextContent."""
+        try:
+            # Get the exceptions content
+            content = model.TextContent(EXCEPTIONS_CONTENT_NAME)
+            if content:
+                # Parse the content (enhanced format: YYYY-MM-DD | Description | Flags)
+                # Flags: W=Worship, G=Groups, B=Both
+                lines = content.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if line and not line.startswith('#') and '|' in line:
+                        parts = line.split('|')
+                        if len(parts) >= 2:
+                            date_str = parts[0].strip()
+                            description = parts[1].strip()
+                            # Get flags if present (default to Both)
+                            flags = parts[2].strip() if len(parts) >= 3 else 'B'
+                            
+                            try:
+                                # Parse the date
+                                exception_date = datetime.datetime.strptime(date_str, '%Y-%m-%d')
+                                self.exceptions.append({
+                                    'date': exception_date,
+                                    'description': description,
+                                    'affects_worship': 'W' in flags.upper() or 'B' in flags.upper(),
+                                    'affects_groups': 'G' in flags.upper() or 'B' in flags.upper()
+                                })
+                            except ValueError:
+                                # Skip invalid date formats
+                                continue
+        except:
+            # If content doesn't exist or error loading, continue without exceptions
+            pass
+    
+    def save_exceptions(self):
+        """Save exceptions back to TextContent (sorted by date)."""
+        try:
+            # Add header comments
+            lines = [
+                "# Weekly Attendance Exceptions",
+                "# Format: YYYY-MM-DD | Description | Flags",
+                "# Flags: W=Worship only, G=Groups only, B=Both (default)",
+                "#",
+                ""
+            ]
+            
+            # Format exceptions for saving (sorted by date)
+            for exception in sorted(self.exceptions, key=lambda x: x['date']):
+                date_str = exception['date'].strftime('%Y-%m-%d')
+                # Determine flag
+                affects_worship = exception.get('affects_worship', True)
+                affects_groups = exception.get('affects_groups', True)
+                
+                if affects_worship and affects_groups:
+                    flag = 'B'
+                elif affects_worship:
+                    flag = 'W'
+                elif affects_groups:
+                    flag = 'G'
+                else:
+                    flag = 'B'  # Default to both if neither
+                
+                lines.append("{} | {} | {}".format(date_str, exception['description'], flag))
+            
+            content = '\n'.join(lines)
+            
+            # Save to TextContent using the TouchPoint API
+            # WriteContentText parameters: name, text, keyword (optional)
+            model.WriteContentText(EXCEPTIONS_CONTENT_NAME, content)
+            
+            # Debug: Verify the save worked by reading it back
+            saved_content = model.TextContent(EXCEPTIONS_CONTENT_NAME)
+            if saved_content and saved_content.strip() != content.strip():
+                print "Warning: Content mismatch after save"
+                return False
+            
+            return True
+        except Exception as e:
+            print "Error saving exceptions: {}".format(str(e))
+            return False
+    
+    def add_exception(self, date_obj, description, affects_worship=True, affects_groups=True):
+        """Add a new exception."""
+        self.exceptions.append({
+            'date': date_obj,
+            'description': description,
+            'affects_worship': affects_worship,
+            'affects_groups': affects_groups
+        })
+        return self.save_exceptions()
+    
+    def remove_exception(self, date_obj):
+        """Remove an exception by date."""
+        self.exceptions = [e for e in self.exceptions if e['date'] != date_obj]
+        return self.save_exceptions()
+    
+    def get_exceptions_in_range(self, start_date, end_date):
+        """Get all exceptions within a date range."""
+        exceptions_in_range = []
+        for exception in self.exceptions:
+            if start_date <= exception['date'] <= end_date:
+                exceptions_in_range.append(exception)
+        return sorted(exceptions_in_range, key=lambda x: x['date'])
+    
+    def get_exception_for_date(self, date_obj):
+        """Get exception for a specific date if it exists."""
+        for exception in self.exceptions:
+            if exception['date'].date() == date_obj.date():
+                return exception
+        return None
+    
+    def format_exceptions_html(self, exceptions):
+        """Format exceptions list as HTML for display."""
+        if not exceptions:
+            return ""
+        
+        html = '<div style="background-color: #fff9e6; border: 1px solid #ffc107; padding: 10px; margin: 10px 0; border-radius: 5px;">'
+        html += '<strong style="color: #856404;">⚠️ Note: The following exceptions occurred during this period:</strong><ul style="margin: 5px 0;">'
+        
+        for exception in sorted(exceptions, key=lambda x: x['date']):
+            date_str = exception['date'].strftime('%m/%d/%Y')
+            affects_worship = exception.get('affects_worship', True)
+            affects_groups = exception.get('affects_groups', True)
+            
+            # Add visual indicators for what's affected
+            indicators = []
+            if affects_worship:
+                indicators.append('<span style="color: #e91e63;">⛪ Worship</span>')
+            if affects_groups:
+                indicators.append('<span style="color: #2196f3;">👥 Groups</span>')
+            
+            affects_text = ' [{}]'.format(', '.join(indicators)) if indicators else ''
+            html += '<li><strong>{}</strong>: {}{}</li>'.format(date_str, exception['description'], affects_text)
+        
+        html += '</ul></div>'
+        return html
+    
+    def get_sample_content(self):
+        """Get sample content for the exceptions file."""
+        return """# Weekly Attendance Exceptions
+# Format: YYYY-MM-DD | Description | Flags
+# Flags: W=Worship only, G=Groups only, B=Both (default)
+#
+
+2024-12-25 | Christmas Day - No services | B
+2024-12-29 | Combined Service - Single service only | W
+2025-01-01 | New Year's Day - Modified schedule | B
+2025-02-16 | Winter Storm - Services cancelled | B
+2025-04-20 | Easter Sunday - Higher than normal attendance expected | W
+2025-05-25 | Memorial Day Weekend - Lower attendance expected | B
+2025-07-04 | July 4th - No evening activities | G
+2025-07-06 | July 4th Weekend - Lower attendance expected | W
+2025-09-07 | Labor Day Weekend - Lower attendance expected | B
+2025-11-27 | Thanksgiving - No groups meeting | G
+2025-11-30 | Thanksgiving Weekend - Lower attendance expected | W
+2025-12-24 | Christmas Eve - Special services | W
+2025-12-28 | Combined Service - Single service only | W"""
+
 class AttendanceReport:
     """Main class to generate the attendance dashboard"""
     
@@ -401,6 +657,15 @@ class AttendanceReport:
         self.current_year = ReportHelper.get_current_year()
         self.year_labels = []
         self.years = []
+        
+        # Initialize exceptions manager if enabled
+        self.exceptions_manager = None
+        if SHOW_EXCEPTIONS:
+            try:
+                self.exceptions_manager = ExceptionsManager()
+            except:
+                # If exceptions manager fails to load, continue without it
+                pass
         
         # Set should_load_data flag to False by default
         self.should_load_data = False
@@ -438,13 +703,17 @@ class AttendanceReport:
             self.previous_year_date = ReportHelper.get_same_weekday_previous_year(self.report_date)
             self.previous_week_start_date = ReportHelper.get_week_start_date(self.previous_year_date)
             
-            # Get 4-week period dates
+            # Get 4-week period dates (exactly 28 days before report date)
             self.four_weeks_ago_date = ReportHelper.get_date_from_weeks_ago(self.report_date, 4)
-            self.four_weeks_ago_start_date = ReportHelper.get_week_start_date(self.four_weeks_ago_date)
+            # For 4-week average, use exactly 4 weeks (28 days) from the report date
+            # Don't adjust to week start to avoid including extra days
+            self.four_weeks_ago_start_date = self.report_date - datetime.timedelta(days=27)
             
             # Get previous year's 4-week period dates
             self.prev_year_four_weeks_ago_date = ReportHelper.get_date_from_weeks_ago(self.previous_year_date, 4)
-            self.prev_year_four_weeks_ago_start_date = ReportHelper.get_week_start_date(self.prev_year_four_weeks_ago_date)
+            # For 4-week average, use exactly 4 weeks (28 days) from the previous year date
+            # Don't adjust to week start to avoid including extra days  
+            self.prev_year_four_weeks_ago_start_date = self.previous_year_date - datetime.timedelta(days=27)
             
             # Get fiscal year start dates for YTD comparisons
             self.current_fiscal_year = ReportHelper.get_fiscal_year(self.report_date)
@@ -525,7 +794,8 @@ class AttendanceReport:
         Get enrollment count for a division as of the report date.
         
         This counts people enrolled in organizations in this division
-        as of the report date.
+        as of the report date, but ONLY for organizations that are part of
+        the reporting structure (have RptGroup and ReportLine).
         """
         # Format date correctly
         if hasattr(report_date, 'strftime'):
@@ -533,16 +803,25 @@ class AttendanceReport:
         else:
             date_str = str(report_date)
         
-        # Simple SQL query to count enrolled members
+        # SQL query to count enrolled members, matching the same filters used for attendance
         sql = """
-            SELECT COUNT(om.PeopleId) AS EnrolledCount
+            SELECT COUNT(DISTINCT om.PeopleId) AS EnrolledCount
             FROM OrganizationMembers om
+            JOIN Organizations o ON o.OrganizationId = om.OrganizationId
             JOIN OrganizationStructure os ON os.OrgId = om.OrganizationId
-            WHERE os.DivId = {}
-            AND (om.EnrollmentDate IS NULL OR om.EnrollmentDate <= '{}')
-            AND (om.InactiveDate IS NULL OR om.InactiveDate > '{}')
-            AND om.MemberTypeId NOT IN (230,311)
-        """.format(division_id, date_str, date_str)
+            JOIN Division d ON d.Id = os.DivId
+            JOIN Program p ON p.Id = d.ProgId
+            JOIN People pe ON pe.PeopleId = om.PeopleId
+            WHERE os.DivId = {0}
+            AND o.OrganizationStatusId = 30  -- Only active organizations
+            AND p.RptGroup IS NOT NULL AND p.RptGroup <> ''  -- Only programs in reporting
+            AND d.ReportLine IS NOT NULL AND d.ReportLine <> ''  -- Only divisions in reporting
+            AND (om.EnrollmentDate IS NULL OR om.EnrollmentDate <= '{1}')  -- Enrolled by report date
+            AND (om.InactiveDate IS NULL OR om.InactiveDate > '{1}')  -- Still active on report date
+            AND om.MemberTypeId NOT IN (230,311)  -- Exclude prospects (230) and other non-members (311)
+            AND (pe.DeceasedDate IS NULL OR pe.DeceasedDate > '{1}')  -- Not deceased as of report date
+            AND (pe.DropDate IS NULL OR pe.DropDate > '{1}')  -- Not dropped/archived as of report date
+        """.format(division_id, date_str)
             
         # Print the SQL for debugging
         #print('Division {} enrollment SQL: {}'.format(division_id, sql))
@@ -1363,6 +1642,215 @@ class AttendanceReport:
         performance_timer.log("multiple_years_attendance_data_{}".format(org_id or division_id or program_id))
         return years_data
     
+    def get_unique_involvements_count(self, program_names):
+        """Get distinct count of involvements (enrollments) for specified programs."""
+        involvement_data = {
+            'total': 0,
+            'by_program': {},
+            'org_count': 0,
+            'org_by_program': {}
+        }
+        
+        if not program_names or len(program_names) == 0:
+            return involvement_data
+        
+        # Format report date for SQL
+        report_date_str = self.report_date.strftime('%Y-%m-%d') if hasattr(self.report_date, 'strftime') else str(self.report_date)
+        
+        # Get overall total unique across all programs first
+        safe_names = []
+        for name in program_names:
+            safe_name = name.replace("'", "''")
+            safe_names.append("'{}'".format(safe_name))
+        
+        # Get per-program unique counts (people may be in multiple orgs within a program)
+        # Using same filters as other enrollment queries for consistency
+        sql = """
+        SELECT 
+            p.Name AS ProgramName,
+            COUNT(DISTINCT om.PeopleId) AS UniqueInvolvements,
+            COUNT(DISTINCT o.OrganizationId) AS OrgCount
+        FROM Program p
+        INNER JOIN Division d ON d.ProgId = p.Id
+        INNER JOIN OrganizationStructure os ON os.DivId = d.Id
+        INNER JOIN Organizations o ON o.OrganizationId = os.OrgId
+        INNER JOIN OrganizationMembers om ON om.OrganizationId = o.OrganizationId
+        INNER JOIN People pe ON pe.PeopleId = om.PeopleId
+        WHERE p.Name IN ({0})
+            AND p.RptGroup IS NOT NULL AND p.RptGroup <> ''  -- Only programs in reporting
+            AND d.ReportLine IS NOT NULL AND d.ReportLine <> ''  -- Only divisions in reporting
+            AND o.OrganizationStatusId = 30  -- Active organizations
+            AND (om.EnrollmentDate IS NULL OR om.EnrollmentDate <= '{1}')  -- Enrolled by report date
+            AND (om.InactiveDate IS NULL OR om.InactiveDate > '{1}')  -- Still active on report date
+            AND om.MemberTypeId NOT IN (230, 311)  -- Exclude prospects and non-members
+            AND (pe.DeceasedDate IS NULL OR pe.DeceasedDate > '{1}')  -- Not deceased as of report date
+            AND (pe.DropDate IS NULL OR pe.DropDate > '{1}')  -- Not dropped/archived as of report date
+        GROUP BY p.Name
+        """.format(','.join(safe_names), report_date_str)
+        
+        try:
+            results = q.QuerySql(sql)
+            for row in results:
+                program_name = row.ProgramName
+                unique_count = row.UniqueInvolvements or 0
+                org_count = row.OrgCount or 0
+                involvement_data['by_program'][program_name] = unique_count
+                involvement_data['org_by_program'][program_name] = org_count
+            
+            # Calculate total unique across all programs (someone might be in multiple programs)
+            # Using same filters as other enrollment queries for consistency
+            total_sql = """
+            SELECT 
+                COUNT(DISTINCT om.PeopleId) AS TotalUnique,
+                COUNT(DISTINCT o.OrganizationId) AS TotalOrgs
+            FROM Program p
+            INNER JOIN Division d ON d.ProgId = p.Id
+            INNER JOIN OrganizationStructure os ON os.DivId = d.Id
+            INNER JOIN Organizations o ON o.OrganizationId = os.OrgId
+            INNER JOIN OrganizationMembers om ON om.OrganizationId = o.OrganizationId
+            INNER JOIN People pe ON pe.PeopleId = om.PeopleId
+            WHERE p.Name IN ({0})
+                AND p.RptGroup IS NOT NULL AND p.RptGroup <> ''  -- Only programs in reporting
+                AND d.ReportLine IS NOT NULL AND d.ReportLine <> ''  -- Only divisions in reporting
+                AND o.OrganizationStatusId = 30  -- Active organizations
+                AND (om.EnrollmentDate IS NULL OR om.EnrollmentDate <= '{1}')  -- Enrolled by report date
+                AND (om.InactiveDate IS NULL OR om.InactiveDate > '{1}')  -- Still active on report date
+                AND om.MemberTypeId NOT IN (230, 311)  -- Exclude prospects and non-members
+                AND (pe.DeceasedDate IS NULL OR pe.DeceasedDate > '{1}')  -- Not deceased as of report date
+                AND (pe.DropDate IS NULL OR pe.DropDate > '{1}')  -- Not dropped/archived as of report date
+            """.format(','.join(safe_names), report_date_str)
+            
+            total_results = q.QuerySql(total_sql)
+            if total_results and len(total_results) > 0:
+                involvement_data['total'] = total_results[0].TotalUnique or 0
+                involvement_data['org_count'] = total_results[0].TotalOrgs or 0
+            
+        except Exception as e:
+            print "<!-- Error getting unique involvements: {} -->".format(str(e))
+        
+        return involvement_data
+    
+    def get_unique_attendance_data(self, program_names, start_date, end_date):
+        """Get distinct count of people who attended for specified programs across last 4 Sundays."""
+        unique_data = {
+            'total': 0,
+            'by_program': {}
+        }
+        
+        if not program_names or len(program_names) == 0:
+            return unique_data
+        
+        # Build safe SQL for program names
+        safe_names = []
+        for name in program_names:
+            safe_name = name.replace("'", "''")
+            safe_names.append("'{}'".format(safe_name))
+        
+        # Calculate the last 4 Sundays from end_date
+        # Note: SQL Server DATEPART(dw, date) returns 1 for Sunday
+        end_date_str = str(end_date).split(' ')[0] if ' ' in str(end_date) else str(end_date)
+        
+        # Get unique attendance using program-specific time windows
+        # This respects each program's StartHoursOffset and EndHoursOffset
+        sql = """
+        WITH ProgramWindows AS (
+            -- Generate 4 Sunday dates with program-specific time windows
+            SELECT p.Id AS ProgramId, p.Name AS ProgramName, 
+                   p.StartHoursOffset, p.EndHoursOffset, s.SundayDate,
+                   DATEADD(HOUR, ISNULL(p.StartHoursOffset, 0), s.SundayDate) AS WindowStart,
+                   DATEADD(HOUR, ISNULL(p.EndHoursOffset, 24), s.SundayDate) AS WindowEnd
+            FROM Program p
+            CROSS JOIN (
+                SELECT DATEADD(dd, 1-DATEPART(dw, '{1}'), '{1}') AS SundayDate  -- Most recent Sunday
+                UNION ALL SELECT DATEADD(week, -1, DATEADD(dd, 1-DATEPART(dw, '{1}'), '{1}'))
+                UNION ALL SELECT DATEADD(week, -2, DATEADD(dd, 1-DATEPART(dw, '{1}'), '{1}'))
+                UNION ALL SELECT DATEADD(week, -3, DATEADD(dd, 1-DATEPART(dw, '{1}'), '{1}'))
+            ) s
+            WHERE p.Name IN ({0})
+                AND (p.StartHoursOffset IS NOT NULL OR p.EndHoursOffset IS NOT NULL)
+        )
+        SELECT 
+            pw.ProgramName,
+            COUNT(DISTINCT a.PeopleId) AS UniquePeople
+        FROM ProgramWindows pw
+        INNER JOIN Division d ON d.ProgId = pw.ProgramId
+        INNER JOIN DivOrg do ON do.DivId = d.Id
+        INNER JOIN Organizations o ON o.OrganizationId = do.OrgId
+        INNER JOIN Attend a ON a.OrganizationId = o.OrganizationId
+        INNER JOIN People pe ON pe.PeopleId = a.PeopleId
+        WHERE a.MeetingDate >= pw.WindowStart 
+            AND a.MeetingDate < pw.WindowEnd
+            AND a.AttendanceFlag = 1  -- Present
+            AND o.OrganizationStatusId = 30  -- Active organizations
+            AND (pe.IsDeceased = 0 OR pe.IsDeceased IS NULL)  -- Exclude deceased
+            AND pe.ArchivedFlag = 0  -- Exclude archived
+        GROUP BY pw.ProgramName
+        """.format(','.join(safe_names), end_date_str)
+        
+        try:
+            results = q.QuerySql(sql)
+            found_programs = set()
+            
+            for row in results:
+                program_name = row.ProgramName
+                unique_count = row.UniquePeople or 0
+                unique_data['by_program'][program_name] = unique_count
+                unique_data['total'] += unique_count
+                found_programs.add(program_name)
+            
+            # For programs without individual attendance records, estimate based on average attendance
+            # This provides a reasonable approximation when individual records aren't available
+            missing_programs = set(program_names) - found_programs
+            if missing_programs:
+                for program_name in missing_programs:
+                    # Try to estimate based on meeting data - only count enrolled members
+                    # For programs using aggregate counts, we need to estimate enrolled attendance
+                    estimate_sql = """
+                    SELECT 
+                        p.Name AS ProgramName,
+                        -- Count unique enrolled members who could have attended
+                        COUNT(DISTINCT om.PeopleId) AS EstimatedUnique
+                    FROM Program p
+                    JOIN Division d ON d.ProgId = p.Id
+                    JOIN DivOrg do ON do.DivId = d.Id
+                    JOIN Organizations o ON o.OrganizationId = do.OrgId
+                    JOIN OrganizationMembers om ON om.OrganizationId = o.OrganizationId
+                    JOIN People pe ON pe.PeopleId = om.PeopleId
+                    -- Check if there were meetings in this period
+                    JOIN (
+                        SELECT DISTINCT m2.OrganizationId
+                        FROM Meetings m2
+                        WHERE CONVERT(date, m2.MeetingDate) >= '{}'
+                            AND CONVERT(date, m2.MeetingDate) <= '{}'
+                            AND (m2.DidNotMeet = 0 OR m2.DidNotMeet IS NULL)
+                            AND (m2.HeadCount > 0 OR m2.NumPresent > 0 OR m2.MaxCount > 0)
+                    ) met ON met.OrganizationId = o.OrganizationId
+                    WHERE p.Name = '{}'
+                        AND o.OrganizationStatusId = 30  -- Active organizations
+                        AND om.Pending = 0  -- Not pending
+                        AND (om.InactiveDate IS NULL OR om.InactiveDate > GETDATE())  -- Active members
+                        AND om.MemberTypeId <> 230  -- Exclude prospects
+                        AND (pe.IsDeceased = 0 OR pe.IsDeceased IS NULL)  -- Exclude deceased people
+                        AND pe.ArchivedFlag = 0  -- Exclude archived people
+                    GROUP BY p.Name
+                    """.format(end_date_str, end_date_str, program_name.replace("'", "''"))
+                    
+                    try:
+                        estimate_results = q.QuerySql(estimate_sql)
+                        if estimate_results and len(estimate_results) > 0:
+                            estimated_count = estimate_results[0].EstimatedUnique or 0
+                            unique_data['by_program'][program_name] = estimated_count
+                            unique_data['total'] += estimated_count
+                        else:
+                            unique_data['by_program'][program_name] = 0
+                    except:
+                        unique_data['by_program'][program_name] = 0
+                        
+        except Exception as e:
+            print "<!-- Error getting unique attendance: {} -->".format(str(e))
+        
+        return unique_data
+    
     def get_four_week_attendance_comparison(self, program_id=None, division_id=None, org_id=None):
         """Get attendance data for current and previous year's 4-week periods."""
         four_week_data = {}
@@ -1699,6 +2187,10 @@ class AttendanceReport:
                 <button type="submit" id="run-report-btn" style="padding: 5px 10px; background-color: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer; position: relative;">
                     Run Report
                 </button>
+                
+                <button type="button" onclick="toggleExceptionsPanel()" style="padding: 5px 10px; background-color: #FF9800; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                    ⚠️ Manage Exceptions
+                </button>
             </div>
             
             <div style="margin-top: 10px;">
@@ -1860,13 +2352,17 @@ class AttendanceReport:
         DECLARE @GoodRatioThreshold INT = {good_ratio}; -- Threshold for "Good Ratio" category
         DECLARE @IncludeOrgDetails BIT = {include_org_details}; -- Set to 1 to include Organization name and ID in results
 
-        -- Calculate the Sunday before the selected date
+        -- Calculate the Sunday for the current week
         DECLARE @LastSunday DATE = DATEADD(DAY, 
             CASE 
-                WHEN DATEPART(WEEKDAY, @SelectedDate) = 1 THEN -7 -- If already Sunday, go back a week
-                ELSE -(DATEPART(WEEKDAY, @SelectedDate) - 1) -- Otherwise go back to previous Sunday
+                WHEN DATEPART(WEEKDAY, @SelectedDate) = 1 THEN 0 -- If already Sunday, use current date
+                ELSE -(DATEPART(WEEKDAY, @SelectedDate) - 1) -- Otherwise go back to current week's Sunday
             END, 
             @SelectedDate);
+        
+        -- Debug output
+        PRINT 'Selected Date: ' + CAST(@SelectedDate AS VARCHAR(20));
+        PRINT 'Last Sunday: ' + CAST(@LastSunday AS VARCHAR(20));
         
         -- Temporary table for program names
         CREATE TABLE #ProgramNames (
@@ -2228,6 +2724,7 @@ class AttendanceReport:
         -- Create temporary table for results to properly handle ordering 
         CREATE TABLE #Results (
             Level NVARCHAR(100),
+            DivisionId INT NULL,
             DivisionName NVARCHAR(100) NULL,
             ProgramName NVARCHAR(100),
             OrganizationName NVARCHAR(255) NULL,
@@ -2323,6 +2820,7 @@ class AttendanceReport:
         -- Populate results table - Overall Summary 
         INSERT INTO #Results (
             Level, 
+            DivisionId,
             DivisionName, 
             ProgramName, 
             OrganizationName, 
@@ -2347,6 +2845,7 @@ class AttendanceReport:
         ) 
         SELECT 
             'Overall', 
+            NULL,
             NULL, 
             'All Programs', 
             NULL, 
@@ -2392,6 +2891,7 @@ class AttendanceReport:
         -- Populate results table - Program Summary 
         INSERT INTO #Results (
             Level, 
+            DivisionId,
             DivisionName, 
             ProgramName, 
             OrganizationName, 
@@ -2416,6 +2916,7 @@ class AttendanceReport:
         ) 
         SELECT 
             'Program', 
+            NULL,
             NULL, 
             ps.ProgramName, 
             NULL, 
@@ -2461,6 +2962,7 @@ class AttendanceReport:
         -- Populate results table - Division Summary 
         INSERT INTO #Results (
             Level, 
+            DivisionId,
             DivisionName, 
             ProgramName, 
             OrganizationName, 
@@ -2485,6 +2987,7 @@ class AttendanceReport:
         ) 
         SELECT 
             'Division', 
+            ds.DivisionId,
             ds.DivisionName, 
             ds.ProgramName, 
             NULL, 
@@ -2533,6 +3036,7 @@ class AttendanceReport:
             -- Populate results table - Organization Details 
             INSERT INTO #Results (
                 Level, 
+                DivisionId,
                 DivisionName, 
                 ProgramName, 
                 OrganizationName, 
@@ -2557,6 +3061,7 @@ class AttendanceReport:
             ) 
             SELECT 
                 'Organization', 
+                od.DivisionId,
                 od.DivisionName, 
                 od.ProgramName, 
                 od.OrganizationName, 
@@ -2587,6 +3092,7 @@ class AttendanceReport:
                 -- Header 
                 INSERT INTO #Results (
                     Level, 
+                    DivisionId,
                     DivisionName, 
                     ProgramName, 
                     OrganizationName, 
@@ -2611,6 +3117,7 @@ class AttendanceReport:
                 ) 
                 VALUES (
                     'Needs In-reach Organizations', 
+                    NULL,
                     NULL, 
                     'Regular Period', 
                     NULL, 
@@ -2637,6 +3144,7 @@ class AttendanceReport:
                 -- Details 
                 INSERT INTO #Results (
                     Level, 
+                    DivisionId,
                     DivisionName, 
                     ProgramName, 
                     OrganizationName, 
@@ -2661,6 +3169,7 @@ class AttendanceReport:
                 ) 
                 SELECT 
                     'Organization', 
+                    DivisionId,
                     DivisionName, 
                     ProgramName, 
                     OrganizationName, 
@@ -3221,6 +3730,7 @@ class AttendanceReport:
         -- Return the final result, sorted properly 
         SELECT 
             Level, 
+            DivisionId,
             DivisionName, 
             ProgramName, 
             OrganizationName, 
@@ -3284,24 +3794,37 @@ class AttendanceReport:
         return sql
     
     def get_batch_enrollment_data(self, division_ids, report_date):
-        """Get enrollment data for multiple divisions in a single query."""
+        """Get enrollment data for multiple divisions in a single query.
+        
+        Only includes organizations that are part of the reporting structure
+        (have RptGroup and ReportLine).
+        """
         # Format date for SQL
         date_str = report_date.strftime('%Y-%m-%d')
         
         # Create division list for SQL IN clause
         division_list = ", ".join(str(div_id) for div_id in division_ids)
         
-        # Query all division enrollments at once
+        # Query all division enrollments at once, matching the same filters used for attendance
         sql = """
         SELECT 
             os.DivId AS DivisionId,
-            COUNT(om.PeopleId) AS EnrolledCount
+            COUNT(DISTINCT om.PeopleId) AS EnrolledCount
         FROM OrganizationMembers om
+        JOIN Organizations o ON o.OrganizationId = om.OrganizationId
         JOIN OrganizationStructure os ON os.OrgId = om.OrganizationId
+        JOIN Division d ON d.Id = os.DivId
+        JOIN Program p ON p.Id = d.ProgId
+        JOIN People pe ON pe.PeopleId = om.PeopleId
         WHERE os.DivId IN ({0})
-        AND (om.EnrollmentDate IS NULL OR om.EnrollmentDate <= '{1}')
-        AND (om.InactiveDate IS NULL OR om.InactiveDate > '{1}')
-        AND om.MemberTypeId NOT IN (230,311)
+        AND o.OrganizationStatusId = 30  -- Only active organizations
+        AND p.RptGroup IS NOT NULL AND p.RptGroup <> ''  -- Only programs in reporting
+        AND d.ReportLine IS NOT NULL AND d.ReportLine <> ''  -- Only divisions in reporting
+        AND (om.EnrollmentDate IS NULL OR om.EnrollmentDate <= '{1}')  -- Enrolled by report date
+        AND (om.InactiveDate IS NULL OR om.InactiveDate > '{1}')  -- Still active on report date
+        AND om.MemberTypeId NOT IN (230,311)  -- Exclude prospects (230) and other non-members (311)
+        AND (pe.DeceasedDate IS NULL OR pe.DeceasedDate > '{1}')  -- Not deceased as of report date
+        AND (pe.DropDate IS NULL OR pe.DropDate > '{1}')  -- Not dropped/archived as of report date
         GROUP BY os.DivId
         """.format(division_list, date_str)
         
@@ -3462,11 +3985,25 @@ class AttendanceReport:
             if not data_source and organization_levels['Overall']:
                 data_source = organization_levels['Overall'][0]
                     
+            # Get the actual weekly attendance from the same source as weekly actuals
+            actual_weekly_attendance = 0
+            try:
+                current_week_connect = self.get_specific_program_attendance_data(
+                    [ENROLLMENT_RATIO_PROGRAM],
+                    self.week_start_date,
+                    self.report_date
+                )
+                if current_week_connect and 'by_program' in current_week_connect:
+                    if ENROLLMENT_RATIO_PROGRAM in current_week_connect['by_program']:
+                        actual_weekly_attendance = current_week_connect['by_program'][ENROLLMENT_RATIO_PROGRAM].get('total', 0)
+            except:
+                actual_weekly_attendance = 0
+                
             if data_source:
                 # Direct access to values from the SQL result
                 total_enrollment = getattr(data_source, 'EnrollmentWithMeetings', 0) or 0
-                #last_sunday_attendance = getattr(data_source, 'LastSundayAttendance', 0) or 0
-                last_sunday_attendance = getattr(data_source, 'TotalAttendance', 0) or 0
+                # Use the actual weekly attendance from the same calculation as weekly actuals
+                last_sunday_attendance = float(actual_weekly_attendance) if actual_weekly_attendance else getattr(data_source, 'LastSundayAttendance', 0) or 0
                 #attendance_ratio = getattr(data_source, 'AttendanceRatio', 0) or 0
                 
                 
@@ -3487,33 +4024,52 @@ class AttendanceReport:
     
                         <div style="display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 15px;">
                             <div style="flex: 1; min-width: 110px; background-color: #f0f4f8; border-radius: 3px; text-align: center; padding: 8px;">
-                                <div style="font-size: 12px; color: #666; margin-bottom: 3px;">Enrollment</div>
-                                <div style="font-size: 24px; font-weight: bold; color: #333;">{enrollment}</div>
+                                <div style="font-size: 0.9em; font-weight: bold; color: #666; margin-bottom: 3px;">Enrollment</div>
+                                <div style="font-size: 1.8em; font-weight: bold; color: #333;">{enrollment}</div>
                             </div>
                             
                             <div style="flex: 1; min-width: 110px; background-color: #f0f4f8; border-radius: 3px; text-align: center; padding: 8px;">
-                                <div style="font-size: 12px; color: #666; margin-bottom: 3px;">Attendance</div>
-                                <div style="font-size: 24px; font-weight: bold; color: #333;">{attendance}</div>
+                                <div style="font-size: 0.9em; font-weight: bold; color: #666; margin-bottom: 3px;">Attendance</div>
+                                <div style="font-size: 1.8em; font-weight: bold; color: #333;">{attendance}</div>
                             </div>
                             
                             <div style="flex: 1; min-width: 110px; background-color: #f0f4f8; border-radius: 3px; text-align: center; padding: 8px;">
-                                <div style="font-size: 12px; color: #666; margin-bottom: 3px;">Ratio</div>
-                                <div style="font-size: 24px; font-weight: bold; color: #333;">{ratio}%</div>
+                                <div style="font-size: 0.9em; font-weight: bold; color: #666; margin-bottom: 3px;">Ratio</div>
+                                <div style="font-size: 1.8em; font-weight: bold; color: #333;">{ratio}%</div>
                             </div>
                             
                             <div style="flex: 1; min-width: 110px; background-color: #ffe6e6; border-radius: 3px; text-align: center; padding: 8px;">
-                                <div style="font-size: 12px; color: #666; margin-bottom: 3px;">Needs In-reach</div>
-                                <div style="font-size: 24px; font-weight: bold; color: #d9534f;">{needs_inreach}</div>
+                                <div style="font-size: 0.9em; font-weight: bold; color: #666; margin-bottom: 3px;">Needs In-reach</div>
+                                <div style="font-size: 1.8em; font-weight: bold; color: #d9534f;">{needs_inreach}</div>
                             </div>
                             
                             <div style="flex: 1; min-width: 110px; background-color: #e6ffe6; border-radius: 3px; text-align: center; padding: 8px;">
-                                <div style="font-size: 12px; color: #666; margin-bottom: 3px;">Good Ratio</div>
-                                <div style="font-size: 24px; font-weight: bold; color: #5cb85c;">{good_ratio}</div>
+                                <div style="font-size: 0.9em; font-weight: bold; color: #666; margin-bottom: 3px;">Good Ratio</div>
+                                <div style="font-size: 1.8em; font-weight: bold; color: #5cb85c;">{good_ratio}</div>
                             </div>
                             
                             <div style="flex: 1; min-width: 110px; background-color: #fff3e6; border-radius: 3px; text-align: center; padding: 8px;">
-                                <div style="font-size: 12px; color: #666; margin-bottom: 3px;">Needs Outreach</div>
-                                <div style="font-size: 24px; font-weight: bold; color: #f0ad4e;">{needs_outreach}</div>
+                                <div style="font-size: 0.9em; font-weight: bold; color: #666; margin-bottom: 3px;">Needs Outreach</div>
+                                <div style="font-size: 1.8em; font-weight: bold; color: #f0ad4e;">{needs_outreach}</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Legend/Explanation for the metrics -->
+                        <div style="margin-top: 15px; padding: 10px; background-color: #f8f9fa; border-radius: 5px; font-size: 13px;">
+                            <div style="font-weight: bold; margin-bottom: 8px; color: #333;">Understanding the Metrics:</div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 15px;">
+                                <div style="flex: 1; min-width: 200px;">
+                                    <span style="color: #d9534f; font-weight: bold;">● Needs In-reach (0-39%):</span>
+                                    <span style="color: #666;">Groups with low attendance relative to enrollment. Focus on engaging enrolled members.</span>
+                                </div>
+                                <div style="flex: 1; min-width: 200px;">
+                                    <span style="color: #5cb85c; font-weight: bold;">● Good Ratio (40-59%):</span>
+                                    <span style="color: #666;">Healthy balance between attendance and enrollment.</span>
+                                </div>
+                                <div style="flex: 1; min-width: 200px;">
+                                    <span style="color: #f0ad4e; font-weight: bold;">● Needs Outreach (60%+):</span>
+                                    <span style="color: #666;">High attendance ratio. Consider inviting more people to join these groups.</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -3538,8 +4094,35 @@ class AttendanceReport:
                     
                     # Ensure values are of the correct type
                     div_enrollment = int(getattr(division_item, 'EnrollmentWithMeetings', 0) or 0)
-                    div_attendance = float(getattr(division_item, 'TotalAttendance', 0) or 0)
-                    div_ratio = float(getattr(division_item, 'AttendanceRatio', 0) or 0)
+                    
+                    # Get the actual weekly attendance from the same source as the main table
+                    div_id = getattr(division_item, 'DivisionId', None)
+                    
+                    # Try to get actual weekly attendance for this division
+                    if div_id:
+                        try:
+                            div_week_data = self.get_week_attendance_data(
+                                self.week_start_date,
+                                self.report_date,
+                                division_id=div_id
+                            )
+                            if div_week_data and 'total' in div_week_data:
+                                div_attendance = float(div_week_data['total'])
+                            else:
+                                # Fall back to LastSundayAttendance if weekly data not available
+                                div_attendance = float(getattr(division_item, 'LastSundayAttendance', 0) or 0)
+                        except Exception as e:
+                            # Fall back to LastSundayAttendance on error
+                            div_attendance = float(getattr(division_item, 'LastSundayAttendance', 0) or 0)
+                    else:
+                        # No DivisionId, use LastSundayAttendance
+                        div_attendance = float(getattr(division_item, 'LastSundayAttendance', 0) or 0)
+                    
+                    # Recalculate ratio with the correct attendance
+                    if div_enrollment > 0:
+                        div_ratio = (div_attendance / float(div_enrollment)) * 100
+                    else:
+                        div_ratio = 0.0
                     
                     # Get division counts directly from the SQL result
                     # Updated field names to match SQL query result
@@ -3646,11 +4229,11 @@ class AttendanceReport:
             <table style="width: 100%; border-collapse: collapse;">
                 <thead>
                     <tr style="background-color: #f1f1f1;">
-                        <th style="padding: 8px; text-align: left;">Organization</th>
-                        <th style="padding: 8px; text-align: right;">Enrollment</th>
-                        <th style="padding: 8px; text-align: right;">Avg Attendance</th>
-                        <th style="padding: 8px; text-align: right;">Ratio</th>
-                        <th style="padding: 8px; text-align: left;">Status</th>
+                        <th style="padding: 4px 8px; text-align: left;">Organization</th>
+                        <th style="padding: 4px 8px; text-align: right;">Enrollment</th>
+                        <th style="padding: 4px 8px; text-align: right;">Avg Attendance</th>
+                        <th style="padding: 4px 8px; text-align: right;">Ratio</th>
+                        <th style="padding: 4px 8px; text-align: left;">Status</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -3666,11 +4249,11 @@ class AttendanceReport:
             
             html += """
                 <tr style="background-color: {0};">
-                    <td style="padding: 8px;">{1}</td>
-                    <td style="padding: 8px; text-align: right;">{2}</td>
-                    <td style="padding: 8px; text-align: right;">{3}</td>
-                    <td style="padding: 8px; text-align: right;">{4}%</td>
-                    <td style="padding: 8px;">{5}</td>
+                    <td style="padding: 4px 8px;">{1}</td>
+                    <td style="padding: 4px 8px; text-align: right;">{2}</td>
+                    <td style="padding: 4px 8px; text-align: right;">{3}</td>
+                    <td style="padding: 4px 8px; text-align: right;">{4}%</td>
+                    <td style="padding: 4px 8px;">{5}</td>
                 </tr>
             """.format(
                 row_color,
@@ -3691,11 +4274,14 @@ class AttendanceReport:
 
     def generate_date_range_summary(self):
         """Generate a summary section for the selected date range."""
+        # Format the selected date for the header
+        selected_date_str = ReportHelper.format_display_date(self.report_date)
+        
         if SHOW_FOUR_WEEK_COMPARISON:
             # Use separate format strings for with 4-week data
             date_range_html = """
             <div style="margin-top: 20px; margin-bottom: 20px; padding: 10px; background-color: #f0f8ff; border-radius: 5px; border-left: 5px solid #4CAF50;">
-                <h3 style="margin-top: 0;">Weekly Report</h3>
+                <h3 style="margin-top: 0; color: #2c3e50;">Weekly Report - <span style="color: #27ae60; font-weight: bold;">{10}</span></h3>
                 <p>Current Week: <strong>{0}</strong> to <strong>{1}</strong></p>
                 <p>Previous Week: <strong>{2}</strong> to <strong>{3}</strong></p>
                 <p>Previous Year: <strong>{4}</strong> to <strong>{5}</strong></p>
@@ -3715,13 +4301,14 @@ class AttendanceReport:
                 ReportHelper.format_display_date(self.four_weeks_ago_start_date),
                 ReportHelper.format_display_date(self.report_date),
                 ReportHelper.format_display_date(self.prev_year_four_weeks_ago_start_date),
-                ReportHelper.format_display_date(self.previous_year_date)
+                ReportHelper.format_display_date(self.previous_year_date),
+                selected_date_str
             )
         else:
             # Simpler format string without 4-week data
             date_range_html = """
             <div style="margin-top: 20px; margin-bottom: 20px; padding: 10px; background-color: #f0f8ff; border-radius: 5px; border-left: 5px solid #4CAF50;">
-                <h3 style="margin-top: 0;">Weekly Report</h3>
+                <h3 style="margin-top: 0; color: #2c3e50;">Weekly Report - <span style="color: #27ae60; font-weight: bold;">{6}</span></h3>
                 <p>Current Week: <strong>{0}</strong> to <strong>{1}</strong></p>
                 <p>Previous Week: <strong>{2}</strong> to <strong>{3}</strong></p>
                 <p>Previous Year: <strong>{4}</strong> to <strong>{5}</strong></p>
@@ -3734,21 +4321,31 @@ class AttendanceReport:
                 ReportHelper.format_display_date(self.previous_week_start),
                 ReportHelper.format_display_date(self.previous_week_date),
                 ReportHelper.format_display_date(self.previous_week_start_date),
-                ReportHelper.format_display_date(self.previous_year_date)
+                ReportHelper.format_display_date(self.previous_year_date),
+                selected_date_str
             )
         
         return formatted_html
     
     def generate_fiscal_year_summary(self, current_ytd_total, previous_ytd_total):
-        """Generate a fiscal year summary section."""
+        """Generate a fiscal year summary section with both Worship and Connect Group averages."""
         # Adjust labels based on year type and custom configuration
         ytd_prefix = ReportHelper.get_ytd_label()
         current_label = ReportHelper.get_year_label(self.current_fiscal_year)
         previous_label = ReportHelper.get_year_label(self.previous_fiscal_year)
         
-        # Calculate change percentage and color
-        if previous_ytd_total > 0:
-            percent_change = ((current_ytd_total - previous_ytd_total) / float(previous_ytd_total)) * 100
+        # Calculate number of Sundays for averaging
+        from datetime import timedelta
+        current_sundays = ReportHelper.count_sundays_between(self.current_fiscal_start, self.report_date)
+        previous_sundays = ReportHelper.count_sundays_between(self.previous_fiscal_start, self.previous_year_date)
+        
+        # Convert totals to averages
+        current_ytd_avg = float(current_ytd_total) / max(current_sundays, 1)
+        previous_ytd_avg = float(previous_ytd_total) / max(previous_sundays, 1)
+        
+        # Calculate change percentage based on averages for accurate trend comparison
+        if previous_ytd_avg > 0:
+            percent_change = ((current_ytd_avg - previous_ytd_avg) / float(previous_ytd_avg)) * 100
             if percent_change > 0:
                 change_color = "green"
                 change_arrow = "&#9650;"
@@ -3761,41 +4358,118 @@ class AttendanceReport:
                 change_arrow = "&#8652;"
         else:
             percent_change = 0
-            change_color = "green"
-            change_arrow = "NEW"
+            change_color = "green" if current_ytd_avg > 0 else "#777"
+            change_arrow = "NEW" if current_ytd_avg > 0 else "&#8652;"
+        
+        # Get Connect Group Attendance YTD data
+        connect_current_ytd_total = 0
+        connect_previous_ytd_total = 0
+        connect_current_ytd_avg = 0
+        connect_previous_ytd_avg = 0
+        connect_percent_change = 0
+        connect_change_color = "#777"
+        connect_change_arrow = "&#8652;"
+        
+        try:
+            # Get current YTD for Connect Group
+            current_connect_data = self.get_specific_program_attendance_data(
+                [ENROLLMENT_RATIO_PROGRAM],
+                self.current_fiscal_start,
+                self.report_date
+            )
+            if current_connect_data and 'by_program' in current_connect_data:
+                if ENROLLMENT_RATIO_PROGRAM in current_connect_data['by_program']:
+                    connect_current_ytd_total = current_connect_data['by_program'][ENROLLMENT_RATIO_PROGRAM].get('total', 0)
+            # Convert to average
+            connect_current_ytd_avg = float(connect_current_ytd_total) / max(current_sundays, 1)
+            
+            # Get previous YTD for Connect Group
+            previous_connect_data = self.get_specific_program_attendance_data(
+                [ENROLLMENT_RATIO_PROGRAM],
+                self.previous_fiscal_start,
+                self.previous_year_date
+            )
+            if previous_connect_data and 'by_program' in previous_connect_data:
+                if ENROLLMENT_RATIO_PROGRAM in previous_connect_data['by_program']:
+                    connect_previous_ytd_total = previous_connect_data['by_program'][ENROLLMENT_RATIO_PROGRAM].get('total', 0)
+            # Convert to average
+            connect_previous_ytd_avg = float(connect_previous_ytd_total) / max(previous_sundays, 1)
+            
+            # Calculate Connect Group change percentage using averages for accurate trend comparison
+            if connect_previous_ytd_avg > 0:
+                connect_percent_change = ((connect_current_ytd_avg - connect_previous_ytd_avg) / float(connect_previous_ytd_avg)) * 100
+                if connect_percent_change > 0:
+                    connect_change_color = "green"
+                    connect_change_arrow = "&#9650;"
+                elif connect_percent_change < 0:
+                    connect_change_color = "red"
+                    connect_change_arrow = "&#9660;"
+                    connect_percent_change = abs(connect_percent_change)
+                else:
+                    connect_change_color = "#777"
+                    connect_change_arrow = "&#8652;"
+            else:
+                connect_percent_change = 0
+                connect_change_color = "green" if connect_current_ytd_avg > 0 else "#777"
+                connect_change_arrow = "NEW" if connect_current_ytd_avg > 0 else "&#8652;"
+                
+        except Exception as e:
+            print "<!-- Error getting Connect Group YTD data: {} -->".format(str(e))
         
         summary_html = """
-        <div style="margin-top: 20px; margin-bottom: 30px; padding: 15px; background-color: #f3f8ff; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-            <h3 style="margin-top: 0;">{} Summary</h3>
-            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 20px;">
-                <div style="flex: 1; min-width: 200px; padding: 15px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                    <div style="font-size: 1.2em; font-weight: bold;">{} Current</div>
-                    <div style="font-size: 2em; margin: 10px 0;">{}</div>
-                    <div>From {} to {}</div>
+        <div style="margin-top: 10px; margin-bottom: 15px; padding: 10px; background-color: #f3f8ff; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <h3 style="margin: 0 0 10px 0; font-size: 1.1em;">{} Year-to-Date Averages - Worship</h3>
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 15px;">
+                <div style="flex: 1; min-width: 200px; padding: 10px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-size: 0.9em; font-weight: bold; color: #666;">{} Current Average</div>
+                    <div style="font-size: 1.8em; margin: 5px 0; font-weight: bold;">{}</div>
+                    <div style="font-size: 0.85em; color: #888;">From {} to {}</div>
                 </div>
                 
-                <div style="flex: 1; min-width: 200px; padding: 15px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                    <div style="font-size: 1.2em; font-weight: bold;">{} Previous</div>
-                    <div style="font-size: 2em; margin: 10px 0;">{}</div>
-                    <div>From {} to {}</div>
+                <div style="flex: 1; min-width: 200px; padding: 10px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-size: 0.9em; font-weight: bold; color: #666;">{} Previous Average</div>
+                    <div style="font-size: 1.8em; margin: 5px 0; font-weight: bold;">{}</div>
+                    <div style="font-size: 0.85em; color: #888;">From {} to {}</div>
                 </div>
                 
-                <div style="flex: 1; min-width: 200px; padding: 15px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                    <div style="font-size: 1.2em; font-weight: bold;">{} Change</div>
-                    <div style="font-size: 2em; margin: 10px 0; color: {};">{} {}%</div>
-                    <div>{} vs {}</div>
+                <div style="flex: 1; min-width: 200px; padding: 10px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-size: 0.9em; font-weight: bold; color: #666;">{} Change</div>
+                    <div style="font-size: 1.8em; margin: 5px 0; font-weight: bold; color: {};">{} {}%</div>
+                    <div style="font-size: 0.85em; color: #888;">{} vs {}</div>
+                </div>
+            </div>
+            
+            <h3 style="margin: 15px 0 10px 0; font-size: 1.1em;">{} Year-to-Date Averages - {}</h3>
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 15px;">
+                <div style="flex: 1; min-width: 200px; padding: 10px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-size: 0.9em; font-weight: bold; color: #666;">{} Current Average</div>
+                    <div style="font-size: 1.8em; margin: 5px 0; font-weight: bold;">{}</div>
+                    <div style="font-size: 0.85em; color: #888;">From {} to {}</div>
+                </div>
+                
+                <div style="flex: 1; min-width: 200px; padding: 10px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-size: 0.9em; font-weight: bold; color: #666;">{} Previous Average</div>
+                    <div style="font-size: 1.8em; margin: 5px 0; font-weight: bold;">{}</div>
+                    <div style="font-size: 0.85em; color: #888;">From {} to {}</div>
+                </div>
+                
+                <div style="flex: 1; min-width: 200px; padding: 10px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-size: 0.9em; font-weight: bold; color: #666;">{} Change</div>
+                    <div style="font-size: 1.8em; margin: 5px 0; font-weight: bold; color: {};">{} {}%</div>
+                    <div style="font-size: 0.85em; color: #888;">{} vs {}</div>
                 </div>
             </div>
         </div>
         """.format(
+            # Worship section
             ytd_prefix,                                     # YTD or FYTD for header
             ytd_prefix,                                     # YTD or FYTD for Current
-            ReportHelper.format_number(current_ytd_total),
+            ReportHelper.format_number(int(current_ytd_avg)),  # Show average as integer
             ReportHelper.format_display_date(self.current_fiscal_start),
             ReportHelper.format_display_date(self.report_date),
             
             ytd_prefix,                                     # YTD or FYTD for Previous
-            ReportHelper.format_number(previous_ytd_total),
+            ReportHelper.format_number(int(previous_ytd_avg)),  # Show average as integer
             ReportHelper.format_display_date(self.previous_fiscal_start),
             ReportHelper.format_display_date(self.previous_year_date),
             
@@ -3803,8 +4477,28 @@ class AttendanceReport:
             change_color,
             change_arrow,
             ReportHelper.format_float(percent_change),      # Using format_float instead of string formatting
-            ReportHelper.format_number(current_ytd_total),
-            ReportHelper.format_number(previous_ytd_total)
+            ReportHelper.format_number(int(current_ytd_avg)),
+            ReportHelper.format_number(int(previous_ytd_avg)),
+            
+            # Connect Group section
+            ytd_prefix,                                     # YTD or FYTD for header
+            ENROLLMENT_RATIO_PROGRAM,                       # Program name
+            ytd_prefix,                                     # YTD or FYTD for Current
+            ReportHelper.format_number(int(connect_current_ytd_avg)),  # Show average as integer
+            ReportHelper.format_display_date(self.current_fiscal_start),
+            ReportHelper.format_display_date(self.report_date),
+            
+            ytd_prefix,                                     # YTD or FYTD for Previous
+            ReportHelper.format_number(int(connect_previous_ytd_avg)),  # Show average as integer
+            ReportHelper.format_display_date(self.previous_fiscal_start),
+            ReportHelper.format_display_date(self.previous_year_date),
+            
+            ytd_prefix,                                     # YTD or FYTD for Change
+            connect_change_color,
+            connect_change_arrow,
+            ReportHelper.format_float(connect_percent_change),
+            ReportHelper.format_number(int(connect_current_ytd_avg)),
+            ReportHelper.format_number(int(connect_previous_ytd_avg))
         )
         
         return summary_html
@@ -3891,21 +4585,44 @@ class AttendanceReport:
                 self.previous_year_date
             )
         
+        # Get unique attendance metrics
+        involvement_data = self.get_unique_involvements_count(all_programs)
+        
+        # Get unique attendance for current 4 weeks
+        current_unique_data = self.get_unique_attendance_data(
+            all_programs,
+            self.four_weeks_ago_start_date,
+            self.report_date
+        )
+        
+        # Get unique attendance for previous year's 4 weeks
+        prev_year_unique_data = self.get_unique_attendance_data(
+            all_programs,
+            self.prev_year_four_weeks_ago_start_date,
+            self.previous_year_date
+        )
+        
         # Get YTD label based on configuration
         ytd_prefix = ReportHelper.get_ytd_label()
         
-        # Build HTML table header
+        # Build HTML with combined table and section headers
         summary_html = """
-        <div style="margin-top: 20px; margin-bottom: 30px; padding: 15px; background-color: #f0f0f8; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-            <h3 style="margin-top: 0;">Program Summary</h3>
-            <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
-                <thead>
-                    <tr style="background-color: #e0e0e8;">
-                        <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Program</th>
+        <div style="margin-top: 20px; margin-bottom: 30px; padding: 0; background-color: #f0f0f8; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <h3 style="margin: 0; padding: 15px 15px 10px 15px; border-bottom: 2px solid #d0d0e0;">Program Summary</h3>
+            
+            <div style="padding: 15px;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background-color: #e0e0e8;">
+                            <th style="padding: 8px 10px; text-align: left; border: 1px solid #ddd;" rowspan="2">Program</th>
+                            <th style="padding: 8px 10px; text-align: center; border: 1px solid #ddd; background-color: #d0d0e0;" colspan="{}">Attendance Totals</th>
+                            <th style="padding: 8px 10px; text-align: center; border: 1px solid #ddd; background-color: #c0c0d8;" colspan="5">Unique People & Involvements</th>
+                        </tr>
+                        <tr style="background-color: #e0e0e8;">
         """
         
         # Prepare column definitions
-        columns = [
+        attendance_columns = [
             {
                 'name': 'Current Week', 
                 'data': 'current_week', 
@@ -3953,15 +4670,27 @@ class AttendanceReport:
             }
         ]
         
-        # Add headers for visible columns
-        for col in columns:
-            if col['show']:
-                summary_html += '<th style="padding: 10px; text-align: center; border: 1px solid #ddd;">{}</th>'.format(col['name'])
+        # Count visible columns for colspan
+        visible_attendance_cols = sum(1 for col in attendance_columns if col['show'])
         
+        # Format the colspan in the header
+        summary_html = summary_html.format(visible_attendance_cols)
+        
+        # Add column headers for attendance metrics
+        for col in attendance_columns:
+            if col['show']:
+                summary_html += '<th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #f0f0f0;">{}</th>'.format(col['name'])
+        
+        # Add headers for unique metrics (always show these 5 columns)
         summary_html += """
-                    </tr>
-                </thead>
-                <tbody>
+                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;">Inv</th>
+                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;">Enrolled</th>
+                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;">Last 4 Weeks</th>
+                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;">PY 4 Weeks</th>
+                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;">Change</th>
+                        </tr>
+                    </thead>
+                    <tbody>
         """
         
         # Add a row for each program in order of RptGroup
@@ -3975,7 +4704,7 @@ class AttendanceReport:
             # Start the row with program name
             summary_html += """
                 <tr style="border-bottom: 1px solid #ddd;">
-                    <td style="padding: 8px; text-align: left; border: 1px solid #ddd;"><strong>{}</strong></td>
+                    <td style="padding: 4px 8px; text-align: left; border: 1px solid #ddd;"><strong>{}</strong></td>
             """.format(program_name)
             
             # Get current program data
@@ -3990,8 +4719,8 @@ class AttendanceReport:
                 prev_ytd_data = previous_specific_data['by_program'][program_name]
                 prev_fytd_total = prev_ytd_data['total']
             
-            # Add columns based on configuration
-            for col in columns:
+            # Add attendance columns based on configuration
+            for col in attendance_columns:
                 if not col['show']:
                     continue
                 
@@ -4000,7 +4729,7 @@ class AttendanceReport:
                     value = 0
                     if program_name in current_week_data['by_program']:
                         value = current_week_data['by_program'][program_name]['total']
-                    summary_html += '<td style="padding: 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(
+                    summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(
                         ReportHelper.format_number(value)
                     )
                 
@@ -4008,7 +4737,7 @@ class AttendanceReport:
                     value = 0
                     if prev_year_specific_week_data and program_name in prev_year_specific_week_data['by_program']:
                         value = prev_year_specific_week_data['by_program'][program_name]['total']
-                    summary_html += '<td style="padding: 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(
+                    summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(
                         ReportHelper.format_number(value)
                     )
                 
@@ -4022,13 +4751,13 @@ class AttendanceReport:
                         prev_year_week_total = prev_year_specific_week_data['by_program'][program_name]['total']
                     
                     trend = ReportHelper.get_trend_indicator(current_week_total, prev_year_week_total)
-                    summary_html += '<td style="padding: 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(trend)
+                    summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(trend)
                 
                 elif col['data'] == 'four_week_current':
                     value = 0
                     if current_four_week_data and program_name in current_four_week_data['by_program']:
                         value = current_four_week_data['by_program'][program_name]['total']
-                    summary_html += '<td style="padding: 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(
+                    summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(
                         ReportHelper.format_number(value)
                     )
                 
@@ -4036,7 +4765,7 @@ class AttendanceReport:
                     value = 0
                     if prev_year_four_week_data and program_name in prev_year_four_week_data['by_program']:
                         value = prev_year_four_week_data['by_program'][program_name]['total']
-                    summary_html += '<td style="padding: 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(
+                    summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(
                         ReportHelper.format_number(value)
                     )
                 
@@ -4050,29 +4779,54 @@ class AttendanceReport:
                         prev_year_four_week_total = prev_year_four_week_data['by_program'][program_name]['total']
                     
                     trend = ReportHelper.get_trend_indicator(current_four_week_total, prev_year_four_week_total)
-                    summary_html += '<td style="padding: 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(trend)
+                    summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(trend)
                 
                 elif col['data'] == 'current_fytd':
-                    summary_html += '<td style="padding: 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(
+                    summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(
                         ReportHelper.format_number(current_fytd_total)
                     )
                 
                 elif col['data'] == 'previous_fytd':
-                    summary_html += '<td style="padding: 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(
+                    summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(
                         ReportHelper.format_number(prev_fytd_total)
                     )
                 
                 elif col['data'] == 'fytd_change':
                     trend = ReportHelper.get_trend_indicator(current_fytd_total, prev_fytd_total)
-                    summary_html += '<td style="padding: 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(trend)
+                    summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd;">{}</td>'.format(trend)
+            
+            # Add unique metrics columns for the same row
+            org_count = involvement_data['org_by_program'].get(program_name, 0)
+            unique_enrolled = involvement_data['by_program'].get(program_name, 0)
+            current_unique = current_unique_data['by_program'].get(program_name, 0)
+            prev_unique = prev_year_unique_data['by_program'].get(program_name, 0)
+            unique_trend = ReportHelper.get_trend_indicator(current_unique, prev_unique)
+            
+            # Add unique columns with different background
+            summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd; background-color: #f8f8fc;">{}</td>'.format(
+                ReportHelper.format_number(org_count)
+            )
+            summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd; background-color: #f8f8fc;">{}</td>'.format(
+                ReportHelper.format_number(unique_enrolled)
+            )
+            summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd; background-color: #f8f8fc;">{}</td>'.format(
+                ReportHelper.format_number(current_unique)
+            )
+            summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd; background-color: #f8f8fc;">{}</td>'.format(
+                ReportHelper.format_number(prev_unique)
+            )
+            summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd; background-color: #f8f8fc;">{}</td>'.format(
+                unique_trend
+            )
             
             # Close the row
             summary_html += "</tr>"
         
         # Close the table and container
         summary_html += """
-                </tbody>
-            </table>
+                    </tbody>
+                </table>
+            </div>
         </div>
         """
         
@@ -4103,8 +4857,8 @@ class AttendanceReport:
             
             # Initialize with default values
             worship_program_name = WORSHIP_PROGRAM  # Default fallback
-            worship_current_ytd_avg = 0
-            worship_previous_ytd_avg = 0
+            worship_current_4week_avg = 0  # Changed to 4-week average
+            worship_previous_4week_avg = 0  # Changed to 4-week average
             four_week_program_avg = 0
             four_week_previous_program_avg = 0
             enrollment_ratio = 0
@@ -4191,61 +4945,53 @@ class AttendanceReport:
                     print "<p class='debug'>Error calculating weeks elapsed: " + str(weeks_error) + "</p>"
                     weeks_elapsed = 1  # Fallback to 1 to avoid division by zero
                 
-                # Get current YTD attendance with proper error handling
+                # Get current 4-week worship average (last 4 Sundays)
                 start_time_current = time.time()
                 try:
-                    print "<p class='debug'>Getting current YTD data from {} to {}</p>".format(
-                        str(self.current_fiscal_start), str(self.report_date))
+                    # For worship, we need total attendance across 4 Sundays
+                    # We'll use the four_week_attendance_comparison which gets actual Sunday data
+                    print "<p class='debug'>Getting current 4-week worship attendance</p>"
                     
-                    current_worship_ytd_data = self.get_specific_program_attendance_data(
-                        [worship_program_name],
-                        self.current_fiscal_start,
-                        self.report_date
-                    ) or {'by_program': {}}
+                    # Get the worship program info first
+                    worship_prog_sql = """
+                        SELECT Id FROM Program WHERE Name = '{}'
+                    """.format(worship_program_name.replace("'", "''"))
+                    worship_prog = q.QuerySqlTop1(worship_prog_sql)
                     
-                    timing_data['current_ytd_data'] = time.time() - start_time_current
-                    print "<p class='debug'>Current YTD data took: {:.2f} seconds</p>".format(timing_data['current_ytd_data'])
+                    worship_4week_data = {'current': 0, 'previous': 0}
+                    if worship_prog and hasattr(worship_prog, 'Id'):
+                        # Get 4-week comparison data for worship
+                        worship_4week_data = self.get_four_week_attendance_comparison(program_id=worship_prog.Id)
                     
-                    # Calculate current YTD average safely
-                    if (isinstance(current_worship_ytd_data, dict) and 
-                        'by_program' in current_worship_ytd_data and 
-                        worship_program_name in current_worship_ytd_data['by_program']):
-                        
-                        program_data = current_worship_ytd_data['by_program'][worship_program_name]
-                        if isinstance(program_data, dict) and 'total' in program_data:
-                            total = program_data.get('total', 0)
+                    current_worship_4week_data = worship_4week_data
+                    
+                    print "<p class='debug'>Current worship 4-week data: {}</p>".format(str(current_worship_4week_data))
+                    
+                    timing_data['current_4week_worship'] = time.time() - start_time_current
+                    print "<p class='debug'>Current 4-week worship data took: {:.2f} seconds</p>".format(timing_data['current_4week_worship'])
+                    
+                    # Calculate current and previous 4-week averages
+                    if isinstance(current_worship_4week_data, dict):
+                        # get_four_week_attendance_comparison returns {'current': {'total': x}, 'previous_year': {'total': y}}
+                        if 'current' in current_worship_4week_data and 'total' in current_worship_4week_data['current']:
+                            total = current_worship_4week_data['current']['total']
                             if total > 0:
-                                worship_current_ytd_avg = float(total) / float(weeks_elapsed)
+                                # Divide by 4 for the 4-week average (4 Sundays)
+                                print "<p class='debug'>Current 4-week worship: total={}, avg={:.1f}</p>".format(
+                                    total, float(total) / 4.0)
+                                worship_current_4week_avg = float(total) / 4.0
+                        
+                        # Also get previous year from same data structure
+                        if 'previous_year' in current_worship_4week_data and 'total' in current_worship_4week_data['previous_year']:
+                            prev_total = current_worship_4week_data['previous_year']['total']
+                            if prev_total > 0:
+                                print "<p class='debug'>Previous 4-week worship: total={}, avg={:.1f}</p>".format(
+                                    prev_total, float(prev_total) / 4.0)
+                                worship_previous_4week_avg = float(prev_total) / 4.0
                 except Exception as current_error:
                     print "<p class='debug'>Error calculating current YTD average: " + str(current_error) + "</p>"
                 
-                # Get previous YTD attendance with proper error handling
-                start_time_previous = time.time()
-                try:
-                    print "<p class='debug'>Getting previous YTD data from {} to {}</p>".format(
-                        str(self.previous_fiscal_start), str(self.previous_year_date))
-                    
-                    previous_worship_ytd_data = self.get_specific_program_attendance_data(
-                        [worship_program_name],
-                        self.previous_fiscal_start,
-                        self.previous_year_date
-                    ) or {'by_program': {}}
-                    
-                    timing_data['previous_ytd_data'] = time.time() - start_time_previous
-                    print "<p class='debug'>Previous YTD data took: {:.2f} seconds</p>".format(timing_data['previous_ytd_data'])
-                    
-                    # Calculate previous YTD average safely
-                    if (isinstance(previous_worship_ytd_data, dict) and 
-                        'by_program' in previous_worship_ytd_data and 
-                        worship_program_name in previous_worship_ytd_data['by_program']):
-                        
-                        program_data = previous_worship_ytd_data['by_program'][worship_program_name]
-                        if isinstance(program_data, dict) and 'total' in program_data:
-                            total = program_data.get('total', 0)
-                            if total > 0:
-                                worship_previous_ytd_avg = float(total) / float(weeks_elapsed)
-                except Exception as previous_error:
-                    print "<p class='debug'>Error calculating previous YTD average: " + str(previous_error) + "</p>"
+                # Previous year 4-week average already calculated above from same data structure
                     
             except Exception as ytd_error:
                 print "<p class='debug'>Error in YTD section: " + str(ytd_error) + "</p>"
@@ -4260,11 +5006,11 @@ class AttendanceReport:
                 start_time_current_4wk = time.time()
                 try:
                     print "<p class='debug'>Getting current 4-week data from {} to {}</p>".format(
-                        str(self.four_weeks_ago_date), str(self.report_date))
+                        str(self.four_weeks_ago_start_date), str(self.report_date))
                     
                     four_week_program_data = self.get_specific_program_attendance_data(
                         [ENROLLMENT_RATIO_PROGRAM],
-                        self.four_weeks_ago_date,
+                        self.four_weeks_ago_start_date,
                         self.report_date
                     ) or {'by_program': {}}
                     
@@ -4278,7 +5024,7 @@ class AttendanceReport:
                         program_data = four_week_program_data['by_program'][ENROLLMENT_RATIO_PROGRAM]
                         if isinstance(program_data, dict) and 'total' in program_data:
                             total = program_data.get('total', 0)
-                            # Avoid zero division
+                            # Calculate weekly average for the 4-week period
                             four_week_program_avg = total / 4.0 if total > 0 else 0
                 except Exception as current_4wk_error:
                     print "<p class='debug'>Error calculating current 4-week average: " + str(current_4wk_error) + "</p>"
@@ -4287,11 +5033,11 @@ class AttendanceReport:
                 start_time_prev_4wk = time.time()
                 try:
                     print "<p class='debug'>Getting previous 4-week data from {} to {}</p>".format(
-                        str(self.prev_year_four_weeks_ago_date), str(self.previous_year_date))
+                        str(self.prev_year_four_weeks_ago_start_date), str(self.previous_year_date))
                     
                     four_week_previous_program_data = self.get_specific_program_attendance_data(
                         [ENROLLMENT_RATIO_PROGRAM],
-                        self.prev_year_four_weeks_ago_date,
+                        self.prev_year_four_weeks_ago_start_date,
                         self.previous_year_date
                     ) or {'by_program': {}}
                     
@@ -4305,7 +5051,7 @@ class AttendanceReport:
                         program_data = four_week_previous_program_data['by_program'][ENROLLMENT_RATIO_PROGRAM]
                         if isinstance(program_data, dict) and 'total' in program_data:
                             total = program_data.get('total', 0)
-                            # Avoid zero division
+                            # Calculate weekly average for the 4-week period
                             four_week_previous_program_avg = total / 4.0 if total > 0 else 0
                 except Exception as previous_4wk_error:
                     print "<p class='debug'>Error calculating previous 4-week average: " + str(previous_4wk_error) + "</p>"
@@ -4415,14 +5161,14 @@ class AttendanceReport:
             try:
                 # Use the class formatting methods - replaced with direct formatting if they fail
                 try:
-                    formatted_worship_current_ytd_avg = ReportHelper.format_float(worship_current_ytd_avg)
+                    formatted_worship_current_4week_avg = ReportHelper.format_number(int(worship_current_4week_avg))
                 except:
-                    formatted_worship_current_ytd_avg = "{0:.1f}".format(worship_current_ytd_avg) if worship_current_ytd_avg else "0"
+                    formatted_worship_current_4week_avg = "{0:,}".format(int(worship_current_4week_avg)) if worship_current_4week_avg else "0"
                     
                 try:
-                    formatted_worship_previous_ytd_avg = ReportHelper.format_number(worship_previous_ytd_avg)
+                    formatted_worship_previous_4week_avg = ReportHelper.format_number(int(worship_previous_4week_avg))
                 except:
-                    formatted_worship_previous_ytd_avg = "{0:,}".format(int(worship_previous_ytd_avg)) if worship_previous_ytd_avg else "0"
+                    formatted_worship_previous_4week_avg = "{0:,}".format(int(worship_previous_4week_avg)) if worship_previous_4week_avg else "0"
                     
                 try:
                     formatted_four_week_program_avg = ReportHelper.format_number(four_week_program_avg)
@@ -4437,11 +5183,11 @@ class AttendanceReport:
                 # Calculate trend indicator
                 trend_indicator = ""
                 try:
-                    trend_indicator = ReportHelper.get_trend_indicator(worship_current_ytd_avg, worship_previous_ytd_avg)
+                    trend_indicator = ReportHelper.get_trend_indicator(worship_current_4week_avg, worship_previous_4week_avg)
                 except:
                     # Direct calculation if the helper fails
-                    if worship_previous_ytd_avg > 0:
-                        trend_pct = ((worship_current_ytd_avg - worship_previous_ytd_avg) / worship_previous_ytd_avg) * 100
+                    if worship_previous_4week_avg > 0:
+                        trend_pct = ((worship_current_4week_avg - worship_previous_4week_avg) / worship_previous_4week_avg) * 100
                         if trend_pct > 1:
                             trend_indicator = '<span style="color: green;">▲ ' + str(round(trend_pct, 1)) + '%</span>'
                         elif trend_pct < -1:
@@ -4454,14 +5200,166 @@ class AttendanceReport:
             except Exception as format_error:
                 print "<p class='debug'>Error formatting numbers: " + str(format_error) + "</p>"
                 # Use very basic formatting as fallback
-                formatted_worship_current_ytd_avg = str(int(worship_current_ytd_avg))
-                formatted_worship_previous_ytd_avg = str(int(worship_previous_ytd_avg))
+                formatted_worship_current_4week_avg = str(int(worship_current_4week_avg))
+                formatted_worship_previous_4week_avg = str(int(worship_previous_4week_avg))
                 formatted_four_week_program_avg = str(int(four_week_program_avg))
                 formatted_four_week_previous_avg = str(int(four_week_previous_program_avg))
                 trend_indicator = ""
             finally:
                 timing_data['formatting_section'] = time.time() - start_time
                 print "<p class='debug'>Formatting section took: {:.2f} seconds</p>".format(timing_data['formatting_section'])
+            
+            # Get weekly actuals for the new KPIs
+            weekly_worship_current = 0
+            weekly_worship_previous = 0
+            weekly_connect_current = 0
+            weekly_connect_previous = 0
+            weekly_enrollment_current = 0
+            weekly_enrollment_previous = 0
+            
+            try:
+                # Get current week worship attendance
+                current_week_worship = self.get_specific_program_attendance_data(
+                    [worship_program_name],
+                    self.week_start_date,
+                    self.report_date
+                )
+                if current_week_worship and 'by_program' in current_week_worship:
+                    if worship_program_name in current_week_worship['by_program']:
+                        weekly_worship_current = current_week_worship['by_program'][worship_program_name].get('total', 0)
+                
+                # Get previous year same week worship attendance
+                previous_week_worship = self.get_specific_program_attendance_data(
+                    [worship_program_name],
+                    self.previous_week_start_date,
+                    self.previous_year_date
+                )
+                if previous_week_worship and 'by_program' in previous_week_worship:
+                    if worship_program_name in previous_week_worship['by_program']:
+                        weekly_worship_previous = previous_week_worship['by_program'][worship_program_name].get('total', 0)
+                
+                # Get current week connect group attendance
+                current_week_connect = self.get_specific_program_attendance_data(
+                    [ENROLLMENT_RATIO_PROGRAM],
+                    self.week_start_date,
+                    self.report_date
+                )
+                if current_week_connect and 'by_program' in current_week_connect:
+                    if ENROLLMENT_RATIO_PROGRAM in current_week_connect['by_program']:
+                        weekly_connect_current = current_week_connect['by_program'][ENROLLMENT_RATIO_PROGRAM].get('total', 0)
+                
+                # Get previous year same week connect group attendance
+                previous_week_connect = self.get_specific_program_attendance_data(
+                    [ENROLLMENT_RATIO_PROGRAM],
+                    self.previous_week_start_date,
+                    self.previous_year_date
+                )
+                if previous_week_connect and 'by_program' in previous_week_connect:
+                    if ENROLLMENT_RATIO_PROGRAM in previous_week_connect['by_program']:
+                        weekly_connect_previous = previous_week_connect['by_program'][ENROLLMENT_RATIO_PROGRAM].get('total', 0)
+                
+                # Get enrollment data for current week (matching attendance filters)
+                enrollment_sql_current = """
+                    SELECT COUNT(DISTINCT om.PeopleId) as TotalEnrollment
+                    FROM OrganizationMembers om
+                    JOIN Organizations o ON o.OrganizationId = om.OrganizationId
+                    JOIN OrganizationStructure os ON os.OrgId = o.OrganizationId
+                    JOIN Division d ON d.Id = os.DivId
+                    JOIN Program p ON p.Id = d.ProgId AND p.Name = '{0}'
+                    JOIN People pe ON pe.PeopleId = om.PeopleId
+                    WHERE o.OrganizationStatusId = 30
+                    AND p.RptGroup IS NOT NULL AND p.RptGroup <> ''  -- Only programs in reporting
+                    AND d.ReportLine IS NOT NULL AND d.ReportLine <> ''  -- Only divisions in reporting
+                    AND (om.EnrollmentDate IS NULL OR om.EnrollmentDate <= '{1}')  -- Enrolled by report date
+                    AND (om.InactiveDate IS NULL OR om.InactiveDate > '{1}')  -- Still active on report date
+                    AND om.MemberTypeId NOT IN (230, 311)  -- Exclude prospects and non-members
+                    AND (pe.DeceasedDate IS NULL OR pe.DeceasedDate > '{1}')  -- Not deceased as of report date
+                    AND (pe.DropDate IS NULL OR pe.DropDate > '{1}')  -- Not dropped/archived as of report date
+                """.format(ENROLLMENT_RATIO_PROGRAM, 
+                          ReportHelper.format_date(self.report_date))
+                
+                enrollment_result = q.QuerySqlTop1(enrollment_sql_current)
+                if enrollment_result:
+                    weekly_enrollment_current = enrollment_result.TotalEnrollment or 0
+                
+                # Get enrollment data for previous year same week (matching attendance filters)
+                enrollment_sql_previous = """
+                    SELECT COUNT(DISTINCT om.PeopleId) as TotalEnrollment
+                    FROM OrganizationMembers om
+                    JOIN Organizations o ON o.OrganizationId = om.OrganizationId
+                    JOIN OrganizationStructure os ON os.OrgId = o.OrganizationId
+                    JOIN Division d ON d.Id = os.DivId
+                    JOIN Program p ON p.Id = d.ProgId AND p.Name = '{0}'
+                    JOIN People pe ON pe.PeopleId = om.PeopleId
+                    WHERE o.OrganizationStatusId = 30
+                    AND p.RptGroup IS NOT NULL AND p.RptGroup <> ''  -- Only programs in reporting
+                    AND d.ReportLine IS NOT NULL AND d.ReportLine <> ''  -- Only divisions in reporting
+                    AND (om.EnrollmentDate IS NULL OR om.EnrollmentDate <= '{1}')  -- Enrolled by report date
+                    AND (om.InactiveDate IS NULL OR om.InactiveDate > '{1}')  -- Still active on report date
+                    AND om.MemberTypeId NOT IN (230, 311)  -- Exclude prospects and non-members
+                    AND (pe.DeceasedDate IS NULL OR pe.DeceasedDate > '{1}')  -- Not deceased as of report date
+                    AND (pe.DropDate IS NULL OR pe.DropDate > '{1}')  -- Not dropped/archived as of report date
+                """.format(ENROLLMENT_RATIO_PROGRAM,
+                          ReportHelper.format_date(self.previous_year_date))
+                
+                enrollment_result_prev = q.QuerySqlTop1(enrollment_sql_previous)
+                if enrollment_result_prev:
+                    weekly_enrollment_previous = enrollment_result_prev.TotalEnrollment or 0
+                    
+            except Exception as weekly_error:
+                print "<p class='debug'>Error getting weekly actuals: " + str(weekly_error) + "</p>"
+            
+            # Format weekly actuals
+            formatted_worship_current = ReportHelper.format_number(weekly_worship_current)
+            formatted_worship_previous = ReportHelper.format_number(weekly_worship_previous)
+            formatted_connect_current = ReportHelper.format_number(weekly_connect_current)
+            formatted_connect_previous = ReportHelper.format_number(weekly_connect_previous)
+            formatted_enrollment_current = ReportHelper.format_number(weekly_enrollment_current)
+            formatted_enrollment_previous = ReportHelper.format_number(weekly_enrollment_previous)
+            
+            # Calculate trends for weekly actuals
+            worship_weekly_trend = ReportHelper.get_trend_indicator(weekly_worship_current, weekly_worship_previous)
+            connect_weekly_trend = ReportHelper.get_trend_indicator(weekly_connect_current, weekly_connect_previous)
+            enrollment_weekly_trend = ReportHelper.get_trend_indicator(weekly_enrollment_current, weekly_enrollment_previous)
+            
+            # Generate weekly actuals KPI section
+            weekly_kpi_html = """
+            <div style="margin-top: 10px; margin-bottom: 10px; padding: 10px; background-color: #f8f8f8; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <h3 style="margin: 0 0 10px 0; font-size: 1.1em;">Weekly Actuals</h3>
+                <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 15px;">
+                    <div style="flex: 1; min-width: 180px; padding: 10px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                        <div style="font-size: 0.9em; font-weight: bold; color: #666;">Worship Total</div>
+                        <div style="font-size: 1.8em; margin: 5px 0; font-weight: bold;">{}</div>
+                        <div style="font-size: 0.85em; color: #888;">Last Year: {}</div>
+                        <div style="margin-top: 3px; font-size: 0.9em;">{}</div>
+                    </div>
+                    
+                    <div style="flex: 1; min-width: 180px; padding: 10px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                        <div style="font-size: 0.9em; font-weight: bold; color: #666;">Connect Group Attendance</div>
+                        <div style="font-size: 1.8em; margin: 5px 0; font-weight: bold;">{}</div>
+                        <div style="font-size: 0.85em; color: #888;">Last Year: {}</div>
+                        <div style="margin-top: 3px; font-size: 0.9em;">{}</div>
+                    </div>
+                    
+                    <div style="flex: 1; min-width: 180px; padding: 10px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                        <div style="font-size: 0.9em; font-weight: bold; color: #666;">Connect Group Enrollment</div>
+                        <div style="font-size: 1.8em; margin: 5px 0; font-weight: bold;">{}</div>
+                        <div style="font-size: 0.85em; color: #888;">Last Year: {}</div>
+                        <div style="margin-top: 3px; font-size: 0.9em;">{}</div>
+                    </div>
+                </div>
+            </div>
+            """.format(
+                formatted_worship_current,
+                formatted_worship_previous,
+                worship_weekly_trend,
+                formatted_connect_current,
+                formatted_connect_previous,
+                connect_weekly_trend,
+                formatted_enrollment_current,
+                formatted_enrollment_previous,
+                enrollment_weekly_trend
+            )
             
             # Generate the summary HTML
             start_time = time.time()
@@ -4470,34 +5368,34 @@ class AttendanceReport:
                 enrollment_ratio_rounded = str(round(enrollment_ratio, 1))  # Pre-format as string to avoid format specifier issue
                 
                 summary_html = """
-                <div style="margin-top: 20px; margin-bottom: 30px; padding: 15px; background-color: #f8f8f8; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                    <h3 style="margin-top: 0;">Overall Summary</h3>
-                    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 20px;">
-                        <div style="flex: 1; min-width: 180px; padding: 15px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                            <div style="font-size: 1.2em; font-weight: bold;">{0} Avg - {1}</div>
-                            <div style="font-size: 2em; margin: 10px 0;">{2}</div>
-                            <div>{1} Last Year: {3}</div>
-                            <div style="margin-top: 5px;">{4}</div>
+                <div style="margin-top: 10px; margin-bottom: 15px; padding: 10px; background-color: #f8f8f8; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h3 style="margin: 0 0 10px 0; font-size: 1.1em;">Rolling Averages</h3>
+                    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 15px;">
+                        <div style="flex: 1; min-width: 180px; padding: 10px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.9em; font-weight: bold; color: #666;">{0} 4-Week Average</div>
+                            <div style="font-size: 1.8em; margin: 5px 0; font-weight: bold;">{2}</div>
+                            <div style="font-size: 0.85em; color: #888;">4 Weeks Last Year: {3}</div>
+                            <div style="margin-top: 3px; font-size: 0.9em;">{4}</div>
                         </div>
                         
-                        <div style="flex: 1; min-width: 180px; padding: 15px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                            <div style="font-size: 1.2em; font-weight: bold;">4-Week Avg - {5}</div>
-                            <div style="font-size: 2em; margin: 10px 0;">{6}</div>
-                            <div>4 Weeks Last Year: {7}</div>
+                        <div style="flex: 1; min-width: 180px; padding: 10px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.9em; font-weight: bold; color: #666;">4-Week Avg - {5}</div>
+                            <div style="font-size: 1.8em; margin: 5px 0; font-weight: bold;">{6}</div>
+                            <div style="font-size: 0.85em; color: #888;">4 Weeks Last Year: {7}</div>
                         </div>
                         
-                        <div style="flex: 1; min-width: 180px; padding: 15px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                            <div style="font-size: 1.2em; font-weight: bold;">{5} {11}-Week Enrollment Ratio</div>
-                            <div style="font-size: 2em; margin: 10px 0;">{8}%</div>
-                            <div style="font-size: 1em; color: {9};">{10}</div>
+                        <div style="flex: 1; min-width: 180px; padding: 10px; background-color: #fff; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.9em; font-weight: bold; color: #666;">{5} {11}-Week Enrollment Ratio</div>
+                            <div style="font-size: 1.8em; margin: 5px 0; font-weight: bold;">{8}%</div>
+                            <div style="font-size: 0.85em; color: {9};">{10}</div>
                         </div>
                     </div>
                 </div>
                 """.format(
                     worship_program_name,              # 0
-                    ytd_prefix,                        # 1
-                    formatted_worship_current_ytd_avg, # 2
-                    formatted_worship_previous_ytd_avg,# 3
+                    ytd_prefix,                        # 1 (not used in first box anymore)
+                    formatted_worship_current_4week_avg, # 2
+                    formatted_worship_previous_4week_avg,# 3
                     trend_indicator,                   # 4
                     ENROLLMENT_RATIO_PROGRAM,          # 5
                     formatted_four_week_program_avg,   # 6
@@ -4522,7 +5420,7 @@ class AttendanceReport:
                         </div>
                     </div>
                 </div>
-                """.format(worship_program_name, formatted_worship_current_ytd_avg)
+                """.format(worship_program_name, formatted_worship_current_4week_avg)
             finally:
                 timing_data['html_generation'] = time.time() - start_time
                 print "<p class='debug'>HTML generation took: {:.2f} seconds</p>".format(timing_data['html_generation'])
@@ -4616,8 +5514,8 @@ class AttendanceReport:
             </script>
             """
         
-        # Return the summary HTML
-        return summary_html
+        # Return both the weekly KPIs and the summary HTML
+        return weekly_kpi_html + summary_html
         
     def send_email_report(self, email_to, report_content):
         """Send the report via email."""
@@ -4806,30 +5704,24 @@ class AttendanceReport:
         # Add enrollment column - should always be included
         if SHOW_ENROLLMENT_COLUMN:
             try:
-                # Get all divisions for this program
+                # For program/division breakdown tables, sum the division enrollments
+                # (people in multiple divisions count in each)
+                
+                # Get all divisions for this program and sum their enrollments
                 divisions_sql = """
-                    SELECT Id FROM Division 
-                    WHERE ProgId = {} 
-                    AND ReportLine IS NOT NULL 
-                    AND ReportLine <> ''
+                    SELECT Id 
+                    FROM Division d
+                    WHERE d.ProgId = {}
+                    AND d.ReportLine IS NOT NULL 
+                    AND d.ReportLine <> ''
                 """.format(program.Id)
                 
-                enrollment_count = 0
                 divisions = q.QuerySql(divisions_sql)
+                enrollment_count = 0
                 
-                # Sum up enrollment for all divisions
                 for division in divisions:
-                    # Basic division enrollment
-                    div_enrollment = self.get_division_enrollment(division.Id, self.report_date)
-                    enrollment_count += div_enrollment
-                    
-                    # Add organization counts if not using DEFAULT_COLLAPSED
-                    if not DEFAULT_COLLAPSED:
-                        org_sql = self.get_organizations_sql(division.Id)
-                        orgs = q.QuerySql(org_sql)
-                        for org in orgs:
-                            if hasattr(org, 'MemberCount') and org.MemberCount:
-                                enrollment_count += org.MemberCount
+                    division_enrollment = self.get_division_enrollment(division.Id, self.report_date)
+                    enrollment_count += division_enrollment
                                 
                 row_html += "<td><strong>{}</strong></td>".format(
                     ReportHelper.format_number(enrollment_count)
@@ -4838,13 +5730,6 @@ class AttendanceReport:
                 # On error, show 0
                 row_html += "<td><strong>0</strong></td>"
                 print('<!-- Error getting enrollment for Program {}: {} -->'.format(program.Id, str(e)))
-        
-        # Handle current year column independently
-        if SHOW_CURRENT_WEEK_COLUMN:
-            current_year_value = years_data[self.current_year]['total'] if self.current_year in years_data else 0
-            row_html += "<td><strong>{}</strong></td>".format(
-                ReportHelper.format_number(current_year_value)
-            )
         
         # Handle current year column independently
         if SHOW_CURRENT_WEEK_COLUMN:
@@ -5579,12 +6464,14 @@ class AttendanceReport:
         performance_timer.start("calculate_totals")
         overall_totals = {}
         ytd_overall_totals = {}
+        worship_ytd_totals = {}  # Track worship YTD separately
         four_week_totals = {'current': 0, 'previous_year': 0}  # For 4-week comparison
         
         for i in range(YEARS_TO_DISPLAY):
             year = self.current_year - i
             overall_totals[year] = 0
             ytd_overall_totals[year] = 0
+            worship_ytd_totals[year] = 0
             
         performance_timer.end("calculate_totals")
         
@@ -5640,6 +6527,9 @@ class AttendanceReport:
                 
             for year in years_program_ytd:
                 ytd_overall_totals[year] += years_program_ytd[year]['total']
+                # Track worship YTD separately
+                if program.Name == WORSHIP_PROGRAM:
+                    worship_ytd_totals[year] = years_program_ytd[year]['total']
                 
         performance_timer.end("generate_program_tables")
         
@@ -5663,10 +6553,20 @@ class AttendanceReport:
             four_week_totals if SHOW_FOUR_WEEK_COMPARISON else None
         )
         
-        # Add fiscal year-to-date summary (only once)
+        # Add exceptions display if enabled
+        if SHOW_EXCEPTIONS and self.exceptions_manager:
+            # Get exceptions for the current report period (4 weeks)
+            exceptions_in_period = self.exceptions_manager.get_exceptions_in_range(
+                self.four_weeks_ago_start_date,
+                self.report_date
+            )
+            if exceptions_in_period:
+                report_content += self.exceptions_manager.format_exceptions_html(exceptions_in_period)
+        
+        # Add fiscal year-to-date summary (only once) - pass worship-specific YTD
         report_content += self.generate_fiscal_year_summary(
-            ytd_overall_totals[self.current_year],
-            ytd_overall_totals[self.current_year - 1] if self.current_year - 1 in ytd_overall_totals else 0
+            worship_ytd_totals.get(self.current_year, 0),
+            worship_ytd_totals.get(self.current_year - 1, 0)
         )
                 
         # Add enrollment analysis section if any configured programs are present
@@ -5840,6 +6740,489 @@ class AttendanceReport:
         performance_timer.end("generate_report_content")
         return report_content
     
+    def generate_exceptions_management_section(self):
+        """Generate an interactive section to manage attendance exceptions."""
+        # Check if user has permission to manage exceptions
+        is_admin = False
+        try:
+            # Check if user has Admin role using built-in TouchPoint method
+            is_admin = model.UserIsInRole("Admin")
+        except:
+            is_admin = False
+        
+        # Override permission check if config says not to require admin
+        if not REQUIRE_ADMIN_FOR_EXCEPTION_MANAGEMENT:
+            is_admin = True
+        
+        # Generate the management UI
+        html = """
+        <div id="exceptions-management" style="display: none; margin-top: 40px; padding: 20px; background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 5px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin-top: 0;">📅 Attendance Exceptions</h3>
+                <button type="button" onclick="toggleExceptionsPanel()" style="padding: 3px 8px; background-color: #666; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;">✖ Close</button>
+            </div>
+            <p style="color: #666;">Special dates that affect attendance patterns (holidays, weather events, etc.)</p>
+        """
+        
+        # Only show add/delete forms if user has permission
+        if is_admin:
+            html += """
+            <!-- Add New Exception Form -->
+            <div style="background-color: #fff; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h4>Add New Exception</h4>
+                <form id="add-exception-form" style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
+                    <div style="display: flex; flex-direction: column;">
+                        <label style="font-size: 12px; color: #666; margin-bottom: 2px;">Date</label>
+                        <input type="date" id="exception_date" required 
+                               style="padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
+                    </div>
+                    
+                    <div style="display: flex; flex-direction: column; flex: 1; min-width: 200px;">
+                        <label style="font-size: 12px; color: #666; margin-bottom: 2px;">Description</label>
+                        <input type="text" id="exception_description" required 
+                               placeholder="e.g., Easter Sunday, Winter Storm"
+                               style="padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
+                    </div>
+                    
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <label style="display: flex; align-items: center; font-size: 14px;">
+                            <input type="checkbox" id="affects_worship" checked style="margin-right: 5px;">
+                            ⛪ Worship
+                        </label>
+                        <label style="display: flex; align-items: center; font-size: 14px;">
+                            <input type="checkbox" id="affects_groups" checked style="margin-right: 5px;">
+                            👥 Groups
+                        </label>
+                    </div>
+                    
+                    <button type="button" onclick="addException()" style="padding: 5px 15px; background-color: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                        Add Exception
+                    </button>
+                </form>
+                <div id="exception-message" style="margin-top: 10px; padding: 10px; border-radius: 3px; display: none;"></div>
+            </div>
+            """
+        
+        # Always show current exceptions list (for both admins and viewers)
+        html += """
+            <!-- Current Exceptions List -->
+            <div style="background-color: #fff; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h4>Current Exceptions</h4>
+        """
+        
+        if self.exceptions_manager and self.exceptions_manager.exceptions:
+            html += """
+                <div style="max-height: 300px; overflow-y: auto;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background-color: #f0f0f0;">
+                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Date</th>
+                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Description</th>
+                                <th style="padding: 8px; text-align: center; border-bottom: 2px solid #ddd;">Affects</th>
+            """
+            
+            # Only show Action column header if admin
+            if is_admin:
+                html += '<th style="padding: 8px; text-align: center; border-bottom: 2px solid #ddd;">Action</th>'
+            
+            html += """
+                            </tr>
+                        </thead>
+                        <tbody>
+            """
+            
+            for exc in sorted(self.exceptions_manager.exceptions, key=lambda x: x['date']):
+                date_str = exc['date'].strftime('%Y-%m-%d')
+                day_name = exc['date'].strftime('%A')
+                
+                # Determine icons based on flags
+                flags = exc.get('flags', 'B')
+                if flags == 'W':
+                    affects_icons = '⛪'
+                    affects_text = 'Worship'
+                elif flags == 'G':
+                    affects_icons = '👥'
+                    affects_text = 'Groups'
+                else:
+                    affects_icons = '⛪👥'
+                    affects_text = 'Both'
+                
+                html += """
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">
+                            <code>{}</code><br>
+                            <span style="font-size: 11px; color: #666;">{}</span>
+                        </td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">{}</td>
+                        <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee;">
+                            <span title="{}">{}</span>
+                        </td>
+                """.format(date_str, day_name, exc['description'], affects_text, affects_icons)
+                
+                # Only show delete button if admin
+                if is_admin:
+                    html += """
+                        <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee;">
+                            <button type="button" 
+                                    onclick="deleteException('{}')"
+                                    style="padding: 2px 8px; background-color: #f44336; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;">
+                                Delete
+                            </button>
+                        </td>
+                    """.format(date_str)
+                
+                html += "</tr>"
+            
+            html += """
+                        </tbody>
+                    </table>
+                </div>
+            """
+        else:
+            html += """
+                <p style="color: #666; font-style: italic;">No exceptions currently defined.</p>
+            """
+        
+        html += """
+            </div>
+            
+            <!-- Instructions -->
+            <div style="background-color: #e8f4fd; padding: 15px; border-radius: 5px; border-left: 4px solid #2196F3;">
+                <h4 style="margin-top: 0;">ℹ️ About Exceptions</h4>
+                <ul style="margin: 10px 0; line-height: 1.6;">
+                    <li><strong>Purpose:</strong> Exceptions help explain unusual attendance patterns in reports</li>
+                    <li><strong>Worship (⛪):</strong> Affects Sunday morning worship services</li>
+                    <li><strong>Groups (👥):</strong> Affects small groups, classes, and midweek programs</li>
+                    <li><strong>Auto-sorting:</strong> Exceptions are automatically sorted by date</li>
+                    <li><strong>Storage:</strong> Saved in Special Content as <code>{}</code></li>
+                </ul>
+                
+                <details style="margin-top: 10px;">
+                    <summary style="cursor: pointer; color: #1976D2;">Advanced: Direct Content Editing</summary>
+                    <div style="margin-top: 10px; padding: 10px; background-color: #fff; border-radius: 3px;">
+                        <p>You can also manage exceptions directly:</p>
+                        <ol>
+                            <li>Go to <strong>Administration → Special Content → Text</strong></li>
+                            <li>Edit content named: <code>{}</code></li>
+                            <li>Format: <code>YYYY-MM-DD | Description | Flags</code></li>
+                            <li>Flags: W=Worship, G=Groups, B=Both (default)</li>
+                        </ol>
+                    </div>
+                </details>
+            </div>
+        </div>
+        """
+        
+        # Add JavaScript functions if user is admin (for add/delete functionality)
+        if is_admin:
+            html += '''
+        <script>
+        function getPyScriptAddress() {
+            // Use the current path - this works regardless of script name
+            // For POST requests, must use /PyScriptForm/ instead of /PyScript/
+            let path = window.location.pathname;
+            return path.replace("/PyScript/", "/PyScriptForm/");
+        }
+        
+        function addException() {
+            var date = document.getElementById('exception_date').value;
+            var description = document.getElementById('exception_description').value;
+            var affectsWorship = document.getElementById('affects_worship').checked;
+            var affectsGroups = document.getElementById('affects_groups').checked;
+            
+            if (!date || !description) {
+                showMessage('Please provide both date and description', 'error');
+                return;
+            }
+            
+            // Make AJAX request
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', getPyScriptAddress(), true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4) {
+                    console.log('Response status:', xhr.status);
+                    console.log('Response text:', xhr.responseText);
+                    
+                    if (xhr.status === 200) {
+                        try {
+                            var response = JSON.parse(xhr.responseText);
+                            console.log('Parsed response:', response);
+                            
+                            if (response.success) {
+                                showMessage('Exception added successfully! Refreshing...', 'success');
+                                setTimeout(function() {
+                                    window.location.reload();
+                                }, 1500);
+                            } else {
+                                var errorMsg = 'Error: ' + response.message;
+                                if (response.traceback) {
+                                    console.error('Traceback:', response.traceback);
+                                }
+                                showMessage(errorMsg, 'error');
+                            }
+                        } catch(e) {
+                            console.error('Failed to parse JSON:', e);
+                            console.error('Raw response:', xhr.responseText);
+                            showMessage('Error parsing response. Check console for details.', 'error');
+                        }
+                    } else {
+                        showMessage('Error adding exception (HTTP ' + xhr.status + ')', 'error');
+                    }
+                }
+            };
+            
+            var params = 'ajax_exception_action=add' +
+                        '&exception_date=' + encodeURIComponent(date) +
+                        '&exception_description=' + encodeURIComponent(description) +
+                        '&affects_worship=' + affectsWorship +
+                        '&affects_groups=' + affectsGroups;
+            
+            console.log('Sending AJAX request with params:', params);
+            xhr.send(params);
+        }
+        
+        function deleteException(date) {
+            if (!confirm('Delete exception for ' + date + '?')) {
+                return;
+            }
+            
+            // Make AJAX request
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', getPyScriptAddress(), true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4) {
+                    console.log('Delete response status:', xhr.status);
+                    console.log('Delete response text:', xhr.responseText);
+                    
+                    if (xhr.status === 200) {
+                        try {
+                            var response = JSON.parse(xhr.responseText);
+                            console.log('Delete parsed response:', response);
+                            
+                            if (response.success) {
+                                showMessage('Exception deleted successfully! Refreshing...', 'success');
+                                setTimeout(function() {
+                                    window.location.reload();
+                                }, 1500);
+                            } else {
+                                var errorMsg = 'Error: ' + response.message;
+                                if (response.traceback) {
+                                    console.error('Delete traceback:', response.traceback);
+                                }
+                                showMessage(errorMsg, 'error');
+                            }
+                        } catch(e) {
+                            console.error('Failed to parse delete JSON:', e);
+                            console.error('Raw delete response:', xhr.responseText);
+                            showMessage('Error parsing delete response. Check console for details.', 'error');
+                        }
+                    } else {
+                        showMessage('Error deleting exception (HTTP ' + xhr.status + ')', 'error');
+                    }
+                }
+            };
+            
+            var params = 'ajax_exception_action=delete&delete_date=' + encodeURIComponent(date);
+            console.log('Sending delete request with params:', params);
+            xhr.send(params);
+        }
+        
+        function showMessage(message, type) {
+            var msgDiv = document.getElementById('exception-message');
+            if (msgDiv) {
+                msgDiv.style.display = 'block';
+                msgDiv.style.backgroundColor = type === 'success' ? '#d4edda' : '#f8d7da';
+                msgDiv.style.color = type === 'success' ? '#155724' : '#721c24';
+                msgDiv.style.border = '1px solid ' + (type === 'success' ? '#c3e6cb' : '#f5c6cb');
+                msgDiv.textContent = message;
+                
+                // Auto-hide after 5 seconds
+                setTimeout(function() {
+                    msgDiv.style.display = 'none';
+                }, 5000);
+            }
+        }
+        </script>
+        '''
+        
+        # Add the toggle function that's always available (for all users)
+        html += '''
+        <script>
+        function toggleExceptionsPanel() {
+            var panel = document.getElementById('exceptions-management');
+            if (panel) {
+                if (panel.style.display === 'none' || panel.style.display === '') {
+                    panel.style.display = 'block';
+                    // Scroll to the panel
+                    panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    panel.style.display = 'none';
+                }
+            }
+        }
+        </script>
+        '''
+        
+        return html
+    
+    def generate_four_week_exceptions_display(self):
+        """Generate a display of exceptions that fall within the 4-week comparison window."""
+        if not SHOW_FOUR_WEEK_COMPARISON or not self.exceptions_manager:
+            return ""
+            
+        # Calculate the date range for 4 weeks back and previous year 4 weeks
+        current_date = self.report_date
+        four_weeks_back = current_date - datetime.timedelta(weeks=4)
+        
+        # Previous year same period
+        prev_year_date = ReportHelper.get_previous_year_sunday(current_date)
+        prev_year_four_weeks_back = prev_year_date - datetime.timedelta(weeks=4)
+        
+        # Get exceptions in both ranges
+        current_exceptions = []
+        prev_year_exceptions = []
+        
+        for exc in self.exceptions_manager.exceptions:
+            exc_date = exc['date']
+            # Check current 4-week window
+            if four_weeks_back <= exc_date <= current_date:
+                current_exceptions.append(exc)
+            # Check previous year 4-week window
+            if prev_year_four_weeks_back <= exc_date <= prev_year_date:
+                prev_year_exceptions.append(exc)
+        
+        # If no exceptions in either period, return empty
+        if not current_exceptions and not prev_year_exceptions:
+            return ""
+        
+        # Build the display
+        html = """
+        <div style="margin-top: 30px; padding: 15px; background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: 5px;">
+            <h4 style="margin-top: 0; color: #856404;">⚠️ Exceptions in 4-Week Comparison Period</h4>
+        """
+        
+        if current_exceptions:
+            html += """
+            <div style="margin-bottom: 15px;">
+                <strong>Current Period ({} to {}):</strong>
+                <ul style="margin-top: 5px;">
+            """.format(four_weeks_back.strftime('%m/%d'), current_date.strftime('%m/%d'))
+            
+            for exc in sorted(current_exceptions, key=lambda x: x['date']):
+                date_str = exc['date'].strftime('%m/%d')
+                day_name = exc['date'].strftime('%a')
+                flags = exc.get('flags', 'B')
+                icons = '⛪' if flags == 'W' else '👥' if flags == 'G' else '⛪👥'
+                html += '<li>{} ({}) - {} {}</li>'.format(
+                    date_str, day_name, exc['description'], icons
+                )
+            html += "</ul></div>"
+        
+        if prev_year_exceptions:
+            html += """
+            <div>
+                <strong>Previous Year Period ({} to {}):</strong>
+                <ul style="margin-top: 5px;">
+            """.format(prev_year_four_weeks_back.strftime('%m/%d/%Y'), prev_year_date.strftime('%m/%d/%Y'))
+            
+            for exc in sorted(prev_year_exceptions, key=lambda x: x['date']):
+                date_str = exc['date'].strftime('%m/%d/%Y')
+                day_name = exc['date'].strftime('%a')
+                flags = exc.get('flags', 'B')
+                icons = '⛪' if flags == 'W' else '👥' if flags == 'G' else '⛪👥'
+                html += '<li>{} ({}) - {} {}</li>'.format(
+                    date_str, day_name, exc['description'], icons
+                )
+            html += "</ul></div>"
+        
+        html += """
+            <p style="margin: 10px 0 0 0; font-size: 12px; color: #666;">
+                Icons: ⛪ = Affects Worship | 👥 = Affects Groups | ⛪👥 = Affects Both
+            </p>
+        </div>
+        """
+        
+        return html
+    
+    def generate_all_exceptions_display(self):
+        """Generate a collapsible display of all exceptions."""
+        if not SHOW_EXCEPTIONS or not self.exceptions_manager or not self.exceptions_manager.exceptions:
+            return ""
+        
+        # Build the display with all exceptions
+        html = """
+        <div style="margin-top: 20px; padding: 15px; background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 5px;">
+            <details style="cursor: pointer;">
+                <summary style="font-weight: bold; color: #333; padding: 5px;">
+                    📅 View All Exceptions ({} total)
+                </summary>
+                <div style="margin-top: 15px; max-height: 400px; overflow-y: auto;">
+                    <table style="width: 100%; border-collapse: collapse; background-color: white;">
+                        <thead>
+                            <tr style="background-color: #f0f0f0; position: sticky; top: 0;">
+                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Date</th>
+                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Description</th>
+                                <th style="padding: 8px; text-align: center; border-bottom: 2px solid #ddd;">Affects</th>
+                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd;">Year</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        """.format(len(self.exceptions_manager.exceptions))
+        
+        current_year = self.report_date.year
+        
+        for exc in sorted(self.exceptions_manager.exceptions, key=lambda x: x['date'], reverse=True):
+            date_str = exc['date'].strftime('%m/%d/%Y')
+            day_name = exc['date'].strftime('%a')
+            year = exc['date'].year
+            
+            # Determine icons based on flags
+            flags = exc.get('flags', 'B')
+            if flags == 'W':
+                affects_icons = '⛪'
+                affects_text = 'Worship'
+            elif flags == 'G':
+                affects_icons = '👥'
+                affects_text = 'Groups'
+            else:
+                affects_icons = '⛪👥'
+                affects_text = 'Both'
+            
+            # Highlight current year exceptions
+            row_style = 'background-color: #fffbf0;' if year == current_year else ''
+            
+            html += """
+                        <tr style="{}">
+                            <td style="padding: 8px; border-bottom: 1px solid #eee;">
+                                <strong>{}</strong> ({})
+                            </td>
+                            <td style="padding: 8px; border-bottom: 1px solid #eee;">{}</td>
+                            <td style="padding: 8px; text-align: center; border-bottom: 1px solid #eee;">
+                                <span title="{}">{}</span>
+                            </td>
+                            <td style="padding: 8px; border-bottom: 1px solid #eee;">
+                                {}
+                            </td>
+                        </tr>
+            """.format(row_style, date_str, day_name, exc['description'], affects_text, affects_icons, year)
+        
+        html += """
+                        </tbody>
+                    </table>
+                    <p style="margin: 10px 0 0 0; font-size: 11px; color: #666;">
+                        <strong>Note:</strong> Exceptions are sorted by date (newest first). Current year exceptions are highlighted.
+                    </p>
+                </div>
+            </details>
+        </div>
+        """
+        
+        return html
+    
     def generate_report(self):
         """Generate the complete attendance report."""
         try:
@@ -5987,7 +7370,7 @@ class AttendanceReport:
             # Simple CSS included directly in the output
             report_html += "<style>\n"
             report_html += "table {border-collapse: collapse; width: 100%; margin-bottom: 20px;}\n"
-            report_html += "th, td {border: 1px solid #ddd; padding: 8px; text-align: center;}\n"
+            report_html += "th, td {border: 1px solid #ddd; padding: 4px 8px; text-align: center;}\n"
             report_html += "th {background-color: #f2f2f2; font-weight: bold;}\n"
             report_html += "td:first-child {text-align: left;}\n"
             report_html += ".summary-box {margin-bottom: 20px; padding: 15px; background-color: #f9f9f9; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);}\n"
@@ -6057,6 +7440,10 @@ class AttendanceReport:
             # Add date selector form 
             report_html += self.generate_date_selector_form()
             
+            # Add exceptions management panel (initially hidden)
+            if SHOW_EXCEPTIONS and self.exceptions_manager:
+                report_html += self.generate_exceptions_management_section()
+            
             # Check if we should load data
             if self.should_load_data:
                 # Add date range summary
@@ -6066,12 +7453,14 @@ class AttendanceReport:
                 performance_timer.start("calculate_totals")
                 overall_totals = {}
                 ytd_overall_totals = {}
+                worship_ytd_totals = {}  # Track worship YTD separately
                 four_week_totals = {'current': 0, 'previous_year': 0}
                 
                 for i in range(YEARS_TO_DISPLAY):
                     year = self.current_year - i
                     overall_totals[year] = 0
                     ytd_overall_totals[year] = 0
+                    worship_ytd_totals[year] = 0
                 
                 # Get all programs
                 performance_timer.start("load_programs")
@@ -6100,6 +7489,9 @@ class AttendanceReport:
                         
                     for year in years_program_ytd:
                         ytd_overall_totals[year] += years_program_ytd[year]['total']
+                        # Track worship YTD separately
+                        if program.Name == WORSHIP_PROGRAM:
+                            worship_ytd_totals[year] = years_program_ytd[year]['total']
                 
                 performance_timer.end("calculate_totals")
                 
@@ -6112,10 +7504,10 @@ class AttendanceReport:
                     four_week_totals if SHOW_FOUR_WEEK_COMPARISON else None
                 )
                 
-                # Add fiscal year-to-date summary
+                # Add fiscal year-to-date summary - pass worship-specific YTD
                 report_html += self.generate_fiscal_year_summary(
-                    ytd_overall_totals[self.current_year],
-                    ytd_overall_totals[self.current_year - 1] if self.current_year - 1 in ytd_overall_totals else 0
+                    worship_ytd_totals.get(self.current_year, 0),
+                    worship_ytd_totals.get(self.current_year - 1, 0)
                 )
                 
                 # Add enrollment analysis section if configured
@@ -6140,6 +7532,13 @@ class AttendanceReport:
                 
                 # Now generate the detailed program tables using the optimized method
                 report_html += self.generate_report_content_optimized()
+                
+                # Add 4-week exceptions display at the bottom if applicable
+                if SHOW_EXCEPTIONS and self.exceptions_manager:
+                    report_html += self.generate_four_week_exceptions_display()
+                    
+                    # Add the full exceptions list (collapsible)
+                    report_html += self.generate_all_exceptions_display()
             else:
                 # Show instructions when no date is selected
                 report_html += """
@@ -6258,6 +7657,7 @@ class AttendanceReport:
             """
             
             performance_timer.end("total_report_generation")
+            
             if performance_timer.enabled:
                 report_html += performance_timer.get_report()
 
@@ -6275,75 +7675,211 @@ class AttendanceReport:
     
 # Create and run the report
 try:
-    # Check for display options from URL parameters
-    show_program_summary = getattr(model.Data, 'show_program_summary', None)
-    if show_program_summary == 'yes':
-        SHOW_PROGRAM_SUMMARY = True
-    elif show_program_summary == 'no':
-        SHOW_PROGRAM_SUMMARY = False
+    # Handle AJAX exception management requests first
+    # TouchPoint may pass form data with or without 'Data.' prefix
+    ajax_action = getattr(model.Data, 'ajax_exception_action', '')
+    if not ajax_action:
+        # Try without Data prefix
+        ajax_action = getattr(model, 'ajax_exception_action', '')
     
-    show_four_week = getattr(model.Data, 'show_four_week', None)
-    if show_four_week == 'yes':
-        SHOW_FOUR_WEEK_COMPARISON = True
-    elif show_four_week == 'no':
-        SHOW_FOUR_WEEK_COMPARISON = False
+    # Also check for common TouchPoint form parameter patterns
+    if not ajax_action and hasattr(model, 'Data'):
+        for attr in dir(model.Data):
+            if not attr.startswith('_'):
+                try:
+                    if attr == 'ajax_exception_action':
+                        ajax_action = str(getattr(model.Data, attr, ''))
+                        break
+                except:
+                    pass
     
-    show_current_week = getattr(model.Data, 'show_current_week', None)
-    if show_current_week == 'yes':
-        SHOW_CURRENT_WEEK_COLUMN = True
-    elif show_current_week == 'no':
-        SHOW_CURRENT_WEEK_COLUMN = False
+    if ajax_action:
+        import json
+        response = {'success': False, 'message': ''}
         
-    show_previous_year = getattr(model.Data, 'show_previous_year', None)
-    if show_previous_year == 'yes':
-        SHOW_PREVIOUS_YEAR_COLUMN = True
-    elif show_previous_year == 'no':
-        SHOW_PREVIOUS_YEAR_COLUMN = False
-    
-    show_yoy_change = getattr(model.Data, 'show_yoy_change', None)
-    if show_yoy_change == 'yes':
-        SHOW_YOY_CHANGE_COLUMN = True
-    elif show_yoy_change == 'no':
-        SHOW_YOY_CHANGE_COLUMN = False
-    
-    show_fytd = getattr(model.Data, 'show_fytd', None)
-    if show_fytd == 'yes':
-        SHOW_FYTD_COLUMNS = True
-    elif show_fytd == 'no':
-        SHOW_FYTD_COLUMNS = False
-    
-    show_fytd_change = getattr(model.Data, 'show_fytd_change', None)
-    if show_fytd_change == 'yes':
-        SHOW_FYTD_CHANGE_COLUMNS = True
-    elif show_fytd_change == 'no':
-        SHOW_FYTD_CHANGE_COLUMNS = False
-    
-    show_fytd_avg = getattr(model.Data, 'show_fytd_avg', None)
-    if show_fytd_avg == 'yes':
-        SHOW_FYTD_AVG_COLUMN = True
-    elif show_fytd_avg == 'no':
-        SHOW_FYTD_AVG_COLUMN = False
+        try:
+            # Check if user has permission to manage exceptions (for AJAX operations)
+            is_admin = False
+            if REQUIRE_ADMIN_FOR_EXCEPTION_MANAGEMENT:
+                try:
+                    # Use built-in TouchPoint method to check Admin role
+                    is_admin = model.UserIsInRole("Admin")
+                except:
+                    is_admin = False
+            else:
+                is_admin = True  # If admin not required, allow all users
+            
+            # Check permission before allowing any modifications
+            if not is_admin:
+                response = {'success': False, 'message': 'Permission denied. Admin access required to manage exceptions.'}
+                model.Header = "application/json"
+                print json.dumps(response)
+            else:
+                # Load exceptions manager
+                exceptions_manager = ExceptionsManager()
+                action = ajax_action
+                
+                if action == 'add':
+                    # Add new exception - check both model.Data and model for parameters
+                    exc_date = getattr(model.Data, 'exception_date', '')
+                    if not exc_date:
+                        exc_date = getattr(model, 'exception_date', '')
+                        
+                    exc_desc = getattr(model.Data, 'exception_description', '')
+                    if not exc_desc:
+                        exc_desc = getattr(model, 'exception_description', '')
+                        
+                    affects_worship_str = getattr(model.Data, 'affects_worship', '')
+                    if not affects_worship_str:
+                        affects_worship_str = getattr(model, 'affects_worship', 'false')
+                    affects_worship = affects_worship_str == 'true'
+                    
+                    affects_groups_str = getattr(model.Data, 'affects_groups', '')
+                    if not affects_groups_str:
+                        affects_groups_str = getattr(model, 'affects_groups', 'false')
+                    affects_groups = affects_groups_str == 'true'
+                    
+                    if exc_date and exc_desc:
+                        # Determine flags
+                        if affects_worship and affects_groups:
+                            flags = 'B'
+                        elif affects_worship:
+                            flags = 'W'
+                        elif affects_groups:
+                            flags = 'G'
+                        else:
+                            flags = 'B'  # Default to both if neither selected
+                        
+                        # Add to exceptions
+                        exceptions_manager.exceptions.append({
+                            'date': datetime.datetime.strptime(exc_date, '%Y-%m-%d'),
+                            'description': exc_desc,
+                            'flags': flags
+                        })
+                        
+                        # Save and report result
+                        save_result = exceptions_manager.save_exceptions()
+                        if save_result:
+                            # Verify the save by checking the content
+                            saved_content = model.TextContent(EXCEPTIONS_CONTENT_NAME)
+                            exception_count = len(exceptions_manager.exceptions)
+                            response = {
+                                'success': True, 
+                                'message': 'Exception added successfully. Total exceptions: {}'.format(exception_count)
+                            }
+                        else:
+                            response = {'success': False, 'message': 'Failed to save exception to Special Content'}
+                    else:
+                        response = {'success': False, 'message': 'Date and description are required'}
+                
+                elif action == 'delete':
+                    # Delete exception - check both model.Data and model for parameters
+                    delete_date = getattr(model.Data, 'delete_date', '')
+                    if not delete_date:
+                        delete_date = getattr(model, 'delete_date', '')
+                    if delete_date:
+                        delete_dt = datetime.datetime.strptime(delete_date, '%Y-%m-%d')
+                        original_count = len(exceptions_manager.exceptions)
+                        exceptions_manager.exceptions = [
+                            exc for exc in exceptions_manager.exceptions 
+                            if exc['date'] != delete_dt
+                        ]
+                        new_count = len(exceptions_manager.exceptions)
+                        
+                        if original_count > new_count:
+                            save_result = exceptions_manager.save_exceptions()
+                            if save_result:
+                                response = {
+                                    'success': True, 
+                                    'message': 'Exception deleted successfully. Remaining exceptions: {}'.format(new_count)
+                                }
+                            else:
+                                response = {'success': False, 'message': 'Failed to save changes to Special Content'}
+                        else:
+                            response = {'success': False, 'message': 'Exception not found for the specified date'}
+                    else:
+                        response = {'success': False, 'message': 'Date is required'}
+                else:
+                    response = {'success': False, 'message': 'Unknown action: ' + str(action)}
+                    
+        except Exception as e:
+            import traceback
+            response = {'success': False, 'message': 'Error: ' + str(e), 'traceback': traceback.format_exc()}
         
-    show_detailed_enrollment = getattr(model.Data, 'show_detailed_enrollment', None)
-    if show_detailed_enrollment == 'yes':
-        SHOW_DETAILED_ENROLLMENT = True
-    elif show_detailed_enrollment == 'no':
-        SHOW_DETAILED_ENROLLMENT = False
+        # Return JSON response only - no HTML
+        print json.dumps(response)
     
-    # Check for debug parameter in URL
-    debug_param = getattr(model.Data, 'debug', None)
-    if debug_param == 'performance':
-        performance_timer.enabled = True
+    else:
+        # Only run the regular report if not an AJAX request
+        # Check for display options from URL parameters
+        show_program_summary = getattr(model.Data, 'show_program_summary', None)
+        if show_program_summary == 'yes':
+            SHOW_PROGRAM_SUMMARY = True
+        elif show_program_summary == 'no':
+            SHOW_PROGRAM_SUMMARY = False
     
-    performance_timer.start("script_execution")
-    report = AttendanceReport()
-    report_html = report.generate_report()
-    print report_html
-    performance_timer.end("script_execution")
+        show_four_week = getattr(model.Data, 'show_four_week', None)
+        if show_four_week == 'yes':
+            SHOW_FOUR_WEEK_COMPARISON = True
+        elif show_four_week == 'no':
+            SHOW_FOUR_WEEK_COMPARISON = False
     
-    # Only add this script if we're actually loading data
-    if report.should_load_data:
-        print """
+        show_current_week = getattr(model.Data, 'show_current_week', None)
+        if show_current_week == 'yes':
+            SHOW_CURRENT_WEEK_COLUMN = True
+        elif show_current_week == 'no':
+            SHOW_CURRENT_WEEK_COLUMN = False
+        
+        show_previous_year = getattr(model.Data, 'show_previous_year', None)
+        if show_previous_year == 'yes':
+            SHOW_PREVIOUS_YEAR_COLUMN = True
+        elif show_previous_year == 'no':
+            SHOW_PREVIOUS_YEAR_COLUMN = False
+    
+        show_yoy_change = getattr(model.Data, 'show_yoy_change', None)
+        if show_yoy_change == 'yes':
+            SHOW_YOY_CHANGE_COLUMN = True
+        elif show_yoy_change == 'no':
+            SHOW_YOY_CHANGE_COLUMN = False
+    
+        show_fytd = getattr(model.Data, 'show_fytd', None)
+        if show_fytd == 'yes':
+            SHOW_FYTD_COLUMNS = True
+        elif show_fytd == 'no':
+            SHOW_FYTD_COLUMNS = False
+    
+        show_fytd_change = getattr(model.Data, 'show_fytd_change', None)
+        if show_fytd_change == 'yes':
+            SHOW_FYTD_CHANGE_COLUMNS = True
+        elif show_fytd_change == 'no':
+            SHOW_FYTD_CHANGE_COLUMNS = False
+    
+        show_fytd_avg = getattr(model.Data, 'show_fytd_avg', None)
+        if show_fytd_avg == 'yes':
+            SHOW_FYTD_AVG_COLUMN = True
+        elif show_fytd_avg == 'no':
+            SHOW_FYTD_AVG_COLUMN = False
+        
+        show_detailed_enrollment = getattr(model.Data, 'show_detailed_enrollment', None)
+        if show_detailed_enrollment == 'yes':
+            SHOW_DETAILED_ENROLLMENT = True
+        elif show_detailed_enrollment == 'no':
+            SHOW_DETAILED_ENROLLMENT = False
+    
+        # Check for debug parameter in URL
+        debug_param = getattr(model.Data, 'debug', None)
+        if debug_param == 'performance':
+            performance_timer.enabled = True
+        
+        performance_timer.start("script_execution")
+        report = AttendanceReport()
+        report_html = report.generate_report()
+        print report_html
+        performance_timer.end("script_execution")
+    
+        # Only add this script if we're actually loading data
+        if report.should_load_data:
+            print """
         <script>
         // Hide the processing overlay when content has loaded
         document.addEventListener('DOMContentLoaded', function() {
@@ -6369,12 +7905,12 @@ try:
             }
         }, 5000);
         </script>
-        """
-    
-    if performance_timer.enabled:
-        print "<script>console.log('Total script execution time: {:.4f} seconds');</script>".format(
-            performance_timer.results.get("script_execution", 0)
-        )
+            """
+        
+        if performance_timer.enabled:
+            print "<script>console.log('Total script execution time: {:.4f} seconds');</script>".format(
+                performance_timer.results.get("script_execution", 0)
+            )
     
 except Exception as e:
     # Print any errors
