@@ -28,7 +28,7 @@ This report is still being built, but it is Week at a Glance (WAAG) 2.0 for at l
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Weekly%20Attendance/WCConnectGroupAttendance.png" width="700">
 </p>
 
-<summary><strong>Program Breakdown</strong></summary>
+<summary><strong>Exceptions</strong></summary>
 <p>Add exceptions (Easter, weather, etc..) to services or groups that drastically change attendance.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Weekly%20Attendance/WCExceptions.png" width="700">
