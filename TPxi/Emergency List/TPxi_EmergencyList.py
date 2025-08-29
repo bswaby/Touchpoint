@@ -1,19 +1,29 @@
 '''
-Purpose: Enhanced Emergency List - Medical and emergency contact information with improved visual design
+Enhanced Emergency List for TouchPoint
+---------------------------------------
+This report generates a comprehensive emergency contact and medical information list for selected individuals.
+Perfect for events, trips, or emergency preparedness.
 
---Upload Instructions Start--
-To upload code to Touchpoint, use the following steps:
-1. Click Admin ~ Advanced ~ Special Content ~ Python
-2. Click New Python Script File
-3. Name the Python script "EmergencyList" and paste all this code
-4. Test and optionally add to menu
---Upload Instructions End--
+Features:
+- Title page with counts and church information
+- Missing information summary (helps identify incomplete records)
+- Quick reference allergy page
+- Comprehensive medical information page
+- Detailed individual cards with photos, emergency contacts, and medical data
 
-Add to Blue Toolbar by:
-1. Open Admin ~ Advanced ~ Special Content ~ Text > CustomReports.xml
-2. Add: <Report name="Enhanced Emergency List" type="PyScript" role="Access">/PyScript/EmergencyList</Report>
+Installation:
+1. Go to Admin > Advanced > Special Content > Python Scripts
+2. Click "New Python Script File"
+3. Name it "EmergencyListEnhanced"
+4. Paste this entire code and save
 
-Note:  CustomReports.xml take up to 24hrs to show
+To add to Blue Toolbar:
+1. Go to Admin > Advanced > Special Content > Text > CustomReports.xml
+2. Add: <Report name="Enhanced Emergency List" type="PyScript" role="Access">/PyScript/EmergencyListEnhanced</Report>
+
+Configuration:
+- Adjust settings in the Config class below to customize pages and features
+- Modify EXCLUDE_ANSWERS list to filter out non-meaningful responses
 
 Written By: Ben Swaby
 Email: bswaby@fbchtn.org
@@ -23,18 +33,41 @@ Email: bswaby@fbchtn.org
 class Config:
     # Display settings
     PAGE_TITLE = "Enhanced Emergency List"
-    ENTRIES_PER_PAGE = 5  # Max number of people per page (reduced due to larger photos)
+    ENTRIES_PER_PAGE = 7  # Max number of people per page (reduced due to larger photos)
     
-    # Extra Values to display (if any - currently using RecReg table fields)
+    # Page Enable/Disable Settings
+    SHOW_TITLE_PAGE = True  # Show title page with counts and church info
+    SHOW_MISSING_INFO_PAGE = True  # Show missing information page
+    SHOW_ALLERGY_PAGE = True  # Show quick reference allergy page
+    SHOW_MEDICAL_INFO_PAGE = True  # Show comprehensive medical information page
+    
+    # Missing Information Flags - Set to True to flag as missing, False to ignore
+    FLAG_MISSING_EMERGENCY_CONTACT = True  # Flag if emergency contact is missing
+    FLAG_MISSING_AGE = True  # Flag if age/birthdate is missing
+    FLAG_MISSING_PHOTO = True  # Flag if photo is missing
+    
+    # Extra Values to display 
     EXTRA_VALUE_FIELDS = [
         'MedicalCondition'  # Keep this in case you have extra values too
     ]
     
-    # Over-the-counter medications from RecReg table
-    OTC_MEDICATIONS = ['Tylenol', 'Advil', 'Maalox', 'Robitussin']
+    # Exclude these values from being displayed as allergies or medical info
+    # These are common "non-answers" that don't provide useful information
+    EXCLUDE_ANSWERS = [
+        'Ma', 'Mon', 'Mone', 'No ', 'Non', 'Non ', 'Nine',
+        'None', 'None.', 'None ', 'None. ', 'None know', 'None know ', 'no allergies', 'No alleriges',
+        'No concerns', 'None Known', 'None Known ', 'None \\nNone', 'Nonr', 'Nome',
+        'No food allergies ', 'null', 'N/A', 'N/', 'N_A',
+        'NKDA', 'KNA', 'NA', 'NA ', 'NKA', 'N-A', 'NS', 'N/S', 'No',
+        'no food allergies', '5', ''
+    ]
+    
+    # Note: OTC medications are dynamically pulled from the database
+    # They come from either RegAnswer table (for recent registrations) or 
+    # RecReg table fields (Tylenol, Advil, Maalox, Robitussin columns)
     
     # Security settings
-    REQUIRED_ROLE = "Edit"
+    REQUIRED_ROLE = "Access"
 
 # Set page header
 model.Header = ''
@@ -321,6 +354,11 @@ def print_styles():
                 print-color-adjust: exact !important;
             }
             
+            /* Hide the TouchPoint page header when printing */
+            #page-header {
+                display: none !important;
+            }
+            
             body {
                 font-size: 11pt;
             }
@@ -532,12 +570,362 @@ def format_medical_value(value, label=""):
     if isinstance(value, bool):
         return ""
     
-    # Convert to string and check for empty/invalid values
-    value_str = str(value)
-    if value_str.upper() in ['UNKNOWN TYPE:', 'N/A', 'NONE', '']:
+    # Convert to string and strip whitespace
+    value_str = str(value).strip()
+    
+    # Check if value is in the exclusion list (case-insensitive)
+    if value_str in Config.EXCLUDE_ANSWERS:
+        return ""
+    
+    # Also check lowercase version
+    if value_str.lower() in [x.lower() for x in Config.EXCLUDE_ANSWERS]:
+        return ""
+    
+    # Check for empty/invalid values
+    if value_str.upper() in ['UNKNOWN TYPE:', '']:
         return ""
     
     return value_str
+
+def print_title_page(people_data, org_name=None):
+    """Print title page with counts and statistics"""
+    if not Config.SHOW_TITLE_PAGE:
+        return  # Skip this page if disabled
+    male_count = 0
+    female_count = 0
+    unknown_count = 0
+    
+    for person in people_data:
+        # Get gender from database
+        gender_sql = """
+        SELECT GenderId FROM People WHERE PeopleId = {0}
+        """.format(person.PeopleId)
+        gender_result = q.QuerySqlTop1(gender_sql)
+        
+        if gender_result:
+            if gender_result.GenderId == 1:  # Male
+                male_count += 1
+            elif gender_result.GenderId == 2:  # Female
+                female_count += 1
+            else:
+                unknown_count += 1
+        else:
+            unknown_count += 1
+    
+    # Get church information from Setting table
+    church_info_sql = """
+    SELECT TOP 1
+        Setting
+    FROM dbo.Setting
+    WHERE Id = 'NameOfChurch'
+    """
+    church_name_result = q.QuerySqlTop1(church_info_sql)
+    church_name = church_name_result.Setting if church_name_result else "Church"
+    
+    # Get church contact information
+    contact_sql = """
+    SELECT TOP 1
+        Setting
+    FROM dbo.Setting
+    WHERE Id IN ('ChurchPhone', 'ChurchEmail')
+    ORDER BY Id
+    """
+    contact_info = q.QuerySql(contact_sql)
+    church_phone = ""
+    church_email = ""
+    for info in contact_info:
+        if info.Setting:
+            if '@' in info.Setting:
+                church_email = info.Setting
+            else:
+                church_phone = format_phone(info.Setting)
+    
+    total_count = len(people_data)
+    current_time = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+    
+    print """
+    <div style="page-break-after: always; padding: 50px; text-align: center; position: relative;">
+        <div style="position: absolute; top: 20px; right: 20px; color: #c53030; font-weight: bold; font-size: 16px; border: 2px solid #c53030; padding: 5px 15px; background-color: #fed7d7;">
+            CONFIDENTIAL
+        </div>
+        <h1 style="font-size: 36px; color: #2c5282; margin-bottom: 10px;">Emergency List</h1>
+        <h2 style="font-size: 24px; color: #4a5568; margin-bottom: 30px;">{0}</h2>
+        {1}
+        <div style="margin: 40px auto; padding: 30px; background-color: #f7fafc; border-radius: 10px; max-width: 600px;">
+            <h2 style="color: #4a5568; margin-bottom: 20px;">Report Summary</h2>
+            <div style="font-size: 18px; line-height: 2;">
+                <div><strong>Total People:</strong> {2}</div>
+                <div><strong>Male:</strong> {3}</div>
+                <div><strong>Female:</strong> {4}</div>
+                {5}
+                <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #e2e8f0;">
+                    <strong>Report Generated:</strong><br>{6}
+                </div>
+            </div>
+        </div>
+        <div style="margin-top: 30px; padding: 20px; background-color: #e6fffa; border-radius: 10px; max-width: 600px; margin: 30px auto;">
+            <h3 style="color: #234e52; margin-bottom: 15px;">Church Contact Information</h3>
+            <div style="font-size: 16px; line-height: 1.8;">
+                {7}
+                {8}
+            </div>
+        </div>
+    </div>
+    """.format(
+        church_name,
+        '<h3 style="color: #718096; margin-bottom: 10px;">{0}</h3>'.format(org_name) if org_name else '',
+        total_count,
+        male_count,
+        female_count,
+        '<div><strong>Unknown Gender:</strong> {0}</div>'.format(unknown_count) if unknown_count > 0 else '',
+        current_time,
+        '<div><strong>Phone:</strong> {0}</div>'.format(church_phone) if church_phone else '',
+        '<div><strong>Email:</strong> {0}</div>'.format(church_email) if church_email else ''
+    )
+
+def print_missing_items_page(people_data):
+    """Print page with missing information that needs to be resolved"""
+    if not Config.SHOW_MISSING_INFO_PAGE:
+        return  # Skip this page if disabled
+        
+    missing_items = []
+    
+    for person in people_data:
+        missing_fields = []
+        
+        # Check for missing emergency contact (if flagged)
+        if Config.FLAG_MISSING_EMERGENCY_CONTACT:
+            if not person.emcontact or not person.emphone:
+                missing_fields.append('Emergency Contact')
+        
+        # Check for missing age (if flagged)
+        if Config.FLAG_MISSING_AGE:
+            if not person.Age:
+                missing_fields.append('Age/Birthdate')
+        
+        # Check for missing picture (if flagged)
+        if Config.FLAG_MISSING_PHOTO:
+            if not person.pic:
+                missing_fields.append('Photo')
+        
+        # If any fields are missing, add to the list
+        if missing_fields:
+            missing_items.append({
+                'name': person.Name2,
+                'age': person.Age if person.Age else 'Missing',
+                'missing': ', '.join(missing_fields),
+                'people_id': person.PeopleId
+            })
+    
+    if missing_items:
+        print """
+        <div style="page-break-after: always; padding: 20px; position: relative;">
+            <div style="position: absolute; top: 10px; right: 20px; color: #c53030; font-weight: bold; font-size: 14px; border: 1px solid #c53030; padding: 3px 10px; background-color: #fed7d7;">
+                CONFIDENTIAL
+            </div>
+            <h2 style="color: #f59e0b; border-bottom: 3px solid #f59e0b; padding-bottom: 10px;">Missing Information - Action Required</h2>
+            <p style="color: #92400e; font-weight: bold; margin-bottom: 20px;">
+                The following people have incomplete emergency information that needs to be updated:
+            </p>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                <thead>
+                    <tr style="background-color: #fef3c7;">
+                        <th style="padding: 8px; text-align: left; border: 1px solid #f59e0b;">Name</th>
+                        <th style="padding: 8px; text-align: center; border: 1px solid #f59e0b; width: 80px;">Age</th>
+                        <th style="padding: 8px; text-align: left; border: 1px solid #f59e0b;">Missing Information</th>
+                    </tr>
+                </thead>
+                <tbody>
+        """
+        
+        for item in sorted(missing_items, key=lambda x: x['name']):
+            # Highlight row based on severity of missing info
+            row_style = ""
+            if 'Emergency Contact' in item['missing']:
+                row_style = "background-color: #fee2e2;"  # Light red for critical
+            elif 'Age/Birthdate' in item['missing']:
+                row_style = "background-color: #fef3c7;"  # Light yellow for important
+            
+            print """
+                    <tr style="{0}">
+                        <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: bold;">{1}</td>
+                        <td style="padding: 6px; border: 1px solid #e2e8f0; text-align: center;">{2}</td>
+                        <td style="padding: 6px; border: 1px solid #e2e8f0; color: #92400e; font-weight: 500;">{3}</td>
+                    </tr>
+            """.format(row_style, item['name'], item['age'], item['missing'])
+        
+        print """
+                </tbody>
+            </table>
+            <div style="margin-top: 20px; padding: 15px; background-color: #fef3c7; border-left: 4px solid #f59e0b;">
+                <strong style="color: #92400e;">Priority Legend:</strong>
+                <ul style="margin-top: 10px; color: #92400e;">
+                    <li><span style="background-color: #fee2e2; padding: 2px 8px;">Red Background</span> - Missing Emergency Contact (Critical)</li>
+                    <li><span style="background-color: #fef3c7; padding: 2px 8px;">Yellow Background</span> - Missing Age/Birthdate (Important)</li>
+                    <li>White Background - Missing Photo Only (Low Priority)</li>
+                </ul>
+            </div>
+        </div>
+        """
+    else:
+        # If no missing items, print a success page
+        print """
+        <div style="page-break-after: always; padding: 20px; position: relative;">
+            <div style="position: absolute; top: 10px; right: 20px; color: #c53030; font-weight: bold; font-size: 14px; border: 1px solid #c53030; padding: 3px 10px; background-color: #fed7d7;">
+                CONFIDENTIAL
+            </div>
+            <h2 style="color: #059669; border-bottom: 3px solid #059669; padding-bottom: 10px;">Data Completeness Status</h2>
+            <div style="margin-top: 30px; padding: 30px; background-color: #d1fae5; border-radius: 10px; text-align: center;">
+                <i class="fa fa-check-circle" style="font-size: 48px; color: #059669; margin-bottom: 20px;"></i>
+                <h3 style="color: #065f46; margin-bottom: 10px;">All Information Complete!</h3>
+                <p style="color: #047857; font-size: 18px;">
+                    Every person in this report has complete emergency information including contact details, age, and photos.
+                </p>
+            </div>
+        </div>
+        """
+
+def print_allergy_page(people_data):
+    """Print allergy page with name, age, and allergies"""
+    if not Config.SHOW_ALLERGY_PAGE:
+        return  # Skip this page if disabled
+    allergies_list = []
+    
+    for person in people_data:
+        if person.MedAllergy and format_medical_value(person.MedAllergy):
+            allergies_list.append({
+                'name': person.Name2,
+                'age': person.Age if person.Age else 'N/A',
+                'allergy': format_medical_value(person.MedAllergy)
+            })
+    
+    if allergies_list:
+        print """
+        <div style="page-break-after: always; padding: 20px; position: relative;">
+            <div style="position: absolute; top: 10px; right: 20px; color: #c53030; font-weight: bold; font-size: 14px; border: 1px solid #c53030; padding: 3px 10px; background-color: #fed7d7;">
+                CONFIDENTIAL
+            </div>
+            <h2 style="color: #c53030; border-bottom: 3px solid #c53030; padding-bottom: 10px;">Allergy Information</h2>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                <thead>
+                    <tr style="background-color: #fed7d7;">
+                        <th style="padding: 10px; text-align: left; border: 1px solid #fc8181;">Name</th>
+                        <th style="padding: 10px; text-align: center; border: 1px solid #fc8181; width: 80px;">Age</th>
+                        <th style="padding: 10px; text-align: left; border: 1px solid #fc8181;">Allergies</th>
+                    </tr>
+                </thead>
+                <tbody>
+        """
+        
+        for allergy_info in sorted(allergies_list, key=lambda x: x['name']):
+            print """
+                    <tr>
+                        <td style="padding: 8px; border: 1px solid #e2e8f0; font-weight: bold;">{0}</td>
+                        <td style="padding: 8px; border: 1px solid #e2e8f0; text-align: center;">{1}</td>
+                        <td style="padding: 8px; border: 1px solid #e2e8f0; color: #c53030;">{2}</td>
+                    </tr>
+            """.format(allergy_info['name'], allergy_info['age'], allergy_info['allergy'])
+        
+        print """
+                </tbody>
+            </table>
+        </div>
+        """
+
+def print_adhoc_values_page(people_data):
+    """Print medical information page with all medical data"""
+    if not Config.SHOW_MEDICAL_INFO_PAGE:
+        return  # Skip this page if disabled
+    # Get all people with medical conditions, allergies, or other medical info
+    adhoc_dict = {}  # Use dict to group by person
+    
+    for person in people_data:
+        person_key = person.Name2
+        person_age = person.Age if person.Age else 'N/A'
+        
+        # Check for allergies from MedAllergy field
+        if person.MedAllergy and format_medical_value(person.MedAllergy):
+            if person_key not in adhoc_dict:
+                adhoc_dict[person_key] = {
+                    'age': person_age,
+                    'items': []
+                }
+            adhoc_dict[person_key]['items'].append({
+                'type': 'Allergies',
+                'value': format_medical_value(person.MedAllergy)
+            })
+        
+        # Check for allergies from MedicalDescription field (also used for allergies)
+        if person.MedicalDescription and format_medical_value(person.MedicalDescription):
+            if person_key not in adhoc_dict:
+                adhoc_dict[person_key] = {
+                    'age': person_age,
+                    'items': []
+                }
+            adhoc_dict[person_key]['items'].append({
+                'type': 'Allergies',
+                'value': format_medical_value(person.MedicalDescription)
+            })
+        
+        # Check for medical conditions from extra values
+        if person.MedicalCondition and format_medical_value(person.MedicalCondition):
+            if person_key not in adhoc_dict:
+                adhoc_dict[person_key] = {
+                    'age': person_age,
+                    'items': []
+                }
+            adhoc_dict[person_key]['items'].append({
+                'type': 'Medical Condition',
+                'value': format_medical_value(person.MedicalCondition)
+            })
+    
+    if adhoc_dict:
+        print """
+        <div style="page-break-after: always; padding: 20px; position: relative;">
+            <div style="position: absolute; top: 10px; right: 20px; color: #c53030; font-weight: bold; font-size: 14px; border: 1px solid #c53030; padding: 3px 10px; background-color: #fed7d7;">
+                CONFIDENTIAL
+            </div>
+            <h2 style="color: #319795; border-bottom: 3px solid #319795; padding-bottom: 10px;">Medical Information</h2>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                <thead>
+                    <tr style="background-color: #e6fffa;">
+                        <th style="padding: 6px; text-align: left; border: 1px solid #4fd1c5;">Name</th>
+                        <th style="padding: 6px; text-align: center; border: 1px solid #4fd1c5; width: 60px;">Age</th>
+                        <th style="padding: 6px; text-align: left; border: 1px solid #4fd1c5; width: 150px;">Type</th>
+                        <th style="padding: 6px; text-align: left; border: 1px solid #4fd1c5;">Information</th>
+                    </tr>
+                </thead>
+                <tbody>
+        """
+        
+        for person_name in sorted(adhoc_dict.keys()):
+            person_data = adhoc_dict[person_name]
+            first_row = True
+            
+            for item in person_data['items']:
+                if first_row:
+                    print """
+                    <tr>
+                        <td style="padding: 4px 6px; border: 1px solid #e2e8f0; font-weight: bold; vertical-align: top;" rowspan="{0}">{1}</td>
+                        <td style="padding: 4px 6px; border: 1px solid #e2e8f0; text-align: center; vertical-align: top;" rowspan="{0}">{2}</td>
+                        <td style="padding: 4px 6px; border: 1px solid #e2e8f0; color: #234e52; font-weight: bold;">{3}</td>
+                        <td style="padding: 4px 6px; border: 1px solid #e2e8f0;">{4}</td>
+                    </tr>
+                    """.format(len(person_data['items']), person_name, person_data['age'], item['type'], item['value'])
+                    first_row = False
+                else:
+                    print """
+                    <tr>
+                        <td style="padding: 4px 6px; border: 1px solid #e2e8f0; color: #234e52; font-weight: bold;">{0}</td>
+                        <td style="padding: 4px 6px; border: 1px solid #e2e8f0;">{1}</td>
+                    </tr>
+                    """.format(item['type'], item['value'])
+        
+        print """
+                </tbody>
+            </table>
+        </div>
+        """
 
 def main():
     """Main function"""
@@ -548,6 +936,7 @@ def main():
             
         # Get organization ID if running from organization context
         org_id = getattr(model.Data, 'CurrentOrgId', None)
+        org_name = None
         
         # Configuration for pagination
         count_loop = 94
@@ -556,7 +945,7 @@ def main():
         # Print styles
         print_styles()
         
-        # Print organization header if applicable
+        # Get organization name if applicable
         if org_id:
             sql_header = """
             SELECT TOP 1 os.Organization, os.Program, os.Division 
@@ -566,8 +955,7 @@ def main():
             
             header_data = q.QuerySqlTop1(sql_header)
             if header_data:
-                print '<h2>{0}</h2>'.format(header_data.Organization)
-                first_page = first_page - 1
+                org_name = header_data.Organization
         
         # Build main query with medical fields from RecReg table
         sql_main = """
@@ -614,12 +1002,47 @@ def main():
         
         # Get data
         people_data = q.QuerySql(sql_main)
+        
+        # Convert to list if needed for multiple iterations
+        people_list = list(people_data)
+        
+        # Print title page first
+        print_title_page(people_list, org_name)
+        
+        # Print missing items page (for data quality)
+        print_missing_items_page(people_list)
+        
+        # Print allergy page (quick reference for allergies only)
+        print_allergy_page(people_list)
+        
+        # Print medical information page (comprehensive medical data)
+        print_adhoc_values_page(people_list)
+        
+        # Now print the main emergency list
         person_count = 0
+        
+        # Print organization header if applicable with CONFIDENTIAL marking
+        if org_name:
+            print """
+            <div style="position: relative;">
+                <div style="position: absolute; top: 10px; right: 20px; color: #c53030; font-weight: bold; font-size: 14px; border: 1px solid #c53030; padding: 3px 10px; background-color: #fed7d7;">
+                    CONFIDENTIAL
+                </div>
+                <h2>{0}</h2>
+            </div>
+            """.format(org_name)
+            first_page = first_page - 1
+        else:
+            print """
+            <div style="position: absolute; top: 10px; right: 20px; color: #c53030; font-weight: bold; font-size: 14px; border: 1px solid #c53030; padding: 3px 10px; background-color: #fed7d7;">
+                CONFIDENTIAL
+            </div>
+            """
         
         print '<div class="emergency-list-container">'
         
         # Process each person
-        for person in people_data:
+        for person in people_list:
             person_count += 1
             
             # Get member type if from organization
@@ -674,15 +1097,15 @@ def main():
                 print '<div class="medical-section">'
                 print '<div class="medical-header">Medical Information</div>'
                 
-                # Allergies from RecReg
+                # Allergies from MedAllergy field
                 allergies = format_medical_value(person.MedAllergy)
                 if allergies:
                     print '<div class="medical-field"><span class="medical-label">Allergies:</span> <span class="medical-value">{0}</span></div>'.format(allergies)
                 
-                # Medical Description from RecReg
+                # Additional Allergies from MedicalDescription field (often used for allergies)
                 med_desc = format_medical_value(person.MedicalDescription)
                 if med_desc:
-                    print '<div class="medical-notes"><span class="medical-label" style="color: #92400e;">Medical Notes:</span> {0}</div>'.format(med_desc)
+                    print '<div class="medical-notes"><span class="medical-label" style="color: #92400e;">Allergies:</span> {0}</div>'.format(med_desc)
                 
                 # Medical Conditions from Extra Values
                 conditions = format_medical_value(person.MedicalCondition)
@@ -706,15 +1129,42 @@ def main():
                     print '<div class="medical-field"><span class="medical-label">Health Insurance:</span> <span class="medical-value">{0}</span></div>'.format(insurance_info)
                 
                 # OTC Medications allowed
+                # First check if there's a registration answer override for this specific question
+                # The RegAnswer table stores answers in JSON array format like ["Tylenol","Advil"]
+                reg_answer_sql = """
+                SELECT ra.AnswerValue
+                FROM RegAnswer ra
+                INNER JOIN RegPeople rp ON rp.RegPeopleId = ra.RegPeopleId
+                WHERE rp.PeopleId = {0} 
+                  AND ra.RegQuestionId = '8A9F1199-6F1C-480C-8A2D-146EEEAE55B8'
+                """.format(person.PeopleId)
+                
+                reg_answer = q.QuerySqlTop1(reg_answer_sql)
                 allowed_meds = []
-                if person.Tylenol:
-                    allowed_meds.append('Tylenol')
-                if person.Advil:
-                    allowed_meds.append('Advil')
-                if person.Maalox:
-                    allowed_meds.append('Maalox')
-                if person.Robitussin:
-                    allowed_meds.append('Robitussin')
+                
+                if reg_answer and reg_answer.AnswerValue:
+                    # Parse the JSON-like format ["meda","medb"]
+                    answer_value = reg_answer.AnswerValue
+                    # Remove brackets and quotes, then split by comma
+                    if answer_value.startswith('[') and answer_value.endswith(']'):
+                        answer_value = answer_value[1:-1]  # Remove brackets
+                    # Split by comma and clean up each medication
+                    meds_list = answer_value.split(',')
+                    for med in meds_list:
+                        # Remove quotes and whitespace
+                        cleaned_med = med.strip().strip('"').strip("'")
+                        if cleaned_med:
+                            allowed_meds.append(cleaned_med)
+                else:
+                    # Fall back to RecReg table values
+                    if person.Tylenol:
+                        allowed_meds.append('Tylenol')
+                    if person.Advil:
+                        allowed_meds.append('Advil')
+                    if person.Maalox:
+                        allowed_meds.append('Maalox')
+                    if person.Robitussin:
+                        allowed_meds.append('Robitussin')
                 
                 if allowed_meds:
                     print '<div class="medical-field"><span class="medical-label">Allowed OTC Meds:</span> <span class="medication-pills">'
@@ -778,30 +1228,13 @@ def main():
         
         print '</div>'
         
-        # Print summary
-        if person_count > 0:
-            print """
-            <div style="margin-top: 20px; padding: 10px; background-color: #f7fafc; border-radius: 6px;">
-                <strong>Total People:</strong> {0}
-            </div>
-            """.format(person_count)
-        else:
+        # Only show a message if no people were found
+        if person_count == 0:
             print """
             <div class="alert alert-info">
                 <i class="fa fa-info-circle"></i> No people found in the current selection.
             </div>
             """
-        
-        # Blue Toolbar report call - required for Blue Toolbar integration
-        sql_bluetoolbar = """
-        SELECT p.PeopleId 
-        FROM dbo.People p 
-        JOIN dbo.TagPerson tp ON tp.PeopleId = p.PeopleId 
-        WHERE tp.Id = @BlueToolbarTagId
-        """
-        
-        # This satisfies the Blue Toolbar requirement
-        q.BlueToolbarReport("Enhanced Emergency List", sql_bluetoolbar)
             
     except Exception as e:
         print """
