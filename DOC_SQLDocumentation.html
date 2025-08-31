@@ -376,14 +376,20 @@
     </div>
     
     <div class="success">
-        <h3>✨ What's New in this Documentation</h3>
+        <h3>✨ What's New in this Documentation (Updated!)</h3>
         <ul>
-            <li>📊 Complete coverage of all 378 tables and 3,364 columns</li>
+            <li>📊 Complete coverage of all 389 tables across 3 schemas (dbo, lookup, custom)</li>
+            <li>🆕 Table Quick Reference Guide with all core tables by category</li>
+            <li>🆕 Common JOIN Patterns for organization hierarchy and relationships</li>
+            <li>🆕 Complete Lookup Tables Reference with key values</li>
+            <li>🆕 Users, Roles & Security documentation</li>
+            <li>🆕 Program → Division → Organization hierarchy documentation</li>
+            <li>🆕 PeopleExtra, OrganizationExtra, FamilyExtra custom fields</li>
+            <li>🆕 TaskNote and task management system (174K+ records)</li>
+            <li>🆕 Meetings table documentation (61K+ records)</li>
             <li>🚀 Performance guidelines for tables with millions of records</li>
             <li>🔧 Advanced systems documentation (Tags, Email, Engagement)</li>
             <li>📝 Registration and Check-in system details</li>
-            <li>🎛️ Custom field system (Extra Values) documentation</li>
-            <li>📱 Mobile app integration fields</li>
         </ul>
     </div>
 </div>
@@ -396,6 +402,9 @@
         <li><a href="#database-overview">Database Overview & Architecture</a></li>
         <li><a href="#critical-rules">Critical Business Rules - READ THIS FIRST</a></li>
         <li><a href="#performance-guidelines">Performance Guidelines & Large Table Warnings</a></li>
+        <li><a href="#table-quick-reference">📚 Table Quick Reference Guide (NEW)</a></li>
+        <li><a href="#common-join-patterns">🔧 Common JOIN Patterns (NEW)</a></li>
+        <li><a href="#lookup-tables-reference">📋 Critical Lookup Tables Reference (NEW)</a></li>
         <li><a href="#common-queries">Most Common Queries (Quick Reference)</a></li>
     </ul>
 
@@ -767,6 +776,276 @@ ORDER BY -- your sort
 
 -- STEP 4: Remove TOP only for production reports
 -- after confirming performance is acceptable</code></pre>
+</div>
+
+<div id="table-quick-reference" class="section">
+    <h2>📚 Table Quick Reference Guide</h2>
+    
+    <div class="info">
+        <p><strong>Database Structure:</strong> TouchPoint uses 3 schemas with 389+ tables total</p>
+        <ul>
+            <li><code>dbo</code> - Main application tables (322 tables)</li>
+            <li><code>lookup</code> - Reference/lookup tables (66 tables)</li>
+            <li><code>custom</code> - Church-specific customizations (1+ tables)</li>
+        </ul>
+    </div>
+
+    <h3>🗂️ Core Tables by Category</h3>
+    <pre><code>-- PEOPLE & IDENTITY (Primary Keys and Relationships)
+People              -- 50K+ records, PeopleId primary key
+PeopleExtra         -- 213K+ records, custom fields for people
+Families            -- Family units, FamilyId primary key
+FamilyExtra         -- Custom fields for families
+Users               -- 7K+ records, links PeopleId to system users
+
+-- ORGANIZATIONAL HIERARCHY (3-Level Structure)
+Program             -- 42 records, top level (e.g., "Adult Ministry")
+Division            -- 217 records, second level, links to Program via ProgId
+Organizations       -- 1.5K+ records, actual groups/classes, links to Division
+OrganizationMembers -- People's involvement in organizations
+OrganizationExtra   -- Custom fields for organizations
+
+-- ATTENDANCE & MEETINGS
+Attend              -- 2.6M+ records, attendance records (CHECK AttendanceFlag!)
+Meetings            -- 61K+ records, scheduled gatherings
+MeetingExtra        -- Custom meeting fields
+
+-- FINANCIAL
+Contribution        -- 687K+ records, donations (EXCLUDE TypeId=99)
+ContributionFund    -- Fund designations
+Transaction         -- Financial transactions
+TransactionPeople   -- Links transactions to people
+
+-- COMMUNICATION
+EmailQueue          -- 3.9M+ records, email campaigns
+EmailQueueTo        -- Recipients for emails
+EmailResponses      -- Email opens/clicks
+SMSList             -- Text messages sent
+SmsReceived         -- Incoming texts
+
+-- TASKS & NOTES
+TaskNote            -- 174K+ records, ministry tasks and notes
+TaskList            -- Task categories
+TaskStatus          -- Task workflow states
+
+-- TAGS & SEGMENTATION
+Tag                 -- Tag definitions
+TagPerson           -- 138M+ records! ALWAYS use date filters
+TagShare            -- Shared tag permissions
+
+-- REGISTRATION & EVENTS
+Registration        -- Event registrations
+RegPeople           -- People registered for events
+RegAnswer           -- Form responses
+RegSetting          -- Registration configuration</code></pre>
+
+    <h3>🔗 Critical Table Relationships</h3>
+    <pre><code>-- User Authentication Chain
+Users.PeopleId → People.PeopleId
+Users.UserId → UserRole.UserId → Roles.RoleId
+
+-- Organization Hierarchy
+Program.Id → Division.ProgId → Organizations.DivisionId
+
+-- Family Structure
+People.FamilyId → Families.FamilyId
+Families.HeadOfHouseholdId → People.PeopleId
+Families.HeadOfHouseholdSpouseId → People.PeopleId
+
+-- Attendance Chain
+People.PeopleId → Attend.PeopleId
+Attend.MeetingId → Meetings.MeetingId
+Meetings.OrganizationId → Organizations.OrganizationId
+
+-- Email System
+EmailQueue.Id = EmailQueueTo.Id (direct match, not FK)
+EmailQueueTo.PeopleId → People.PeopleId
+EmailResponses.EmailQueueId → EmailQueue.Id
+
+-- Tag System (Special!)
+TagPerson.Id = Tag.Id (NOT TagPerson.TagId!)
+TagPerson.PeopleId → People.PeopleId</code></pre>
+</div>
+
+<div id="common-join-patterns" class="section">
+    <h2>🔧 Common JOIN Patterns</h2>
+    
+    <h3>Organization Hierarchy Join</h3>
+    <pre><code>-- Complete hierarchy from Program to Organization
+SELECT 
+    p.Name as Program,
+    d.Name as Division,
+    o.OrganizationName,
+    o.OrganizationId
+FROM Organizations o
+JOIN Division d ON o.DivisionId = d.Id
+JOIN Program p ON d.ProgId = p.Id
+WHERE o.OrganizationStatusId = 30  -- Active only</code></pre>
+
+    <h3>User to Person Join</h3>
+    <pre><code>-- Link system users to people records
+SELECT 
+    u.Username,
+    p.Name,
+    p.EmailAddress,
+    r.RoleName
+FROM Users u
+JOIN People p ON u.PeopleId = p.PeopleId
+LEFT JOIN UserRole ur ON u.UserId = ur.UserId
+LEFT JOIN Roles r ON ur.RoleId = r.RoleId
+WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
+
+    <h3>Family Members Join</h3>
+    <pre><code>-- Get all family members with relationships
+SELECT 
+    f.FamilyName,
+    p.Name,
+    fp.Description as FamilyPosition,
+    CASE 
+        WHEN p.PeopleId = f.HeadOfHouseholdId THEN 'Head'
+        WHEN p.PeopleId = f.HeadOfHouseholdSpouseId THEN 'Spouse'
+        ELSE 'Member'
+    END as Role
+FROM People p
+JOIN Families f ON p.FamilyId = f.FamilyId
+JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
+WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+ORDER BY f.FamilyName, p.PositionInFamilyId</code></pre>
+
+    <h3>Attendance with Full Context</h3>
+    <pre><code>-- Attendance with complete organizational context
+SELECT 
+    p.Name,
+    prog.Name as Program,
+    div.Name as Division,
+    o.OrganizationName,
+    m.MeetingDate,
+    at.Description as AttendType
+FROM Attend a
+JOIN People p ON a.PeopleId = p.PeopleId
+JOIN Meetings m ON a.MeetingId = m.MeetingId
+JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+JOIN Division div ON o.DivisionId = div.Id
+JOIN Program prog ON div.ProgId = prog.Id
+JOIN lookup.AttendType at ON a.AttendanceTypeId = at.Id
+WHERE a.AttendanceFlag = 1  -- Present only
+  AND m.DidNotMeet = 0      -- Meeting occurred
+  AND p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
+
+    <h3>Custom Fields (Extra Values) Join</h3>
+    <pre><code>-- Get people with their custom fields
+SELECT 
+    p.Name,
+    pe.Field as CustomField,
+    pe.Data as Value,
+    pe.Type as DataType
+FROM People p
+LEFT JOIN PeopleExtra pe ON p.PeopleId = pe.PeopleId
+WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+  AND pe.Field IN ('Status', 'LifeStage', 'MembershipDate')
+ORDER BY p.Name, pe.Field</code></pre>
+</div>
+
+<div id="lookup-tables-reference" class="section">
+    <h2>📋 Critical Lookup Tables Reference</h2>
+    
+    <h3>Most Important Lookup Tables</h3>
+    <table>
+        <tr>
+            <th>Table</th>
+            <th>Purpose</th>
+            <th>Key Values</th>
+        </tr>
+        <tr>
+            <td><code>lookup.MemberStatus</code></td>
+            <td>Church membership status</td>
+            <td>10=Member, 20=Regular Attender, 30=Visitor, 40=Previous Member</td>
+        </tr>
+        <tr>
+            <td><code>lookup.MemberType</code></td>
+            <td>Organization role types</td>
+            <td>140=Leader, 220=Member, 230=Prospect, 710=Volunteer</td>
+        </tr>
+        <tr>
+            <td><code>lookup.AttendType</code></td>
+            <td>Attendance classifications</td>
+            <td>10=Leader, 20=Volunteer, 30=Member, 60=Guest, 70=New Guest</td>
+        </tr>
+        <tr>
+            <td><code>lookup.OrganizationStatus</code></td>
+            <td>Organization states</td>
+            <td>30=Active, 40=Inactive, 50=Pending</td>
+        </tr>
+        <tr>
+            <td><code>lookup.FamilyPosition</code></td>
+            <td>Position in family</td>
+            <td>10=Primary Adult, 20=Secondary Adult, 30=Child</td>
+        </tr>
+        <tr>
+            <td><code>lookup.DecisionType</code></td>
+            <td>Spiritual decisions</td>
+            <td>10=Statement of Faith, 20=Baptism, 30=Membership, 40=Rededication</td>
+        </tr>
+        <tr>
+            <td><code>lookup.Campus</code></td>
+            <td>Multi-site locations</td>
+            <td>Church-specific IDs</td>
+        </tr>
+        <tr>
+            <td><code>lookup.Gender</code></td>
+            <td>Gender codes</td>
+            <td>1=Male, 2=Female, 9=Unknown</td>
+        </tr>
+        <tr>
+            <td><code>lookup.MaritalStatus</code></td>
+            <td>Marital status</td>
+            <td>10=Married, 20=Single, 30=Divorced, 40=Widowed</td>
+        </tr>
+        <tr>
+            <td><code>lookup.ContributionType</code></td>
+            <td>Donation types</td>
+            <td>1=Check, 5=Cash, 7=Credit Card, 99=Event Fee (exclude!)</td>
+        </tr>
+    </table>
+
+    <h3>Complete Lookup Schema Tables</h3>
+    <pre><code>-- Query all lookup tables
+SELECT TABLE_NAME, 
+       (SELECT COUNT(*) FROM [lookup].[' + TABLE_NAME + ']) as RecordCount
+FROM INFORMATION_SCHEMA.TABLES 
+WHERE TABLE_SCHEMA = 'lookup'
+ORDER BY TABLE_NAME
+
+-- Common lookup tables include:
+lookup.AccountCode          -- Financial account codes
+lookup.AddressType          -- Home, Work, Other
+lookup.AttendCredit         -- Attendance credit types
+lookup.BaptismStatus        -- Baptism tracking
+lookup.BaptismType          -- Baptism methods
+lookup.Campus               -- Multi-site campuses
+lookup.ContactPreference    -- Preferred contact method
+lookup.ContactReason        -- Contact reason codes
+lookup.ContributionStatus   -- Donation status
+lookup.Country              -- Country codes
+lookup.DecisionType         -- Spiritual decisions
+lookup.EntryPoint           -- How people found church
+lookup.EnvelopeOption       -- Giving envelope options
+lookup.FamilyRelationship   -- Family relationships
+lookup.Gender               -- Gender codes
+lookup.InterestPoint        -- Ministry interests
+lookup.JoinType             -- How people joined
+lookup.MaritalStatus        -- Marital status codes
+lookup.MemberStatus         -- Membership status
+lookup.MemberType           -- Organization member types
+lookup.Ministry             -- Ministry areas
+lookup.OrganizationStatus   -- Org active/inactive
+lookup.OrganizationType     -- Types of organizations
+lookup.Origin               -- Person origin tracking
+lookup.PositionInFamily     -- Family position
+lookup.ResidentCode         -- Resident/non-resident
+lookup.SecurityLabel        -- Check-in security labels
+lookup.State                -- State/province codes
+lookup.VolunteerCode        -- Volunteer classifications</code></pre>
 </div>
 
 <div id="common-queries" class="section">
@@ -2232,6 +2511,558 @@ SELECT c.*
 FROM Contribution c
 WHERE c.ContributionDate BETWEEN '2024-01-01' AND '2024-12-31'
   AND c.FundId = 1</code></pre>
+</div>
+
+<div id="users-roles" class="section">
+    <h2>🔐 Users, Roles & Permissions</h2>
+    
+    <div class="info">
+        <p><strong>Critical:</strong> The Users table links system accounts to People records. This is how TouchPoint manages authentication and authorization.</p>
+    </div>
+
+    <h3>Users Table Structure</h3>
+    <table>
+        <tr>
+            <th>Column</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td><code>UserId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Unique user identifier</td>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Link to People</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>Username</code></td>
+            <td>nvarchar(50)</td>
+            <td>Login username</td>
+            <td>Unique, case-insensitive</td>
+        </tr>
+        <tr>
+            <td><code>Password</code></td>
+            <td>nvarchar(128)</td>
+            <td>Hashed password</td>
+            <td>Never store plaintext</td>
+        </tr>
+        <tr>
+            <td><code>IsApproved</code></td>
+            <td>bit</td>
+            <td>Account active</td>
+            <td>1=active, 0=disabled</td>
+        </tr>
+        <tr>
+            <td><code>IsLockedOut</code></td>
+            <td>bit</td>
+            <td>Account locked</td>
+            <td>Too many failed attempts</td>
+        </tr>
+        <tr>
+            <td><code>LastActivityDate</code></td>
+            <td>datetime</td>
+            <td>Last login/activity</td>
+            <td>Track user engagement</td>
+        </tr>
+        <tr>
+            <td><code>EmailConfirmed</code></td>
+            <td>bit</td>
+            <td>Email verified</td>
+            <td>Two-factor auth status</td>
+        </tr>
+    </table>
+
+    <h3>Common User Queries</h3>
+    <pre><code>-- Active users with their person information
+SELECT TOP 1000
+    u.Username,
+    p.Name,
+    p.EmailAddress,
+    u.LastActivityDate,
+    DATEDIFF(day, u.LastActivityDate, GETDATE()) as DaysSinceLogin
+FROM Users u
+JOIN People p ON u.PeopleId = p.PeopleId
+WHERE u.IsApproved = 1
+  AND u.IsLockedOut = 0
+  AND p.IsDeceased = 0 
+  AND p.ArchivedFlag = 0
+ORDER BY u.LastActivityDate DESC
+
+-- Users by role
+SELECT 
+    r.RoleName,
+    COUNT(ur.UserId) as UserCount
+FROM Roles r
+LEFT JOIN UserRole ur ON r.RoleId = ur.RoleId
+GROUP BY r.RoleId, r.RoleName
+ORDER BY UserCount DESC
+
+-- Find users with admin privileges
+SELECT 
+    u.Username,
+    p.Name,
+    r.RoleName
+FROM Users u
+JOIN People p ON u.PeopleId = p.PeopleId
+JOIN UserRole ur ON u.UserId = ur.UserId
+JOIN Roles r ON ur.RoleId = r.RoleId
+WHERE r.RoleName IN ('Admin', 'Administrator', 'Finance', 'Developer')
+  AND u.IsApproved = 1
+ORDER BY r.RoleName, p.Name</code></pre>
+
+    <h3>Security Best Practices</h3>
+    <ul>
+        <li>Never query or display password fields</li>
+        <li>Always check IsApproved and IsLockedOut status</li>
+        <li>Join with People table for complete user information</li>
+        <li>Monitor LastActivityDate for inactive accounts</li>
+        <li>Use role-based queries for permission checks</li>
+    </ul>
+</div>
+
+<div id="extra-values-tables" class="section">
+    <h2>🎛️ Extra Value Tables (Custom Fields)</h2>
+    
+    <div class="info">
+        <p><strong>Purpose:</strong> Extra Value tables allow churches to add custom fields without modifying the database schema</p>
+    </div>
+
+    <h3>PeopleExtra Table (213K+ records)</h3>
+    <table>
+        <tr>
+            <th>Column</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Example Values</th>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Link to People</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>Field</code></td>
+            <td>nvarchar(50)</td>
+            <td>Field name</td>
+            <td>'Status', 'LifeStage', 'Interests'</td>
+        </tr>
+        <tr>
+            <td><code>Data</code></td>
+            <td>nvarchar(max)</td>
+            <td>String value</td>
+            <td>Any text data</td>
+        </tr>
+        <tr>
+            <td><code>Date</code></td>
+            <td>datetime</td>
+            <td>Date value</td>
+            <td>For date-type fields</td>
+        </tr>
+        <tr>
+            <td><code>IntValue</code></td>
+            <td>int</td>
+            <td>Integer value</td>
+            <td>For numeric fields</td>
+        </tr>
+        <tr>
+            <td><code>BitValue</code></td>
+            <td>bit</td>
+            <td>Boolean value</td>
+            <td>For yes/no fields</td>
+        </tr>
+        <tr>
+            <td><code>Type</code></td>
+            <td>nvarchar(10)</td>
+            <td>Data type</td>
+            <td>'Text', 'Date', 'Int', 'Bit'</td>
+        </tr>
+    </table>
+
+    <h3>Common Extra Value Queries</h3>
+    <pre><code>-- Get all custom fields for a person
+SELECT 
+    Field,
+    CASE Type
+        WHEN 'Text' THEN Data
+        WHEN 'Date' THEN CONVERT(nvarchar, Date, 101)
+        WHEN 'Int' THEN CAST(IntValue as nvarchar)
+        WHEN 'Bit' THEN CASE BitValue WHEN 1 THEN 'Yes' ELSE 'No' END
+    END as Value
+FROM PeopleExtra
+WHERE PeopleId = @PeopleId
+ORDER BY Field
+
+-- Find people by custom field value
+SELECT TOP 1000
+    p.Name,
+    pe.Field,
+    pe.Data as Value
+FROM People p
+JOIN PeopleExtra pe ON p.PeopleId = pe.PeopleId
+WHERE pe.Field = 'MembershipClass'
+  AND pe.Data = 'Completed'
+  AND p.IsDeceased = 0 
+  AND p.ArchivedFlag = 0
+
+-- Summary of all custom fields in use
+SELECT 
+    Field,
+    Type,
+    COUNT(DISTINCT PeopleId) as PeopleCount,
+    COUNT(*) as TotalRecords
+FROM PeopleExtra
+GROUP BY Field, Type
+ORDER BY PeopleCount DESC</code></pre>
+
+    <h3>OrganizationExtra & FamilyExtra</h3>
+    <p>These tables follow the same structure as PeopleExtra but for Organizations and Families:</p>
+    <ul>
+        <li><code>OrganizationExtra</code> - Custom fields for organizations/groups</li>
+        <li><code>FamilyExtra</code> - Custom fields for family units</li>
+        <li><code>MeetingExtra</code> - Custom fields for meetings</li>
+    </ul>
+</div>
+
+<div id="task-management-tables" class="section">
+    <h2>📝 Task Management Tables</h2>
+    
+    <div class="info">
+        <p><strong>Scale:</strong> TaskNote table contains 174K+ records for ministry follow-up and task tracking</p>
+    </div>
+
+    <h3>TaskNote Table Structure</h3>
+    <table>
+        <tr>
+            <th>Column</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Unique task identifier</td>
+        </tr>
+        <tr>
+            <td><code>PeopleId</code></td>
+            <td>int</td>
+            <td>Task about person</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>OwnerId</code></td>
+            <td>int</td>
+            <td>Task owner</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>DelegatedId</code></td>
+            <td>int</td>
+            <td>Delegated to</td>
+            <td>→ People.PeopleId</td>
+        </tr>
+        <tr>
+            <td><code>TaskListId</code></td>
+            <td>int</td>
+            <td>Task category</td>
+            <td>→ TaskList.Id</td>
+        </tr>
+        <tr>
+            <td><code>CreatedOn</code></td>
+            <td>datetime</td>
+            <td>Created date</td>
+            <td>Task creation timestamp</td>
+        </tr>
+        <tr>
+            <td><code>Due</code></td>
+            <td>datetime</td>
+            <td>Due date</td>
+            <td>When task should be done</td>
+        </tr>
+        <tr>
+            <td><code>CompletedOn</code></td>
+            <td>datetime</td>
+            <td>Completion date</td>
+            <td>NULL if not complete</td>
+        </tr>
+        <tr>
+            <td><code>Notes</code></td>
+            <td>nvarchar(max)</td>
+            <td>Task description</td>
+            <td>Detailed notes</td>
+        </tr>
+        <tr>
+            <td><code>Priority</code></td>
+            <td>int</td>
+            <td>Priority level</td>
+            <td>1=High, 2=Medium, 3=Low</td>
+        </tr>
+    </table>
+
+    <h3>Common Task Queries</h3>
+    <pre><code>-- Open tasks by owner
+SELECT TOP 500
+    owner.Name as Owner,
+    about.Name as AboutPerson,
+    tn.Notes,
+    tn.Due,
+    DATEDIFF(day, GETDATE(), tn.Due) as DaysTillDue,
+    tl.Name as TaskList
+FROM TaskNote tn
+JOIN People owner ON tn.OwnerId = owner.PeopleId
+JOIN People about ON tn.PeopleId = about.PeopleId
+LEFT JOIN TaskList tl ON tn.TaskListId = tl.Id
+WHERE tn.CompletedOn IS NULL
+  AND tn.Due >= GETDATE()
+ORDER BY tn.Due, tn.Priority
+
+-- Overdue tasks
+SELECT TOP 100
+    owner.Name as Owner,
+    about.Name as AboutPerson,
+    tn.Notes,
+    tn.Due,
+    DATEDIFF(day, tn.Due, GETDATE()) as DaysOverdue
+FROM TaskNote tn
+JOIN People owner ON tn.OwnerId = owner.PeopleId
+JOIN People about ON tn.PeopleId = about.PeopleId
+WHERE tn.CompletedOn IS NULL
+  AND tn.Due < GETDATE()
+ORDER BY tn.Due
+
+-- Task completion metrics
+SELECT 
+    YEAR(CreatedOn) as Year,
+    MONTH(CreatedOn) as Month,
+    COUNT(*) as TasksCreated,
+    SUM(CASE WHEN CompletedOn IS NOT NULL THEN 1 ELSE 0 END) as TasksCompleted,
+    AVG(DATEDIFF(day, CreatedOn, CompletedOn)) as AvgDaysToComplete
+FROM TaskNote
+WHERE CreatedOn >= DATEADD(year, -1, GETDATE())
+GROUP BY YEAR(CreatedOn), MONTH(CreatedOn)
+ORDER BY Year DESC, Month DESC</code></pre>
+</div>
+
+<div id="meeting-tables" class="section">
+    <h2>📅 Meetings Table Details</h2>
+    
+    <div class="info">
+        <p><strong>Scale:</strong> 61K+ meeting records tracking all gatherings and events</p>
+    </div>
+
+    <h3>Meetings Table Structure</h3>
+    <table>
+        <tr>
+            <th>Column</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td><code>MeetingId</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>Unique meeting identifier</td>
+        </tr>
+        <tr>
+            <td><code>OrganizationId</code></td>
+            <td>int</td>
+            <td>Organization</td>
+            <td>→ Organizations.OrganizationId</td>
+        </tr>
+        <tr>
+            <td><code>MeetingDate</code></td>
+            <td>datetime</td>
+            <td>Meeting date/time</td>
+            <td>When meeting occurred</td>
+        </tr>
+        <tr>
+            <td><code>NumPresent</code></td>
+            <td>int</td>
+            <td>Attendance count</td>
+            <td>Total attendees</td>
+        </tr>
+        <tr>
+            <td><code>NumMembers</code></td>
+            <td>int</td>
+            <td>Members present</td>
+            <td>Member attendance</td>
+        </tr>
+        <tr>
+            <td><code>NumGuests</code></td>
+            <td>int</td>
+            <td>Guests present</td>
+            <td>Visitor count</td>
+        </tr>
+        <tr>
+            <td><code>DidNotMeet</code></td>
+            <td>bit</td>
+            <td>Meeting cancelled</td>
+            <td>1=cancelled, 0=occurred</td>
+        </tr>
+        <tr>
+            <td><code>Description</code></td>
+            <td>nvarchar(200)</td>
+            <td>Meeting description</td>
+            <td>Optional notes</td>
+        </tr>
+        <tr>
+            <td><code>AttendCreditId</code></td>
+            <td>int</td>
+            <td>Attendance credit type</td>
+            <td>→ lookup.AttendCredit</td>
+        </tr>
+    </table>
+
+    <h3>Meeting Queries</h3>
+    <pre><code>-- Recent meetings by organization
+SELECT TOP 100
+    o.OrganizationName,
+    m.MeetingDate,
+    m.NumPresent,
+    m.NumMembers,
+    m.NumGuests,
+    CASE m.DidNotMeet 
+        WHEN 1 THEN 'Cancelled' 
+        ELSE 'Occurred' 
+    END as Status
+FROM Meetings m
+JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+WHERE m.MeetingDate >= DATEADD(week, -4, GETDATE())
+  AND o.OrganizationStatusId = 30
+ORDER BY m.MeetingDate DESC
+
+-- Meeting attendance trends
+SELECT 
+    o.OrganizationName,
+    AVG(m.NumPresent) as AvgAttendance,
+    MAX(m.NumPresent) as MaxAttendance,
+    MIN(m.NumPresent) as MinAttendance,
+    COUNT(*) as MeetingCount
+FROM Meetings m
+JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+WHERE m.MeetingDate >= DATEADD(month, -6, GETDATE())
+  AND m.DidNotMeet = 0
+  AND o.OrganizationStatusId = 30
+GROUP BY o.OrganizationId, o.OrganizationName
+HAVING COUNT(*) >= 5
+ORDER BY AVG(m.NumPresent) DESC</code></pre>
+</div>
+
+<div id="division-program-tables" class="section">
+    <h2>🏛️ Program & Division Tables (Organizational Hierarchy)</h2>
+    
+    <div class="critical">
+        <p><strong>Critical Relationship:</strong> Program (top) → Division (middle) → Organizations (bottom)</p>
+        <p>This three-tier hierarchy organizes all groups, classes, and ministries</p>
+    </div>
+
+    <h3>Program Table</h3>
+    <table>
+        <tr>
+            <th>Column</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Example</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>101</td>
+        </tr>
+        <tr>
+            <td><code>Name</code></td>
+            <td>nvarchar(50)</td>
+            <td>Program name</td>
+            <td>'Adult Ministry'</td>
+        </tr>
+        <tr>
+            <td><code>SortOrder</code></td>
+            <td>int</td>
+            <td>Display order</td>
+            <td>1, 2, 3...</td>
+        </tr>
+        <tr>
+            <td><code>IsActive</code></td>
+            <td>bit</td>
+            <td>Active status</td>
+            <td>1=active</td>
+        </tr>
+    </table>
+
+    <h3>Division Table</h3>
+    <table>
+        <tr>
+            <th>Column</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Example</th>
+        </tr>
+        <tr>
+            <td><code>Id</code></td>
+            <td>int</td>
+            <td>Primary key</td>
+            <td>201</td>
+        </tr>
+        <tr>
+            <td><code>Name</code></td>
+            <td>nvarchar(50)</td>
+            <td>Division name</td>
+            <td>'Small Groups'</td>
+        </tr>
+        <tr>
+            <td><code>ProgId</code></td>
+            <td>int</td>
+            <td>Parent program</td>
+            <td>→ Program.Id</td>
+        </tr>
+        <tr>
+            <td><code>SortOrder</code></td>
+            <td>int</td>
+            <td>Display order</td>
+            <td>1, 2, 3...</td>
+        </tr>
+    </table>
+
+    <h3>Hierarchy Queries</h3>
+    <pre><code>-- Complete organizational structure
+SELECT 
+    p.Name as Program,
+    d.Name as Division,
+    o.OrganizationName,
+    COUNT(om.PeopleId) as MemberCount
+FROM Program p
+JOIN Division d ON p.Id = d.ProgId
+JOIN Organizations o ON d.Id = o.DivisionId
+LEFT JOIN OrganizationMembers om ON o.OrganizationId = om.OrganizationId
+    AND om.InactiveDate IS NULL
+WHERE o.OrganizationStatusId = 30
+GROUP BY p.Id, p.Name, d.Id, d.Name, o.OrganizationId, o.OrganizationName
+ORDER BY p.SortOrder, d.SortOrder, o.OrganizationName
+
+-- Programs with most participation
+SELECT 
+    p.Name as Program,
+    COUNT(DISTINCT d.Id) as Divisions,
+    COUNT(DISTINCT o.OrganizationId) as Organizations,
+    COUNT(DISTINCT om.PeopleId) as TotalPeople
+FROM Program p
+LEFT JOIN Division d ON p.Id = d.ProgId
+LEFT JOIN Organizations o ON d.Id = o.DivisionId
+    AND o.OrganizationStatusId = 30
+LEFT JOIN OrganizationMembers om ON o.OrganizationId = om.OrganizationId
+    AND om.InactiveDate IS NULL
+GROUP BY p.Id, p.Name
+ORDER BY COUNT(DISTINCT om.PeopleId) DESC</code></pre>
 </div>
 
 </body>
