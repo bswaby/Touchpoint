@@ -19,7 +19,7 @@
 # 1. Admin > Advanced > Special Content > Python
 # 2. New Python Script File
 # 3. Name: TPxi_NewMemberReport
-# 4. Schedule as recurring email or run manually
+# 4. Schedule as a recurring email or run manually
 #
 # Configuration: Update email recipients and date ranges below
 
@@ -231,13 +231,10 @@ def get_statistics(start_date, end_date):
     """Get comprehensive statistics about new members - counts each qualifying date separately"""
     stats = {}
     
-    # Total events (not people) - each qualifying date counts separately
+    # Total distinct people who joined or were baptized this week
     sql_total = """
     SELECT 
-        SUM(
-            CASE WHEN JoinDate >= '{}' AND JoinDate < DATEADD(day, 1, '{}') THEN 1 ELSE 0 END +
-            CASE WHEN BaptismDate >= '{}' AND BaptismDate < DATEADD(day, 1, '{}') THEN 1 ELSE 0 END
-        ) AS Total
+        COUNT(DISTINCT PeopleId) AS Total
     FROM People
     WHERE MemberStatusId = {}
       AND (
@@ -247,7 +244,6 @@ def get_statistics(start_date, end_date):
       )
       AND IsDeceased = 0
     """.format(
-        start_date[:10], end_date[:10], start_date[:10], end_date[:10], 
         Config.NEW_MEMBER_STATUS_ID,
         start_date[:10], end_date[:10], start_date[:10], end_date[:10]
     )
@@ -332,15 +328,11 @@ def get_statistics(start_date, end_date):
         prev_fy_start = "%d-%02d-%02d" % (current_year - 2, Config.FISCAL_YEAR_START_MONTH, Config.FISCAL_YEAR_START_DAY)
         prev_fy_end = "%d-%02d-%02d" % (current_year - 1, Config.FISCAL_YEAR_START_MONTH - 1, 30)
     
-    # Fiscal YTD comparison - count each qualifying date separately
+    # Fiscal YTD comparison - count distinct people who joined or were baptized
     sql_fytd = """
     SELECT 
-        SUM(
-            CASE WHEN JoinDate >= '{}' AND JoinDate <= GETDATE() THEN 1 ELSE 0 END +
-            CASE WHEN BaptismDate >= '{}' AND BaptismDate <= GETDATE() THEN 1 ELSE 0 END
-        ) AS FYTDTotal,
-        (SELECT COUNT(DISTINCT DATEPART(week, JoinDate)) FROM People WHERE MemberStatusId = {} AND JoinDate >= '{}' AND JoinDate <= GETDATE() AND IsDeceased = 0) +
-        (SELECT COUNT(DISTINCT DATEPART(week, BaptismDate)) FROM People WHERE MemberStatusId = {} AND BaptismDate >= '{}' AND BaptismDate <= GETDATE() AND IsDeceased = 0) AS WeeksWithNewMembers
+        COUNT(DISTINCT PeopleId) AS FYTDTotal,
+        COUNT(DISTINCT DATEPART(week, COALESCE(JoinDate, BaptismDate))) AS WeeksWithNewMembers
     FROM People
     WHERE MemberStatusId = {}
       AND (
@@ -350,9 +342,6 @@ def get_statistics(start_date, end_date):
       )
       AND IsDeceased = 0
     """.format(
-        fy_start, fy_start, 
-        Config.NEW_MEMBER_STATUS_ID, fy_start,
-        Config.NEW_MEMBER_STATUS_ID, fy_start,
         Config.NEW_MEMBER_STATUS_ID, fy_start, fy_start
     )
     
@@ -367,14 +356,18 @@ def get_statistics(start_date, end_date):
     
     sql_prev_fy = """
     SELECT 
-        SUM(
-            CASE WHEN JoinDate >= '{}' AND JoinDate < '{}' THEN 1 ELSE 0 END +
-            CASE WHEN BaptismDate >= '{}' AND BaptismDate < '{}' THEN 1 ELSE 0 END
-        ) AS PrevFYTotal,
-        SUM(
-            CASE WHEN JoinDate >= '{}' AND JoinDate <= DATEADD(day, {}, '{}') THEN 1 ELSE 0 END +
-            CASE WHEN BaptismDate >= '{}' AND BaptismDate <= DATEADD(day, {}, '{}') THEN 1 ELSE 0 END
-        ) AS PrevFYTDTotal
+        COUNT(DISTINCT CASE 
+            WHEN (JoinDate >= '{}' AND JoinDate < '{}') 
+                OR (BaptismDate >= '{}' AND BaptismDate < '{}')
+            THEN PeopleId 
+            ELSE NULL 
+        END) AS PrevFYTotal,
+        COUNT(DISTINCT CASE 
+            WHEN (JoinDate >= '{}' AND JoinDate <= DATEADD(day, {}, '{}')) 
+                OR (BaptismDate >= '{}' AND BaptismDate <= DATEADD(day, {}, '{}'))
+            THEN PeopleId 
+            ELSE NULL 
+        END) AS PrevFYTDTotal
     FROM People
     WHERE MemberStatusId = {}
       AND (
@@ -490,6 +483,52 @@ def get_statistics(start_date, end_date):
     
     return stats
 
+def get_activity_heatmap(people_id, weeks_to_show=10):
+    """Generate activity heatmap for recent weeks"""
+    sql = """
+    WITH WeekNumbers AS (
+        SELECT TOP {}
+            DATEADD(week, -ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) + 1, GETDATE()) AS WeekStart
+        FROM sys.objects
+    ),
+    AttendanceData AS (
+        SELECT 
+            DATEPART(week, a.MeetingDate) AS WeekNum,
+            DATEPART(year, a.MeetingDate) AS YearNum,
+            COUNT(DISTINCT a.MeetingDate) AS AttendCount
+        FROM Attend a
+        WHERE a.PeopleId = {}
+          AND a.AttendanceFlag = 1
+          AND a.MeetingDate >= DATEADD(week, -{}, GETDATE())
+        GROUP BY DATEPART(week, a.MeetingDate), DATEPART(year, a.MeetingDate)
+    )
+    SELECT 
+        DATEPART(week, w.WeekStart) AS WeekNum,
+        DATEPART(year, w.WeekStart) AS YearNum,
+        ISNULL(a.AttendCount, 0) AS AttendCount
+    FROM WeekNumbers w
+    LEFT JOIN AttendanceData a ON DATEPART(week, w.WeekStart) = a.WeekNum 
+        AND DATEPART(year, w.WeekStart) = a.YearNum
+    ORDER BY w.WeekStart
+    """.format(weeks_to_show, people_id, weeks_to_show)
+    
+    results = q.QuerySql(sql)
+    heatmap_html = '<span style="font-size: 12px; letter-spacing: 2px;">'
+    
+    for week in results:
+        count = week.AttendCount or 0
+        if count == 0:
+            heatmap_html += '<span style="color: #e2e8f0;">○</span>'
+        elif count == 1:
+            heatmap_html += '<span style="color: #cbd5e0;">●</span>'
+        elif count == 2:
+            heatmap_html += '<span style="color: #667eea;">●</span>'
+        else:
+            heatmap_html += '<span style="color: #4c1d95;">●</span>'
+    
+    heatmap_html += '</span>'
+    return heatmap_html
+
 def get_engagement_progression(people_id):
     """Get engagement timeline for a person"""
     sql = """
@@ -593,7 +632,7 @@ def generate_html_report(new_members, start_date, end_date):
                                                 <tr>
                                                     <td style="padding: 25px; text-align: center;">
                                                         <div style="font-size: 42px; font-weight: 700; color: #667eea; line-height: 1; margin-bottom: 8px;">{}</div>
-                                                        <div style="font-size: 14px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px;">New Events This Week</div>
+                                                        <div style="font-size: 14px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px;">New People This Week</div>
                                                     </td>
                                                 </tr>
                                             </table>
@@ -603,7 +642,7 @@ def generate_html_report(new_members, start_date, end_date):
                                                 <tr>
                                                     <td style="padding: 25px; text-align: center;">
                                                         <div style="font-size: 42px; font-weight: 700; color: #48bb78; line-height: 1; margin-bottom: 8px;">{}</div>
-                                                        <div style="font-size: 14px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px;">Fiscal YTD Events</div>
+                                                        <div style="font-size: 14px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px;">People Joined YTD</div>
                                                     </td>
                                                 </tr>
                                             </table>
@@ -616,8 +655,6 @@ def generate_html_report(new_members, start_date, end_date):
         demo = stats['demographics']
         join_events = demo.JoinEvents or 0
         baptism_events = demo.BaptismEvents or 0
-        both_events = demo.BothEvents or 0
-        unique_people = join_events + baptism_events - both_events
         
         html += """
                                     <!-- Event Type Breakdown -->
@@ -629,21 +666,17 @@ def generate_html_report(new_members, start_date, end_date):
                                                         <h3 style="margin: 0 0 15px 0; color: #0369a1; font-size: 16px; font-weight: 600;">This Week's Event Breakdown</h3>
                                                         <table border="0" cellpadding="0" cellspacing="0" width="100%">
                                                             <tr>
-                                                                <td width="25%" style="text-align: center; padding: 10px;">
+                                                                <td width="33%" style="text-align: center; padding: 10px;">
                                                                     <div style="font-size: 28px; font-weight: 700; color: #059669;">{}</div>
                                                                     <div style="font-size: 12px; color: #6b7280; margin-top: 5px;">Join Events</div>
                                                                 </td>
-                                                                <td width="25%" style="text-align: center; padding: 10px;">
+                                                                <td width="33%" style="text-align: center; padding: 10px;">
                                                                     <div style="font-size: 28px; font-weight: 700; color: #2563eb;">{}</div>
                                                                     <div style="font-size: 12px; color: #6b7280; margin-top: 5px;">Baptisms</div>
                                                                 </td>
-                                                                <td width="25%" style="text-align: center; padding: 10px;">
-                                                                    <div style="font-size: 28px; font-weight: 700; color: #dc2626;">{}</div>
-                                                                    <div style="font-size: 12px; color: #6b7280; margin-top: 5px;">Both Events</div>
-                                                                </td>
-                                                                <td width="25%" style="text-align: center; padding: 10px;">
-                                                                    <div style="font-size: 28px; font-weight: 700; color: #7c3aed;">{}</div>
-                                                                    <div style="font-size: 12px; color: #6b7280; margin-top: 5px;">Unique People</div>
+                                                                <td width="33%" style="text-align: center; padding: 10px;">
+                                                                    <div style="font-size: 28px; font-weight: 700; color: #9f7aea;">{}</div>
+                                                                    <div style="font-size: 12px; color: #6b7280; margin-top: 5px;">New Families</div>
                                                                 </td>
                                                             </tr>
                                                         </table>
@@ -652,7 +685,7 @@ def generate_html_report(new_members, start_date, end_date):
                                             </table>
                                         </td>
                                     </tr>
-        """.format(join_events, baptism_events, both_events, unique_people)
+        """.format(join_events, baptism_events, demo.UniqueFamilies or 0)
     
     # Additional metrics row
     if stats.get('fytd') or stats.get('demographics'):
@@ -666,7 +699,7 @@ def generate_html_report(new_members, start_date, end_date):
                                                 <tr>
                                                     <td style="padding: 25px; text-align: center;">
                                                         <div style="font-size: 42px; font-weight: 700; color: #ed8936; line-height: 1; margin-bottom: 8px;">{}</div>
-                                                        <div style="font-size: 14px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px;">Avg Events/Week</div>
+                                                        <div style="font-size: 14px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px;">Avg Joined/Week</div>
                                                     </td>
                                                 </tr>
                                             </table>
@@ -675,14 +708,14 @@ def generate_html_report(new_members, start_date, end_date):
                                             <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8fafc; border-radius: 8px;">
                                                 <tr>
                                                     <td style="padding: 25px; text-align: center;">
-                                                        <div style="font-size: 42px; font-weight: 700; color: #9f7aea; line-height: 1; margin-bottom: 8px;">{}</div>
-                                                        <div style="font-size: 14px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px;">New Families</div>
+                                                        <div style="font-size: 42px; font-weight: 700; color: #38a169; line-height: 1; margin-bottom: 8px;">{}</div>
+                                                        <div style="font-size: 14px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px;">Total Weeks Active</div>
                                                     </td>
                                                 </tr>
                                             </table>
                                         </td>
                                     </tr>
-        """.format(int(round(avg_per_week)), stats['demographics'].UniqueFamilies if stats.get('demographics') else 0)
+        """.format(int(round(avg_per_week)), weeks)
     
     # Add total member count row
     if stats.get('total_members'):
@@ -1139,6 +1172,19 @@ def render_member_info(member, photo_html, include_family=True):
                                                         </h3>
     """.format(photo_html, member.FullName, member.PeopleId)
     
+    # Add activity heatmap (last 10 weeks)
+    try:
+        heatmap = get_activity_heatmap(member.PeopleId)
+        html += '''
+        <div style="margin: 0 0 10px 0; padding: 8px; background-color: #f7fafc; border-radius: 6px;">
+            <span style="font-size: 11px; color: #718096; margin-right: 8px;">Activity (10 wks):</span>
+            {}
+            <span style="font-size: 10px; color: #a0aec0; margin-left: 8px;">← Recent</span>
+        </div>
+        '''.format(heatmap)
+    except:
+        pass  # Skip heatmap if error
+    
     # Basic info with email-safe styling
     if member.Age and member.Age > 0:
         age_info = "{} years old".format(member.Age)
@@ -1291,7 +1337,7 @@ def send_report_email(html_content, start_date, end_date):
     email_html = """
     <div style="max-width: 900px; margin: 0 auto;">
         <p>Hello Team,</p>
-        <p>Here's your weekly new member report for {} through {}. We welcomed {} new events this week!</p>
+        <p>Here's your weekly new member report for {} through {}. We welcomed {} new people this week!</p>
         {}
         <p style="margin-top: 30px;">Best regards,<br>{}</p>
     </div>
@@ -1299,10 +1345,7 @@ def send_report_email(html_content, start_date, end_date):
         date_range.StartDisplay if date_range else "this period",
         date_range.EndDisplay if date_range else "this period",
         q.QuerySqlScalar("""SELECT 
-            SUM(
-                CASE WHEN JoinDate >= '{}' AND JoinDate < DATEADD(day, 1, '{}') THEN 1 ELSE 0 END +
-                CASE WHEN BaptismDate >= '{}' AND BaptismDate < DATEADD(day, 1, '{}') THEN 1 ELSE 0 END
-            ) AS Total
+            COUNT(DISTINCT PeopleId) AS Total
         FROM People
         WHERE MemberStatusId = {}
           AND (
@@ -1311,7 +1354,6 @@ def send_report_email(html_content, start_date, end_date):
               (BaptismDate >= '{}' AND BaptismDate < DATEADD(day, 1, '{}'))
           )
           AND IsDeceased = 0""".format(
-            start_date[:10], end_date[:10], start_date[:10], end_date[:10],
             Config.NEW_MEMBER_STATUS_ID,
             start_date[:10], end_date[:10], start_date[:10], end_date[:10]
         )),
