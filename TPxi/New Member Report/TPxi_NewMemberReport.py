@@ -65,6 +65,10 @@ class Config:
     # Baptism hour tracking
     SHOW_BAPTISM_HOUR = True  # Show baptism service/hour if available
     BAPTISM_HOUR_EXTRA_VALUE = "BaptismHour"  # Name of extra value field
+    
+    # Email statistics configuration
+    EXCLUDE_CHILDREN_FROM_EMAIL_STATS = True  # Exclude children under 13 from "Have Email" percentage
+    CHILD_AGE_THRESHOLD = 13  # Age threshold for email statistics
 
 # Set page header
 model.Header = "New Member Report"
@@ -74,29 +78,32 @@ def main():
     try:
         # Calculate date range
         end_date = model.DateTime
-        # Use SQL to calculate start date
+        # Use SQL to calculate start date - format 23 gives just yyyy-mm-dd
         start_date_str = q.QuerySqlScalar("""
-            SELECT CONVERT(varchar, DATEADD(day, -{}, GETDATE()), 120)
+            SELECT CONVERT(varchar(10), DATEADD(day, -{}, GETDATE()), 23)
         """.format(Config.DAYS_BACK))
         
         # For display purposes, we'll use the dates as strings
         
         # Get new members using date strings
-        new_members = get_new_members(start_date_str, model.DateTime.ToString("yyyy-MM-dd"))
+        end_date_str = q.QuerySqlScalar("""
+            SELECT CONVERT(varchar(10), GETDATE(), 23)
+        """)
+        new_members = get_new_members(start_date_str, end_date_str)
         
         if not new_members:
             print('<div class="alert alert-info">No new members found in the past {} days.</div>'.format(Config.DAYS_BACK))
             return
         
         # Generate report sections
-        html_content = generate_html_report(new_members, start_date_str, model.DateTime.ToString("yyyy-MM-dd"))
+        html_content = generate_html_report(new_members, start_date_str, end_date_str)
         
         # Display report
         print(html_content)
         
         # Optionally send email
         if getattr(model.Data, 'send_email', '') == "true":
-            send_report_email(html_content, start_date_str, model.DateTime.ToString("yyyy-MM-dd"))
+            send_report_email(html_content, start_date_str, end_date_str)
             print('<div class="alert alert-success">Report emailed to saved query: {}</div>'.format(Config.EMAIL_SAVED_QUERY))
         
     except Exception as e:
@@ -139,20 +146,20 @@ def get_new_members(start_date, end_date):
         p.CreatedDate,
         -- Calculate days since the qualifying event
         CASE 
-            WHEN p.JoinDate >= '{1}' AND p.JoinDate < DATEADD(day, 1, '{2}') AND p.BaptismDate >= '{1}' AND p.BaptismDate < DATEADD(day, 1, '{2}') 
+            WHEN p.JoinDate >= CAST('{1}' AS datetime) AND p.JoinDate < DATEADD(day, 1, CAST('{2}' AS datetime)) AND p.BaptismDate >= CAST('{1}' AS datetime) AND p.BaptismDate < DATEADD(day, 1, CAST('{2}' AS datetime)) 
                 THEN DATEDIFF(day, CASE WHEN p.JoinDate <= p.BaptismDate THEN p.JoinDate ELSE p.BaptismDate END, GETDATE())
-            WHEN p.JoinDate >= '{1}' AND p.JoinDate < DATEADD(day, 1, '{2}') THEN DATEDIFF(day, p.JoinDate, GETDATE())
-            WHEN p.BaptismDate >= '{1}' AND p.BaptismDate < DATEADD(day, 1, '{2}') THEN DATEDIFF(day, p.BaptismDate, GETDATE())
+            WHEN p.JoinDate >= CAST('{1}' AS datetime) AND p.JoinDate < DATEADD(day, 1, CAST('{2}' AS datetime)) THEN DATEDIFF(day, p.JoinDate, GETDATE())
+            WHEN p.BaptismDate >= CAST('{1}' AS datetime) AND p.BaptismDate < DATEADD(day, 1, CAST('{2}' AS datetime)) THEN DATEDIFF(day, p.BaptismDate, GETDATE())
             ELSE 0
         END AS DaysSinceJoining,
         fp.Description AS FamilyPosition,
         ISNULL(o.Description, 'Not Specified') AS Origin,
         -- Track which events qualify
         CASE 
-            WHEN p.JoinDate >= '{1}' AND p.JoinDate < DATEADD(day, 1, '{2}') THEN 1 ELSE 0 
+            WHEN p.JoinDate >= CAST('{1}' AS datetime) AND p.JoinDate < DATEADD(day, 1, CAST('{2}' AS datetime)) THEN 1 ELSE 0 
         END AS JoinDateInRange,
         CASE 
-            WHEN p.BaptismDate >= '{1}' AND p.BaptismDate < DATEADD(day, 1, '{2}') THEN 1 ELSE 0 
+            WHEN p.BaptismDate >= CAST('{1}' AS datetime) AND p.BaptismDate < DATEADD(day, 1, CAST('{2}' AS datetime)) THEN 1 ELSE 0 
         END AS BaptismDateInRange
     FROM People p
     LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
@@ -163,9 +170,9 @@ def get_new_members(start_date, end_date):
     LEFT JOIN Picture pic ON p.PictureId = pic.PictureId
     WHERE p.MemberStatusId = {0}
       AND (
-          (p.JoinDate >= '{1}' AND p.JoinDate < DATEADD(day, 1, '{2}'))
+          (p.JoinDate >= CAST('{1}' AS datetime) AND p.JoinDate < DATEADD(day, 1, CAST('{2}' AS datetime)))
           OR 
-          (p.BaptismDate >= '{1}' AND p.BaptismDate < DATEADD(day, 1, '{2}'))
+          (p.BaptismDate >= CAST('{1}' AS datetime) AND p.BaptismDate < DATEADD(day, 1, CAST('{2}' AS datetime)))
       )
       AND p.IsDeceased = 0
     """
@@ -178,8 +185,8 @@ def get_new_members(start_date, end_date):
     
     return q.QuerySql(sql.format(
         Config.NEW_MEMBER_STATUS_ID,
-        start_date[:10],  # Extract date portion if datetime string
-        end_date[:10]     # Extract date portion if datetime string
+        start_date,
+        end_date
     ))
 
 def get_member_involvements(people_id):
@@ -238,14 +245,14 @@ def get_statistics(start_date, end_date):
     FROM People
     WHERE MemberStatusId = {}
       AND (
-          (JoinDate >= '{}' AND JoinDate < DATEADD(day, 1, '{}'))
+          (JoinDate >= CAST('{}' AS datetime) AND JoinDate < DATEADD(day, 1, CAST('{}' AS datetime)))
           OR 
-          (BaptismDate >= '{}' AND BaptismDate < DATEADD(day, 1, '{}'))
+          (BaptismDate >= CAST('{}' AS datetime) AND BaptismDate < DATEADD(day, 1, CAST('{}' AS datetime)))
       )
       AND IsDeceased = 0
     """.format(
         Config.NEW_MEMBER_STATUS_ID,
-        start_date[:10], end_date[:10], start_date[:10], end_date[:10]
+        start_date, end_date, start_date, end_date
     )
     
     stats['total'] = q.QuerySqlScalar(sql_total) or 0
@@ -282,29 +289,35 @@ def get_statistics(start_date, end_date):
         COUNT(DISTINCT CASE WHEN OriginId IS NOT NULL THEN PeopleId END) AS HasOrigin,
         COUNT(DISTINCT CASE WHEN DecisionTypeId IS NOT NULL THEN PeopleId END) AS HasDecision,
         -- Contact completeness
-        SUM(CASE WHEN EmailAddress IS NOT NULL AND EmailAddress != '' THEN 1 ELSE 0 END) AS HasEmail,
+        SUM(CASE 
+            WHEN EmailAddress IS NOT NULL AND EmailAddress != '' 
+                AND ({} = 0 OR Age >= {})
+            THEN 1 ELSE 0 END) AS HasEmail,
         SUM(CASE WHEN CellPhone IS NOT NULL THEN 1 ELSE 0 END) AS HasCellPhone,
         SUM(CASE WHEN PrimaryAddress IS NOT NULL THEN 1 ELSE 0 END) AS HasAddress,
         -- Event type breakdown
-        SUM(CASE WHEN JoinDate >= '{}' AND JoinDate < DATEADD(day, 1, '{}') THEN 1 ELSE 0 END) AS JoinEvents,
-        SUM(CASE WHEN BaptismDate >= '{}' AND BaptismDate < DATEADD(day, 1, '{}') THEN 1 ELSE 0 END) AS BaptismEvents,
+        SUM(CASE WHEN JoinDate >= CAST('{}' AS datetime) AND JoinDate < DATEADD(day, 1, CAST('{}' AS datetime)) THEN 1 ELSE 0 END) AS JoinEvents,
+        SUM(CASE WHEN BaptismDate >= CAST('{}' AS datetime) AND BaptismDate < DATEADD(day, 1, CAST('{}' AS datetime)) THEN 1 ELSE 0 END) AS BaptismEvents,
         SUM(CASE 
-            WHEN JoinDate >= '{}' AND JoinDate < DATEADD(day, 1, '{}')
-                 AND BaptismDate >= '{}' AND BaptismDate < DATEADD(day, 1, '{}')
+            WHEN JoinDate >= CAST('{}' AS datetime) AND JoinDate < DATEADD(day, 1, CAST('{}' AS datetime))
+                 AND BaptismDate >= CAST('{}' AS datetime) AND BaptismDate < DATEADD(day, 1, CAST('{}' AS datetime))
             THEN 1 ELSE 0 END) AS BothEvents
     FROM People
     WHERE MemberStatusId = {}
       AND (
-          (JoinDate >= '{}' AND JoinDate < DATEADD(day, 1, '{}'))
+          (JoinDate >= CAST('{}' AS datetime) AND JoinDate < DATEADD(day, 1, CAST('{}' AS datetime)))
           OR 
-          (BaptismDate >= '{}' AND BaptismDate < DATEADD(day, 1, '{}'))
+          (BaptismDate >= CAST('{}' AS datetime) AND BaptismDate < DATEADD(day, 1, CAST('{}' AS datetime)))
       )
       AND IsDeceased = 0
     """.format(
-        start_date[:10], end_date[:10], start_date[:10], end_date[:10],
-        start_date[:10], end_date[:10], start_date[:10], end_date[:10],
-        Config.NEW_MEMBER_STATUS_ID,
-        start_date[:10], end_date[:10], start_date[:10], end_date[:10]
+        1 if Config.EXCLUDE_CHILDREN_FROM_EMAIL_STATS else 0, Config.CHILD_AGE_THRESHOLD,  # For HasEmail filter
+        start_date, end_date,  # For JoinEvents
+        start_date, end_date,  # For BaptismEvents
+        start_date, end_date, start_date, end_date,  # For BothEvents
+        Config.NEW_MEMBER_STATUS_ID,  # For WHERE MemberStatusId
+        start_date, end_date,  # For WHERE JoinDate
+        start_date, end_date   # For WHERE BaptismDate
     )
     
     demo_result = q.QuerySqlTop1(sql_demographics)
@@ -336,9 +349,9 @@ def get_statistics(start_date, end_date):
     FROM People
     WHERE MemberStatusId = {}
       AND (
-          (JoinDate >= '{}' AND JoinDate <= GETDATE())
+          (JoinDate >= CAST('{}' AS datetime) AND JoinDate <= GETDATE())
           OR
-          (BaptismDate >= '{}' AND BaptismDate <= GETDATE())
+          (BaptismDate >= CAST('{}' AS datetime) AND BaptismDate <= GETDATE())
       )
       AND IsDeceased = 0
     """.format(
@@ -357,23 +370,23 @@ def get_statistics(start_date, end_date):
     sql_prev_fy = """
     SELECT 
         COUNT(DISTINCT CASE 
-            WHEN (JoinDate >= '{}' AND JoinDate < '{}') 
-                OR (BaptismDate >= '{}' AND BaptismDate < '{}')
+            WHEN (JoinDate >= CAST('{}' AS datetime) AND JoinDate < CAST('{}' AS datetime)) 
+                OR (BaptismDate >= CAST('{}' AS datetime) AND BaptismDate < CAST('{}' AS datetime))
             THEN PeopleId 
             ELSE NULL 
         END) AS PrevFYTotal,
         COUNT(DISTINCT CASE 
-            WHEN (JoinDate >= '{}' AND JoinDate <= DATEADD(day, {}, '{}')) 
-                OR (BaptismDate >= '{}' AND BaptismDate <= DATEADD(day, {}, '{}'))
+            WHEN (JoinDate >= CAST('{}' AS datetime) AND JoinDate <= DATEADD(day, {}, CAST('{}' AS datetime))) 
+                OR (BaptismDate >= CAST('{}' AS datetime) AND BaptismDate <= DATEADD(day, {}, CAST('{}' AS datetime)))
             THEN PeopleId 
             ELSE NULL 
         END) AS PrevFYTDTotal
     FROM People
     WHERE MemberStatusId = {}
       AND (
-          (JoinDate >= '{}' AND JoinDate < '{}')
+          (JoinDate >= CAST('{}' AS datetime) AND JoinDate < CAST('{}' AS datetime))
           OR
-          (BaptismDate >= '{}' AND BaptismDate < '{}')
+          (BaptismDate >= CAST('{}' AS datetime) AND BaptismDate < CAST('{}' AS datetime))
       )
       AND IsDeceased = 0
     """.format(
@@ -397,16 +410,16 @@ def get_statistics(start_date, end_date):
         LEFT JOIN lookup.Origin o ON p.OriginId = o.Id
         WHERE p.MemberStatusId = {}
           AND (
-              (p.JoinDate >= '{}' AND p.JoinDate < DATEADD(day, 1, '{}'))
+              (p.JoinDate >= CAST('{}' AS datetime) AND p.JoinDate < DATEADD(day, 1, CAST('{}' AS datetime)))
               OR 
-              (p.BaptismDate >= '{}' AND p.BaptismDate < DATEADD(day, 1, '{}'))
+              (p.BaptismDate >= CAST('{}' AS datetime) AND p.BaptismDate < DATEADD(day, 1, CAST('{}' AS datetime)))
           )
           AND p.IsDeceased = 0
         GROUP BY o.Description
         ORDER BY COUNT(*) DESC
         """.format(
             Config.NEW_MEMBER_STATUS_ID, 
-            start_date[:10], end_date[:10], start_date[:10], end_date[:10]
+            start_date, end_date, start_date, end_date
         )
         
         stats['origins'] = q.QuerySql(sql_origins)
@@ -428,7 +441,10 @@ def get_statistics(start_date, end_date):
         SUM(CASE WHEN MaritalStatusId = 20 THEN 1 ELSE 0 END) AS Married,
         SUM(CASE WHEN MaritalStatusId = 10 THEN 1 ELSE 0 END) AS Single,
         -- Contact completeness
-        SUM(CASE WHEN EmailAddress IS NOT NULL AND EmailAddress != '' THEN 1 ELSE 0 END) AS HasEmail,
+        SUM(CASE 
+            WHEN EmailAddress IS NOT NULL AND EmailAddress != '' 
+                AND ({} = 0 OR Age >= {})
+            THEN 1 ELSE 0 END) AS HasEmail,
         SUM(CASE WHEN CellPhone IS NOT NULL THEN 1 ELSE 0 END) AS HasCellPhone,
         SUM(CASE WHEN PrimaryAddress IS NOT NULL THEN 1 ELSE 0 END) AS HasAddress,
         -- Total count (unique people, not events)
@@ -436,12 +452,17 @@ def get_statistics(start_date, end_date):
     FROM People
     WHERE MemberStatusId = {}
       AND (
-          (JoinDate >= '{}' AND JoinDate <= GETDATE())
+          (JoinDate >= CAST('{}' AS datetime) AND JoinDate <= GETDATE())
           OR 
-          (BaptismDate >= '{}' AND BaptismDate <= GETDATE())
+          (BaptismDate >= CAST('{}' AS datetime) AND BaptismDate <= GETDATE())
       )
       AND IsDeceased = 0
-    """.format(Config.NEW_MEMBER_STATUS_ID, fy_start, fy_start)
+    """.format(
+        1 if Config.EXCLUDE_CHILDREN_FROM_EMAIL_STATS else 0, Config.CHILD_AGE_THRESHOLD,  # For HasEmail filter
+        Config.NEW_MEMBER_STATUS_ID,  # For WHERE MemberStatusId
+        fy_start,  # For WHERE JoinDate
+        fy_start   # For WHERE BaptismDate
+    )
     
     fy_demo_result = q.QuerySqlTop1(sql_fy_demographics)
     if fy_demo_result:
@@ -463,9 +484,9 @@ def get_statistics(start_date, end_date):
             LEFT JOIN Division d ON o.DivisionId = d.Id
             WHERE p.MemberStatusId = {}
               AND (
-                  (p.JoinDate >= '{}' AND p.JoinDate <= GETDATE())
+                  (p.JoinDate >= CAST('{}' AS datetime) AND p.JoinDate <= GETDATE())
                   OR 
-                  (p.BaptismDate >= '{}' AND p.BaptismDate <= GETDATE())
+                  (p.BaptismDate >= CAST('{}' AS datetime) AND p.BaptismDate <= GETDATE())
               )
               AND p.IsDeceased = 0
               AND a.AttendanceFlag = 1
@@ -591,7 +612,7 @@ def generate_html_report(new_members, start_date, end_date):
         SELECT 
             DATENAME(month, CAST('{}' AS datetime)) + ' ' + CAST(DAY(CAST('{}' AS datetime)) AS varchar) AS StartDisplay,
             DATENAME(month, CAST('{}' AS datetime)) + ' ' + CAST(DAY(CAST('{}' AS datetime)) AS varchar) + ', ' + CAST(YEAR(CAST('{}' AS datetime)) AS varchar) AS EndDisplay
-    """.format(start_date[:10], start_date[:10], end_date[:10], end_date[:10], end_date[:10]))
+    """.format(start_date, start_date, end_date, end_date, end_date))
     
     html = """
     <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#f7fafc">
@@ -938,7 +959,7 @@ def generate_html_report(new_members, start_date, end_date):
                                                 <tr>
                                                     <td width="33%" style="text-align: center; padding: 10px;">
                                                         <div style="font-size: 32px; font-weight: 700; color: #667eea;">{}%</div>
-                                                        <div style="font-size: 14px; color: #718096; margin-top: 5px;">Have Email</div>
+                                                        <div style="font-size: 14px; color: #718096; margin-top: 5px;">Have Email{}</div>
                                                     </td>
                                                     <td width="33%" style="text-align: center; padding: 10px;">
                                                         <div style="font-size: 32px; font-weight: 700; color: #48bb78;">{}%</div>
@@ -949,7 +970,12 @@ def generate_html_report(new_members, start_date, end_date):
                                                         <div style="font-size: 14px; color: #718096; margin-top: 5px;">Have Address</div>
                                                     </td>
                                                 </tr>
-            """.format(int(email_pct), int(phone_pct), int(address_pct))
+            """.format(
+                int(email_pct), 
+                " (13+)" if Config.EXCLUDE_CHILDREN_FROM_EMAIL_STATS else "",
+                int(phone_pct), 
+                int(address_pct)
+            )
         
         html += """
                                             </table>
@@ -1331,7 +1357,7 @@ def send_report_email(html_content, start_date, end_date):
         SELECT 
             DATENAME(month, CAST('{}' AS datetime)) + ' ' + CAST(DAY(CAST('{}' AS datetime)) AS varchar) AS StartDisplay,
             DATENAME(month, CAST('{}' AS datetime)) + ' ' + CAST(DAY(CAST('{}' AS datetime)) AS varchar) + ', ' + CAST(YEAR(CAST('{}' AS datetime)) AS varchar) AS EndDisplay
-    """.format(start_date[:10], start_date[:10], end_date[:10], end_date[:10], end_date[:10]))
+    """.format(start_date, start_date, end_date, end_date, end_date))
     
     # Add email header/footer
     email_html = """
@@ -1349,13 +1375,13 @@ def send_report_email(html_content, start_date, end_date):
         FROM People
         WHERE MemberStatusId = {}
           AND (
-              (JoinDate >= '{}' AND JoinDate < DATEADD(day, 1, '{}'))
+              (JoinDate >= CAST('{}' AS datetime) AND JoinDate < DATEADD(day, 1, CAST('{}' AS datetime)))
               OR 
-              (BaptismDate >= '{}' AND BaptismDate < DATEADD(day, 1, '{}'))
+              (BaptismDate >= CAST('{}' AS datetime) AND BaptismDate < DATEADD(day, 1, CAST('{}' AS datetime)))
           )
           AND IsDeceased = 0""".format(
             Config.NEW_MEMBER_STATUS_ID,
-            start_date[:10], end_date[:10], start_date[:10], end_date[:10]
+            start_date, end_date, start_date, end_date
         )),
         html_content,
         Config.EMAIL_FROM_NAME
