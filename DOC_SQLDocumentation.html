@@ -523,7 +523,7 @@
     
     <p>TouchPoint is an enterprise-level church management system with one of the most comprehensive databases in the church software industry. Understanding its scale and architecture is crucial for effective use.</p>
 
-    <h3>🏗️ Database Scale</h3>
+    <h3>🏗️ Database Scale (Verified from Local Database)</h3>
     <table>
         <tr>
             <th>Metric</th>
@@ -532,23 +532,23 @@
         </tr>
         <tr>
             <td><strong>Total Tables</strong></td>
-            <td>378</td>
+            <td>389</td>
             <td>Complete system coverage from people to analytics</td>
         </tr>
         <tr>
             <td><strong>Total Columns</strong></td>
-            <td>3,364</td>
+            <td>4,451</td>
             <td>Extensive data points for comprehensive tracking</td>
         </tr>
         <tr>
             <td><strong>Foreign Keys</strong></td>
-            <td>452</td>
+            <td>460</td>
             <td>Complex relationships ensuring data integrity</td>
         </tr>
         <tr>
             <td><strong>Lookup Tables</strong></td>
-            <td>67</td>
-            <td>Business logic and validation rules</td>
+            <td>66</td>
+            <td>Business logic and validation rules (lookup schema)</td>
         </tr>
         <tr>
             <td><strong>Extra Value Tables</strong></td>
@@ -557,14 +557,14 @@
         </tr>
         <tr>
             <td><strong>Stored Procedures</strong></td>
-            <td>495</td>
+            <td>161</td>
             <td>Complex operations and reporting</td>
         </tr>
     </table>
 
-    <h3>📈 Production Data Volumes</h3>
+    <h3>📈 Production Data Volumes (from Local Database)</h3>
     <div class="highlight">
-        <p><strong>Real-world production databases can contain massive data volumes:</strong></p>
+        <p><strong>Real-world production databases contain massive data volumes (actual counts from local DB):</strong></p>
         <table>
             <tr>
                 <th>Table</th>
@@ -574,50 +574,56 @@
             </tr>
             <tr>
                 <td><code>TagPerson</code></td>
-                <td>138M+</td>
+                <td>159.3M</td>
                 <td>Flexible categorization</td>
-                <td><span class="badge badge-critical">EXTREME</span></td>
+                <td><span class="badge badge-critical">EXTREME - Always use filters!</span></td>
             </tr>
             <tr>
                 <td><code>EmailResponses</code></td>
-                <td>3.9M+</td>
+                <td>4.6M</td>
                 <td>Email engagement tracking</td>
                 <td><span class="badge badge-critical">HIGH</span></td>
             </tr>
             <tr>
-                <td><code>EmailQueueTo</code></td>
-                <td>3.8M+</td>
-                <td>Email recipients</td>
-                <td><span class="badge badge-critical">HIGH</span></td>
-            </tr>
-            <tr>
                 <td><code>ActivityLog</code></td>
-                <td>3.4M+</td>
+                <td>3.8M</td>
                 <td>Audit trail</td>
                 <td><span class="badge badge-critical">HIGH</span></td>
             </tr>
             <tr>
-                <td><code>PeopleSearchTokens</code></td>
-                <td>1.7M+</td>
-                <td>Search optimization</td>
-                <td><span class="badge badge-performance">MEDIUM</span></td>
-            </tr>
-            <tr>
-                <td><code>EngagementScoreTag</code></td>
-                <td>1.4M+</td>
-                <td>Activity scoring</td>
-                <td><span class="badge badge-performance">MEDIUM</span></td>
-            </tr>
-            <tr>
                 <td><code>Attend</code></td>
-                <td>1.2M+</td>
+                <td>1.5M</td>
                 <td>Attendance records</td>
                 <td><span class="badge badge-performance">MEDIUM</span></td>
             </tr>
             <tr>
                 <td><code>Contribution</code></td>
-                <td>673K+</td>
+                <td>691K</td>
                 <td>Financial giving</td>
+                <td><span class="badge badge-performance">MEDIUM</span></td>
+            </tr>
+            <tr>
+                <td><code>EmailQueue</code></td>
+                <td>195K</td>
+                <td>Email messages sent</td>
+                <td>LOW</td>
+            </tr>
+            <tr>
+                <td><code>TaskNote</code></td>
+                <td>175K</td>
+                <td>Tasks and notes</td>
+                <td>LOW</td>
+            </tr>
+            <tr>
+                <td><code>People</code></td>
+                <td>51K</td>
+                <td>Person records</td>
+                <td>LOW</td>
+            </tr>
+            <tr>
+                <td><code>Families</code></td>
+                <td>31K</td>
+                <td>Family units</td>
                 <td>LOW</td>
             </tr>
         </table>
