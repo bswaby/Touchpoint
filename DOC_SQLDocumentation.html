@@ -1108,6 +1108,8 @@ ORDER BY c.ContributionDate DESC, c.ContributionAmount DESC</code></pre>
 
     <h3>🆕 First-Time Visitors</h3>
     <pre><code>-- Recent first-time visitors for follow-up
+-- Note: AttendType values vary by church. Common values: 60=New Guest, 50=Recent Guest
+-- Always check your lookup.AttendType table for actual values
 WITH FirstVisit AS (
     SELECT 
         p.PeopleId,
@@ -1115,7 +1117,7 @@ WITH FirstVisit AS (
     FROM Attend a
     JOIN People p ON a.PeopleId = p.PeopleId
     WHERE a.AttendanceFlag = 1
-      AND a.AttendanceTypeId IN (40, 50)  -- New Guest, Recent Guest
+      AND a.AttendanceTypeId IN (50, 60)  -- Recent Guest, New Guest (verify your IDs)
     GROUP BY p.PeopleId
 )
 SELECT TOP 100
@@ -1240,8 +1242,6 @@ ORDER BY p.Name</code></pre>
 
     <h3>Custom Field Analysis</h3>
     <pre><code>-- Analyze custom field usage patterns
--- Analyze custom field usage patterns
--- Note: Date fields store values in DateValue column, not Data column
 WITH CustomFieldStats AS (
     SELECT 
         Field,
@@ -1309,56 +1309,46 @@ ORDER BY Uses DESC</code></pre>
         </tr>
     </table>
 
-    <h4>lookup.AttendType <span class="badge badge-critical">Important</span></h4>
+    <h4>lookup.AttendType <span class="badge badge-critical">Important - Values Vary by Church</span></h4>
+    
+    <div class="info">
+        <p><strong>⚠️ Important:</strong> AttendType values are customized per church. Always verify your actual values with <code>SELECT * FROM lookup.AttendType</code></p>
+    </div>
+    
     <table>
         <tr>
-            <th>Id</th>
-            <th>Description</th>
-            <th>Worker</th>
-            <th>Guest</th>
+            <th>Common Id</th>
+            <th>Typical Description</th>
             <th>Usage</th>
         </tr>
         <tr>
             <td>10</td>
-            <td>Member</td>
-            <td>0</td>
-            <td>0</td>
-            <td>Regular members</td>
-        </tr>
-        <tr>
-            <td>20</td>
             <td>Leader</td>
-            <td>1</td>
-            <td>0</td>
             <td>Leadership roles</td>
         </tr>
         <tr>
-            <td>30</td>
+            <td>20</td>
             <td>Volunteer</td>
-            <td>1</td>
-            <td>0</td>
             <td>Volunteer workers</td>
         </tr>
         <tr>
+            <td>30</td>
+            <td>Member</td>
+            <td>Regular members</td>
+        </tr>
+        <tr>
             <td>40</td>
-            <td>New Guest</td>
-            <td>0</td>
-            <td>1</td>
-            <td>First-time visitors</td>
+            <td>Visiting Member</td>
+            <td>Members from other churches</td>
         </tr>
         <tr>
             <td>50</td>
             <td>Recent Guest</td>
-            <td>0</td>
-            <td>1</td>
             <td>Return visitors</td>
         </tr>
         <tr>
             <td>60</td>
-            <td>Visiting Member</td>
-            <td>0</td>
-            <td>0</td>
-            <td>Members from other churches</td>
+            <td>New Guest</td>
         </tr>
     </table>
 
@@ -2129,24 +2119,54 @@ WHERE c.ContributionDate >= DATEADD(month, -12, GETDATE())
 GROUP BY YEAR(c.ContributionDate), MONTH(c.ContributionDate), cf.FundName
 ORDER BY Year DESC, Month DESC, TotalAmount DESC
 
--- Registration revenue by event
--- Note: Transaction is a reserved word, use brackets: [Transaction]
--- Amount is in Transaction table (t.amt), not EnrollmentTransaction
+-- Registration POTENTIAL revenue (based on enrollment and fee structure)
+-- Shows what should be collected based on current enrollments
 SELECT 
-    et.OrganizationName,
-    COUNT(DISTINCT et.PeopleId) as Registrants,
-    SUM(t.amt) as TotalRevenue,
-    AVG(t.amt) as AvgPayment,
+    o.OrganizationName,
+    o.RegFeePerPerson as FeePerPerson,
+    o.RegDepositAmount as DepositRequired,
+    COUNT(om.PeopleId) as CurrentEnrollment,
+    o.RegFeePerPerson * COUNT(om.PeopleId) as TotalPotentialRevenue,
+    CASE 
+        WHEN o.RegistrationTypeId = 6 THEN 'Mission Trip'
+        WHEN o.RegistrationTypeId = 8 THEN 'Event'
+        ELSE 'Other'
+    END as RegistrationType
+FROM Organizations o
+JOIN OrganizationMembers om ON o.OrganizationId = om.OrganizationId
+WHERE o.RegFeePerPerson > 0 
+  AND om.MemberTypeId NOT IN (310, 320)  -- Exclude leaders/assistants
+  AND om.InactiveDate IS NULL  -- Active members only
+GROUP BY o.OrganizationId, o.OrganizationName, o.RegFeePerPerson, 
+         o.RegDepositAmount, o.RegistrationTypeId
+ORDER BY TotalPotentialRevenue DESC
+
+-- BEST: Actual payments received using TransactionSummary
+-- This is what my payment management systems use and you need to be adding CSH CHK to the description prefix
+-- Shows REAL money collected, not just online transactions.
+SET QUOTED_IDENTIFIER ON  -- Required for TransactionSummary view
+GO
+SELECT 
+    o.OrganizationName,
+    COUNT(DISTINCT ts.PeopleId) as PayingParticipants,
+    SUM(CASE WHEN t.amt > 0 THEN t.amt ELSE 0 END) as TotalPaid,
+    COUNT(DISTINCT t.Id) as NumTransactions,
     MIN(t.TransactionDate) as FirstPayment,
-    MAX(t.TransactionDate) as LastPayment
-FROM EnrollmentTransaction et
-JOIN dbo.[Transaction] t ON et.TransactionId = t.Id
-WHERE t.Approved = 1
+    MAX(t.TransactionDate) as LastPayment,
+    -- Payment type breakdown
+    SUM(CASE WHEN t.Message LIKE 'CHK%' THEN t.amt ELSE 0 END) as CheckPayments,
+    SUM(CASE WHEN t.Message LIKE 'CSH%' THEN t.amt ELSE 0 END) as CashPayments,
+    SUM(CASE WHEN t.Message LIKE 'Response%' THEN t.amt ELSE 0 END) as CreditCardPayments
+FROM TransactionSummary ts
+JOIN Organizations o ON ts.OrganizationId = o.OrganizationId
+LEFT JOIN [Transaction] t ON ts.RegId = t.OriginalId 
+    AND t.amt > 0 
+    AND t.Approved = 1
+WHERE (ts.TotDue > 0 OR ts.TotPaid > 0)  -- Has financial activity
   AND t.TransactionDate >= DATEADD(year, -1, GETDATE())
-  AND t.amt > 0
-GROUP BY et.OrganizationName
-HAVING SUM(t.amt) > 0
-ORDER BY TotalRevenue DESC</code></pre>
+GROUP BY o.OrganizationId, o.OrganizationName
+HAVING SUM(CASE WHEN t.amt > 0 THEN t.amt ELSE 0 END) > 0
+ORDER BY TotalPaid DESC</code></pre>
 </div>
 
 <div id="sms-communication" class="section">
