@@ -369,14 +369,15 @@
     </div>
     
     <div class="warning">
-        <h3>⚠️ Critical: TouchPoint SQL is READ-ONLY</h3>
-        <p><strong>The SQL interface provides READ-ONLY access to the database.</strong> You cannot INSERT, UPDATE, or DELETE records through SQL. All data modifications must be done through:</p>
+        <h3>⚠️ Critical: TouchPoint SQL is READ-ONLY (but temp tables work!)</h3>
+        <p><strong>The SQL interface provides READ-ONLY access to the database.</strong> You cannot INSERT, UPDATE, or DELETE records in TouchPoint tables. All data modifications must be done through:</p>
         <ul>
             <li>✅ TouchPoint's web interface</li>
             <li>✅ TouchPoint's Python scripting system</li>
             <li>✅ TouchPoint's API endpoints</li>
             <li>✅ TouchPoint's mobile app</li>
         </ul>
+        <p class="info"><strong>💡 TIP:</strong> While you can't modify TouchPoint tables, you CAN create and use temporary tables (#TempTableName) within your SQL scripts for complex queries, data staging, and intermediate calculations. Temp tables are session-specific and automatically cleaned up.</p>
         <p>This guide focuses on SELECT queries for reporting, analysis, and data extraction.</p>
     </div>
     
@@ -1110,6 +1111,55 @@ WHERE c.ContributionTypeId != 99  -- Exclude event fees
   AND c.ContributionDate >= DATEADD(month, -1, GETDATE())
   AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
 ORDER BY c.ContributionDate DESC, c.ContributionAmount DESC</code></pre>
+
+    <h3>💡 Using Temporary Tables for Complex Analysis</h3>
+    <pre><code>-- Example: Using temp tables to stage data for complex reporting
+-- Temp tables are allowed in TouchPoint SQL and are very useful!
+
+-- Create a temp table with attendance summary
+SELECT 
+    p.PeopleId,
+    p.Name,
+    COUNT(DISTINCT a.MeetingDate) as AttendanceCount,
+    MAX(a.MeetingDate) as LastAttended
+INTO #AttendanceSummary
+FROM People p
+JOIN Attend a ON p.PeopleId = a.PeopleId
+WHERE a.MeetingDate >= DATEADD(month, -6, GETDATE())
+GROUP BY p.PeopleId, p.Name
+
+-- Create another temp table with giving summary
+SELECT 
+    p.PeopleId,
+    SUM(c.ContributionAmount) as TotalGiving,
+    COUNT(c.ContributionId) as GiftCount
+INTO #GivingSummary
+FROM People p
+JOIN Contribution c ON p.PeopleId = c.PeopleId
+WHERE c.ContributionDate >= DATEADD(month, -6, GETDATE())
+  AND c.ContributionTypeId NOT IN (8, 99)
+GROUP BY p.PeopleId
+
+-- Now join the temp tables for final analysis
+SELECT 
+    a.Name,
+    a.AttendanceCount,
+    a.LastAttended,
+    ISNULL(g.TotalGiving, 0) as TotalGiving,
+    ISNULL(g.GiftCount, 0) as GiftCount,
+    CASE 
+        WHEN a.AttendanceCount > 10 AND g.TotalGiving > 500 THEN 'Highly Engaged'
+        WHEN a.AttendanceCount > 5 OR g.TotalGiving > 100 THEN 'Engaged'
+        ELSE 'New/Occasional'
+    END as EngagementLevel
+FROM #AttendanceSummary a
+LEFT JOIN #GivingSummary g ON a.PeopleId = g.PeopleId
+ORDER BY a.AttendanceCount DESC, g.TotalGiving DESC
+
+-- Temp tables are automatically cleaned up when your session ends
+-- Or you can manually drop them:
+-- DROP TABLE #AttendanceSummary
+-- DROP TABLE #GivingSummary</code></pre>
 
     <h3>🆕 First-Time Visitors</h3>
     <pre><code>-- Recent first-time visitors for follow-up
