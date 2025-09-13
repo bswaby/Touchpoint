@@ -1,5 +1,5 @@
 ### 🔍 [SQL Query Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/SQL%20Query%20Explorer)
-A powerful SQL editor for TouchPoint with IntelliSense-style autocomplete, multi-tab support, and real-time schema browsing. Write and execute queries with the ease of a professional database IDE.
+SQL editor for TouchPoint with IntelliSense-style autocomplete, multi-tab support, and real-time schema browsing. Write and execute queries with the ease of a professional database IDE.
 
 - ⚙️ **Implementation Level:** Easy
 - 🧩 **Installation:** Paste-and-go Python script with no configuration needed
@@ -11,6 +11,7 @@ A powerful SQL editor for TouchPoint with IntelliSense-style autocomplete, multi
 - **Multi-Tab Editor** - Work on multiple queries simultaneously with tab management
 - **Live Schema Explorer** - Browse and search all tables/columns with click-to-insert
 - **Smart Error Messages** - Helpful suggestions when queries fail
+- **Highlight and Run** - Run a section of code using highlight
 - **Query Library** - Save frequently used queries and access built-in examples
 
 <details>
