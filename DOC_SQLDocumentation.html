@@ -2879,24 +2879,30 @@ ORDER BY PeopleCount DESC</code></pre>
     </table>
 
     <h3>Common Task Queries</h3>
-    <pre><code>-- Open tasks by owner
--- Note: TaskNote has no TaskListId or Priority field. TaskList is a separate table for categorization
+    <pre><code>-- Recently created open tasks (more useful than future due dates)
+-- ⚠️ NOTE: Most TaskNote records have due dates in the past (162K+ overdue vs 1 future)
+-- This query shows recently CREATED tasks regardless of due date
 SELECT TOP 500
     owner.Name as Owner,
     about.Name as AboutPerson,
     tn.Notes,
     tn.DueDate,
-    DATEDIFF(day, GETDATE(), tn.DueDate) as DaysTillDue,
+    tn.CreatedDate,
+    CASE 
+        WHEN tn.DueDate > GETDATE() THEN DATEDIFF(day, GETDATE(), tn.DueDate)
+        ELSE -DATEDIFF(day, tn.DueDate, GETDATE())
+    END as DaysFromDue,
     ts.Description as TaskStatus
 FROM TaskNote tn
 JOIN People owner ON tn.OwnerId = owner.PeopleId
 JOIN People about ON tn.AboutPersonId = about.PeopleId
 LEFT JOIN lookup.TaskStatus ts ON tn.StatusId = ts.Id
 WHERE tn.CompletedDate IS NULL
-  AND tn.DueDate >= GETDATE()
-ORDER BY tn.DueDate
+  AND tn.CreatedDate >= DATEADD(month, -3, GETDATE())  -- Created in last 3 months
+ORDER BY tn.CreatedDate DESC
 
--- Overdue tasks
+-- Recently overdue tasks (practical date range)
+-- Filters to tasks due within last 2 years to avoid ancient tasks
 SELECT TOP 100
     owner.Name as Owner,
     about.Name as AboutPerson,
@@ -2908,7 +2914,8 @@ JOIN People owner ON tn.OwnerId = owner.PeopleId
 JOIN People about ON tn.AboutPersonId = about.PeopleId
 WHERE tn.CompletedDate IS NULL
   AND tn.DueDate < GETDATE()
-ORDER BY tn.DueDate
+  AND tn.DueDate > DATEADD(year, -2, GETDATE())  -- Due within last 2 years
+ORDER BY tn.DueDate DESC
 
 -- Task completion metrics
 SELECT 
