@@ -13,8 +13,8 @@
 # 7. Keyboard shortcuts (Ctrl+T, Ctrl+Tab, etc.)
 #####################################################################
 
-#written by: Ben Swaby
-#email: bswaby@fbchtn.org
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
 
 import json
 import re
@@ -3701,48 +3701,73 @@ ORDER BY p.JoinDate DESC</textarea>
                 
                 const sql = editor.getValue();
                 if (!sql.trim()) {
-                    alert('Please enter a query to save');
+                    showMessage('Please enter a query to save', 'error');
                     return;
                 }
                 
                 const name = prompt('Query name:', tabs[currentTabId].name);
                 if (!name) return;
                 
-                // Create a form and submit it to trigger a page reload with save action
-                const form = document.createElement('form');
-                form.method = 'POST';
-                // Convert /PyScript/ to /PyScriptForm/ as per TouchPoint's requirements
-                form.action = window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
-                // Open in new tab to preserve current tabs
-                form.target = '_blank';
+                // Show saving indicator
+                showMessage('Saving query...', 'info');
                 
-                // Add hidden fields
-                const actionField = document.createElement('input');
-                actionField.type = 'hidden';
-                actionField.name = 'save_action';
-                actionField.value = 'save_query';
-                form.appendChild(actionField);
+                // Use AJAX to save the query
+                const formData = new FormData();
+                formData.append('action', 'save_query');
+                formData.append('query_name', name.trim());
+                formData.append('query_sql', sql);
                 
-                const nameField = document.createElement('input');
-                nameField.type = 'hidden';
-                nameField.name = 'query_name';
-                nameField.value = name.trim();
-                form.appendChild(nameField);
+                // TouchPoint requires /PyScriptForm/ for POST requests
+                const actionUrl = window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
                 
-                const sqlField = document.createElement('textarea');
-                sqlField.style.display = 'none';
-                sqlField.name = 'query_sql';
-                sqlField.value = sql;
-                form.appendChild(sqlField);
-                
-                // Submit the form
-                document.body.appendChild(form);
-                form.submit();
-                
-                // Clean up - remove the form after submission
-                setTimeout(() => {
-                    document.body.removeChild(form);
-                }, 100);
+                fetch(actionUrl, {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.text();
+                })
+                .then(text => {
+                    try {
+                        const data = JSON.parse(text);
+                        if (data.success) {
+                            showMessage(`Query "${name}" saved successfully!`, 'success');
+                            // Reload saved queries list
+                            loadSavedQueries();
+                            // Update tab name if it was renamed
+                            if (tabs[currentTabId].name !== name) {
+                                tabs[currentTabId].name = name;
+                                const tabElement = document.querySelector(`.editor-tab[data-tab-id="${currentTabId}"] .editor-tab-name`);
+                                if (tabElement) {
+                                    tabElement.textContent = name;
+                                }
+                            }
+                            // Mark as saved (remove dirty indicator)
+                            tabs[currentTabId].isDirty = false;
+                            const tabElement = document.querySelector(`.editor-tab[data-tab-id="${currentTabId}"] .editor-tab-name`);
+                            if (tabElement && tabElement.textContent.endsWith(' *')) {
+                                tabElement.textContent = tabElement.textContent.replace(' *', '');
+                            }
+                        } else {
+                            showMessage('Error saving query: ' + (data.error || 'Unknown error'), 'error');
+                        }
+                    } catch (e) {
+                        // If response isn't JSON, it might be an HTML error page
+                        if (text.includes('<!DOCTYPE') || text.includes('<html')) {
+                            showMessage('Error: Server returned HTML instead of JSON. Check permissions.', 'error');
+                        } else {
+                            showMessage('Error parsing response: ' + e.message, 'error');
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Save error:', error);
+                    showMessage('Error saving query: ' + error.message, 'error');
+                });
             }
             
             function exportResults() {
@@ -4192,8 +4217,8 @@ try:
     
     # Check if user has permission (but still handle AJAX requests)
     if explorer.has_permission:
-        # Check for non-AJAX save action first (page reload)
-        if hasattr(model.Data, 'save_action') and model.Data.save_action == 'save_query':
+        # Check for non-AJAX save action first (page reload) - DEPRECATED, using AJAX now
+        if False and hasattr(model.Data, 'save_action') and model.Data.save_action == 'save_query':
             # Handle save query during page load where model.WriteContentSql works
             query_name = getattr(model.Data, 'query_name', '')
             query_sql = getattr(model.Data, 'query_sql', '')
@@ -4405,8 +4430,9 @@ h2 { color: #333; margin-bottom: 10px; }
                 elif action == 'save_query':
                     # Save a new query
                     try:
-                        name = getattr(model.Data, 'name', '')
-                        sql = getattr(model.Data, 'sql', '')
+                        # Check both possible field names for compatibility
+                        name = getattr(model.Data, 'query_name', '') or getattr(model.Data, 'name', '')
+                        sql = getattr(model.Data, 'query_sql', '') or getattr(model.Data, 'sql', '')
                         
                         if name and sql:
                             try:
