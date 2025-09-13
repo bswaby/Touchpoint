@@ -20,14 +20,14 @@ SQL editor for TouchPoint with IntelliSense-style autocomplete, multi-tab suppor
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQE-1.png" width="900">
 </p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQE-2.png" width="900">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQL-2.png" width="900">
 </p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQE-3.png" width="900">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQL-3.png" width="900">
 </p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQE-4.png" width="900">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQL-4.png" width="900">
 </p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQE-5.png" width="900">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQL-5.png" width="900">
 </p>
