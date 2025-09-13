@@ -2144,8 +2144,6 @@ ORDER BY TotalPotentialRevenue DESC
 -- BEST: Actual payments received using TransactionSummary
 -- This is what my payment management systems use and you need to be adding CSH CHK to the description prefix
 -- Shows REAL money collected, not just online transactions.
-SET QUOTED_IDENTIFIER ON  -- Required for TransactionSummary view
-GO
 SELECT 
     o.OrganizationName,
     COUNT(DISTINCT ts.PeopleId) as PayingParticipants,
