@@ -2927,7 +2927,62 @@ SELECT
 FROM TaskNote
 WHERE CreatedDate >= DATEADD(year, -1, GETDATE())
 GROUP BY YEAR(CreatedDate), MONTH(CreatedDate)
-ORDER BY Year DESC, Month DESC</code></pre>
+ORDER BY Year DESC, Month DESC
+
+-- ENHANCED: Top task creators/owners/completers (from TaskNote Activity Dashboard)
+-- Shows who is most active in the task system
+SELECT TOP 20
+    p.Name,
+    COUNT(DISTINCT CASE WHEN tn.OwnerId = p.PeopleId THEN tn.TaskNoteId END) AS TasksCreated,
+    COUNT(DISTINCT CASE WHEN tn.AssigneeId = p.PeopleId THEN tn.TaskNoteId END) AS TasksAssigned,
+    COUNT(DISTINCT CASE WHEN tn.CompletedBy = p.PeopleId THEN tn.TaskNoteId END) AS TasksCompleted,
+    COUNT(DISTINCT CASE WHEN tn.OwnerId = p.PeopleId AND tn.IsNote = 1 THEN tn.TaskNoteId END) AS NotesCreated
+FROM People p
+JOIN TaskNote tn ON p.PeopleId IN (tn.OwnerId, tn.AssigneeId, tn.CompletedBy)
+WHERE tn.CreatedDate >= DATEADD(month, -3, GETDATE())
+GROUP BY p.PeopleId, p.Name
+ORDER BY (TasksCreated + TasksAssigned + TasksCompleted) DESC
+
+-- Overdue tasks by assignee with workload analysis
+SELECT 
+    p.Name AS Assignee,
+    COUNT(*) AS OverdueTasks,
+    MIN(tn.DueDate) AS OldestDueDate,
+    DATEDIFF(day, MIN(tn.DueDate), GETDATE()) AS MaxDaysOverdue,
+    STRING_AGG(CAST(tn.TaskNoteId AS varchar), ',') AS TaskIds
+FROM TaskNote tn
+JOIN People p ON p.PeopleId = tn.AssigneeId
+WHERE tn.DueDate IS NOT NULL
+  AND tn.DueDate < GETDATE()
+  AND tn.StatusId NOT IN (1, 5)  -- Not completed or archived
+  AND tn.IsNote = 0  -- Tasks only, not notes
+  AND tn.DueDate > DATEADD(year, -2, GETDATE())  -- Practical date range
+GROUP BY p.PeopleId, p.Name
+HAVING COUNT(*) > 0
+ORDER BY COUNT(*) DESC
+
+-- Task/Note activity trend by month
+WITH MonthlyActivity AS (
+    SELECT 
+        FORMAT(CreatedDate, 'yyyy-MM') AS MonthYear,
+        COUNT(CASE WHEN IsNote = 0 THEN 1 END) AS Tasks,
+        COUNT(CASE WHEN IsNote = 1 THEN 1 END) AS Notes,
+        COUNT(CASE WHEN CompletedDate IS NOT NULL AND IsNote = 0 THEN 1 END) AS TasksCompleted
+    FROM TaskNote
+    WHERE CreatedDate >= DATEADD(month, -12, GETDATE())
+    GROUP BY FORMAT(CreatedDate, 'yyyy-MM')
+)
+SELECT 
+    MonthYear,
+    Tasks,
+    Notes,
+    TasksCompleted,
+    CASE 
+        WHEN Tasks > 0 THEN CAST(TasksCompleted AS float) / Tasks * 100 
+        ELSE 0 
+    END AS CompletionRate
+FROM MonthlyActivity
+ORDER BY MonthYear DESC</code></pre>
 </div>
 
 <div id="meeting-tables" class="section">
