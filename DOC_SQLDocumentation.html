@@ -802,6 +802,8 @@ Users               -- 7K+ records, links PeopleId to system users
 Program             -- 42 records, top level (e.g., "Adult Ministry")
 Division            -- 217 records, second level, links to Program via ProgId
 Organizations       -- 1.5K+ records, actual groups/classes, links to Division
+DivOrg              -- Links Divisions to Organizations (if org has multiple divisions)
+ProgDiv             -- Links Programs to Divisions
 OrganizationMembers -- People's involvement in organizations
 OrganizationExtra   -- Custom fields for organizations
 
@@ -897,8 +899,10 @@ WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0</code></pre>
 
     <h3>Family Members Join</h3>
     <pre><code>-- Get all family members with relationships
+-- Note: Families table does not have FamilyName column - use household names instead
 SELECT 
-    f.FamilyName,
+    COALESCE(hoh.Name, '') + 
+        CASE WHEN spouse.Name IS NOT NULL THEN ' & ' + spouse.Name ELSE '' END as HouseholdName,
     p.Name,
     fp.Description as FamilyPosition,
     CASE 
@@ -908,9 +912,11 @@ SELECT
     END as Role
 FROM People p
 JOIN Families f ON p.FamilyId = f.FamilyId
+LEFT JOIN People hoh ON f.HeadOfHouseholdId = hoh.PeopleId
+LEFT JOIN People spouse ON f.HeadOfHouseholdSpouseId = spouse.PeopleId
 JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
 WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-ORDER BY f.FamilyName, p.PositionInFamilyId</code></pre>
+ORDER BY HouseholdName, p.PositionInFamilyId</code></pre>
 
     <h3>Attendance with Full Context</h3>
     <pre><code>-- Attendance with complete organizational context
@@ -979,7 +985,7 @@ ORDER BY p.Name, pe.Field</code></pre>
         <tr>
             <td><code>lookup.FamilyPosition</code></td>
             <td>Position in family</td>
-            <td>10=Primary Adult, 20=Secondary Adult, 30=Child</td>
+            <td>10=Primary Adult (both spouses), 20=Secondary/Other Adult, 30=Child</td>
         </tr>
         <tr>
             <td><code>lookup.DecisionType</code></td>
@@ -1234,16 +1240,17 @@ ORDER BY p.Name</code></pre>
 
     <h3>Custom Field Analysis</h3>
     <pre><code>-- Analyze custom field usage patterns
+-- Analyze custom field usage patterns
+-- Note: Date fields store values in DateValue column, not Data column
 WITH CustomFieldStats AS (
     SELECT 
         Field,
         COUNT(*) as Uses,
         COUNT(DISTINCT PeopleId) as UniquePeople,
-        MIN(CAST(Data as datetime)) as EarliestDate,
-        MAX(CAST(Data as datetime)) as LatestDate
+        MIN(CAST(DateValue as datetime)) as EarliestDate,
+        MAX(CAST(DateValue as datetime)) as LatestDate
     FROM PeopleExtra
-    WHERE Field LIKE '%Date%'  -- Date-type fields
-      AND ISDATE(Data) = 1
+    WHERE DateValue IS NOT NULL  -- Only date-type fields
     GROUP BY Field
 )
 SELECT 
@@ -1263,6 +1270,10 @@ ORDER BY Uses DESC</code></pre>
     <p>TouchPoint includes 67+ lookup tables that provide business logic, validation rules, and categorization throughout the system.</p>
 
     <h3>Critical Lookup Tables</h3>
+    
+    <div class="info">
+        <p><strong>⚠️ Important Note:</strong> Common lookup values shown below may not match your church's configuration. Always verify the actual values in your database by querying the lookup tables directly. Each church customizes these values for their specific needs.</p>
+    </div>
     
     <h4>lookup.MemberStatus <span class="badge badge-critical">Most Important</span></h4>
     <table>
@@ -1361,19 +1372,54 @@ ORDER BY Uses DESC</code></pre>
         <tr>
             <td>10</td>
             <td>Primary Adult</td>
-            <td>Head of household</td>
+            <td>Both spouses/parents in nuclear family (distinguished by HeadOfHouseholdId and HeadOfHouseholdSpouseId in Families table)</td>
         </tr>
         <tr>
             <td>20</td>
-            <td>Secondary Adult</td>
-            <td>Spouse/partner</td>
+            <td>Secondary Adult (or Other Adult)</td>
+            <td>Adults outside nuclear family structure (e.g., grandparent living with family, adult sibling)</td>
         </tr>
         <tr>
             <td>30</td>
             <td>Child</td>
-            <td>Dependent children</td>
+            <td>Dependent children of the Primary Adults</td>
         </tr>
     </table>
+
+    <h4>lookup.ContributionType <span class="badge badge-critical">Important for Reporting</span></h4>
+    <table>
+        <tr>
+            <th>Common Ids</th>
+            <th>Typical Description</th>
+            <th>Usage Notes</th>
+        </tr>
+        <tr>
+            <td>1</td>
+            <td>Tax Deductible</td>
+            <td>Standard charitable contribution</td>
+        </tr>
+        <tr>
+            <td>6</td>
+            <td>Returned Check</td>
+            <td>EXCLUDE from reports - failed payment</td>
+        </tr>
+        <tr>
+            <td>7</td>
+            <td>Reversed</td>
+            <td>EXCLUDE from reports - reversed transaction</td>
+        </tr>
+        <tr>
+            <td>8</td>
+            <td>Pledge</td>
+            <td>EXCLUDE from contribution reports - commitment only</td>
+        </tr>
+        <tr>
+            <td>99</td>
+            <td>Event Registration Fee</td>
+            <td>EXCLUDE from giving reports - not a donation</td>
+        </tr>
+    </table>
+    <p class="info"><strong>Note:</strong> Your church may have different contribution types. Query <code>SELECT * FROM lookup.ContributionType</code> to see your specific values. Types like Cash, Check, Credit Card are typically NOT in this table but may be tracked elsewhere.</p>
 
     <h4>Other Important Lookup Tables</h4>
     <pre><code>-- Common lookup tables and their purposes
@@ -2084,20 +2130,22 @@ GROUP BY YEAR(c.ContributionDate), MONTH(c.ContributionDate), cf.FundName
 ORDER BY Year DESC, Month DESC, TotalAmount DESC
 
 -- Registration revenue by event
+-- Note: Transaction is a reserved word, use brackets: [Transaction]
+-- Amount is in Transaction table (t.amt), not EnrollmentTransaction
 SELECT 
-    o.OrganizationName,
-    COUNT(DISTINCT et.RegPersonId) as Registrants,
-    SUM(et.Amt) as TotalRevenue,
-    AVG(et.Amt) as AvgPayment,
+    et.OrganizationName,
+    COUNT(DISTINCT et.PeopleId) as Registrants,
+    SUM(t.amt) as TotalRevenue,
+    AVG(t.amt) as AvgPayment,
     MIN(t.TransactionDate) as FirstPayment,
     MAX(t.TransactionDate) as LastPayment
 FROM EnrollmentTransaction et
-JOIN Transaction t ON et.TransactionId = t.Id
-JOIN Organizations o ON t.OrgId = o.OrganizationId
+JOIN dbo.[Transaction] t ON et.TransactionId = t.Id
 WHERE t.Approved = 1
   AND t.TransactionDate >= DATEADD(year, -1, GETDATE())
-GROUP BY o.OrganizationName
-HAVING SUM(et.Amt) > 0
+  AND t.amt > 0
+GROUP BY et.OrganizationName
+HAVING SUM(t.amt) > 0
 ORDER BY TotalRevenue DESC</code></pre>
 </div>
 
@@ -2394,7 +2442,7 @@ ORDER BY TotalReservations DESC</code></pre>
         </tr>
         <tr>
             <td><code>lookup.PositionInFamily</code></td>
-            <td>10=Primary Adult, 20=Secondary Adult, 30=Child</td>
+            <td>10=Primary Adult (both spouses), 20=Secondary/Other Adult, 30=Child</td>
             <td>Family relationships</td>
         </tr>
         <tr>
@@ -2426,19 +2474,24 @@ ORDER BY TotalReservations DESC</code></pre>
 
     <h3>Lookup Usage Example</h3>
     <pre><code>-- Complete person profile with all lookups
+-- Note: AttendType is NOT on People table - it's used in Attend table
 SELECT 
     p.Name,
-    pf.Description as FamilyPosition,
+    fp.Description as FamilyPosition,
     ms.Description as MaritalStatus,
-    at.Description as AttendanceType,
+    mst.Description as MemberStatus,
     rc.Description as ResidenceZone,
-    bs.Description as BaptismStatus
+    bs.Description as BaptismStatus,
+    g.Description as Gender,
+    c.Description as Campus
 FROM People p
-LEFT JOIN lookup.PositionInFamily pf ON p.PositionInFamilyId = pf.Id
+LEFT JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
 LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
-LEFT JOIN lookup.AttendType at ON p.AttendTypeId = at.Id
+LEFT JOIN lookup.MemberStatus mst ON p.MemberStatusId = mst.Id
 LEFT JOIN lookup.ResidentCode rc ON p.ResCodeId = rc.Id
 LEFT JOIN lookup.BaptismStatus bs ON p.BaptismStatusId = bs.Id
+LEFT JOIN lookup.Gender g ON p.GenderId = g.Id
+LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
 WHERE p.PeopleId = 12345</code></pre>
 </div>
 
@@ -2809,45 +2862,46 @@ ORDER BY PeopleCount DESC</code></pre>
 
     <h3>Common Task Queries</h3>
     <pre><code>-- Open tasks by owner
+-- Note: TaskNote has no TaskListId or Priority field. TaskList is a separate table for categorization
 SELECT TOP 500
     owner.Name as Owner,
     about.Name as AboutPerson,
     tn.Notes,
-    tn.Due,
-    DATEDIFF(day, GETDATE(), tn.Due) as DaysTillDue,
-    tl.Name as TaskList
+    tn.DueDate,
+    DATEDIFF(day, GETDATE(), tn.DueDate) as DaysTillDue,
+    ts.Description as TaskStatus
 FROM TaskNote tn
 JOIN People owner ON tn.OwnerId = owner.PeopleId
-JOIN People about ON tn.PeopleId = about.PeopleId
-LEFT JOIN TaskList tl ON tn.TaskListId = tl.Id
-WHERE tn.CompletedOn IS NULL
-  AND tn.Due >= GETDATE()
-ORDER BY tn.Due, tn.Priority
+JOIN People about ON tn.AboutPersonId = about.PeopleId
+LEFT JOIN lookup.TaskStatus ts ON tn.StatusId = ts.Id
+WHERE tn.CompletedDate IS NULL
+  AND tn.DueDate >= GETDATE()
+ORDER BY tn.DueDate
 
 -- Overdue tasks
 SELECT TOP 100
     owner.Name as Owner,
     about.Name as AboutPerson,
     tn.Notes,
-    tn.Due,
-    DATEDIFF(day, tn.Due, GETDATE()) as DaysOverdue
+    tn.DueDate,
+    DATEDIFF(day, tn.DueDate, GETDATE()) as DaysOverdue
 FROM TaskNote tn
 JOIN People owner ON tn.OwnerId = owner.PeopleId
-JOIN People about ON tn.PeopleId = about.PeopleId
-WHERE tn.CompletedOn IS NULL
-  AND tn.Due < GETDATE()
-ORDER BY tn.Due
+JOIN People about ON tn.AboutPersonId = about.PeopleId
+WHERE tn.CompletedDate IS NULL
+  AND tn.DueDate < GETDATE()
+ORDER BY tn.DueDate
 
 -- Task completion metrics
 SELECT 
-    YEAR(CreatedOn) as Year,
-    MONTH(CreatedOn) as Month,
+    YEAR(CreatedDate) as Year,
+    MONTH(CreatedDate) as Month,
     COUNT(*) as TasksCreated,
-    SUM(CASE WHEN CompletedOn IS NOT NULL THEN 1 ELSE 0 END) as TasksCompleted,
-    AVG(DATEDIFF(day, CreatedOn, CompletedOn)) as AvgDaysToComplete
+    SUM(CASE WHEN CompletedDate IS NOT NULL THEN 1 ELSE 0 END) as TasksCompleted,
+    AVG(DATEDIFF(day, CreatedDate, CompletedDate)) as AvgDaysToComplete
 FROM TaskNote
-WHERE CreatedOn >= DATEADD(year, -1, GETDATE())
-GROUP BY YEAR(CreatedOn), MONTH(CreatedOn)
+WHERE CreatedDate >= DATEADD(year, -1, GETDATE())
+GROUP BY YEAR(CreatedDate), MONTH(CreatedDate)
 ORDER BY Year DESC, Month DESC</code></pre>
 </div>
 
@@ -3508,36 +3562,42 @@ ORDER BY COUNT(DISTINCT om.PeopleId) DESC</code></pre>
         <ul>
             <li><strong>FamilyId:</strong> Groups all household members together</li>
             <li><strong>SpouseId:</strong> Direct link between married couples (more reliable than family grouping)</li>
-            <li><strong>PositionInFamilyId:</strong> Defines role within household (Primary Adult, Secondary Adult, Child)</li>
+            <li><strong>PositionInFamilyId:</strong> Defines role within household (10=Primary Adult for both spouses, 20=Secondary/Other Adult, 30=Child)</li>
         </ul>
     </div>
 
     <h3>Family Structure Query</h3>
     <pre><code>-- Complete family units with all members
+-- Note: Both spouses are Primary Adults (10), distinguished by HeadOfHouseholdId/HeadOfHouseholdSpouseId
 WITH FamilyStructure AS (
     SELECT TOP 500
         f.FamilyId,
-        p.PeopleId,
-        p.Name,
-        p.Age,
-        fp.Description as FamilyPosition,
-        p.SpouseId,
-        ROW_NUMBER() OVER (PARTITION BY f.FamilyId ORDER BY p.PositionInFamilyId, p.Age DESC) as PersonOrder
+        hoh.Name as HeadOfHousehold,
+        spouse.Name as Spouse,
+        STRING_AGG(CASE WHEN p.PositionInFamilyId = 30 THEN p.Name END, ', ') as Children,
+        STRING_AGG(CASE WHEN p.PositionInFamilyId = 20 THEN p.Name END, ', ') as OtherAdults,
+        COUNT(DISTINCT p.PeopleId) as FamilySize,
+        COUNT(DISTINCT CASE WHEN p.PositionInFamilyId = 30 THEN p.PeopleId END) as NumChildren
     FROM Families f
-    JOIN People p ON f.FamilyId = p.FamilyId
-    JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
-    WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+    LEFT JOIN People hoh ON f.HeadOfHouseholdId = hoh.PeopleId
+        AND hoh.IsDeceased = 0
+    LEFT JOIN People spouse ON f.HeadOfHouseholdSpouseId = spouse.PeopleId
+        AND spouse.IsDeceased = 0
+    LEFT JOIN People p ON f.FamilyId = p.FamilyId
+        AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+    GROUP BY f.FamilyId, hoh.Name, spouse.Name
 )
 SELECT 
-    fs.FamilyId,
-    MAX(CASE WHEN fs.FamilyPosition = 'Primary Adult' THEN fs.Name END) as PrimaryAdult,
-    MAX(CASE WHEN fs.FamilyPosition = 'Secondary Adult' THEN fs.Name END) as SecondaryAdult,
-    STRING_AGG(CASE WHEN fs.FamilyPosition = 'Child' THEN fs.Name END, ', ') as Children,
-    COUNT(*) as FamilySize
-FROM FamilyStructure fs
-GROUP BY fs.FamilyId
-HAVING COUNT(*) > 1  -- Multi-person families only
-ORDER BY FamilySize DESC</code></pre>
+    FamilyId,
+    HeadOfHousehold,
+    Spouse,
+    Children,
+    OtherAdults,
+    FamilySize,
+    NumChildren
+FROM FamilyStructure
+WHERE FamilySize > 1  -- Multi-person families only
+ORDER BY FamilySize DESC, NumChildren DESC</code></pre>
 
     <h3>Spouse Relationships</h3>
     <pre><code>-- Direct spouse relationships (most reliable)
@@ -3556,7 +3616,16 @@ WHERE p1.IsDeceased = 0 AND p1.ArchivedFlag = 0
 ORDER BY p1.Name</code></pre>
 
     <h3>Children and Parents</h3>
+    
+    <div class="info">
+        <p><strong>⚠️ Important for Email Communications:</strong> When emailing "parents," TouchPoint targets Primary Adults (PositionInFamilyId = 10). 
+        Since BOTH spouses are Primary Adults, both will receive emails. If someone is incorrectly marked as Secondary Adult (20) instead of Primary Adult, 
+        they will NOT receive parent communications. Secondary Adult should only be used for non-nuclear family members like grandparents living with the family.</p>
+    </div>
+    
     <pre><code>-- Find all children with their parents
+-- IMPORTANT: Both parents are Primary Adults (10), distinguished by HeadOfHouseholdId/HeadOfHouseholdSpouseId
+-- Secondary Adult (20) is for non-nuclear family members (grandparents, adult siblings living with family)
 SELECT TOP 500
     child.Name as ChildName,
     child.Age,
@@ -3565,12 +3634,10 @@ SELECT TOP 500
     f.FamilyId
 FROM People child
 JOIN Families f ON child.FamilyId = f.FamilyId
-LEFT JOIN People primary_adult ON f.FamilyId = primary_adult.FamilyId 
-    AND primary_adult.PositionInFamilyId = 10  -- Primary Adult
-    AND primary_adult.IsDeceased = 0 AND primary_adult.ArchivedFlag = 0
-LEFT JOIN People secondary_adult ON f.FamilyId = secondary_adult.FamilyId 
-    AND secondary_adult.PositionInFamilyId = 20  -- Secondary Adult
-    AND secondary_adult.IsDeceased = 0 AND secondary_adult.ArchivedFlag = 0
+LEFT JOIN People primary_adult ON primary_adult.PeopleId = f.HeadOfHouseholdId
+    AND primary_adult.IsDeceased = 0 
+LEFT JOIN People secondary_adult ON secondary_adult.PeopleId = f.HeadOfHouseholdSpouseId
+    AND secondary_adult.IsDeceased = 0 
 WHERE child.PositionInFamilyId = 30  -- Child
   AND child.Age < 18
   AND child.IsDeceased = 0 AND child.ArchivedFlag = 0
@@ -4544,9 +4611,12 @@ ORDER BY AVG(m.NumPresent) DESC</code></pre>
     <h2>💰 Contribution Table - The TypeId≠99 Rule</h2>
     
     <div class="critical">
-        <h3>🚨 CRITICAL RULE: ContributionTypeId = 99</h3>
-        <p><strong>ContributionTypeId = 99</strong> represents EVENT REGISTRATION FEES, not charitable donations<br>
-        <strong>ALWAYS exclude these from giving reports:</strong> <code>WHERE ContributionTypeId != 99</code></p>
+        <h3>🚨 CRITICAL RULES: Exclude Non-Charitable Contributions</h3>
+        <p><strong>ContributionTypeId = 99</strong> represents EVENT REGISTRATION FEES<br>
+        <strong>ContributionTypeId = 8</strong> represents PLEDGES (not actual contributions)<br>
+        <strong>PledgeFlag = 1</strong> also indicates pledges<br>
+        <strong>ALWAYS exclude these from giving reports:</strong> <code>WHERE ContributionTypeId NOT IN (8, 99) AND (PledgeFlag IS NULL OR PledgeFlag = 0)</code></p>
+        <p class="info"><strong>💡 TIP:</strong> Consider using the <code>Contributions2</code> function instead of the Contribution table directly. It automatically excludes non-contributions and pledges (when configured), and makes counting spouses who give together easier to report on.</p>
     </div>
 
     <h3>Contribution Table Structure</h3>
