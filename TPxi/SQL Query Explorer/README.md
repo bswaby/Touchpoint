@@ -14,16 +14,20 @@ SQL editor for TouchPoint with IntelliSense-style autocomplete, multi-tab suppor
 - **Highlight and Run** - Run a section of code using highlight
 - **Query Library** - Save frequently used queries and access built-in examples
 
-<details>
 <summary><strong>Main Screen</strong></summary>
 <p>Multi-tab SQL editor with schema explorer and IntelliSense-style autocomplete</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQLQueryExplorer.png" width="900">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQE-1.png" width="900">
 </p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQLQueryExplorer.png" width="900">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQE-2.png" width="900">
 </p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQLQueryExplorer.png" width="900">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQE-3.png" width="900">
 </p>
-</details>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQE-4.png" width="900">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQE-5.png" width="900">
+</p>
