@@ -2941,7 +2941,9 @@ FROM People p
 JOIN TaskNote tn ON p.PeopleId IN (tn.OwnerId, tn.AssigneeId, tn.CompletedBy)
 WHERE tn.CreatedDate >= DATEADD(month, -3, GETDATE())
 GROUP BY p.PeopleId, p.Name
-ORDER BY (TasksCreated + TasksAssigned + TasksCompleted) DESC
+ORDER BY (COUNT(DISTINCT CASE WHEN tn.OwnerId = p.PeopleId THEN tn.TaskNoteId END) + 
+          COUNT(DISTINCT CASE WHEN tn.AssigneeId = p.PeopleId THEN tn.TaskNoteId END) + 
+          COUNT(DISTINCT CASE WHEN tn.CompletedBy = p.PeopleId THEN tn.TaskNoteId END)) DESC
 
 -- Overdue tasks by assignee with workload analysis
 SELECT 
