@@ -2949,7 +2949,7 @@ SELECT
     COUNT(*) AS OverdueTasks,
     MIN(tn.DueDate) AS OldestDueDate,
     DATEDIFF(day, MIN(tn.DueDate), GETDATE()) AS MaxDaysOverdue,
-    STRING_AGG(CAST(tn.TaskNoteId AS varchar), ',') AS TaskIds
+    AVG(DATEDIFF(day, tn.DueDate, GETDATE())) AS AvgDaysOverdue
 FROM TaskNote tn
 JOIN People p ON p.PeopleId = tn.AssigneeId
 WHERE tn.DueDate IS NOT NULL
