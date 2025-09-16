@@ -132,8 +132,12 @@
             background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
         }
 
-        .category-header.optimization {
+        .category-header.widgets {
             background: linear-gradient(135deg, #ffeaa7 0%, #fab1a0 100%);
+        }
+
+        .category-header.labs {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
         }
 
         .category-header.financial {
@@ -581,305 +585,297 @@
     <script>
         // Tools organized by presentation categories (countdown #30 to #1)
         const tools = [
-            // 🏛️ ORGANIZATIONAL FOUNDATIONS (#30-28)
-            { 
-                id: 30, 
-                name: "Ministry Structure", 
-                description: "Visual breakdown of programs, divisions, involvements, status, and types",
-                impact: "Finally understand your data model - stop guessing where data should go",
+            // FOUNDATIONS: Ministry Data is Messy, Incomplete and Hard to Understand
+            {
+                id: 30,
+                name: "Ministry Structure",
+                description: "Finally Make Sense of Your Data Structure",
+                impact: "Visual breakdown of programs, divisions, involvements - understand your data model",
                 category: "foundations",
                 time: 3
             },
-            { 
-                id: 29, 
-                name: "Involvement Activity Dashboard", 
-                description: "Activity scoring from most active to dormant involvements",
+            {
+                id: 29,
+                name: "Involvement Activity",
+                description: "The Kenny Rogers of Tools",
                 impact: "Know when to hold 'em, know when to fold 'em - database cleanliness",
                 category: "foundations",
                 time: 3
             },
-            { 
-                id: 28, 
-                name: "Membership Analysis", 
-                description: "Deep insights into membership trends and demographics",
-                impact: "Strategic planning based on actual membership patterns",
-                category: "foundations",
-                time: 3
-            },
 
-            // 👥 PEOPLE & ENGAGEMENT (#27-20)
-            { 
-                id: 27, 
-                name: "Weekly Attendance (WAAG 2.0)", 
-                description: "Enhanced attendance reporting with period comparisons",
+            // PEOPLE AND ENGAGEMENT: It's All About People
+            {
+                id: 28,
+                name: "Week at a Glance 2.0",
+                description: "Enhanced Period Reporting with Period Reporting",
                 impact: "Enrollment vs attendance metrics - know if you're growing or declining",
                 category: "people",
-                time: 2.5
+                time: 3
             },
-            { 
-                id: 26, 
-                name: "Geographic Distribution Map", 
-                description: "Not just dots on a map - real people, real insight with census data",
+            {
+                id: 27,
+                name: "Geographic Distribution Map",
+                description: "Not Just Dots on a Map - Real People Real Insights with Census Data",
                 impact: "Smart outreach and community planning with demographic overlay",
                 category: "people",
-                time: 2.5
+                time: 3
             },
-            { 
-                id: 25, 
-                name: "Anniversaries Widget", 
-                description: "Track marriages, work anniversaries, birthdays on your dashboard",
-                impact: "Never miss important dates - consistent recognition and care",
+            {
+                id: 26,
+                name: "Member Analysis",
+                description: "Members Insights.. No Toupee Required",
+                impact: "Deep insights into membership trends and demographics",
                 category: "people",
-                time: 2
+                time: 3
             },
-            { 
-                id: 24, 
-                name: "Communication Dashboard", 
-                description: "Email & SMS delivery performance and analytics",
-                impact: "Find SMS issues, prevent duplicate messaging between ministries",
-                category: "people",
-                time: 2
-            },
-            { 
-                id: 23, 
-                name: "New Member Report", 
-                description: "Comprehensive new member onboarding tracking",
+            {
+                id: 25,
+                name: "New Member Weekly Email",
+                description: "New Member Onboarding Tracking",
                 impact: "Ensure no one falls through the cracks during integration",
                 category: "people",
                 time: 2
             },
-            { 
-                id: 22, 
-                name: "Emergency List", 
-                description: "Critical contact and medical information management",
+            {
+                id: 24,
+                name: "Communications Dashboard",
+                description: "Email & SMS Delivery Performance",
+                impact: "Find SMS issues, prevent duplicate messaging between ministries",
+                category: "people",
+                time: 2
+            },
+            {
+                id: 23,
+                name: "Emergency List",
+                description: "Critical Contact and Medical Info Management",
                 impact: "Quick access to emergency info when it matters most",
                 category: "people",
                 time: 2
             },
-            { 
-                id: 21, 
-                name: "Live Search", 
-                description: "Advanced real-time member search with quick actions",
+
+            // STOP WIDGET TIME: All Widgets, No Hammer
+            {
+                id: 22,
+                name: "Live Search",
+                description: "Advanced Real-Time Members Search with Quick Actions",
                 impact: "Find anyone instantly with fuzzy search and direct actions",
-                category: "people",
+                category: "widgets",
                 time: 2.5
             },
-            { 
-                id: 20, 
-                name: "User Activity", 
-                description: "System usage analysis - who's using what, where, and how much",
-                impact: "Understand actual usage patterns for better training and optimization",
-                category: "people",
-                time: 2.5
-            },
-
-            // 🔍 DISCOVERY & INSIGHTS (#19-15)
-            { 
-                id: 19, 
-                name: "Lapsed Attenders", 
-                description: "Statistical analysis using personal baselines vs church averages",
-                impact: "They didn't ghost you, they just need a nudge - proactive pastoral care",
-                category: "insights",
-                time: 3
-            },
-            { 
-                id: 18, 
-                name: "Auxiliary to Group Analytics", 
-                description: "Track how auxiliary programs drive attendance to Connect Groups",
-                impact: "Measure which programs actually build ongoing community connections",
-                category: "insights",
-                time: 3
-            },
-            { 
-                id: 17, 
-                name: "Account Security Monitor", 
-                description: "Advanced security analytics with threat intelligence",
-                impact: "Sleep better knowing you'll catch security issues before they become problems",
-                category: "insights",
-                time: 3
-            },
-            { 
-                id: 16, 
-                name: "Email Technical Diagnostics", 
-                description: "Comprehensive email troubleshooting and delivery analytics",
-                impact: "The communication doctor - catch email issues before they become crises",
-                category: "insights",
-                time: 3
-            },
-
-            // 💡 ENGAGEMENT OPTIMIZATION (#14-12)
-            { 
-                id: 15, 
-                name: "TaskNote Activity Dashboard", 
-                description: "Track task and note activities across your system",
-                impact: "Monitor digital processes and understand how your team actually works",
-                category: "optimization",
-                time: 3
-            },
-            { 
-                id: 14, 
-                name: "QuickLinks Widget", 
-                description: "Permission-based quick access with count overlays",
-                impact: "Right tools for right people instantly - smart navigation",
-                category: "optimization",
-                time: 3
-            },
-            { 
-                id: 13, 
-                name: "Involvement Owner Audit", 
-                description: "Quick audit of involvement ownership and leadership",
-                impact: "Leadership transition made easy - essential for succession planning",
-                category: "optimization",
-                time: 3
-            },
-
-            // 💰 FINANCIAL MANAGEMENT (#11-6)
-            { 
-                id: 12, 
-                name: "Weekly Contribution Report", 
-                description: "The finance team's primary tool for tracking and reporting",
-                impact: "Work within TouchPoint, not around it - eliminated external manipulation",
-                category: "financial",
+            {
+                id: 21,
+                name: "QuickLinks Widget",
+                description: "Smart Navigation",
+                impact: "Right tools for right people instantly - permission-based quick access",
+                category: "widgets",
                 time: 2
             },
-            { 
-                id: 11, 
-                name: "Involvement with Fees", 
-                description: "Track and manage programs with associated fees",
+            {
+                id: 20,
+                name: "Anniversaries Widget",
+                description: "Track Anniversaries and Send out Kudos",
+                impact: "Never miss important dates - marriages, work anniversaries, birthdays",
+                category: "widgets",
+                time: 2
+            },
+
+            // DISCOVERY & INSIGHTS: You have reports, but do you have intelligence?
+            {
+                id: 19,
+                name: "Schedule List",
+                description: "SIMPLE Schedule Report",
+                impact: "Clear, organized schedule visualization for all ministries",
+                category: "insights",
+                time: 2
+            },
+            {
+                id: 18,
+                name: "Data Quality Dashboard",
+                description: "Reality Checks: Basic Data Completeness",
+                impact: "Identify and fix data gaps before they become problems",
+                category: "insights",
+                time: 3
+            },
+            {
+                id: 17,
+                name: "Task-Note Activity Dashboard",
+                description: "Understanding How Your Team Works",
+                impact: "Monitor digital processes and understand team workflow patterns",
+                category: "insights",
+                time: 3
+            },
+
+            // FINANCIAL MANAGEMENT: Every hour saved is another hour for ministry
+            {
+                id: 16,
+                name: "Weekly Contribution Report",
+                description: "Working Within Touchpoint, Not Around It",
+                impact: "The finance team's primary tool - eliminated external manipulation",
+                category: "financial",
+                time: 3
+            },
+            {
+                id: 15,
+                name: "Involvement with Fees",
+                description: "Track and Manage Programs with Fees",
                 impact: "Clear fee structure across all ministries with payment integration",
                 category: "financial",
                 time: 2
             },
-            { 
-                id: 10, 
-                name: "Payment Manager", 
-                description: "Outstanding payment tracking with direct processing capabilities",
+            {
+                id: 14,
+                name: "Payment Manager",
+                description: "Outstanding Payment Tracking with Direct Processing",
                 impact: "Better cash flow through improved payment follow-up and collection",
                 category: "financial",
                 time: 2
             },
-            { 
-                id: 9, 
-                name: "Deposit Report", 
-                description: "Comprehensive deposit reconciliation and financial reporting",
+            {
+                id: 13,
+                name: "Deposit Report",
+                description: "Ministry Deposit Reconciliation",
                 impact: "Clean financial records with proper audit trails for faster month-end",
                 category: "financial",
                 time: 2
             },
-            { 
-                id: 8, 
-                name: "QCD-Grant Letters", 
-                description: "Automated letter generation for windowed envelopes",
-                impact: "2-3 hours/week → 15 minutes with perfect envelope positioning",
+            {
+                id: 12,
+                name: "Financial Report",
+                description: "Giving Patterns and Reports",
+                impact: "Comprehensive giving analysis with trends and patterns",
                 category: "financial",
                 time: 2
             },
-            { 
-                id: 7, 
-                name: "Fortis Fees", 
-                description: "The 97% time savings champion - automated fee breakdown",
-                impact: "6-8 hours/month → 15 minutes - finance team wanted to cry tears of joy",
+            {
+                id: 11,
+                name: "Fortis Fees",
+                description: "Easy BackCharge for Ministries",
+                impact: "6-8 hours/month → 15 minutes - 97% time savings champion",
                 category: "financial",
                 time: 2
             },
 
-            // 🛠️ ADMINISTRATIVE & SYSTEM TOOLS (#5-1)
-            { 
-                id: 6, 
-                name: "Registration Export", 
-                description: "Clean registration data export in structured formats",
-                impact: "Get your data out of TouchPoint efficiently - no more spreadsheet chaos",
+            // ADMINISTRATIVE AND SYSTEM TOOLS: Making admins look like heroes
+            {
+                id: 10,
+                name: "User Activity",
+                description: "Reality Check: Basic Data Completeness",
+                impact: "System usage analysis - who's using what, where, and how much",
+                category: "admin",
+                time: 2.5
+            },
+            {
+                id: 9,
+                name: "Registration Data Manager",
+                description: "Bulk Management of Registration Data",
+                impact: "Streamline registration data processing and updates",
                 category: "admin",
                 time: 2
             },
-            { 
-                id: 5, 
-                name: "Attachment Link Downloader", 
-                description: "Bulk download all involvement registration attachments",
+            {
+                id: 8,
+                name: "Attachment Link Downloader",
+                description: "Bulk Download Form Attachments",
                 impact: "No more clicking 400 links - 400 clicks → 1 bulk operation",
                 category: "admin",
                 time: 2
             },
-            { 
-                id: 4, 
-                name: "Involvement Sync", 
-                description: "Automatic synchronization between primary and secondary involvements",
+            {
+                id: 7,
+                name: "Involvement Sync",
+                description: "Automatic Sync Between Primary and Secondary Involvements",
                 impact: "Set-and-forget automation - never depends on human memory again",
                 category: "admin",
                 time: 2
             },
-            { 
-                id: 3, 
-                name: "Link Generator", 
-                description: "Pre-authenticated links for instant user access",
-                impact: "Support hero's secret weapon - eliminate login friction for troubleshooting",
+            {
+                id: 6,
+                name: "Link Generator",
+                description: "Pre-authenticated Links for Instant User Access",
+                impact: "Support hero's secret weapon - eliminate login friction",
                 category: "admin",
                 time: 2
             },
-            { 
-                id: 2, 
-                name: "TechStatus", 
-                description: "System health monitoring - failed prints, login failures, performance",
+            {
+                id: 5,
+                name: "Tech Status",
+                description: "Quick Troubleshooting of Failed Prints, Login, and More",
                 impact: "See system issues before users complain - IT peace of mind",
                 category: "admin",
                 time: 2
             },
-
-            // 🌍 SPECIALIZED SOLUTIONS (#1 + Bonus)
-            { 
-                id: 1, 
-                name: "FastLaneCheckIn", 
-                description: "Large event check-in optimization for 100-2500+ attendees",
-                impact: "60% faster check-ins with multiple stations - eliminated event bottlenecks",
-                category: "specialized",
+            {
+                id: 4,
+                name: "Involvement Owner Audit",
+                description: "Leadership Transition Made Easy",
+                impact: "Quick audit of involvement ownership - essential for succession planning",
+                category: "admin",
                 time: 2
             },
-            { 
-                id: 0, 
-                name: "Missions Dashboard", 
-                description: "Comprehensive mission trip management system",
-                impact: "Complete oversight: payments, background checks, passports, team management",
-                category: "specialized",
-                time: 2.5
+
+            // SWABY LABS: Developing the Future
+            {
+                id: 3,
+                name: "Natural Language Question",
+                description: "Data lookup shouldn't be this easy",
+                impact: "Ask questions in plain English and get instant database answers",
+                category: "labs",
+                time: 3
+            },
+            {
+                id: 2,
+                name: "Point of Sale Terminal",
+                description: "Integrated payment processing system",
+                impact: "Complete POS solution integrated with TouchPoint database",
+                category: "labs",
+                time: 3
+            },
+            {
+                id: 1,
+                name: "Engagement Index",
+                description: "Pools of Opportunities",
+                impact: "Comprehensive engagement scoring to identify ministry opportunities",
+                category: "labs",
+                time: 3
             }
         ];
 
         // Category information
         const categories = {
-            foundations: { 
-                title: "🏛️ Organizational Foundations", 
-                subtitle: "You can't build solutions on broken foundations",
-                time: "9 minutes - Tools #30-28"
+            foundations: {
+                title: "🏛️ Foundations",
+                subtitle: "Ministry Data is Messy, Incomplete and Hard to Understand",
+                time: "6 minutes - Tools #30-29"
             },
-            people: { 
-                title: "👥 People & Engagement", 
-                subtitle: "It's all about people",
-                time: "18 minutes - Tools #27-20"
+            people: {
+                title: "👥 People and Engagement",
+                subtitle: "It's All About People",
+                time: "16 minutes - Tools #28-23"
             },
-            insights: { 
-                title: "🔍 Discovery & Insights", 
+            widgets: {
+                title: "⚡ Stop Widget Time",
+                subtitle: "All Widgets, No Hammer",
+                time: "6.5 minutes - Tools #22-20"
+            },
+            insights: {
+                title: "🔍 Discovery & Insights",
                 subtitle: "You have reports, but do you have intelligence?",
-                time: "12 minutes - Tools #19-16"
+                time: "8 minutes - Tools #19-17"
             },
-            optimization: { 
-                title: "💡 Engagement Optimization", 
-                subtitle: "Work smarter, not harder",
-                time: "9 minutes - Tools #15-13"
+            financial: {
+                title: "💰 Financial Management",
+                subtitle: "Every hour saved is another hour for ministry",
+                time: "13 minutes - Tools #16-11"
             },
-            financial: { 
-                title: "💰 Financial Management", 
-                subtitle: "Every hour you save somebody is another hour for ministry",
-                time: "12 minutes - Tools #12-7"
+            admin: {
+                title: "🛠️ Administrative and System Tools",
+                subtitle: "Making admins look like heroes",
+                time: "16 minutes - Tools #10-4"
             },
-            admin: { 
-                title: "🛠️ Administrative & System Tools", 
-                subtitle: "The tools that make other tools possible",
-                time: "10 minutes - Tools #6-2"
-            },
-            specialized: { 
-                title: "🌍 Specialized Solutions", 
-                subtitle: "When standard tools aren't enough",
-                time: "5 minutes - Tools #1 + Bonus"
+            labs: {
+                title: "🚀 Swaby Labs",
+                subtitle: "Developing the Future",
+                time: "9 minutes - Tools #3-1"
             }
         };
 
