@@ -53,12 +53,14 @@ Simplify and streamline financial tracking and reporting
 ### 🛠️ Administrative & System Tools
 Maintain system health, security, and efficiency
 
+- **[API Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/API%20Explorer)**:  API Explorer
 - **[Registration Export](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export)**: Easy registration data export
 - **[Account Security Monitor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Account%20Security%20Monitor)**: Advanced security analytics
 - **[Attachment Link Downloader](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator)**: Bulk document download
 - **[Email Technical Diagnostics Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Email%20Technical%20Diagnostics)**: Comprehensive email troubleshooting
 - **[Involvement Sync](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Sync)**: Synchronize involvement settings
 - **[Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator)**: Pre-authenticated link creation
+- **[SQL Query Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/SQL%20Query%20Explorer)**: SQL Query Explorer
 - **[TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)**: System status and performance monitoring
 
 ### 🌍 Specialized Solutions
