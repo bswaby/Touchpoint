@@ -60,7 +60,7 @@ Maintain system health, security, and efficiency
 - **[Email Technical Diagnostics Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Email%20Technical%20Diagnostics)**: Comprehensive email troubleshooting
 - **[Involvement Sync](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Sync)**: Synchronize involvement settings
 - **[Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator)**: Pre-authenticated link creation
-- **[Registration Data Manager](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Data%20Manager) **: Registration Data Manager
+- **[Registration Data Manager](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Data%20Manager)**: Registration Data Manager
 - **[SQL Query Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/SQL%20Query%20Explorer)**: SQL Query Explorer
 - **[TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)**: System status and performance monitoring
 
