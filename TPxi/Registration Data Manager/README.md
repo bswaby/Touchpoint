@@ -1,4 +1,4 @@
-### 🚑 [Registration Data Manager] - Registration Data Manager
+### 🗒️ Registration Data Manager
 This tool provides an interactive interface for managing registration data without needing to export to CSV. 
 
 - ⚙️ **Implementation Level: Easy
@@ -14,7 +14,12 @@ This tool provides an interactive interface for managing registration data witho
 7. Admin-only: Update standard person fields
 
 <summary><strong>Overview</strong></summary>
-<p>Report look</p>
 <p align="center">
-  <img src="" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Registration%20Data%20Manager/RDM01.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Registration%20Data%20Manager/RDM02.png" width="700">
+</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Registration%20Data%20Manager/RDM03.png" width="700">
 </p>
