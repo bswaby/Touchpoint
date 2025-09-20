@@ -3067,22 +3067,21 @@ WHERE MemberStatus = 'Member'  -- Text value, not ID
     AND DeceasedDate IS NULL;  -- Not deceased
 
 -- Export family units with size calculation
-SELECT
+SELECT TOP 1000
     f.*,
     (SELECT COUNT(*) FROM export.XpPeople p WHERE p.FamilyId = f.FamilyId) as FamilySize
 FROM export.XpFamily f
-WHERE f.CreatedDate >= DATEADD(year, -1, GETDATE());
+WHERE f.HeadOfHouseholdId IS NOT NULL;
 
 -- Export contribution data for year
-SELECT
+SELECT TOP 1000
     c.*,
-    p.Name,
-    cf.FundName
+    p.FirstName,
+    p.LastName
 FROM export.XpContribution c
-JOIN People p ON c.PeopleId = p.PeopleId
-JOIN ContributionFund cf ON c.FundId = cf.FundId
-WHERE c.ContributionDate >= '2024-01-01'
-ORDER BY c.ContributionDate;</code></pre>
+JOIN export.XpPeople p ON c.PeopleId = p.PeopleId
+WHERE c.Date >= '2024-01-01'
+ORDER BY c.Date;</code></pre>
 
     <h4>🎨 Specialized & Utility Views</h4>
 
