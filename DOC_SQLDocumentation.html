@@ -2344,12 +2344,17 @@ DECLARE @MemberStatusLookup TABLE (
 INSERT INTO @MemberStatusLookup
 SELECT Id, Description FROM lookup.MemberStatus;</code></pre>
 
-    <h3>Creating Custom Views (Admin Only)</h3>
+    <h3>Simulating Views with Temporary Tables</h3>
+
+    <div class="warning">
+        <h4>⚠️ Important: TouchPoint SQL is READ-ONLY</h4>
+        <p><strong>You CANNOT create views</strong> in TouchPoint. All SQL access is read-only. However, you can use temporary tables within a session to simulate view functionality.</p>
+    </div>
 
     <div class="info">
-        <h4>📝 Custom View Template</h4>
-        <pre><code class="sql">-- Example: Create a view for active adult members
-CREATE VIEW vw_ActiveAdultMembers AS
+        <h4>📝 Using Temporary Tables Instead of Views</h4>
+        <pre><code class="sql">-- Create a temporary table to simulate a view for active adult members
+-- Temp tables exist only for your current session
 SELECT
     p.PeopleId,
     p.Name2 as FullName,
@@ -2361,6 +2366,7 @@ SELECT
     c.Description as Campus,
     p.LastAttended,
     DATEDIFF(day, p.LastAttended, GETDATE()) as DaysSinceAttended
+INTO #ActiveAdultMembers  -- Creates temporary table
 FROM People p
 LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
 LEFT JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
@@ -2369,7 +2375,14 @@ WHERE p.IsDeceased = 0
     AND p.ArchivedFlag = 0
     AND p.MemberStatusId = 10  -- Members only
     AND p.Age >= 18             -- Adults only
-    AND p.PositionInFamilyId IN (10, 20);  -- Primary/Secondary adults</code></pre>
+    AND p.PositionInFamilyId IN (10, 20);  -- Primary/Secondary adults
+
+-- Now use the temp table like a view
+SELECT * FROM #ActiveAdultMembers
+WHERE DaysSinceAttended <= 30
+ORDER BY DaysSinceAttended;
+
+-- Temp table automatically drops when session ends</code></pre>
     </div>
 
     <h3>View Metadata Queries</h3>
