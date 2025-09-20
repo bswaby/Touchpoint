@@ -2609,11 +2609,12 @@ GROUP BY fa.OrganizationId, fa.OrganizationName
 ORDER BY FirstTimeVisitors DESC;
 
 -- Attendance credits by week
+-- NOTE: Attended is a BIT column, use CASE for aggregation
 SELECT
     ac.WeekDate,
     COUNT(DISTINCT ac.PeopleId) as UniqueAttendees,
-    SUM(ac.Attended) as TotalCredits,
-    AVG(CAST(ac.Attended as FLOAT)) * 100 as AttendanceRate
+    SUM(CASE WHEN ac.Attended = 1 THEN 1 ELSE 0 END) as TotalCredits,
+    CAST(SUM(CASE WHEN ac.Attended = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as DECIMAL(5,2)) as AttendanceRate
 FROM AttendCredits ac
 WHERE ac.WeekDate >= DATEADD(week, -4, GETDATE())
 GROUP BY ac.WeekDate
@@ -2648,8 +2649,8 @@ ORDER BY ac.WeekDate DESC;</code></pre>
                 </tr>
                 <tr>
                     <td><code>RecurringGivingDueForToday</code></td>
-                    <td>Today's expected recurring gifts</td>
-                    <td>PeopleId, Amount, NextDate</td>
+                    <td>Today's expected recurring gifts (pre-filtered)</td>
+                    <td>PeopleId, Name2, Amt</td>
                 </tr>
                 <tr>
                     <td><code>DepositDateTotals</code></td>
@@ -2693,11 +2694,13 @@ FROM TransactionBalances
 WHERE TotDue > TotalPayment;
 
 -- Recurring giving analysis
+-- NOTE: View is already filtered for "today", columns are PeopleId, Name2, Amt
 SELECT
-    COUNT(*) as ScheduledGifts,
-    SUM(Amount) as ExpectedTotal
-FROM RecurringGivingDueForToday
-WHERE NextDate = CAST(GETDATE() as DATE);</code></pre>
+    COUNT(*) as ScheduledGiftsToday,
+    SUM(Amt) as ExpectedTotalToday,
+    MIN(Amt) as SmallestGift,
+    MAX(Amt) as LargestGift
+FROM RecurringGivingDueForToday;</code></pre>
 
     <h4>👥 Member & People Views</h4>
 
@@ -2774,19 +2777,23 @@ WHERE p.PeopleId IN (SELECT PeopleId FROM HeadOrSpouseWithEmail)
     AND p.EmailAddress IS NOT NULL;
 
 -- Compare current vs previous member counts
-SELECT
+-- NOTE: Percentage can exceed 999%, so using DECIMAL(10,2)
+SELECT TOP 100
     os.Organization,
     os.Members as CurrentMembers,
-    pmc.prevcount as PreviousMembers,
-    os.Members - pmc.prevcount as Change,
+    ISNULL(pmc.prevcount, 0) as PreviousMembers,
+    os.Members - ISNULL(pmc.prevcount, 0) as Change,
     CASE
         WHEN pmc.prevcount > 0 THEN
-            CAST((os.Members - pmc.prevcount) * 100.0 / pmc.prevcount as DECIMAL(5,2))
+            CAST((os.Members - pmc.prevcount) * 100.0 / pmc.prevcount as DECIMAL(10,2))
+        WHEN os.Members > 0 AND pmc.prevcount IS NULL THEN 100.00
         ELSE 0
     END as PercentChange
 FROM OrganizationStructure os
 LEFT JOIN PreviousMemberCounts pmc ON os.OrgId = pmc.OrganizationId
-WHERE os.OrgStatus = 'Active';</code></pre>
+WHERE os.OrgStatus = 'Active'
+    AND os.Members IS NOT NULL
+ORDER BY ABS(os.Members - ISNULL(pmc.prevcount, 0)) DESC;</code></pre>
 
     <h4>📧 Email & Communication Views</h4>
 
@@ -2803,12 +2810,12 @@ WHERE os.OrgStatus = 'Active';</code></pre>
                 <tr>
                     <td><code>FailedEmails</code></td>
                     <td>Email delivery failures</td>
-                    <td>EmailId, PeopleId, Time, Error</td>
+                    <td>time (lowercase), Id, PeopleId, Fail</td>
                 </tr>
                 <tr>
                     <td><code>EmailDelegation</code></td>
-                    <td>Email delegation settings</td>
-                    <td>DelegatorId, DelegatedToId, StartDate, EndDate</td>
+                    <td>Who can send on behalf of others</td>
+                    <td>CanEmailId, CanEmailName2, OnBehalfOfIds, OnBehalfOfNames</td>
                 </tr>
                 <tr>
                     <td><code>FirstPersonSameEmail</code></td>
@@ -2820,27 +2827,28 @@ WHERE os.OrgStatus = 'Active';</code></pre>
     </div>
 
     <pre><code class="sql">-- Recent email failures for follow-up
-SELECT
-    fe.EmailId,
+-- Columns: time (lowercase), Id, PeopleId, Fail
+SELECT TOP 100
+    fe.Id as EmailQueueId,
     p.Name2,
     p.EmailAddress,
-    fe.Time,
-    fe.Error
+    fe.time as FailureTime,
+    fe.Fail as FailureReason,
+    DATEDIFF(hour, fe.time, GETDATE()) as HoursAgo
 FROM FailedEmails fe
 JOIN People p ON fe.PeopleId = p.PeopleId
-WHERE fe.Time >= DATEADD(day, -7, GETDATE())
-ORDER BY fe.Time DESC;
+WHERE fe.time >= DATEADD(day, -7, GETDATE())
+ORDER BY fe.time DESC;
 
--- Active email delegations
+-- Email delegation permissions
+-- Shows who can send emails on behalf of other accounts
 SELECT
-    delegator.Name2 as Delegator,
-    delegate.Name2 as DelegateTo,
-    ed.StartDate,
-    ed.EndDate
+    ed.CanEmailName2 as PersonWhoCanEmail,
+    ed.OnBehalfOfNames as CanEmailOnBehalfOf,
+    LEN(ed.OnBehalfOfIds) - LEN(REPLACE(ed.OnBehalfOfIds, ',', '')) + 1 as NumberOfDelegations
 FROM EmailDelegation ed
-JOIN People delegator ON ed.DelegatorId = delegator.PeopleId
-JOIN People delegate ON ed.DelegatedToId = delegate.PeopleId
-WHERE ed.EndDate IS NULL OR ed.EndDate > GETDATE();</code></pre>
+WHERE ed.OnBehalfOfIds IS NOT NULL
+ORDER BY ed.CanEmailName2;</code></pre>
 
     <h4>🎯 Registration Views</h4>
 
@@ -2861,8 +2869,8 @@ WHERE ed.EndDate IS NULL OR ed.EndDate > GETDATE();</code></pre>
                 </tr>
                 <tr>
                     <td><code>InProgressRegistrations</code></td>
-                    <td>Incomplete registrations</td>
-                    <td>RegId, PeopleId, Started, OrganizationId, Expires</td>
+                    <td>Incomplete registrations<br/><em>Requires: SET QUOTED_IDENTIFIER ON</em></td>
+                    <td>RegDataId, Name, PeopleId, OrganizationId, OrganizationName, Stamp</td>
                 </tr>
                 <tr>
                     <td><code>RegistrationList</code></td>
@@ -2884,18 +2892,19 @@ WHERE ed.EndDate IS NULL OR ed.EndDate > GETDATE();</code></pre>
     </div>
 
     <pre><code class="sql">-- Find abandoned registrations for follow-up
-SELECT
-    ipr.RegId,
-    p.Name2,
+-- NOTE: Requires SET QUOTED_IDENTIFIER ON
+SET QUOTED_IDENTIFIER ON;
+SELECT TOP 100
+    ipr.RegDataId,
+    ipr.Name,
     p.EmailAddress,
-    o.OrganizationName,
-    ipr.Started,
-    DATEDIFF(day, ipr.Started, GETDATE()) as DaysAgo
+    ipr.OrganizationName,
+    ipr.Stamp as StartedTime,
+    DATEDIFF(day, ipr.Stamp, GETDATE()) as DaysAgo
 FROM InProgressRegistrations ipr
-JOIN People p ON ipr.PeopleId = p.PeopleId
-JOIN Organizations o ON ipr.OrganizationId = o.OrganizationId
-WHERE ipr.Started < DATEADD(day, -3, GETDATE())
-ORDER BY ipr.Started DESC;
+LEFT JOIN People p ON ipr.PeopleId = p.PeopleId
+WHERE ipr.Stamp < DATEADD(day, -3, GETDATE())
+ORDER BY ipr.Stamp DESC;
 
 -- Active registrations by organization
 SELECT
@@ -2921,7 +2930,7 @@ ORDER BY ActiveRegCount DESC;</code></pre>
                 <tr>
                     <td><code>UserList</code></td>
                     <td>System users with details</td>
-                    <td>UserId, Username, PeopleId, LastActivity, EmailAddress</td>
+                    <td>UserId, Username, PeopleId, LastActivityDate, EmailAddress</td>
                 </tr>
                 <tr>
                     <td><code>UserRoles</code></td>
@@ -2945,13 +2954,13 @@ ORDER BY ActiveRegCount DESC;</code></pre>
                 </tr>
                 <tr>
                     <td><code>IncompleteTasks</code></td>
-                    <td>Open tasks with overdue tracking</td>
-                    <td>TaskId, Description, OwnerId, AboutWho, Due, DaysOverdue</td>
+                    <td>Open tasks not yet completed (19 columns)</td>
+                    <td>Id, Description, OwnerId, WhoId (About person), Due, StatusId</td>
                 </tr>
                 <tr>
                     <td><code>ChangeLogDetails</code></td>
-                    <td>Audit trail details</td>
-                    <td>ChangeId, UserName, ChangeDate, TableName, Operation</td>
+                    <td>Audit trail summary view (5 columns)</td>
+                    <td>Id, PeopleId, Section, Created, FamilyId</td>
                 </tr>
             </tbody>
         </table>
@@ -2959,39 +2968,42 @@ ORDER BY ActiveRegCount DESC;</code></pre>
 
     <pre><code class="sql">-- Overdue tasks report
 SELECT
-    it.TaskId,
+    it.Id as TaskId,
     it.Description,
     owner.Name2 as Owner,
     about.Name2 as AboutPerson,
     it.Due,
-    it.DaysOverdue
+    DATEDIFF(day, it.Due, GETDATE()) as DaysOverdue
 FROM IncompleteTasks it
 LEFT JOIN People owner ON it.OwnerId = owner.PeopleId
-LEFT JOIN People about ON it.AboutWho = about.PeopleId
-WHERE it.DaysOverdue > 0
-ORDER BY it.DaysOverdue DESC;
+LEFT JOIN People about ON it.WhoId = about.PeopleId
+WHERE it.Due < GETDATE()
+ORDER BY it.Due;
 
 -- User activity analysis
 SELECT
     ul.Username,
     p.Name2,
-    ul.LastActivity,
-    DATEDIFF(day, ul.LastActivity, GETDATE()) as DaysInactive
+    ul.LastActivityDate,
+    DATEDIFF(day, ul.LastActivityDate, GETDATE()) as DaysInactive
 FROM UserList ul
 LEFT JOIN People p ON ul.PeopleId = p.PeopleId
-WHERE ul.LastActivity < DATEADD(day, -30, GETDATE())
-ORDER BY ul.LastActivity;
+WHERE ul.LastActivityDate < DATEADD(day, -30, GETDATE())
+ORDER BY ul.LastActivityDate;
 
--- Recent system changes audit
+-- Recent changes from ChangeLog (actual audit trail)
 SELECT TOP 100
-    cld.ChangeDate,
-    cld.UserName,
-    cld.TableName,
-    cld.Operation,
-    cld.PrimaryKey
-FROM ChangeLogDetails cld
-WHERE cld.ChangeDate >= DATEADD(day, -7, GETDATE())
-ORDER BY cld.ChangeDate DESC;</code></pre>
+    cl.Created,
+    u.Name2 as ChangedBy,
+    p.Name2 as PersonChanged,
+    cl.Field,
+    cl.Before,
+    cl.After
+FROM ChangeLog cl
+LEFT JOIN People p ON cl.PeopleId = p.PeopleId
+LEFT JOIN People u ON cl.UserPeopleId = u.PeopleId
+WHERE cl.Created >= DATEADD(day, -7, GETDATE())
+ORDER BY cl.Created DESC;</code></pre>
 
     <h4>🌐 Export Schema Views (Data Integration)</h4>
 
@@ -7357,6 +7369,20 @@ ORDER BY tn.CreatedDate DESC</code></pre>
         </tr>
     </table>
 
+    <h3>Mobile App Actions View</h3>
+    <table>
+        <tr>
+            <th>View</th>
+            <th>Purpose</th>
+            <th>Key Fields</th>
+        </tr>
+        <tr>
+            <td><code>MobileAppActions</code></td>
+            <td>Configurable mobile app menu actions (13 columns)</td>
+            <td>id, type, title, loginType, enabled, order</td>
+        </tr>
+    </table>
+
     <h3>Mobile-Enabled Organizations</h3>
     <pre><code>  -- Organizations visible in mobile app
   SELECT TOP 500
@@ -7372,7 +7398,19 @@ ORDER BY tn.CreatedDate DESC</code></pre>
   LEFT JOIN lookup.CategoryMobile cm ON o.CategoryMobileId = cm.Id
   WHERE o.AllowMobileView = 1
     AND o.OrganizationStatusId = 30
-  ORDER BY cm.SortOrder, o.OrganizationName</code></pre>
+  ORDER BY cm.SortOrder, o.OrganizationName
+
+  -- Active mobile app actions
+  SELECT
+      id,
+      type,
+      title,
+      loginType,
+      enabled,
+      [order]
+  FROM MobileAppActions
+  WHERE enabled = 1
+  ORDER BY [order]</code></pre>
 </div>
 
 <div id="picture-system-complete" class="section">
