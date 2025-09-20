@@ -1964,7 +1964,7 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                     <td>dbo</td>
                     <td>CheckInActivities</td>
                     <td>Denormalized check-in data with names</td>
-                    <td>PeopleId, Name, CheckInTime, Activities, Location, AccessType, OrganizationId, ActivityTime</td>
+                    <td>PeopleId, Name, CheckInTime, Activities (plural!), Location, AccessType, OrganizationId, ActivityTime</td>
                     <td>Check-in reporting, attendance analysis</td>
                 </tr>
                 <tr class="category-row">
@@ -2441,10 +2441,11 @@ ORDER BY VisitorRate DESC;</code></pre>
 
     <h4>CheckInActivities Examples</h4>
     <pre><code class="sql">-- Real-time check-in monitoring (last 3 hours)
+-- NOTE: Column is 'Activities' (plural), not 'Activity'
 SELECT
     PeopleId,
     Name,
-    Activity,
+    Activities,  -- Note: plural form
     AccessType,
     CheckInTime,
     DATEDIFF(minute, CheckInTime, GETDATE()) as MinutesAgo
@@ -2455,13 +2456,13 @@ ORDER BY CheckInTime DESC;
 -- Check-in patterns by hour of day
 SELECT
     DATEPART(hour, CheckInTime) as Hour,
-    Activity,
+    Activities,  -- Note: plural form
     COUNT(*) as CheckInCount,
     COUNT(DISTINCT PeopleId) as UniquePeople
 FROM CheckInActivities
 WHERE CheckInTime >= DATEADD(day, -7, GETDATE())
-GROUP BY DATEPART(hour, CheckInTime), Activity
-ORDER BY Hour, Activity;</code></pre>
+GROUP BY DATEPART(hour, CheckInTime), Activities
+ORDER BY Hour, Activities;</code></pre>
 
     <h4>Lookup View Examples</h4>
     <pre><code class="sql">-- Member status distribution with percentages
