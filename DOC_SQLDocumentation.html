@@ -2145,7 +2145,7 @@ SELECT
     Previous,
     Vistors,  -- Note: typo in actual view column name
     Meetings,
-    CAST(ISNULL(Vistors * 100.0 / NULLIF(Members, 0), 0) as DECIMAL(5,2)) as VisitorPercent
+    CAST(ISNULL(Vistors * 100.0 / NULLIF(Members, 0), 0) as DECIMAL(10,2)) as VisitorPercent
 FROM OrganizationStructure
 WHERE ProgId = 1  -- Specific program
     AND Members > 0
@@ -2195,7 +2195,7 @@ SELECT
     m.TripCost,
     m.Raised,
     m.Due,
-    CAST(ISNULL(m.Raised * 100.0 / NULLIF(m.TripCost, 0), 0) as DECIMAL(5,2)) as PercentRaised
+    CAST(ISNULL(m.Raised * 100.0 / NULLIF(m.TripCost, 0), 0) as DECIMAL(10,2)) as PercentRaised
 FROM MissionTripTotals m
 WHERE m.PeopleId IS NOT NULL  -- Exclude undesignated funds
     AND m.TripCost > 0
@@ -2237,15 +2237,16 @@ ORDER BY DaysSinceLastAttend;
 
 -- Organization Member Count Comparison
 -- Note: PreviousMemberCounts only has OrganizationId and prevcount
-SELECT
+SELECT TOP 100
     os.Organization,
     pmc.prevcount as PreviousCount,
     os.Members as CurrentCount,
     (os.Members - pmc.prevcount) as Change,
-    CAST(ISNULL((os.Members - pmc.prevcount) * 100.0 / NULLIF(pmc.prevcount, 0), 0) as DECIMAL(5,2)) as PercentChange
+    CAST(ISNULL((os.Members - pmc.prevcount) * 100.0 / NULLIF(pmc.prevcount, 0), 0) as DECIMAL(10,2)) as PercentChange
 FROM PreviousMemberCounts pmc
 JOIN OrganizationStructure os ON pmc.OrganizationId = os.OrgId
 WHERE pmc.prevcount > 0
+    AND os.Members IS NOT NULL
 ORDER BY ABS(os.Members - pmc.prevcount) DESC;</code></pre>
     </div>
 
