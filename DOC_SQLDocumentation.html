@@ -1949,21 +1949,21 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                     <td>dbo</td>
                     <td>OrganizationStructure</td>
                     <td>Flattened org hierarchy with counts</td>
-                    <td>ProgId, Program, DivId, Division, OrgId, Organization, Members, Previous, Visitors, Meetings</td>
+                    <td>ProgId, Program, DivId, Division, OrgId, Organization, OrgStatus, Members, Previous, Vistors (typo in view), Meetings</td>
                     <td>Organization hierarchy reporting, member counts, meeting statistics</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
                     <td>TransactionSummary</td>
                     <td>Financial summary and balances</td>
-                    <td>RegId, PeopleId, OrganizationId, TranDate, TotDue, TotPaid, IndDue, IsLatestTransaction</td>
+                    <td>RegId, PeopleId, OrganizationId, TranDate, TotDue, TotPaid, IndDue, IndAmt, TotalAmt, IsLatestTransaction</td>
                     <td>Payment tracking, balance reports, registration financials</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
                     <td>CheckInActivities</td>
                     <td>Denormalized check-in data with names</td>
-                    <td>PeopleId, Name, CheckInTime, Activity, Location</td>
+                    <td>PeopleId, Name, CheckInTime, Activities, Location, AccessType, OrganizationId, ActivityTime</td>
                     <td>Check-in reporting, attendance analysis</td>
                 </tr>
                 <tr class="category-row">
@@ -2098,20 +2098,40 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
         </table>
     </div>
 
+    <div class="info">
+        <h3>📊 Additional Views Available</h3>
+        <p>The TouchPoint database contains 84+ views in the dbo schema. Notable additional views include:</p>
+        <ul>
+            <li><strong>MissionTripTotals</strong> - Mission trip financial summaries</li>
+            <li><strong>RegistrationTransactionSummary</strong> - Registration financial details</li>
+            <li><strong>ContributionsBasic</strong> - Simplified contribution data</li>
+            <li><strong>MemberData</strong> - Comprehensive member information</li>
+            <li><strong>OrganizationLeaders</strong> - Organization leadership details</li>
+            <li><strong>TransactionBalances</strong> - Outstanding balance calculations</li>
+            <li><strong>RecurringGivingDueForToday</strong> - Scheduled giving due today</li>
+            <li><strong>StatusFlagList</strong> - All status flags with details</li>
+            <li><strong>FirstAttends</strong> / <strong>LastAttends</strong> - First and last attendance dates</li>
+            <li><strong>PreviousMemberCounts</strong> - Historical member counts</li>
+        </ul>
+        <p>Use the discovery query above to explore all available views in your database.</p>
+    </div>
+
     <h3>Using Views in Queries</h3>
 
     <div class="highlight">
         <h4>Core Reporting Views - OrganizationStructure</h4>
         <pre><code class="sql">-- Use OrganizationStructure for hierarchy and member counts
+-- NOTE: Column is misspelled as 'Vistors' in the view (missing 'i')
 SELECT
     Program,
     Division,
     Organization,
+    OrgStatus,
     Members,
     Previous,
-    Visitors,
+    Vistors,  -- Note: typo in actual view column name
     Meetings,
-    CAST(ISNULL(Visitors * 100.0 / NULLIF(Members, 0), 0) as DECIMAL(5,2)) as VisitorPercent
+    CAST(ISNULL(Vistors * 100.0 / NULLIF(Members, 0), 0) as DECIMAL(5,2)) as VisitorPercent
 FROM OrganizationStructure
 WHERE ProgId = 1  -- Specific program
     AND Members > 0
@@ -2123,7 +2143,7 @@ SELECT
     Division,
     COUNT(DISTINCT OrgId) as OrgCount,
     SUM(Members) as TotalMembers,
-    SUM(Visitors) as TotalVisitors,
+    SUM(Vistors) as TotalVisitors,  -- Note: typo in column name
     SUM(Meetings) as TotalMeetings
 FROM OrganizationStructure
 WHERE Members > 0
