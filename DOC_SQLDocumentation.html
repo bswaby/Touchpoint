@@ -3063,8 +3063,8 @@ ORDER BY cl.Created DESC;</code></pre>
     <pre><code class="sql">-- Export active members with all details
 SELECT *
 FROM export.XpPeople
-WHERE MemberStatusId = 10  -- Active members
-    AND IsDeceased = 0;
+WHERE MemberStatus = 'Member'  -- Text value, not ID
+    AND DeceasedDate IS NULL;  -- Not deceased
 
 -- Export family units with size calculation
 SELECT
