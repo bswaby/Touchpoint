@@ -1890,27 +1890,16 @@ Attendance Lookups:
 
     <p>TouchPoint uses SQL Server views to provide simplified access to complex data relationships. Views are virtual tables that combine data from multiple tables through joins and can include calculated fields.</p>
 
-    <div class="warning">
-        <h3>⚠️ IMPORTANT: Lookup Tables vs Views</h3>
-        <p><strong>The lookup schema contains TABLES, not views!</strong> Common confusion:</p>
-        <ul>
-            <li>✅ <code>lookup.MemberStatus</code> is a TABLE</li>
-            <li>✅ <code>lookup.Gender</code> is a TABLE</li>
-            <li>✅ <code>lookup.Campus</code> is a TABLE</li>
-            <li>❌ These are NOT views - they are physical tables with data</li>
-        </ul>
-        <p>The only actual view in the lookup schema is <code>lookup.PushPayBundleHeaderTypes</code></p>
-    </div>
-
     <div class="info">
         <h3>📊 Understanding Database Views</h3>
-        <p>Views in TouchPoint serve several purposes:</p>
+        <p>Views in TouchPoint are virtual tables that:</p>
         <ul>
-            <li><strong>Simplify complex joins</strong> - Combine frequently joined tables into a single query target</li>
-            <li><strong>Provide lookup descriptions</strong> - Replace ID values with human-readable text</li>
-            <li><strong>Encapsulate business logic</strong> - Apply standard filters and calculations</li>
-            <li><strong>Improve performance</strong> - Pre-compute complex aggregations</li>
+            <li><strong>Combine multiple tables</strong> - Pre-join commonly used table relationships</li>
+            <li><strong>Calculate derived fields</strong> - Compute totals, percentages, and aggregations</li>
+            <li><strong>Simplify complex queries</strong> - Encapsulate business logic in reusable structures</li>
+            <li><strong>Improve performance</strong> - Some views materialize data for faster access</li>
         </ul>
+        <p><strong>Important:</strong> Views are different from lookup tables. Views compute data dynamically, while lookup tables store reference data.</p>
     </div>
 
     <h3>View Discovery Queries</h3>
@@ -2032,93 +2021,6 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                     <td>Previous organization member counts</td>
                     <td>OrganizationId, prevcount</td>
                     <td>Compare previous membership counts</td>
-                </tr>
-                <tr class="category-row">
-                    <td colspan="5"><strong>📚 Lookup Tables</strong> - IMPORTANT: These are TABLES, not views! They provide human-readable descriptions for ID values</td>
-                </tr>
-                <tr>
-                    <td>lookup</td>
-                    <td>MemberStatus</td>
-                    <td>Member status descriptions</td>
-                    <td>Id, Code, Description</td>
-                    <td>Replace MemberStatusId with text (Member, Prospect, etc.)</td>
-                </tr>
-                <tr>
-                    <td>lookup</td>
-                    <td>MemberType</td>
-                    <td>Organization member types</td>
-                    <td>Id, Code, Description, AttendanceTypeId</td>
-                    <td>Show member roles (Leader, Member, Volunteer)</td>
-                </tr>
-                <tr>
-                    <td>lookup</td>
-                    <td>AttendType</td>
-                    <td>Attendance classifications</td>
-                    <td>Id, Code, Description</td>
-                    <td>Categorize attendance records</td>
-                </tr>
-                <tr>
-                    <td>lookup</td>
-                    <td>FamilyPosition</td>
-                    <td>Family position descriptions</td>
-                    <td>Id, Code, Description</td>
-                    <td>Show position in family (Head, Spouse, Child)</td>
-                </tr>
-                <tr>
-                    <td>lookup</td>
-                    <td>Gender</td>
-                    <td>Gender classifications</td>
-                    <td>Id, Code, Description</td>
-                    <td>Display gender text instead of ID</td>
-                </tr>
-                <tr>
-                    <td>lookup</td>
-                    <td>MaritalStatus</td>
-                    <td>Marital status options</td>
-                    <td>Id, Code, Description</td>
-                    <td>Show marital status text</td>
-                </tr>
-                <tr>
-                    <td>lookup</td>
-                    <td>Campus</td>
-                    <td>Campus information</td>
-                    <td>Id, Code, Description</td>
-                    <td>Display campus names and details</td>
-                </tr>
-                <tr>
-                    <td>lookup</td>
-                    <td>OrganizationStatus</td>
-                    <td>Organization status values</td>
-                    <td>Id, Code, Description</td>
-                    <td>Filter active/inactive organizations</td>
-                </tr>
-                <tr>
-                    <td>lookup</td>
-                    <td>ContributionType</td>
-                    <td>Contribution type definitions</td>
-                    <td>Id, Code, Description</td>
-                    <td>Categorize donations and fees</td>
-                </tr>
-                <tr>
-                    <td>lookup</td>
-                    <td>DecisionType</td>
-                    <td>Decision classifications</td>
-                    <td>Id, Code, Description</td>
-                    <td>Track spiritual decisions</td>
-                </tr>
-                <tr>
-                    <td>lookup</td>
-                    <td>VolApplicationStatus</td>
-                    <td>Volunteer application statuses</td>
-                    <td>Id, Code, Description</td>
-                    <td>Track volunteer processing</td>
-                </tr>
-                <tr>
-                    <td>lookup</td>
-                    <td>CategoryMobile</td>
-                    <td>Mobile app categories</td>
-                    <td>Id, Code, Description, SortOrder</td>
-                    <td>Mobile app organization</td>
                 </tr>
             </tbody>
         </table>
@@ -2631,13 +2533,191 @@ ORDER BY TotalOutstanding DESC;</code></pre>
     <div class="success">
         <h3>✅ View Usage Checklist</h3>
         <ul>
-            <li>☑️ Always qualify view names with schema (e.g., lookup.MemberStatus)</li>
-            <li>☑️ Use LEFT JOIN for lookup views to handle NULL foreign keys</li>
-            <li>☑️ Apply filters before joining views when possible</li>
-            <li>☑️ Cache lookup values for batch operations</li>
+            <li>☑️ Use views for complex joins and calculations</li>
+            <li>☑️ Apply filters to views to improve performance</li>
             <li>☑️ Test view performance with realistic data volumes</li>
-            <li>☑️ Document custom views with descriptive names and comments</li>
+            <li>☑️ Document custom views with descriptive names</li>
             <li>☑️ Handle NULL values from views in application code</li>
+        </ul>
+    </div>
+</div>
+
+<div class="section" id="lookup-tables">
+    <h2>📚 Lookup Tables Documentation</h2>
+
+    <p>The lookup schema contains reference tables (NOT views) that store descriptive text for ID values used throughout TouchPoint. These are physical tables containing static reference data.</p>
+
+    <div class="warning">
+        <h3>⚠️ Critical Distinction: Tables vs Views</h3>
+        <ul>
+            <li><strong>Lookup items are TABLES</strong> - Physical storage with actual rows of data</li>
+            <li><strong>NOT views</strong> - They don't compute or join data dynamically</li>
+            <li><strong>Schema:</strong> All in the <code>lookup</code> schema (e.g., <code>lookup.MemberStatus</code>)</li>
+            <li><strong>Purpose:</strong> Convert ID values to human-readable descriptions</li>
+        </ul>
+    </div>
+
+    <h3>Common Lookup Tables</h3>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Table Name</th>
+                    <th>Purpose</th>
+                    <th>Key Columns</th>
+                    <th>Common Values</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>lookup.MemberStatus</code></td>
+                    <td>Member status descriptions</td>
+                    <td>Id, Code, Description</td>
+                    <td>10=Member, 20=Prospect, 30=Not Member, 40=Previous Member</td>
+                </tr>
+                <tr>
+                    <td><code>lookup.MemberType</code></td>
+                    <td>Organization roles</td>
+                    <td>Id, Code, Description, AttendanceTypeId</td>
+                    <td>140=Leader, 220=Member, 310=Org Leader, 710=Volunteer</td>
+                </tr>
+                <tr>
+                    <td><code>lookup.AttendType</code></td>
+                    <td>Attendance classifications</td>
+                    <td>Id, Code, Description</td>
+                    <td>10=Leader, 20=Member, 30=Visitor, 60=New Guest</td>
+                </tr>
+                <tr>
+                    <td><code>lookup.FamilyPosition</code></td>
+                    <td>Position in family</td>
+                    <td>Id, Code, Description</td>
+                    <td>10=Primary Adult, 20=Secondary Adult, 30=Child</td>
+                </tr>
+                <tr>
+                    <td><code>lookup.Gender</code></td>
+                    <td>Gender classifications</td>
+                    <td>Id, Code, Description</td>
+                    <td>1=Male, 2=Female, 9=Unknown</td>
+                </tr>
+                <tr>
+                    <td><code>lookup.MaritalStatus</code></td>
+                    <td>Marital status options</td>
+                    <td>Id, Code, Description</td>
+                    <td>10=Married, 20=Single, 30=Divorced, 40=Widowed</td>
+                </tr>
+                <tr>
+                    <td><code>lookup.Campus</code></td>
+                    <td>Campus locations</td>
+                    <td>Id, Code, Description</td>
+                    <td>0=All Campuses, plus site-specific values</td>
+                </tr>
+                <tr>
+                    <td><code>lookup.OrganizationStatus</code></td>
+                    <td>Organization status</td>
+                    <td>Id, Code, Description</td>
+                    <td>30=Active, 40=Inactive</td>
+                </tr>
+                <tr>
+                    <td><code>lookup.ContributionType</code></td>
+                    <td>Contribution types</td>
+                    <td>Id, Description</td>
+                    <td>1=Tax Deductible, 6=Returned Check, 99=Event Fee</td>
+                </tr>
+                <tr>
+                    <td><code>lookup.DecisionType</code></td>
+                    <td>Spiritual decisions</td>
+                    <td>Id, Code, Description</td>
+                    <td>10=Faith Statement, 20=Baptism, 30=Membership</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h3>Using Lookup Tables in Queries</h3>
+
+    <div class="highlight">
+        <h4>Basic Lookup Table Pattern</h4>
+        <pre><code class="sql">-- Join lookup TABLES for human-readable values
+SELECT
+    p.PeopleId,
+    p.Name2,
+    p.EmailAddress,
+    ms.Description as MemberStatus,  -- From lookup TABLE
+    g.Description as Gender,          -- From lookup TABLE
+    c.Description as Campus           -- From lookup TABLE
+FROM People p
+LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+LEFT JOIN lookup.Gender g ON p.GenderId = g.Id
+LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+WHERE p.IsDeceased = 0
+    AND p.ArchivedFlag = 0;</code></pre>
+    </div>
+
+    <div class="highlight">
+        <h4>Organization Hierarchy with Lookup Tables</h4>
+        <pre><code class="sql">-- Join through Division to get Program, then use lookup tables
+SELECT
+    o.OrganizationId,
+    o.OrganizationName,
+    p.Name as ProgramName,
+    d.Name as DivisionName,
+    os.Description as Status,        -- From lookup TABLE
+    ot.Description as OrgType,        -- From lookup TABLE
+    c.Description as Campus,          -- From lookup TABLE
+    mt.Description as LeaderType      -- From lookup TABLE
+FROM Organizations o
+LEFT JOIN Division d ON o.DivisionId = d.Id  -- Division first
+LEFT JOIN Program p ON d.ProgId = p.Id       -- Program via Division.ProgId
+LEFT JOIN lookup.OrganizationStatus os ON o.OrganizationStatusId = os.Id
+LEFT JOIN lookup.OrganizationType ot ON o.OrganizationTypeId = ot.Id
+LEFT JOIN lookup.Campus c ON o.CampusId = c.Id
+LEFT JOIN lookup.MemberType mt ON o.LeaderMemberTypeId = mt.Id
+WHERE o.OrganizationStatusId = 30;</code></pre>
+    </div>
+
+    <div class="highlight">
+        <h4>Volunteer Tracking with Lookup Tables</h4>
+        <pre><code class="sql">-- Volunteer status tracking using lookup tables
+SELECT
+    p.Name2 as VolunteerName,
+    v.ProcessedDate,
+    vs.Description as ApplicationStatus,     -- From lookup TABLE
+    ms.Description as MemberStatus,          -- From lookup TABLE
+    v.Standard,
+    v.Children,
+    v.Leader
+FROM Volunteer v
+JOIN People p ON v.PeopleId = p.PeopleId
+LEFT JOIN lookup.VolApplicationStatus vs ON v.StatusId = vs.Id
+LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+WHERE v.ProcessedDate IS NOT NULL;</code></pre>
+    </div>
+
+    <h3>Complete List of Lookup Tables</h3>
+    <pre><code class="sql">-- Get all lookup tables in your database
+SELECT
+    TABLE_NAME,
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS c
+     WHERE c.TABLE_SCHEMA = t.TABLE_SCHEMA
+     AND c.TABLE_NAME = t.TABLE_NAME) as ColumnCount
+FROM INFORMATION_SCHEMA.TABLES t
+WHERE TABLE_SCHEMA = 'lookup'
+    AND TABLE_TYPE = 'BASE TABLE'
+ORDER BY TABLE_NAME;
+
+-- Common lookup tables (66 total):
+-- AccountCode, AddressType, AttendCredit, AttendType, BaptismStatus,
+-- BaptismType, Campus, ContributionType, Country, DecisionType,
+-- FamilyPosition, Gender, MaritalStatus, MemberStatus, MemberType,
+-- OrganizationStatus, OrganizationType, and many more...</code></pre>
+
+    <div class="info">
+        <h3>💡 Lookup Table Best Practices</h3>
+        <ul>
+            <li><strong>Always use LEFT JOIN</strong> - Handle cases where the ID might be NULL</li>
+            <li><strong>Cache lookups in code</strong> - These values rarely change</li>
+            <li><strong>Check ID meanings</strong> - Same ID can mean different things per church</li>
+            <li><strong>Verify with SELECT * FROM lookup.TableName</strong> - Always check actual values</li>
         </ul>
     </div>
 </div>
