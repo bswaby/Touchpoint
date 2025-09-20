@@ -2541,6 +2541,615 @@ ORDER BY TotalOutstanding DESC;</code></pre>
             <li>☑️ Handle NULL values from views in application code</li>
         </ul>
     </div>
+
+    <h3>📊 Comprehensive View Documentation (100+ Views)</h3>
+
+    <div class="info">
+        <p><strong>TouchPoint contains 100+ views across multiple schemas.</strong> Below is detailed documentation for the most commonly used views with tested SQL examples.</p>
+    </div>
+
+    <h4>🏃 Attendance & Activity Views</h4>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>View Name</th>
+                    <th>Purpose</th>
+                    <th>Key Columns</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>FirstAttends</code></td>
+                    <td>First attendance date per person/org</td>
+                    <td>PeopleId, Name2, OrganizationId, OrganizationName, FirstAttend</td>
+                </tr>
+                <tr>
+                    <td><code>LastAttends</code></td>
+                    <td>Last attendance with contact info</td>
+                    <td>PeopleId, Name2, OrganizationId, LastAttend, EmailAddress, CellPhone</td>
+                </tr>
+                <tr>
+                    <td><code>AttendCredits</code></td>
+                    <td>Attendance credit tracking</td>
+                    <td>OrganizationId, PeopleId, Attended, WeekDate, OtherAttends</td>
+                </tr>
+                <tr>
+                    <td><code>MeetingConflicts</code></td>
+                    <td>Scheduling conflicts detection</td>
+                    <td>MeetingId1, MeetingId2, ConflictType, DateTime</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <pre><code class="sql">-- Find people who haven't attended in 90+ days
+SELECT
+    la.Name2,
+    la.OrganizationName,
+    la.LastAttend,
+    la.EmailAddress,
+    la.CellPhone,
+    DATEDIFF(day, la.LastAttend, GETDATE()) as DaysSinceAttended
+FROM LastAttends la
+WHERE la.LastAttend < DATEADD(day, -90, GETDATE())
+    AND la.HasEmail = 1  -- Has email for follow-up
+ORDER BY la.LastAttend DESC;
+
+-- Track first-time visitors by organization
+SELECT
+    fa.OrganizationName,
+    COUNT(*) as FirstTimeVisitors,
+    MIN(fa.FirstAttend) as EarliestVisit,
+    MAX(fa.FirstAttend) as LatestVisit
+FROM FirstAttends fa
+WHERE fa.FirstAttend >= DATEADD(month, -1, GETDATE())
+GROUP BY fa.OrganizationId, fa.OrganizationName
+ORDER BY FirstTimeVisitors DESC;
+
+-- Attendance credits by week
+SELECT
+    ac.WeekDate,
+    COUNT(DISTINCT ac.PeopleId) as UniqueAttendees,
+    SUM(ac.Attended) as TotalCredits,
+    AVG(CAST(ac.Attended as FLOAT)) * 100 as AttendanceRate
+FROM AttendCredits ac
+WHERE ac.WeekDate >= DATEADD(week, -4, GETDATE())
+GROUP BY ac.WeekDate
+ORDER BY ac.WeekDate DESC;</code></pre>
+
+    <h4>💰 Financial & Transaction Views</h4>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>View Name</th>
+                    <th>Purpose</th>
+                    <th>Key Columns</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>TransactionBalances</code></td>
+                    <td>Outstanding balances<br/><em>Requires: SET QUOTED_IDENTIFIER ON</em></td>
+                    <td>BalancesId, Payment, TotDue, TotalPayment, Deposit, People</td>
+                </tr>
+                <tr>
+                    <td><code>MissionTripTotals</code></td>
+                    <td>Mission trip fundraising summary</td>
+                    <td>Trip, PeopleId, Name, TripCost, Raised, Due</td>
+                </tr>
+                <tr>
+                    <td><code>ContributionsBasic</code></td>
+                    <td>Simplified contribution view</td>
+                    <td>ContributionId, PeopleId, Date, Amount, Fund</td>
+                </tr>
+                <tr>
+                    <td><code>RecurringGivingDueForToday</code></td>
+                    <td>Today's expected recurring gifts</td>
+                    <td>PeopleId, Amount, NextDate</td>
+                </tr>
+                <tr>
+                    <td><code>DepositDateTotals</code></td>
+                    <td>Deposit totals by date</td>
+                    <td>DepositDate, TotalAmount, Count, BundleHeaderId</td>
+                </tr>
+                <tr>
+                    <td><code>DonorProfileList</code></td>
+                    <td>Donor profiles summary</td>
+                    <td>PeopleId, LastGift, TotalGiven, GiftCount</td>
+                </tr>
+                <tr>
+                    <td><code>ManagedGivingList</code></td>
+                    <td>Managed giving accounts</td>
+                    <td>PeopleId, ManagedGiverId, StartDate, NextDate</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <pre><code class="sql">-- Mission trip funding status
+SELECT
+    Trip,
+    COUNT(DISTINCT PeopleId) as Participants,
+    SUM(TripCost) as TotalCost,
+    SUM(Raised) as TotalRaised,
+    SUM(Due) as TotalDue,
+    CAST(SUM(Raised) * 100.0 / NULLIF(SUM(TripCost), 0) as DECIMAL(5,2)) as PercentRaised
+FROM MissionTripTotals
+GROUP BY Trip
+HAVING SUM(Due) > 0
+ORDER BY SUM(Due) DESC;
+
+-- Outstanding balances summary (requires SET QUOTED_IDENTIFIER ON)
+SET QUOTED_IDENTIFIER ON;
+SELECT
+    COUNT(*) as TransactionsWithBalance,
+    SUM(TotDue - TotalPayment) as TotalOutstanding,
+    AVG(TotDue - TotalPayment) as AvgBalance
+FROM TransactionBalances
+WHERE TotDue > TotalPayment;
+
+-- Recurring giving analysis
+SELECT
+    COUNT(*) as ScheduledGifts,
+    SUM(Amount) as ExpectedTotal
+FROM RecurringGivingDueForToday
+WHERE NextDate = CAST(GETDATE() as DATE);</code></pre>
+
+    <h4>👥 Member & People Views</h4>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>View Name</th>
+                    <th>Purpose</th>
+                    <th>Key Columns</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>MemberData</code></td>
+                    <td>Core member information</td>
+                    <td>PeopleId, First, Last, Age, Marital, DecisionDt, JoinDt, Baptism</td>
+                </tr>
+                <tr>
+                    <td><code>PeopleBasicModifed</code></td>
+                    <td>People with modification tracking</td>
+                    <td>PeopleId, Name, Modified, ModifiedBy, Created</td>
+                </tr>
+                <tr>
+                    <td><code>HeadOrSpouseWithEmail</code></td>
+                    <td>Household heads/spouses with email</td>
+                    <td>PeopleId (filtered view)</td>
+                </tr>
+                <tr>
+                    <td><code>SpouseOrHeadWithEmail</code></td>
+                    <td>Alternate household email view</td>
+                    <td>PeopleId (filtered view)</td>
+                </tr>
+                <tr>
+                    <td><code>AddressInfo</code></td>
+                    <td>Complete address information</td>
+                    <td>PeopleId, AddressLineOne, City, StateCode, ZipCode</td>
+                </tr>
+                <tr>
+                    <td><code>ProspectCounts</code></td>
+                    <td>Organization prospect counts</td>
+                    <td>OrganizationId, ProspectCount</td>
+                </tr>
+                <tr>
+                    <td><code>PreviousMemberCounts</code></td>
+                    <td>Historical member counts</td>
+                    <td>OrganizationId, prevcount</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <pre><code class="sql">-- Member analysis with decisions
+SELECT
+    md.First + ' ' + md.Last as FullName,
+    md.Age,
+    md.Marital,
+    md.Decision,
+    md.Baptism,
+    CASE
+        WHEN md.JoinDt IS NOT NULL THEN DATEDIFF(year, md.JoinDt, GETDATE())
+        ELSE NULL
+    END as YearsMember
+FROM MemberData md
+WHERE md.JoinDt IS NOT NULL
+ORDER BY md.JoinDt DESC;
+
+-- Find households for communication
+SELECT
+    p.Name2,
+    p.EmailAddress
+FROM People p
+WHERE p.PeopleId IN (SELECT PeopleId FROM HeadOrSpouseWithEmail)
+    AND p.EmailAddress IS NOT NULL;
+
+-- Compare current vs previous member counts
+SELECT
+    os.Organization,
+    os.Members as CurrentMembers,
+    pmc.prevcount as PreviousMembers,
+    os.Members - pmc.prevcount as Change,
+    CASE
+        WHEN pmc.prevcount > 0 THEN
+            CAST((os.Members - pmc.prevcount) * 100.0 / pmc.prevcount as DECIMAL(5,2))
+        ELSE 0
+    END as PercentChange
+FROM OrganizationStructure os
+LEFT JOIN PreviousMemberCounts pmc ON os.OrgId = pmc.OrganizationId
+WHERE os.OrgStatus = 'Active';</code></pre>
+
+    <h4>📧 Email & Communication Views</h4>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>View Name</th>
+                    <th>Purpose</th>
+                    <th>Key Columns</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>FailedEmails</code></td>
+                    <td>Email delivery failures</td>
+                    <td>EmailId, PeopleId, Time, Error</td>
+                </tr>
+                <tr>
+                    <td><code>EmailDelegation</code></td>
+                    <td>Email delegation settings</td>
+                    <td>DelegatorId, DelegatedToId, StartDate, EndDate</td>
+                </tr>
+                <tr>
+                    <td><code>FirstPersonSameEmail</code></td>
+                    <td>Primary person per email address</td>
+                    <td>PeopleId (deduped by email)</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <pre><code class="sql">-- Recent email failures for follow-up
+SELECT
+    fe.EmailId,
+    p.Name2,
+    p.EmailAddress,
+    fe.Time,
+    fe.Error
+FROM FailedEmails fe
+JOIN People p ON fe.PeopleId = p.PeopleId
+WHERE fe.Time >= DATEADD(day, -7, GETDATE())
+ORDER BY fe.Time DESC;
+
+-- Active email delegations
+SELECT
+    delegator.Name2 as Delegator,
+    delegate.Name2 as DelegateTo,
+    ed.StartDate,
+    ed.EndDate
+FROM EmailDelegation ed
+JOIN People delegator ON ed.DelegatorId = delegator.PeopleId
+JOIN People delegate ON ed.DelegatedToId = delegate.PeopleId
+WHERE ed.EndDate IS NULL OR ed.EndDate > GETDATE();</code></pre>
+
+    <h4>🎯 Registration Views</h4>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>View Name</th>
+                    <th>Purpose</th>
+                    <th>Key Columns</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>ActiveRegistrations</code></td>
+                    <td>Currently active registrations</td>
+                    <td>OrganizationId</td>
+                </tr>
+                <tr>
+                    <td><code>InProgressRegistrations</code></td>
+                    <td>Incomplete registrations</td>
+                    <td>RegId, PeopleId, Started, OrganizationId, Expires</td>
+                </tr>
+                <tr>
+                    <td><code>RegistrationList</code></td>
+                    <td>Complete registration details (24 columns)</td>
+                    <td>RegId, Name, Email, Phone, Completed, OrganizationName</td>
+                </tr>
+                <tr>
+                    <td><code>AppRegistrations</code></td>
+                    <td>Mobile app registrations</td>
+                    <td>RegId, PeopleId, Device, AppVersion, Platform</td>
+                </tr>
+                <tr>
+                    <td><code>OnlineRegQA</code></td>
+                    <td>Registration questions/answers</td>
+                    <td>RegId, Question, Answer, QuestionOrder</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <pre><code class="sql">-- Find abandoned registrations for follow-up
+SELECT
+    ipr.RegId,
+    p.Name2,
+    p.EmailAddress,
+    o.OrganizationName,
+    ipr.Started,
+    DATEDIFF(day, ipr.Started, GETDATE()) as DaysAgo
+FROM InProgressRegistrations ipr
+JOIN People p ON ipr.PeopleId = p.PeopleId
+JOIN Organizations o ON ipr.OrganizationId = o.OrganizationId
+WHERE ipr.Started < DATEADD(day, -3, GETDATE())
+ORDER BY ipr.Started DESC;
+
+-- Active registrations by organization
+SELECT
+    o.OrganizationName,
+    COUNT(*) as ActiveRegCount
+FROM ActiveRegistrations ar
+JOIN Organizations o ON ar.OrganizationId = o.OrganizationId
+GROUP BY o.OrganizationId, o.OrganizationName
+ORDER BY ActiveRegCount DESC;</code></pre>
+
+    <h4>🔧 System & Admin Views</h4>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>View Name</th>
+                    <th>Purpose</th>
+                    <th>Key Columns</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>UserList</code></td>
+                    <td>System users with details</td>
+                    <td>UserId, Username, PeopleId, LastActivity, EmailAddress</td>
+                </tr>
+                <tr>
+                    <td><code>UserRoles</code></td>
+                    <td>User role assignments</td>
+                    <td>UserId, RoleId, RoleName</td>
+                </tr>
+                <tr>
+                    <td><code>UserLeaders</code></td>
+                    <td>User leadership assignments</td>
+                    <td>UserId, OrganizationId, LeaderType</td>
+                </tr>
+                <tr>
+                    <td><code>StatusFlagList</code></td>
+                    <td>All status flags</td>
+                    <td>FlagId, Name, Description, FlagType</td>
+                </tr>
+                <tr>
+                    <td><code>TaskSearch</code></td>
+                    <td>Task management search (26 columns)</td>
+                    <td>TaskId, Description, Owner, Due, Status, Priority</td>
+                </tr>
+                <tr>
+                    <td><code>IncompleteTasks</code></td>
+                    <td>Open tasks with overdue tracking</td>
+                    <td>TaskId, Description, OwnerId, AboutWho, Due, DaysOverdue</td>
+                </tr>
+                <tr>
+                    <td><code>ChangeLogDetails</code></td>
+                    <td>Audit trail details</td>
+                    <td>ChangeId, UserName, ChangeDate, TableName, Operation</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <pre><code class="sql">-- Overdue tasks report
+SELECT
+    it.TaskId,
+    it.Description,
+    owner.Name2 as Owner,
+    about.Name2 as AboutPerson,
+    it.Due,
+    it.DaysOverdue
+FROM IncompleteTasks it
+LEFT JOIN People owner ON it.OwnerId = owner.PeopleId
+LEFT JOIN People about ON it.AboutWho = about.PeopleId
+WHERE it.DaysOverdue > 0
+ORDER BY it.DaysOverdue DESC;
+
+-- User activity analysis
+SELECT
+    ul.Username,
+    p.Name2,
+    ul.LastActivity,
+    DATEDIFF(day, ul.LastActivity, GETDATE()) as DaysInactive
+FROM UserList ul
+LEFT JOIN People p ON ul.PeopleId = p.PeopleId
+WHERE ul.LastActivity < DATEADD(day, -30, GETDATE())
+ORDER BY ul.LastActivity;
+
+-- Recent system changes audit
+SELECT TOP 100
+    cld.ChangeDate,
+    cld.UserName,
+    cld.TableName,
+    cld.Operation,
+    cld.PrimaryKey
+FROM ChangeLogDetails cld
+WHERE cld.ChangeDate >= DATEADD(day, -7, GETDATE())
+ORDER BY cld.ChangeDate DESC;</code></pre>
+
+    <h4>🌐 Export Schema Views (Data Integration)</h4>
+
+    <div class="info">
+        <p>The <code>export</code> schema contains views optimized for data export and integration with external systems:</p>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>View Name</th>
+                    <th>Purpose</th>
+                    <th>Column Count</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>export.XpPeople</code></td>
+                    <td>Complete person export</td>
+                    <td>78 columns - ALL person data</td>
+                </tr>
+                <tr>
+                    <td><code>export.XpFamily</code></td>
+                    <td>Family units with relationships</td>
+                    <td>15 columns</td>
+                </tr>
+                <tr>
+                    <td><code>export.XpOrganization</code></td>
+                    <td>Organization complete details</td>
+                    <td>24 columns</td>
+                </tr>
+                <tr>
+                    <td><code>export.XpContribution</code></td>
+                    <td>Contribution records for export</td>
+                    <td>13 columns</td>
+                </tr>
+                <tr>
+                    <td><code>export.XpAttendance</code></td>
+                    <td>Attendance history export</td>
+                    <td>7 columns</td>
+                </tr>
+                <tr>
+                    <td><code>export.XpMeeting</code></td>
+                    <td>Meeting details export</td>
+                    <td>14 columns</td>
+                </tr>
+                <tr>
+                    <td><code>export.XpEnrollHistory</code></td>
+                    <td>Enrollment history tracking</td>
+                    <td>8 columns</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <pre><code class="sql">-- Export active members with all details
+SELECT *
+FROM export.XpPeople
+WHERE MemberStatusId = 10  -- Active members
+    AND IsDeceased = 0;
+
+-- Export family units with size calculation
+SELECT
+    f.*,
+    (SELECT COUNT(*) FROM export.XpPeople p WHERE p.FamilyId = f.FamilyId) as FamilySize
+FROM export.XpFamily f
+WHERE f.CreatedDate >= DATEADD(year, -1, GETDATE());
+
+-- Export contribution data for year
+SELECT
+    c.*,
+    p.Name,
+    cf.FundName
+FROM export.XpContribution c
+JOIN People p ON c.PeopleId = p.PeopleId
+JOIN ContributionFund cf ON c.FundId = cf.FundId
+WHERE c.ContributionDate >= '2024-01-01'
+ORDER BY c.ContributionDate;</code></pre>
+
+    <h4>🎨 Specialized & Utility Views</h4>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>View Name</th>
+                    <th>Purpose</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>AllLookups</code></td>
+                    <td>All lookup table values</td>
+                    <td>Consolidated reference data</td>
+                </tr>
+                <tr>
+                    <td><code>BundleList</code></td>
+                    <td>Contribution bundle management</td>
+                    <td>15 columns for reconciliation</td>
+                </tr>
+                <tr>
+                    <td><code>City</code></td>
+                    <td>Cities with state/zip</td>
+                    <td>Geographic reference</td>
+                </tr>
+                <tr>
+                    <td><code>OrgsWithFees</code></td>
+                    <td>Organizations charging fees</td>
+                    <td>Financial tracking</td>
+                </tr>
+                <tr>
+                    <td><code>VolunteerTimes</code></td>
+                    <td>Volunteer scheduling</td>
+                    <td>Time slot management</td>
+                </tr>
+                <tr>
+                    <td><code>MoveSchedule</code></td>
+                    <td>Scheduled moves between orgs</td>
+                    <td>10 columns for automation</td>
+                </tr>
+                <tr>
+                    <td><code>MinistryInfo</code></td>
+                    <td>Ministry participation summary</td>
+                    <td>Cross-ministry involvement</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="info">
+        <h3>📝 View Discovery & Analysis</h3>
+        <pre><code class="sql">-- Discover all views in your database
+SELECT
+    v.TABLE_SCHEMA,
+    v.TABLE_NAME,
+    COUNT(c.COLUMN_NAME) as ColumnCount
+FROM INFORMATION_SCHEMA.VIEWS v
+LEFT JOIN INFORMATION_SCHEMA.COLUMNS c
+    ON v.TABLE_SCHEMA = c.TABLE_SCHEMA
+    AND v.TABLE_NAME = c.TABLE_NAME
+WHERE v.TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA')
+GROUP BY v.TABLE_SCHEMA, v.TABLE_NAME
+ORDER BY v.TABLE_SCHEMA, v.TABLE_NAME;
+
+-- Analyze view usage (requires appropriate permissions)
+SELECT
+    OBJECT_NAME(v.object_id) as ViewName,
+    s.last_user_seek,
+    s.last_user_scan,
+    s.user_seeks + s.user_scans as TotalReads
+FROM sys.views v
+LEFT JOIN sys.dm_db_index_usage_stats s
+    ON v.object_id = s.object_id
+WHERE s.database_id = DB_ID()
+ORDER BY TotalReads DESC;</code></pre>
+    </div>
 </div>
 
 <div class="section" id="lookup-tables">
