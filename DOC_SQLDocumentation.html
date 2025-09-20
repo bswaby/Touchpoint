@@ -2003,23 +2003,23 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 <tr>
                     <td>dbo</td>
                     <td>FirstAttends</td>
-                    <td>First attendance dates</td>
-                    <td>PeopleId, FirstAttendDate, OrganizationId</td>
-                    <td>Track when people first attended</td>
+                    <td>First attendance dates by organization</td>
+                    <td>PeopleId, Name2, OrganizationId, OrganizationName, FirstAttend</td>
+                    <td>Track when people first attended each org</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
                     <td>LastAttends</td>
-                    <td>Last attendance dates</td>
-                    <td>PeopleId, LastAttendDate, OrganizationId</td>
-                    <td>Track most recent attendance</td>
+                    <td>Last attendance with contact info</td>
+                    <td>PeopleId, Name2, OrganizationId, OrganizationName, LastAttend, HomePhone, CellPhone, EmailAddress</td>
+                    <td>Track most recent attendance with contact details</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
                     <td>PreviousMemberCounts</td>
-                    <td>Historical member counts</td>
-                    <td>Organization and historical count fields</td>
-                    <td>Track membership changes over time</td>
+                    <td>Previous organization member counts</td>
+                    <td>OrganizationId, prevcount</td>
+                    <td>Compare previous membership counts</td>
                 </tr>
                 <tr class="category-row">
                     <td colspan="5"><strong>📚 Lookup Views</strong> - Provide human-readable descriptions for ID values</td>
@@ -2205,39 +2205,48 @@ ORDER BY m.Due DESC;</code></pre>
     <div class="highlight">
         <h4>Analytics & Reporting Views</h4>
         <pre><code class="sql">-- First and Last Attendance Analysis
+-- Note: Views already include person names and org details
 SELECT
+    p.PeopleId,
     p.Name2,
-    fa.FirstAttendDate,
-    la.LastAttendDate,
-    DATEDIFF(day, fa.FirstAttendDate, la.LastAttendDate) as DaysAttending,
-    DATEDIFF(day, la.LastAttendDate, GETDATE()) as DaysSinceLastAttend
+    fa.OrganizationName,
+    fa.FirstAttend,
+    la.LastAttend,
+    DATEDIFF(day, fa.FirstAttend, la.LastAttend) as DaysAttending,
+    DATEDIFF(day, la.LastAttend, GETDATE()) as DaysSinceLastAttend,
+    la.EmailAddress,
+    la.CellPhone
 FROM People p
 LEFT JOIN (
-    SELECT PeopleId, MIN(AttendDate) as FirstAttendDate
+    SELECT PeopleId, MIN(FirstAttend) as FirstAttend,
+           MAX(OrganizationName) as OrganizationName
     FROM FirstAttends
     GROUP BY PeopleId
 ) fa ON p.PeopleId = fa.PeopleId
 LEFT JOIN (
-    SELECT PeopleId, MAX(AttendDate) as LastAttendDate
+    SELECT PeopleId, MAX(LastAttend) as LastAttend,
+           MAX(EmailAddress) as EmailAddress,
+           MAX(CellPhone) as CellPhone
     FROM LastAttends
     GROUP BY PeopleId
 ) la ON p.PeopleId = la.PeopleId
 WHERE p.IsDeceased = 0
     AND p.ArchivedFlag = 0
-    AND la.LastAttendDate >= DATEADD(year, -1, GETDATE())
+    AND la.LastAttend >= DATEADD(year, -1, GETDATE())
 ORDER BY DaysSinceLastAttend;
 
--- Historical Member Count Trends
+-- Organization Member Count Comparison
+-- Note: PreviousMemberCounts only has OrganizationId and prevcount
 SELECT
-    OrganizationId,
-    OrganizationName,
-    PreviousCount,
-    CurrentCount,
-    (CurrentCount - PreviousCount) as Change,
-    CAST(ISNULL((CurrentCount - PreviousCount) * 100.0 / NULLIF(PreviousCount, 0), 0) as DECIMAL(5,2)) as PercentChange
-FROM PreviousMemberCounts
-WHERE PreviousCount > 0
-ORDER BY ABS(CurrentCount - PreviousCount) DESC;</code></pre>
+    os.Organization,
+    pmc.prevcount as PreviousCount,
+    os.Members as CurrentCount,
+    (os.Members - pmc.prevcount) as Change,
+    CAST(ISNULL((os.Members - pmc.prevcount) * 100.0 / NULLIF(pmc.prevcount, 0), 0) as DECIMAL(5,2)) as PercentChange
+FROM PreviousMemberCounts pmc
+JOIN OrganizationStructure os ON pmc.OrganizationId = os.OrgId
+WHERE pmc.prevcount > 0
+ORDER BY ABS(os.Members - pmc.prevcount) DESC;</code></pre>
     </div>
 
     <div class="highlight">
