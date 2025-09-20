@@ -2467,6 +2467,153 @@ ORDER BY v.TABLE_SCHEMA, v.TABLE_NAME;</code></pre>
         </table>
     </div>
 
+    <h3>🔍 Key View SQL Examples</h3>
+
+    <div class="info">
+        <h4>⚠️ OrganizationStructure View - IMPORTANT NOTES</h4>
+        <ul>
+            <li><strong>Column Typo:</strong> The view has "Vistors" (missing 'i') instead of "Visitors"</li>
+            <li><strong>ProgId Values:</strong> In most databases, ProgId values start at 1108+, not 1</li>
+            <li><strong>Performance:</strong> This view is pre-calculated for fast reporting</li>
+        </ul>
+    </div>
+
+    <h4>OrganizationStructure Examples</h4>
+    <pre><code class="sql">-- Example 1: Organization analysis with visitor percentage
+-- NOTE: Column is misspelled as 'Vistors' in the view
+SELECT
+    Program,
+    Division,
+    Organization,
+    OrgStatus,
+    Members,
+    Previous,
+    Vistors,  -- Note: typo in actual view column name
+    Meetings,
+    CAST(ISNULL(Vistors * 100.0 / NULLIF(Members, 0), 0) as DECIMAL(10,2)) as VisitorPercent
+FROM OrganizationStructure
+WHERE ProgId = 1115  -- Adults program (verify your ProgIds!)
+    AND Members > 0
+ORDER BY Program, Division, Organization;
+
+-- Example 2: Program summary statistics
+SELECT
+    Program,
+    COUNT(DISTINCT OrgId) as TotalOrgs,
+    SUM(Members) as TotalMembers,
+    SUM(Vistors) as TotalVisitors,
+    SUM(Meetings) as TotalMeetings,
+    CAST(AVG(CAST(Members as FLOAT)) as DECIMAL(10,2)) as AvgMembersPerOrg
+FROM OrganizationStructure
+WHERE OrgStatus = 'Active'
+GROUP BY ProgId, Program
+ORDER BY TotalMembers DESC;
+
+-- Example 3: Find high-visitor organizations (growth opportunities)
+SELECT TOP 20
+    Program,
+    Division,
+    Organization,
+    Members,
+    Vistors,
+    CAST(Vistors * 100.0 / NULLIF(Members, 0) as DECIMAL(10,2)) as VisitorRate
+FROM OrganizationStructure
+WHERE OrgStatus = 'Active'
+    AND Members > 5  -- Exclude very small groups
+    AND Vistors > 0
+ORDER BY VisitorRate DESC;</code></pre>
+
+    <h4>CheckInActivities Examples</h4>
+    <pre><code class="sql">-- Real-time check-in monitoring (last 3 hours)
+SELECT
+    PeopleId,
+    Name,
+    Activity,
+    AccessType,
+    CheckInTime,
+    DATEDIFF(minute, CheckInTime, GETDATE()) as MinutesAgo
+FROM CheckInActivities
+WHERE CheckInTime >= DATEADD(hour, -3, GETDATE())
+ORDER BY CheckInTime DESC;
+
+-- Check-in patterns by hour of day
+SELECT
+    DATEPART(hour, CheckInTime) as Hour,
+    Activity,
+    COUNT(*) as CheckInCount,
+    COUNT(DISTINCT PeopleId) as UniquePeople
+FROM CheckInActivities
+WHERE CheckInTime >= DATEADD(day, -7, GETDATE())
+GROUP BY DATEPART(hour, CheckInTime), Activity
+ORDER BY Hour, Activity;</code></pre>
+
+    <h4>Lookup View Examples</h4>
+    <pre><code class="sql">-- Member status distribution with percentages
+SELECT
+    ms.Description as Status,
+    COUNT(*) as Count,
+    CAST(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER() as DECIMAL(5,2)) as Percentage
+FROM People p
+JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+GROUP BY ms.Id, ms.Description
+ORDER BY ms.Id;
+
+-- Guest retention analysis using AttendType
+WITH GuestAttendance AS (
+    SELECT
+        a.PeopleId,
+        MIN(a.MeetingDate) as FirstVisit,
+        MAX(a.MeetingDate) as LastVisit,
+        COUNT(*) as VisitCount
+    FROM Attend a
+    WHERE a.AttendanceTypeId IN (30, 50, 60)  -- Guest types
+        AND a.AttendanceFlag = 1
+        AND a.MeetingDate >= DATEADD(month, -6, GETDATE())
+    GROUP BY a.PeopleId
+)
+SELECT
+    CASE
+        WHEN VisitCount = 1 THEN 'One-time visitor'
+        WHEN VisitCount BETWEEN 2 AND 3 THEN 'Returning guest'
+        WHEN VisitCount > 3 THEN 'Regular attender'
+    END as Category,
+    COUNT(*) as PeopleCount
+FROM GuestAttendance
+GROUP BY
+    CASE
+        WHEN VisitCount = 1 THEN 'One-time visitor'
+        WHEN VisitCount BETWEEN 2 AND 3 THEN 'Returning guest'
+        WHEN VisitCount > 3 THEN 'Regular attender'
+    END;</code></pre>
+
+    <h4>Financial Views Examples</h4>
+    <pre><code class="sql">-- Mission trip funding status using MissionTripTotals
+SELECT
+    Trip,
+    COUNT(*) as Participants,
+    SUM(TripCost) as TotalCost,
+    SUM(Raised) as TotalRaised,
+    SUM(Due) as TotalDue,
+    CAST(SUM(Raised) * 100.0 / NULLIF(SUM(TripCost), 0) as DECIMAL(5,2)) as PercentRaised
+FROM MissionTripTotals
+WHERE Due > 0
+GROUP BY Trip
+ORDER BY TotalDue DESC;
+
+-- Outstanding balances by organization using TransactionSummary
+SELECT
+    o.OrganizationName,
+    COUNT(DISTINCT ts.PeopleId) as PeopleWithBalances,
+    SUM(ts.IndDue - ts.IndAmt) as TotalOutstanding
+FROM TransactionSummary ts
+JOIN Organizations o ON ts.OrganizationId = o.OrganizationId
+WHERE ts.IsLatestTransaction = 1
+    AND (ts.IndDue - ts.IndAmt) > 0
+GROUP BY o.OrganizationId, o.OrganizationName
+HAVING SUM(ts.IndDue - ts.IndAmt) > 0
+ORDER BY TotalOutstanding DESC;</code></pre>
+
     <div class="success">
         <h3>✅ View Usage Checklist</h3>
         <ul>
