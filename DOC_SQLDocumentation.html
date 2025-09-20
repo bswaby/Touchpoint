@@ -1971,41 +1971,55 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>GoerSenderAmounts</td>
-                    <td>Mission trip financial breakdown</td>
-                    <td>PeopleId, GoerAmount, SenderAmount, TotalAmount</td>
-                    <td>Mission trip funding reports, goer vs sender analysis</td>
+                    <td>MissionTripTotals</td>
+                    <td>Mission trip financial summary</td>
+                    <td>InvolvementId, Trip, PeopleId, Name, SortOrder, TripCost, Raised, Due</td>
+                    <td>Mission trip funding reports, amount raised vs due</td>
                 </tr>
                 <tr>
-                    <td>custom</td>
-                    <td>MissionTripTotals_Optimized</td>
-                    <td>Optimized mission trip totals (legacy)</td>
-                    <td>Various mission financial fields</td>
-                    <td>⚠️ Deprecated - slow performance, use CTEs instead</td>
+                    <td>dbo</td>
+                    <td>TransactionBalances</td>
+                    <td>Outstanding balance calculations</td>
+                    <td>Various balance fields</td>
+                    <td>Track outstanding balances for events and registrations</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td>RegistrationTransactionSummary</td>
+                    <td>Registration financial details</td>
+                    <td>Registration and transaction summary fields</td>
+                    <td>Complete registration financial information</td>
                 </tr>
                 <tr class="category-row">
-                    <td colspan="5"><strong>📊 Analytics Views</strong> - Complex calculations and metrics</td>
+                    <td colspan="5"><strong>📊 Analytics & Reporting Views</strong> - Data aggregations and reports</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>VolatilityCalc</td>
-                    <td>Attendance volatility metrics</td>
-                    <td>OrgId, Period, Volatility, Trend</td>
-                    <td>Group growth/decline analysis, attendance patterns</td>
+                    <td>VolunteerTimes</td>
+                    <td>Volunteer time tracking</td>
+                    <td>Volunteer schedule and time tracking fields</td>
+                    <td>Track volunteer hours and schedules</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>Volunteer</td>
-                    <td>Volunteer application data</td>
-                    <td>PeopleId, StatusId, ProcessedDate, ApprovedId</td>
-                    <td>Background checks, compliance tracking, volunteer management</td>
+                    <td>FirstAttends</td>
+                    <td>First attendance dates</td>
+                    <td>PeopleId, FirstAttendDate, OrganizationId</td>
+                    <td>Track when people first attended</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>ActivityLog</td>
-                    <td>System audit trail (3.7M+ records)</td>
-                    <td>ActivityDate, UserId, ActivityType, Activity</td>
-                    <td>⚠️ Security audits, user tracking - MUST filter by date</td>
+                    <td>LastAttends</td>
+                    <td>Last attendance dates</td>
+                    <td>PeopleId, LastAttendDate, OrganizationId</td>
+                    <td>Track most recent attendance</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td>PreviousMemberCounts</td>
+                    <td>Historical member counts</td>
+                    <td>Organization and historical count fields</td>
+                    <td>Track membership changes over time</td>
                 </tr>
                 <tr class="category-row">
                     <td colspan="5"><strong>📚 Lookup Views</strong> - Provide human-readable descriptions for ID values</td>
@@ -2171,52 +2185,59 @@ WHERE ts.IsLatestTransaction = 1
 ORDER BY Balance DESC;
 
 -- Mission trip financial analysis
+-- NOTE: GoerSenderAmounts view doesn't exist - use MissionTripTotals instead
+SET QUOTED_IDENTIFIER ON;  -- Required for this view
 SELECT
-    g.PeopleId,
-    p.Name2,
-    g.GoerAmount,
-    g.SenderAmount,
-    g.TotalAmount,
-    CASE
-        WHEN g.GoerAmount > 0 THEN 'Goer'
-        WHEN g.SenderAmount > 0 THEN 'Sender'
-        ELSE 'Other'
-    END as ParticipantType
-FROM GoerSenderAmounts g
-JOIN People p ON g.PeopleId = p.PeopleId
-WHERE g.TotalAmount > 0
-ORDER BY g.TotalAmount DESC;</code></pre>
+    m.InvolvementId,
+    m.Trip,
+    m.PeopleId,
+    m.Name,
+    m.TripCost,
+    m.Raised,
+    m.Due,
+    CAST(ISNULL(m.Raised * 100.0 / NULLIF(m.TripCost, 0), 0) as DECIMAL(5,2)) as PercentRaised
+FROM MissionTripTotals m
+WHERE m.PeopleId IS NOT NULL  -- Exclude undesignated funds
+    AND m.TripCost > 0
+ORDER BY m.Due DESC;</code></pre>
     </div>
 
     <div class="highlight">
-        <h4>Analytics Views - Volunteer & ActivityLog</h4>
-        <pre><code class="sql">-- Volunteer compliance status
+        <h4>Analytics & Reporting Views</h4>
+        <pre><code class="sql">-- First and Last Attendance Analysis
 SELECT
-    v.PeopleId,
     p.Name2,
-    vs.Description as ApplicationStatus,
-    vap.Description as ApprovalStatus,
-    v.ProcessedDate,
-    DATEDIFF(day, v.ProcessedDate, GETDATE()) as DaysInProcess
-FROM Volunteer v
-JOIN People p ON v.PeopleId = p.PeopleId
-LEFT JOIN lookup.VolApplicationStatus vs ON v.StatusId = vs.Id
-LEFT JOIN lookup.VolApplicationStatus vap ON v.ApprovedId = vap.Id
-WHERE v.StatusId NOT IN (0, 100)  -- Exclude completed/archived
-ORDER BY v.ProcessedDate;
+    fa.FirstAttendDate,
+    la.LastAttendDate,
+    DATEDIFF(day, fa.FirstAttendDate, la.LastAttendDate) as DaysAttending,
+    DATEDIFF(day, la.LastAttendDate, GETDATE()) as DaysSinceLastAttend
+FROM People p
+LEFT JOIN (
+    SELECT PeopleId, MIN(AttendDate) as FirstAttendDate
+    FROM FirstAttends
+    GROUP BY PeopleId
+) fa ON p.PeopleId = fa.PeopleId
+LEFT JOIN (
+    SELECT PeopleId, MAX(AttendDate) as LastAttendDate
+    FROM LastAttends
+    GROUP BY PeopleId
+) la ON p.PeopleId = la.PeopleId
+WHERE p.IsDeceased = 0
+    AND p.ArchivedFlag = 0
+    AND la.LastAttendDate >= DATEADD(year, -1, GETDATE())
+ORDER BY DaysSinceLastAttend;
 
--- Activity Log Analysis (MUST filter by date!)
-SELECT TOP 100
-    al.ActivityDate,
-    u.Name as UserName,
-    al.ActivityType,
-    al.Activity,
-    al.Details
-FROM ActivityLog al
-LEFT JOIN Users u ON al.UserId = u.UserId
-WHERE al.ActivityDate >= DATEADD(day, -7, GETDATE())  -- REQUIRED: Date filter
-    AND al.ActivityType IN ('Login', 'Update', 'Delete')
-ORDER BY al.ActivityDate DESC;</code></pre>
+-- Historical Member Count Trends
+SELECT
+    OrganizationId,
+    OrganizationName,
+    PreviousCount,
+    CurrentCount,
+    (CurrentCount - PreviousCount) as Change,
+    CAST(ISNULL((CurrentCount - PreviousCount) * 100.0 / NULLIF(PreviousCount, 0), 0) as DECIMAL(5,2)) as PercentChange
+FROM PreviousMemberCounts
+WHERE PreviousCount > 0
+ORDER BY ABS(CurrentCount - PreviousCount) DESC;</code></pre>
     </div>
 
     <div class="highlight">
@@ -2260,24 +2281,26 @@ WHERE o.OrganizationStatusId = 30;  -- Active organizations</code></pre>
     </div>
 
     <div class="highlight">
-        <h4>Volunteer Status Report with Views</h4>
-        <pre><code class="sql">-- Complex volunteer tracking using multiple views
+        <h4>Volunteer Tracking with Lookup Views</h4>
+        <pre><code class="sql">-- Volunteer status tracking using lookup views
+-- Note: Volunteer table has StatusId, MVRStatusId, and TrainingStatusId
 SELECT
     p.Name2 as VolunteerName,
     v.ProcessedDate,
-    vs.Description as ApplicationStatus,  -- From view
-    vap.Description as ApprovalStatus,    -- From view
-    ms.Description as MemberStatus,       -- From view
-    COUNT(DISTINCT vc.PeopleIdCheck) as ReferencesChecked
+    vs.Description as ApplicationStatus,     -- From lookup view
+    mvrs.Description as MVRStatus,           -- From lookup view
+    ts.Description as TrainingStatus,        -- From lookup view
+    ms.Description as MemberStatus,          -- From lookup view
+    v.Standard,
+    v.Children,
+    v.Leader
 FROM Volunteer v
 JOIN People p ON v.PeopleId = p.PeopleId
 LEFT JOIN lookup.VolApplicationStatus vs ON v.StatusId = vs.Id
-LEFT JOIN lookup.VolApplicationStatus vap ON v.ApprovedId = vap.Id
+LEFT JOIN lookup.VolApplicationStatus mvrs ON v.MVRStatusId = mvrs.Id
+LEFT JOIN lookup.VolApplicationStatus ts ON v.TrainingStatusId = ts.Id
 LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
-LEFT JOIN VolunteerCheck vc ON v.PeopleId = vc.PeopleId
 WHERE v.StatusId > 0
-GROUP BY p.Name2, v.ProcessedDate,
-         vs.Description, vap.Description, ms.Description
 ORDER BY v.ProcessedDate DESC;</code></pre>
     </div>
 
