@@ -1946,7 +1946,12 @@ WHERE c.TABLE_SCHEMA = 'lookup'  -- Change schema name
     AND c.TABLE_NAME = 'MemberStatus'  -- Change view name
 ORDER BY c.ORDINAL_POSITION;</code></pre>
 
-    <h3>All TouchPoint Database Views</h3>
+    <h3>📊 Complete List of All TouchPoint Database Views (107 Views)</h3>
+
+    <div class="info">
+        <p><strong>TouchPoint contains 107 database views across 4 schemas:</strong> custom (1), dbo (82), export (23), and lookup (1).</p>
+        <p>The table below lists ALL views with their descriptions. Detailed SQL examples follow in the next section.</p>
+    </div>
 
     <div class="table-wrapper">
         <table>
@@ -1954,114 +1959,574 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 <tr>
                     <th>Schema</th>
                     <th>View Name</th>
-                    <th>Purpose</th>
-                    <th>Key Columns</th>
-                    <th>Common Usage</th>
+                    <th>Description</th>
                 </tr>
             </thead>
             <tbody>
-                <tr class="category-row">
-                    <td colspan="5"><strong>🏢 Core Reporting Views</strong> - Heavily used for organization and financial reporting</td>
+                <!-- Custom Schema Views (1) -->
+                <tr class="schema-header">
+                    <td colspan="3"><strong>CUSTOM SCHEMA (1 view)</strong></td>
+                </tr>
+                <tr>
+                    <td>custom</td>
+                    <td><code>MissionTripTotals_Optimized</code></td>
+                    <td>Optimized mission trip financial summary</td>
+                </tr>
+
+                <!-- DBO Schema Views (82) -->
+                <tr class="schema-header">
+                    <td colspan="3"><strong>DBO SCHEMA (82 views)</strong></td>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>OrganizationStructure</td>
-                    <td>Flattened org hierarchy with counts</td>
-                    <td>ProgId, Program, DivId, Division, OrgId, Organization, OrgStatus, Members, Previous, Vistors (typo in view), Meetings</td>
-                    <td>Organization hierarchy reporting, member counts, meeting statistics</td>
+                    <td><code>AccessUserInfo</code></td>
+                    <td>User access and permission details</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>TransactionSummary</td>
-                    <td>Financial summary and balances</td>
-                    <td>RegId, PeopleId, OrganizationId, TranDate, TotDue, TotPaid, IndDue, IndAmt, TotalAmt, IsLatestTransaction</td>
-                    <td>Payment tracking, balance reports, registration financials</td>
+                    <td><code>ActiveRegistrations</code></td>
+                    <td>Currently active event/class registrations</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>CheckInActivities</td>
-                    <td>Denormalized check-in data with names</td>
-                    <td>PeopleId, Name, CheckInTime, Activities (plural!), Location, AccessType, OrganizationId, ActivityTime</td>
-                    <td>Check-in reporting, attendance analysis</td>
-                </tr>
-                <tr class="category-row">
-                    <td colspan="5"><strong>💰 Financial Views</strong> - Mission trips and financial calculations</td>
+                    <td><code>ActivityAll</code></td>
+                    <td>All system activity tracking</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>MissionTripTotals</td>
-                    <td>Mission trip financial summary</td>
-                    <td>InvolvementId, Trip, PeopleId, Name, SortOrder, TripCost, Raised, Due</td>
-                    <td>Mission trip funding reports, amount raised vs due</td>
+                    <td><code>AddressInfo</code></td>
+                    <td>Formatted address information for people</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>TransactionBalances</td>
-                    <td>Outstanding balance calculations</td>
-                    <td>Various balance fields</td>
-                    <td>Track outstanding balances for events and registrations</td>
+                    <td><code>AllLookups</code></td>
+                    <td>Consolidated view of all lookup tables</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>RegistrationTransactionSummary</td>
-                    <td>Registration financial details</td>
-                    <td>Registration and transaction summary fields</td>
-                    <td>Complete registration financial information</td>
-                </tr>
-                <tr class="category-row">
-                    <td colspan="5"><strong>📊 Analytics & Reporting Views</strong> - Data aggregations and reports</td>
+                    <td><code>AllStatusFlags</code></td>
+                    <td>All status flags across the system</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>VolunteerTimes</td>
-                    <td>Volunteer time tracking</td>
-                    <td>Volunteer schedule and time tracking fields</td>
-                    <td>Track volunteer hours and schedules</td>
+                    <td><code>AppRegistrations</code></td>
+                    <td>Mobile app registration data</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>FirstAttends</td>
-                    <td>First attendance dates by organization</td>
-                    <td>PeopleId, Name2, OrganizationId, OrganizationName, FirstAttend</td>
-                    <td>Track when people first attended each org</td>
+                    <td><code>AttendCredits</code></td>
+                    <td>Attendance credits by person and week</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>LastAttends</td>
+                    <td><code>AttendCredits2</code></td>
+                    <td>Alternative attendance credit calculation</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>Attributes</code></td>
+                    <td>Person and organization attribute definitions</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>BundleList</code></td>
+                    <td>Contribution bundle summaries</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>ChAiGiftData</code></td>
+                    <td>AI-ready gift/contribution data</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>ChAiIndividualData</code></td>
+                    <td>AI-ready individual person data</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>ChangeLogDetails</code></td>
+                    <td>Audit trail change summary</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>CheckInActivities</code></td>
+                    <td>Check-in system activity log (Note: column is 'Activities' plural)</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>Churches</code></td>
+                    <td>Church/campus location information</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>City</code></td>
+                    <td>City list for address standardization</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>ContributionsBasic</code></td>
+                    <td>Simplified contribution data</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>ContributionsBasicPledges</code></td>
+                    <td>Contribution pledges simplified view</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>ContributionsView</code></td>
+                    <td>Full contribution details with donor info</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>CreditGiver</code></td>
+                    <td>Credit card giving information</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>CustomMenuRoles</code></td>
+                    <td>Custom menu items with role assignments</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>CustomScriptRoles</code></td>
+                    <td>Custom scripts with role permissions</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>DepositDateTotals</code></td>
+                    <td>Deposit totals by date</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>DonorProfileList</code></td>
+                    <td>Donor profile summaries</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>EmailDelegation</code></td>
+                    <td>Email sending delegation permissions</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>FailedEmails</code></td>
+                    <td>Failed email send attempts</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>FailedRecurringGiving</code></td>
+                    <td>Failed recurring donation attempts</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>FamilyFirstTimes</code></td>
+                    <td>Family first visit tracking</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>FirstAttends</code></td>
+                    <td>First attendance dates by person/org</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>FirstName</code></td>
+                    <td>First name search optimization view</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>FirstName2</code></td>
+                    <td>Alternative first name search view</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>FirstNick</code></td>
+                    <td>First name/nickname combination search</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>FirstPersonSameEmail</code></td>
+                    <td>Primary person for duplicate emails</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>HeadOrSpouseWithEmail</code></td>
+                    <td>Household heads/spouses with emails</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>IncompleteTasks</code></td>
+                    <td>Open tasks not yet completed</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>InProgressRegistrations</code></td>
+                    <td>Registrations currently being processed</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>LastAttends</code></td>
                     <td>Last attendance with contact info</td>
-                    <td>PeopleId, Name2, OrganizationId, OrganizationName, LastAttend, HomePhone, CellPhone, EmailAddress</td>
-                    <td>Track most recent attendance with contact details</td>
                 </tr>
                 <tr>
                     <td>dbo</td>
-                    <td>PreviousMemberCounts</td>
-                    <td>Previous organization member counts</td>
-                    <td>OrganizationId, prevcount</td>
-                    <td>Compare previous membership counts</td>
+                    <td><code>LastName</code></td>
+                    <td>Last name search optimization view</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>ManagedGivingList</code></td>
+                    <td>Managed/recurring giving accounts</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>MasterOrgs</code></td>
+                    <td>Master organization hierarchy</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>MeetingConflicts</code></td>
+                    <td>Schedule conflict detection</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>MemberData</code></td>
+                    <td>Member information summary</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>MinistryInfo</code></td>
+                    <td>Ministry participation details</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>MissionTripTotals</code></td>
+                    <td>Mission trip financial summary</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>MobileAppActions</code></td>
+                    <td>Configurable mobile app menu actions</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>MoveSchedule</code></td>
+                    <td>Scheduled organization moves/transfers</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>Nick</code></td>
+                    <td>Nickname search view</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>OnlineRegQA</code></td>
+                    <td>Online registration questions/answers</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>OrganizationLeaders</code></td>
+                    <td>Organization leadership assignments</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>OrganizationStructure</code></td>
+                    <td>Org hierarchy with programs/divisions (Note: 'Vistors' column has typo)</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>OrgSchedules2</code></td>
+                    <td>Organization meeting schedules</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>OrgsWithFees</code></td>
+                    <td>Organizations requiring fees</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>OrgsWithoutFees</code></td>
+                    <td>Free organizations (no fees)</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>PaymentProcessDetails</code></td>
+                    <td>Payment processing transaction details</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>PeopleBasicModifed</code></td>
+                    <td>Recently modified people records</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>PickListOrgs</code></td>
+                    <td>Organizations for selection lists</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>PickListOrgs2</code></td>
+                    <td>Alternative org selection list</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>PrevAddress</code></td>
+                    <td>Previous address history</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>PreviousMemberCounts</code></td>
+                    <td>Historical member count tracking</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>ProspectCounts</code></td>
+                    <td>Prospect tracking statistics</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>RandNumber</code></td>
+                    <td>Random number generation utility</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>RecurringGivingDueForToday</code></td>
+                    <td>Today's scheduled recurring gifts (requires SET QUOTED_IDENTIFIER ON)</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>RegistrationList</code></td>
+                    <td>Event registration summaries</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>RegistrationTransactionSummary</code></td>
+                    <td>Registration payment summaries</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>RegsettingCounts</code></td>
+                    <td>Registration settings usage statistics</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>RegsettingMessages</code></td>
+                    <td>Registration confirmation messages</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>RegsettingOptions</code></td>
+                    <td>Registration option configurations</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>RegsettingUsage</code></td>
+                    <td>Registration settings utilization</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>SearchNoDiacritics</code></td>
+                    <td>Search without accent marks</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>SpouseOrHeadWithEmail</code></td>
+                    <td>Primary contacts with emails</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>Sprocs</code></td>
+                    <td>Stored procedure metadata</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>StatusFlagColumns</code></td>
+                    <td>Status flag column definitions</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>StatusFlagList</code></td>
+                    <td>Available status flags</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>StatusFlagNamesRoles</code></td>
+                    <td>Status flags with role permissions</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>TaskSearch</code></td>
+                    <td>Task search optimization view</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>TransactionBalances</code></td>
+                    <td>Outstanding transaction balances (requires SET QUOTED_IDENTIFIER ON)</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>TransactionList</code></td>
+                    <td>Transaction history list</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>TransactionSummary</code></td>
+                    <td>Transaction totals and summaries</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>Triggers</code></td>
+                    <td>Database trigger metadata</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>UserFeed</code></td>
+                    <td>User activity feed/timeline</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>UserLeaders</code></td>
+                    <td>User leadership assignments</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>UserList</code></td>
+                    <td>System user accounts with activity</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>UserRoles</code></td>
+                    <td>User role assignments</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td><code>VolunteerTimes</code></td>
+                    <td>Volunteer service time tracking</td>
+                </tr>
+
+                <!-- Export Schema Views (23) -->
+                <tr class="schema-header">
+                    <td colspan="3"><strong>EXPORT SCHEMA (23 views)</strong></td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpAttendance</code></td>
+                    <td>Attendance data for export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpBackgroundCheck</code></td>
+                    <td>Background check data export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpContact</code></td>
+                    <td>Contact history export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpContactee</code></td>
+                    <td>Contact recipient export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpContactor</code></td>
+                    <td>Contact initiator export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpContribution</code></td>
+                    <td>Contribution data export (denormalized - uses text values not IDs)</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpDivision</code></td>
+                    <td>Division hierarchy export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpDivOrg</code></td>
+                    <td>Division-organization mapping export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpEnrollHistory</code></td>
+                    <td>Enrollment history export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpFamily</code></td>
+                    <td>Family units export (no CreatedDate column)</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpFamilyExtra</code></td>
+                    <td>Family custom fields export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpMeeting</code></td>
+                    <td>Meeting data export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpOrganization</code></td>
+                    <td>Organization details export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpOrgMember</code></td>
+                    <td>Organization membership export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpOrgSchedule</code></td>
+                    <td>Organization schedule export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpPeople</code></td>
+                    <td>Complete person data export (78 columns - uses text values not IDs)</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpPeopleExtra</code></td>
+                    <td>Person custom fields export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpProgDiv</code></td>
+                    <td>Program-division mapping export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpProgram</code></td>
+                    <td>Program hierarchy export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpRelatedFamily</code></td>
+                    <td>Related family connections export</td>
+                </tr>
+                <tr>
+                    <td>export</td>
+                    <td><code>XpSubGroup</code></td>
+                    <td>Sub-group membership export</td>
+                </tr>
+
+                <!-- Lookup Schema Views (1) -->
+                <tr class="schema-header">
+                    <td colspan="3"><strong>LOOKUP SCHEMA (1 view)</strong></td>
+                </tr>
+                <tr>
+                    <td>lookup</td>
+                    <td><code>PushPayBundleHeaderTypes</code></td>
+                    <td>PushPay bundle type definitions</td>
                 </tr>
             </tbody>
         </table>
     </div>
 
-    <div class="info">
-        <h3>📊 Additional Views Available</h3>
-        <p>The TouchPoint database contains 84+ views in the dbo schema. Notable additional views include:</p>
-        <ul>
-            <li><strong>MissionTripTotals</strong> - Mission trip financial summaries</li>
-            <li><strong>RegistrationTransactionSummary</strong> - Registration financial details</li>
-            <li><strong>ContributionsBasic</strong> - Simplified contribution data</li>
-            <li><strong>MemberData</strong> - Comprehensive member information</li>
-            <li><strong>OrganizationLeaders</strong> - Organization leadership details</li>
-            <li><strong>TransactionBalances</strong> - Outstanding balance calculations</li>
-            <li><strong>RecurringGivingDueForToday</strong> - Scheduled giving due today</li>
-            <li><strong>StatusFlagList</strong> - All status flags with details</li>
-            <li><strong>FirstAttends</strong> / <strong>LastAttends</strong> - First and last attendance dates</li>
-            <li><strong>PreviousMemberCounts</strong> - Historical member counts</li>
-        </ul>
-        <p>Use the discovery query above to explore all available views in your database.</p>
-    </div>
-
-    <h3>Using Views in Queries</h3>
+    <h3>📝 Using Views in Your Queries</h3>
 
     <div class="highlight">
         <h4>Core Reporting Views - OrganizationStructure</h4>
@@ -2557,13 +3022,6 @@ ORDER BY TotalOutstanding DESC;</code></pre>
             <li>☑️ Document custom views with descriptive names</li>
             <li>☑️ Handle NULL values from views in application code</li>
         </ul>
-    </div>
-
-    <h3>📊 All TouchPoint Database Views (Complete List - 107 Views)</h3>
-
-    <div class="info">
-        <p><strong>TouchPoint contains 107 database views across 4 schemas:</strong> custom (1), dbo (82), export (23), and lookup (1).</p>
-        <p>This comprehensive table lists ALL views with descriptions. Detailed examples follow in their respective sections.</p>
     </div>
 
     <div class="table-wrapper">
