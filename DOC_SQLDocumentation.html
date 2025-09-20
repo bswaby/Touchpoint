@@ -480,6 +480,7 @@
 
     <h3>🎛️ Customization Systems</h3>
     <ul>
+        <li><a href="#database-views">Database Views Documentation</a></li>
         <li><a href="#extra-values">Extra Value Tables (Custom Fields)</a></li>
         <li><a href="#lookup-tables">Lookup Tables Reference (67+ tables)</a></li>
         <li><a href="#settings-framework">Settings & Configuration Framework</a></li>
@@ -1882,6 +1883,536 @@ Attendance Lookups:
     ├──→ lookup.AttendType (AttendanceTypeId)
     └──→ lookup.MemberType (MemberTypeId)
          └──→ lookup.AttendType (AttendanceTypeId)</code></pre>
+</div>
+
+<div class="section" id="database-views">
+    <h2>🔍 Database Views Documentation</h2>
+
+    <p>TouchPoint uses SQL Server views to provide simplified access to complex data relationships. Views are virtual tables that combine data from multiple tables through joins and can include calculated fields.</p>
+
+    <div class="info">
+        <h3>📊 Understanding Database Views</h3>
+        <p>Views in TouchPoint serve several purposes:</p>
+        <ul>
+            <li><strong>Simplify complex joins</strong> - Combine frequently joined tables into a single query target</li>
+            <li><strong>Provide lookup descriptions</strong> - Replace ID values with human-readable text</li>
+            <li><strong>Encapsulate business logic</strong> - Apply standard filters and calculations</li>
+            <li><strong>Improve performance</strong> - Pre-compute complex aggregations</li>
+        </ul>
+    </div>
+
+    <h3>View Discovery Queries</h3>
+    <pre><code class="sql">-- Discover all available views in your TouchPoint database
+SELECT
+    v.TABLE_SCHEMA,
+    v.TABLE_NAME,
+    'VIEW' as OBJECT_TYPE,
+    COUNT(c.COLUMN_NAME) as COLUMN_COUNT
+FROM INFORMATION_SCHEMA.VIEWS v
+LEFT JOIN INFORMATION_SCHEMA.COLUMNS c
+    ON v.TABLE_SCHEMA = c.TABLE_SCHEMA
+    AND v.TABLE_NAME = c.TABLE_NAME
+WHERE v.TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA')
+GROUP BY v.TABLE_SCHEMA, v.TABLE_NAME
+ORDER BY v.TABLE_NAME;
+
+-- Get detailed column information for a specific view
+SELECT
+    c.COLUMN_NAME,
+    c.DATA_TYPE,
+    c.CHARACTER_MAXIMUM_LENGTH,
+    c.IS_NULLABLE,
+    c.ORDINAL_POSITION
+FROM INFORMATION_SCHEMA.COLUMNS c
+WHERE c.TABLE_SCHEMA = 'lookup'  -- Change schema name
+    AND c.TABLE_NAME = 'MemberStatus'  -- Change view name
+ORDER BY c.ORDINAL_POSITION;</code></pre>
+
+    <h3>All TouchPoint Database Views</h3>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Schema</th>
+                    <th>View Name</th>
+                    <th>Purpose</th>
+                    <th>Key Columns</th>
+                    <th>Common Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr class="category-row">
+                    <td colspan="5"><strong>🏢 Core Reporting Views</strong> - Heavily used for organization and financial reporting</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td>OrganizationStructure</td>
+                    <td>Flattened org hierarchy with counts</td>
+                    <td>ProgId, Program, DivId, Division, OrgId, Organization, Members, Previous, Visitors, Meetings</td>
+                    <td>Organization hierarchy reporting, member counts, meeting statistics</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td>TransactionSummary</td>
+                    <td>Financial summary and balances</td>
+                    <td>RegId, PeopleId, OrganizationId, TranDate, TotDue, TotPaid, IndDue, IsLatestTransaction</td>
+                    <td>Payment tracking, balance reports, registration financials</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td>CheckInActivities</td>
+                    <td>Denormalized check-in data with names</td>
+                    <td>PeopleId, Name, CheckInTime, Activity, Location</td>
+                    <td>Check-in reporting, attendance analysis</td>
+                </tr>
+                <tr class="category-row">
+                    <td colspan="5"><strong>💰 Financial Views</strong> - Mission trips and financial calculations</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td>GoerSenderAmounts</td>
+                    <td>Mission trip financial breakdown</td>
+                    <td>PeopleId, GoerAmount, SenderAmount, TotalAmount</td>
+                    <td>Mission trip funding reports, goer vs sender analysis</td>
+                </tr>
+                <tr>
+                    <td>custom</td>
+                    <td>MissionTripTotals_Optimized</td>
+                    <td>Optimized mission trip totals (legacy)</td>
+                    <td>Various mission financial fields</td>
+                    <td>⚠️ Deprecated - slow performance, use CTEs instead</td>
+                </tr>
+                <tr class="category-row">
+                    <td colspan="5"><strong>📊 Analytics Views</strong> - Complex calculations and metrics</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td>VolatilityCalc</td>
+                    <td>Attendance volatility metrics</td>
+                    <td>OrgId, Period, Volatility, Trend</td>
+                    <td>Group growth/decline analysis, attendance patterns</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td>Volunteer</td>
+                    <td>Volunteer application data</td>
+                    <td>PeopleId, StatusId, ProcessedDate, ApprovedId</td>
+                    <td>Background checks, compliance tracking, volunteer management</td>
+                </tr>
+                <tr>
+                    <td>dbo</td>
+                    <td>ActivityLog</td>
+                    <td>System audit trail (3.7M+ records)</td>
+                    <td>ActivityDate, UserId, ActivityType, Activity</td>
+                    <td>⚠️ Security audits, user tracking - MUST filter by date</td>
+                </tr>
+                <tr class="category-row">
+                    <td colspan="5"><strong>📚 Lookup Views</strong> - Provide human-readable descriptions for ID values</td>
+                </tr>
+                <tr>
+                    <td>lookup</td>
+                    <td>MemberStatus</td>
+                    <td>Member status descriptions</td>
+                    <td>Id, Code, Description</td>
+                    <td>Replace MemberStatusId with text (Member, Prospect, etc.)</td>
+                </tr>
+                <tr>
+                    <td>lookup</td>
+                    <td>MemberType</td>
+                    <td>Organization member types</td>
+                    <td>Id, Code, Description, AttendanceTypeId</td>
+                    <td>Show member roles (Leader, Member, Volunteer)</td>
+                </tr>
+                <tr>
+                    <td>lookup</td>
+                    <td>AttendType</td>
+                    <td>Attendance classifications</td>
+                    <td>Id, Code, Description</td>
+                    <td>Categorize attendance records</td>
+                </tr>
+                <tr>
+                    <td>lookup</td>
+                    <td>FamilyPosition</td>
+                    <td>Family position descriptions</td>
+                    <td>Id, Code, Description</td>
+                    <td>Show position in family (Head, Spouse, Child)</td>
+                </tr>
+                <tr>
+                    <td>lookup</td>
+                    <td>Gender</td>
+                    <td>Gender classifications</td>
+                    <td>Id, Code, Description</td>
+                    <td>Display gender text instead of ID</td>
+                </tr>
+                <tr>
+                    <td>lookup</td>
+                    <td>MaritalStatus</td>
+                    <td>Marital status options</td>
+                    <td>Id, Code, Description</td>
+                    <td>Show marital status text</td>
+                </tr>
+                <tr>
+                    <td>lookup</td>
+                    <td>Campus</td>
+                    <td>Campus information</td>
+                    <td>Id, Code, Description</td>
+                    <td>Display campus names and details</td>
+                </tr>
+                <tr>
+                    <td>lookup</td>
+                    <td>OrganizationStatus</td>
+                    <td>Organization status values</td>
+                    <td>Id, Code, Description</td>
+                    <td>Filter active/inactive organizations</td>
+                </tr>
+                <tr>
+                    <td>lookup</td>
+                    <td>ContributionType</td>
+                    <td>Contribution type definitions</td>
+                    <td>Id, Code, Description</td>
+                    <td>Categorize donations and fees</td>
+                </tr>
+                <tr>
+                    <td>lookup</td>
+                    <td>DecisionType</td>
+                    <td>Decision classifications</td>
+                    <td>Id, Code, Description</td>
+                    <td>Track spiritual decisions</td>
+                </tr>
+                <tr>
+                    <td>lookup</td>
+                    <td>VolApplicationStatus</td>
+                    <td>Volunteer application statuses</td>
+                    <td>Id, Code, Description</td>
+                    <td>Track volunteer processing</td>
+                </tr>
+                <tr>
+                    <td>lookup</td>
+                    <td>CategoryMobile</td>
+                    <td>Mobile app categories</td>
+                    <td>Id, Code, Description, SortOrder</td>
+                    <td>Mobile app organization</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h3>Using Views in Queries</h3>
+
+    <div class="highlight">
+        <h4>Core Reporting Views - OrganizationStructure</h4>
+        <pre><code class="sql">-- Use OrganizationStructure for hierarchy and member counts
+SELECT
+    Program,
+    Division,
+    Organization,
+    Members,
+    Previous,
+    Visitors,
+    Meetings,
+    CAST(ISNULL(Visitors * 100.0 / NULLIF(Members, 0), 0) as DECIMAL(5,2)) as VisitorPercent
+FROM OrganizationStructure
+WHERE ProgId = 1  -- Specific program
+    AND Members > 0
+ORDER BY Program, Division, Organization;
+
+-- Group summary by division
+SELECT
+    Program,
+    Division,
+    COUNT(DISTINCT OrgId) as OrgCount,
+    SUM(Members) as TotalMembers,
+    SUM(Visitors) as TotalVisitors,
+    SUM(Meetings) as TotalMeetings
+FROM OrganizationStructure
+WHERE Members > 0
+GROUP BY ProgId, Program, DivId, Division
+ORDER BY Program, Division;</code></pre>
+    </div>
+
+    <div class="highlight">
+        <h4>Financial Views - TransactionSummary</h4>
+        <pre><code class="sql">-- Get outstanding balances by person
+SELECT
+    ts.PeopleId,
+    p.Name2,
+    ts.OrganizationId,
+    o.OrganizationName,
+    ts.TotDue,
+    ts.TotPaid,
+    (ts.TotDue - ts.TotPaid) as Balance,
+    ts.TranDate as LastTransaction
+FROM TransactionSummary ts
+JOIN People p ON ts.PeopleId = p.PeopleId
+JOIN Organizations o ON ts.OrganizationId = o.OrganizationId
+WHERE ts.IsLatestTransaction = 1
+    AND (ts.TotDue - ts.TotPaid) > 0  -- Outstanding balance
+ORDER BY Balance DESC;
+
+-- Mission trip financial analysis
+SELECT
+    g.PeopleId,
+    p.Name2,
+    g.GoerAmount,
+    g.SenderAmount,
+    g.TotalAmount,
+    CASE
+        WHEN g.GoerAmount > 0 THEN 'Goer'
+        WHEN g.SenderAmount > 0 THEN 'Sender'
+        ELSE 'Other'
+    END as ParticipantType
+FROM GoerSenderAmounts g
+JOIN People p ON g.PeopleId = p.PeopleId
+WHERE g.TotalAmount > 0
+ORDER BY g.TotalAmount DESC;</code></pre>
+    </div>
+
+    <div class="highlight">
+        <h4>Analytics Views - Volunteer & ActivityLog</h4>
+        <pre><code class="sql">-- Volunteer compliance status
+SELECT
+    v.PeopleId,
+    p.Name2,
+    vs.Description as ApplicationStatus,
+    vap.Description as ApprovalStatus,
+    v.ProcessedDate,
+    DATEDIFF(day, v.ProcessedDate, GETDATE()) as DaysInProcess
+FROM Volunteer v
+JOIN People p ON v.PeopleId = p.PeopleId
+LEFT JOIN lookup.VolApplicationStatus vs ON v.StatusId = vs.Id
+LEFT JOIN lookup.VolApplicationStatus vap ON v.ApprovedId = vap.Id
+WHERE v.StatusId NOT IN (0, 100)  -- Exclude completed/archived
+ORDER BY v.ProcessedDate;
+
+-- Activity Log Analysis (MUST filter by date!)
+SELECT TOP 100
+    al.ActivityDate,
+    u.Name as UserName,
+    al.ActivityType,
+    al.Activity,
+    al.Details
+FROM ActivityLog al
+LEFT JOIN Users u ON al.UserId = u.UserId
+WHERE al.ActivityDate >= DATEADD(day, -7, GETDATE())  -- REQUIRED: Date filter
+    AND al.ActivityType IN ('Login', 'Update', 'Delete')
+ORDER BY al.ActivityDate DESC;</code></pre>
+    </div>
+
+    <div class="highlight">
+        <h4>Basic Lookup View Query Pattern</h4>
+        <pre><code class="sql">-- Join lookup view for human-readable values
+SELECT
+    p.PeopleId,
+    p.Name2,
+    p.EmailAddress,
+    ms.Description as MemberStatus,  -- From view
+    g.Description as Gender,          -- From view
+    c.Description as Campus           -- From view
+FROM People p
+LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+LEFT JOIN lookup.Gender g ON p.GenderId = g.Id
+LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+WHERE p.IsDeceased = 0
+    AND p.ArchivedFlag = 0;</code></pre>
+    </div>
+
+    <div class="highlight">
+        <h4>Organization Hierarchy with Views</h4>
+        <pre><code class="sql">-- Use multiple views for complete organization details
+SELECT
+    o.OrganizationId,
+    o.OrganizationName,
+    p.Name as ProgramName,
+    d.Name as DivisionName,
+    os.Description as Status,        -- From view
+    ot.Description as OrgType,        -- From view
+    c.Description as Campus,          -- From view
+    mt.Description as LeaderType      -- From view
+FROM Organizations o
+LEFT JOIN Program p ON o.ProgramId = p.Id
+LEFT JOIN Division d ON o.DivisionId = d.Id
+LEFT JOIN lookup.OrganizationStatus os ON o.OrganizationStatusId = os.Id
+LEFT JOIN lookup.OrganizationType ot ON o.OrganizationTypeId = ot.Id
+LEFT JOIN lookup.Campus c ON o.CampusId = c.Id
+LEFT JOIN lookup.MemberType mt ON o.LeaderMemberTypeId = mt.Id
+WHERE o.OrganizationStatusId = 30;  -- Active organizations</code></pre>
+    </div>
+
+    <div class="highlight">
+        <h4>Volunteer Status Report with Views</h4>
+        <pre><code class="sql">-- Complex volunteer tracking using multiple views
+SELECT
+    p.Name2 as VolunteerName,
+    v.ProcessedDate,
+    vs.Description as ApplicationStatus,  -- From view
+    vap.Description as ApprovalStatus,    -- From view
+    ms.Description as MemberStatus,       -- From view
+    COUNT(DISTINCT vc.PeopleIdCheck) as ReferencesChecked
+FROM Volunteer v
+JOIN People p ON v.PeopleId = p.PeopleId
+LEFT JOIN lookup.VolApplicationStatus vs ON v.StatusId = vs.Id
+LEFT JOIN lookup.VolApplicationStatus vap ON v.ApprovedId = vap.Id
+LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+LEFT JOIN VolunteerCheck vc ON v.PeopleId = vc.PeopleId
+WHERE v.StatusId > 0
+GROUP BY p.Name2, v.ProcessedDate,
+         vs.Description, vap.Description, ms.Description
+ORDER BY v.ProcessedDate DESC;</code></pre>
+    </div>
+
+    <h3>Performance Considerations for Views</h3>
+
+    <div class="warning">
+        <h4>⚠️ View Query Best Practices</h4>
+        <ul>
+            <li><strong>Always filter large views:</strong> Use WHERE clauses to limit result sets</li>
+            <li><strong>Use TOP clauses:</strong> Prevent returning entire view contents</li>
+            <li><strong>Apply NOLOCK hint:</strong> For read-only operations on busy views</li>
+            <li><strong>Cache lookup data:</strong> Store frequently-used lookup values in variables</li>
+            <li><strong>Check execution plans:</strong> Views can hide complex operations</li>
+        </ul>
+    </div>
+
+    <pre><code class="sql">-- GOOD: Filtered view query with TOP
+SELECT TOP 1000 *
+FROM MyComplexView WITH (NOLOCK)
+WHERE DateColumn >= DATEADD(month, -1, GETDATE())
+ORDER BY DateColumn DESC;
+
+-- BAD: Unfiltered view query (may timeout)
+SELECT * FROM MyComplexView;
+
+-- GOOD: Cache lookup values for repeated use
+DECLARE @MemberStatusLookup TABLE (
+    Id INT,
+    Description NVARCHAR(100)
+);
+INSERT INTO @MemberStatusLookup
+SELECT Id, Description FROM lookup.MemberStatus;</code></pre>
+
+    <h3>Creating Custom Views (Admin Only)</h3>
+
+    <div class="info">
+        <h4>📝 Custom View Template</h4>
+        <pre><code class="sql">-- Example: Create a view for active adult members
+CREATE VIEW vw_ActiveAdultMembers AS
+SELECT
+    p.PeopleId,
+    p.Name2 as FullName,
+    p.EmailAddress,
+    p.CellPhone,
+    p.Age,
+    ms.Description as MemberStatus,
+    fp.Description as FamilyPosition,
+    c.Description as Campus,
+    p.LastAttended,
+    DATEDIFF(day, p.LastAttended, GETDATE()) as DaysSinceAttended
+FROM People p
+LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+LEFT JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
+LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+WHERE p.IsDeceased = 0
+    AND p.ArchivedFlag = 0
+    AND p.MemberStatusId = 10  -- Members only
+    AND p.Age >= 18             -- Adults only
+    AND p.PositionInFamilyId IN (10, 20);  -- Primary/Secondary adults</code></pre>
+    </div>
+
+    <h3>View Metadata Queries</h3>
+
+    <pre><code class="sql">-- Check if a view exists
+SELECT COUNT(*) as ViewExists
+FROM INFORMATION_SCHEMA.VIEWS
+WHERE TABLE_SCHEMA = 'lookup'
+    AND TABLE_NAME = 'MemberStatus';
+
+-- Get view definition (if permissions allow)
+SELECT VIEW_DEFINITION
+FROM INFORMATION_SCHEMA.VIEWS
+WHERE TABLE_SCHEMA = 'dbo'
+    AND TABLE_NAME = 'vw_ActiveAdultMembers';
+
+-- List all columns in a view with data types
+SELECT
+    COLUMN_NAME,
+    DATA_TYPE,
+    CHARACTER_MAXIMUM_LENGTH,
+    NUMERIC_PRECISION,
+    NUMERIC_SCALE,
+    IS_NULLABLE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = 'lookup'
+    AND TABLE_NAME = 'MemberStatus'
+ORDER BY ORDINAL_POSITION;
+
+-- Find views that reference a specific table
+SELECT DISTINCT
+    v.TABLE_SCHEMA,
+    v.TABLE_NAME as ViewName
+FROM INFORMATION_SCHEMA.VIEWS v
+WHERE v.VIEW_DEFINITION LIKE '%People%'
+    AND v.TABLE_SCHEMA NOT IN ('sys', 'INFORMATION_SCHEMA')
+ORDER BY v.TABLE_SCHEMA, v.TABLE_NAME;</code></pre>
+
+    <h3>Common View Patterns by Use Case</h3>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Use Case</th>
+                    <th>Views to Use</th>
+                    <th>Example Query Pattern</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Member Reports</td>
+                    <td>lookup.MemberStatus, lookup.Campus, lookup.FamilyPosition</td>
+                    <td>Join People table with status and campus views</td>
+                </tr>
+                <tr>
+                    <td>Organization Lists</td>
+                    <td>lookup.OrganizationStatus, lookup.OrganizationType, lookup.MemberType</td>
+                    <td>Filter by OrganizationStatusId = 30 for active</td>
+                </tr>
+                <tr>
+                    <td>Attendance Analysis</td>
+                    <td>lookup.AttendType, lookup.MemberType</td>
+                    <td>Group by AttendType for categorized counts</td>
+                </tr>
+                <tr>
+                    <td>Giving Reports</td>
+                    <td>lookup.ContributionType, lookup.ContributionFund</td>
+                    <td>Exclude TypeId = 99 (event fees)</td>
+                </tr>
+                <tr>
+                    <td>Volunteer Management</td>
+                    <td>lookup.VolApplicationStatus, lookup.MemberStatus</td>
+                    <td>Track application and approval processes</td>
+                </tr>
+                <tr>
+                    <td>Family Structure</td>
+                    <td>lookup.FamilyPosition, lookup.MaritalStatus</td>
+                    <td>Identify heads of household and relationships</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="success">
+        <h3>✅ View Usage Checklist</h3>
+        <ul>
+            <li>☑️ Always qualify view names with schema (e.g., lookup.MemberStatus)</li>
+            <li>☑️ Use LEFT JOIN for lookup views to handle NULL foreign keys</li>
+            <li>☑️ Apply filters before joining views when possible</li>
+            <li>☑️ Cache lookup values for batch operations</li>
+            <li>☑️ Test view performance with realistic data volumes</li>
+            <li>☑️ Document custom views with descriptive names and comments</li>
+            <li>☑️ Handle NULL values from views in application code</li>
+        </ul>
+    </div>
 </div>
 
 <div class="section">
