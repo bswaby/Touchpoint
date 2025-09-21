@@ -2252,6 +2252,74 @@ Attendance Lookups:
     ├──→ lookup.AttendType (AttendanceTypeId)
     └──→ lookup.MemberType (MemberTypeId)
          └──→ lookup.AttendType (AttendanceTypeId)</code></pre>
+
+    <h3>Common Query Patterns with Lookup Tables</h3>
+
+    <div class="highlight">
+        <h4>Basic Lookup Table Query Pattern</h4>
+        <pre><code class="sql">-- Join lookup TABLES (not views) for human-readable values
+-- NOTE: These are TABLES in the lookup schema, not views
+SELECT
+    p.PeopleId,
+    p.Name2,
+    p.EmailAddress,
+    ms.Description as MemberStatus,  -- From lookup TABLE
+    g.Description as Gender,          -- From lookup TABLE
+    c.Description as Campus           -- From lookup TABLE
+FROM People p
+LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+LEFT JOIN lookup.Gender g ON p.GenderId = g.Id
+LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+WHERE p.IsDeceased = 0
+    AND p.ArchivedFlag = 0;</code></pre>
+    </div>
+
+    <div class="highlight">
+        <h4>Organization Hierarchy with Lookup Tables</h4>
+        <pre><code class="sql">-- Use lookup tables for complete organization details
+-- NOTE: Organization -> Division -> Program hierarchy
+SELECT
+    o.OrganizationId,
+    o.OrganizationName,
+    p.Name as ProgramName,
+    d.Name as DivisionName,
+    os.Description as Status,        -- From lookup TABLE
+    ot.Description as OrgType,        -- From lookup TABLE
+    c.Description as Campus,          -- From lookup TABLE
+    mt.Description as LeaderType      -- From lookup TABLE
+FROM Organizations o
+LEFT JOIN Division d ON o.DivisionId = d.Id  -- Division first
+LEFT JOIN Program p ON d.ProgId = p.Id       -- Then Program through Division
+LEFT JOIN lookup.OrganizationStatus os ON o.OrganizationStatusId = os.Id
+LEFT JOIN lookup.OrganizationType ot ON o.OrganizationTypeId = ot.Id
+LEFT JOIN lookup.Campus c ON o.CampusId = c.Id
+LEFT JOIN lookup.MemberType mt ON o.LeaderMemberTypeId = mt.Id
+WHERE o.OrganizationStatusId = 30;  -- Active organizations</code></pre>
+    </div>
+
+    <div class="highlight">
+        <h4>Volunteer Tracking with Lookup Tables</h4>
+        <pre><code class="sql">-- Volunteer status tracking using lookup tables
+-- Note: Volunteer table has StatusId, MVRStatusId, and TrainingStatusId
+SELECT
+    p.Name2 as VolunteerName,
+    v.ProcessedDate,
+    vs.Description as ApplicationStatus,     -- From lookup TABLE
+    mvrs.Description as MVRStatus,           -- From lookup TABLE
+    ts.Description as TrainingStatus,        -- From lookup TABLE
+    ms.Description as MemberStatus,          -- From lookup TABLE
+    v.Standard,
+    v.Children,
+    v.Leader
+FROM Volunteer v
+JOIN People p ON v.PeopleId = p.PeopleId
+LEFT JOIN lookup.VolApplicationStatus vs ON v.StatusId = vs.Id
+LEFT JOIN lookup.VolApplicationStatus mvrs ON v.MVRStatusId = mvrs.Id
+LEFT JOIN lookup.VolApplicationStatus ts ON v.TrainingStatusId = ts.Id
+LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+WHERE v.StatusId > 0
+ORDER BY v.ProcessedDate DESC;</code></pre>
+    </div>
 </div>
 
 <div class="section" id="database-views">
@@ -2998,71 +3066,6 @@ WHERE pmc.prevcount > 0
 ORDER BY ABS(os.Members - pmc.prevcount) DESC;</code></pre>
     </div>
 
-    <div class="highlight">
-        <h4>Basic Lookup Table Query Pattern</h4>
-        <pre><code class="sql">-- Join lookup TABLES (not views) for human-readable values
--- NOTE: These are TABLES in the lookup schema, not views
-SELECT
-    p.PeopleId,
-    p.Name2,
-    p.EmailAddress,
-    ms.Description as MemberStatus,  -- From lookup TABLE
-    g.Description as Gender,          -- From lookup TABLE
-    c.Description as Campus           -- From lookup TABLE
-FROM People p
-LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
-LEFT JOIN lookup.Gender g ON p.GenderId = g.Id
-LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
-WHERE p.IsDeceased = 0
-    AND p.ArchivedFlag = 0;</code></pre>
-    </div>
-
-    <div class="highlight">
-        <h4>Organization Hierarchy with Lookup Tables</h4>
-        <pre><code class="sql">-- Use lookup tables for complete organization details
--- NOTE: Organization -> Division -> Program hierarchy
-SELECT
-    o.OrganizationId,
-    o.OrganizationName,
-    p.Name as ProgramName,
-    d.Name as DivisionName,
-    os.Description as Status,        -- From lookup TABLE
-    ot.Description as OrgType,        -- From lookup TABLE
-    c.Description as Campus,          -- From lookup TABLE
-    mt.Description as LeaderType      -- From lookup TABLE
-FROM Organizations o
-LEFT JOIN Division d ON o.DivisionId = d.Id  -- Division first
-LEFT JOIN Program p ON d.ProgId = p.Id       -- Then Program through Division
-LEFT JOIN lookup.OrganizationStatus os ON o.OrganizationStatusId = os.Id
-LEFT JOIN lookup.OrganizationType ot ON o.OrganizationTypeId = ot.Id
-LEFT JOIN lookup.Campus c ON o.CampusId = c.Id
-LEFT JOIN lookup.MemberType mt ON o.LeaderMemberTypeId = mt.Id
-WHERE o.OrganizationStatusId = 30;  -- Active organizations</code></pre>
-    </div>
-
-    <div class="highlight">
-        <h4>Volunteer Tracking with Lookup Tables</h4>
-        <pre><code class="sql">-- Volunteer status tracking using lookup tables
--- Note: Volunteer table has StatusId, MVRStatusId, and TrainingStatusId
-SELECT
-    p.Name2 as VolunteerName,
-    v.ProcessedDate,
-    vs.Description as ApplicationStatus,     -- From lookup view
-    mvrs.Description as MVRStatus,           -- From lookup view
-    ts.Description as TrainingStatus,        -- From lookup view
-    ms.Description as MemberStatus,          -- From lookup view
-    v.Standard,
-    v.Children,
-    v.Leader
-FROM Volunteer v
-JOIN People p ON v.PeopleId = p.PeopleId
-LEFT JOIN lookup.VolApplicationStatus vs ON v.StatusId = vs.Id
-LEFT JOIN lookup.VolApplicationStatus mvrs ON v.MVRStatusId = mvrs.Id
-LEFT JOIN lookup.VolApplicationStatus ts ON v.TrainingStatusId = ts.Id
-LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
-WHERE v.StatusId > 0
-ORDER BY v.ProcessedDate DESC;</code></pre>
-    </div>
 
     <h3>Performance Considerations for Views</h3>
 
@@ -4149,46 +4152,6 @@ LEFT JOIN lookup.Gender g ON p.GenderId = g.Id
 LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
 WHERE p.IsDeceased = 0
     AND p.ArchivedFlag = 0;</code></pre>
-    </div>
-
-    <div class="highlight">
-        <h4>Organization Hierarchy with Lookup Tables</h4>
-        <pre><code class="sql">-- Join through Division to get Program, then use lookup tables
-SELECT
-    o.OrganizationId,
-    o.OrganizationName,
-    p.Name as ProgramName,
-    d.Name as DivisionName,
-    os.Description as Status,        -- From lookup TABLE
-    ot.Description as OrgType,        -- From lookup TABLE
-    c.Description as Campus,          -- From lookup TABLE
-    mt.Description as LeaderType      -- From lookup TABLE
-FROM Organizations o
-LEFT JOIN Division d ON o.DivisionId = d.Id  -- Division first
-LEFT JOIN Program p ON d.ProgId = p.Id       -- Program via Division.ProgId
-LEFT JOIN lookup.OrganizationStatus os ON o.OrganizationStatusId = os.Id
-LEFT JOIN lookup.OrganizationType ot ON o.OrganizationTypeId = ot.Id
-LEFT JOIN lookup.Campus c ON o.CampusId = c.Id
-LEFT JOIN lookup.MemberType mt ON o.LeaderMemberTypeId = mt.Id
-WHERE o.OrganizationStatusId = 30;</code></pre>
-    </div>
-
-    <div class="highlight">
-        <h4>Volunteer Tracking with Lookup Tables</h4>
-        <pre><code class="sql">-- Volunteer status tracking using lookup tables
-SELECT
-    p.Name2 as VolunteerName,
-    v.ProcessedDate,
-    vs.Description as ApplicationStatus,     -- From lookup TABLE
-    ms.Description as MemberStatus,          -- From lookup TABLE
-    v.Standard,
-    v.Children,
-    v.Leader
-FROM Volunteer v
-JOIN People p ON v.PeopleId = p.PeopleId
-LEFT JOIN lookup.VolApplicationStatus vs ON v.StatusId = vs.Id
-LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
-WHERE v.ProcessedDate IS NOT NULL;</code></pre>
     </div>
 
     <h3>Complete List of Lookup Tables</h3>
