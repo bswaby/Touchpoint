@@ -3334,9 +3334,9 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 </tr>
                 <tr>
                     <td><code>OrgSchedules2</code></td>
-                    <td>Organization meeting schedules</td>
-                    <td>OrgId, MeetingTime, Location</td>
-                    <td><code>SELECT * FROM OrgSchedules2 WHERE NextMeeting > GETDATE()</code></td>
+                    <td>Organization meeting schedules <span class="badge badge-critical">Requires SET QUOTED_IDENTIFIER ON</span></td>
+                    <td>OrganizationId, SchedTime, SchedDay (only 3 columns!)</td>
+                    <td><code>SET QUOTED_IDENTIFIER ON; SELECT * FROM OrgSchedules2 WHERE SchedDay = 1</code></td>
                 </tr>
                 <tr>
                     <td><code>OrgsWithFees</code>, <code>OrgsWithoutFees</code></td>
