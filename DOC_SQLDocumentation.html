@@ -1096,6 +1096,28 @@ lookup.ResidentCode         -- Resident/non-resident
 lookup.SecurityLabel        -- Check-in security labels
 lookup.State                -- State/province codes
 lookup.VolunteerCode        -- Volunteer classifications</code></pre>
+
+    <h3>Lookup Usage Example</h3>
+    <pre><code>-- Complete person profile with all lookups
+-- Note: AttendType is NOT on People table - it's used in Attend table
+SELECT
+    p.Name,
+    fp.Description as FamilyPosition,
+    ms.Description as MaritalStatus,
+    mst.Description as MemberStatus,
+    rc.Description as ResidenceZone,
+    bs.Description as BaptismStatus,
+    g.Description as Gender,
+    c.Description as Campus
+FROM People p
+LEFT JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
+LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
+LEFT JOIN lookup.MemberStatus mst ON p.MemberStatusId = mst.Id
+LEFT JOIN lookup.ResidentCode rc ON p.ResCodeId = rc.Id
+LEFT JOIN lookup.BaptismStatus bs ON p.BaptismStatusId = bs.Id
+LEFT JOIN lookup.Gender g ON p.GenderId = g.Id
+LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+WHERE p.PeopleId = 12345</code></pre>
 </div>
 
 <div id="common-queries" class="section">
@@ -4096,8 +4118,7 @@ ORDER BY TotalReads DESC;</code></pre>
     <div class="info">
         <h3>📚 Additional Resources</h3>
         <ul>
-            <li><strong>TouchPoint Documentation:</strong> <a href="https://docs.touchpoint.church">docs.touchpoint.church</a></li>
-            <li><strong>Community Forum:</strong> <a href="https://community.touchpoint.church">community.touchpoint.church</a></li>
+            <li><strong>TouchPoint Documentation:</strong> <a href="https://docs.touchpointsoftware.com/">docs.touchpoint.church</a></li>
             <li><strong>GitHub Repository:</strong> <a href="https://github.com/bswaby/touchpoint">github.com/bswaby/touchpoint</a></li>
         </ul>
     </div>
@@ -4686,84 +4707,6 @@ GROUP BY r.Name, r.Type, r.Capacity
 ORDER BY TotalReservations DESC</code></pre>
 </div>
 
-<div id="lookup-tables" class="section">
-    <h2>📋 Critical Lookup Tables Reference</h2>
-    
-    <div class="info">
-        <strong>Schema Note:</strong> Most lookup tables are in the <code>lookup</code> schema. Always use <code>lookup.TableName</code> when joining.
-    </div>
-
-    <h3>Key Lookup Tables</h3>
-    <table>
-        <tr>
-            <th>Table</th>
-            <th>Common Values</th>
-            <th>Usage</th>
-        </tr>
-        <tr>
-            <td><code>lookup.AttendType</code></td>
-            <td>10=Leader, 20=Volunteer, 30=Member, 60=Guest</td>
-            <td>Attendance categories</td>
-        </tr>
-        <tr>
-            <td><code>lookup.MemberType</code></td>
-            <td>140=Leader, 220=Member, 230=Prospect, 500=Visitor</td>
-            <td>Organization roles</td>
-        </tr>
-        <tr>
-            <td><code>lookup.PositionInFamily</code></td>
-            <td>10=Primary Adult (both spouses), 20=Secondary/Other Adult, 30=Child</td>
-            <td>Family relationships</td>
-        </tr>
-        <tr>
-            <td><code>lookup.MaritalStatus</code></td>
-            <td>10=Single, 20=Married, 30=Divorced, 40=Widowed</td>
-            <td>Marital status</td>
-        </tr>
-        <tr>
-            <td><code>lookup.DecisionType</code></td>
-            <td>10=Statement of Faith, 20=Baptism, 30=Membership</td>
-            <td>Spiritual decisions</td>
-        </tr>
-        <tr>
-            <td><code>lookup.BaptismStatus</code></td>
-            <td>10=Scheduled, 20=Completed, 30=Cancelled</td>
-            <td>Baptism tracking</td>
-        </tr>
-        <tr>
-            <td><code>lookup.OrganizationStatus</code></td>
-            <td>30=Active, 40=Inactive</td>
-            <td>Org status</td>
-        </tr>
-        <tr>
-            <td><code>lookup.ResidentCode</code></td>
-            <td>10=Metro, 20=Marginal, 30=Non-Resident</td>
-            <td>Geographic zones</td>
-        </tr>
-    </table>
-
-    <h3>Lookup Usage Example</h3>
-    <pre><code>-- Complete person profile with all lookups
--- Note: AttendType is NOT on People table - it's used in Attend table
-SELECT 
-    p.Name,
-    fp.Description as FamilyPosition,
-    ms.Description as MaritalStatus,
-    mst.Description as MemberStatus,
-    rc.Description as ResidenceZone,
-    bs.Description as BaptismStatus,
-    g.Description as Gender,
-    c.Description as Campus
-FROM People p
-LEFT JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
-LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
-LEFT JOIN lookup.MemberStatus mst ON p.MemberStatusId = mst.Id
-LEFT JOIN lookup.ResidentCode rc ON p.ResCodeId = rc.Id
-LEFT JOIN lookup.BaptismStatus bs ON p.BaptismStatusId = bs.Id
-LEFT JOIN lookup.Gender g ON p.GenderId = g.Id
-LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
-WHERE p.PeopleId = 12345</code></pre>
-</div>
 
 <div id="performance-warnings" class="section">
     <h2>⚠️ Performance-Critical Tables</h2>
