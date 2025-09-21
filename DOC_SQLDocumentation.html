@@ -927,6 +927,50 @@ IIF(), CHOOSE()           -- Inline conditionals (SQL 2012+)
 COALESCE(), ISNULL()      -- NULL handling
 NULLIF()                  -- Return NULL if equal
 
+-- TOUCHPOINT USER-DEFINED FUNCTIONS (337+ UDFs)
+-- Most Critical UDFs by Category:
+
+-- CONTRIBUTIONS (51 Functions)
+Contributions2()          -- ⭐ MOST IMPORTANT: Handles spouse, excludes non-tax (7 params)
+GetTotalContributions()   -- Person's total giving (2 params: PeopleId, optional date)
+ContributionAmount()      -- Single contribution amount (3 params)
+PledgeAmount()           -- Pledge total for person/fund (3 params)
+
+-- PEOPLE & PROFILES (42 Functions)
+Age()                    -- Calculate age from BDate (1 param: PeopleId)
+GetSpouseId()           -- Get spouse PeopleId (1 param: PeopleId)
+FamilyGreetingName()    -- Format family greeting (1 param: FamilyId)
+DaysSinceContact()      -- Days since last contact (1 param: PeopleId)
+
+-- ATTENDANCE (31 Functions)
+LastAttend()            -- Last attendance date (2 params: orgid, peopleid - ORDER MATTERS!)
+AttendancePercentage()  -- Attendance rate calculation (3 params)
+RecentAttendance()      -- Recent attendance details (2 params)
+AttendanceCredits()     -- Weekly attendance credits (2 params)
+
+-- ORGANIZATIONS (29 Functions)
+OrgPeopleCurrent()      -- Current org members (1 param: OrgId)
+                        -- Returns: PeopleId, AttPct, LastAttended, MemberType, Groups, etc.
+OrganizationLeaderName() -- Get leader name (1 param: OrgId)
+InSmallGroup()          -- Check small group membership (2 params)
+
+-- FORMATTING (8 Functions)
+FmtPhone()              -- Format phone numbers (2 params: phone, includecountry)
+FmtZip()               -- Format zip codes (1 param: zip)
+
+-- Function Types:
+-- 179 Scalar Functions (return single value - slower in WHERE clauses)
+-- 118 Inline Table-Valued (best performance, optimizer-friendly)
+-- 35 Multi-Statement Table-Valued (moderate performance)
+-- 5 CLR Functions (compiled .NET functions)
+
+-- ⚠️ IMPORTANT UDF USAGE NOTES:
+-- 1. Table-valued functions require FROM: SELECT * FROM dbo.GetTotalContributions(117, NULL)
+-- 2. Birth date column is 'BDate' not 'BirthDate'
+-- 3. LastAttend takes (orgid, peopleid) NOT (peopleid, orgid)
+-- 4. Some functions require SET QUOTED_IDENTIFIER ON
+-- 5. Use CROSS APPLY with table-valued functions for better performance
+
 -- JSON Functions (SQL 2016+)
 JSON_VALUE(), JSON_QUERY() -- Extract from JSON
 ISJSON(), OPENJSON()      -- Validate and parse JSON
@@ -4029,13 +4073,13 @@ SELECT
     -- Remove extra spaces
     LTRIM(RTRIM(Name)) as CleanName,
 
-    -- Extract parts
+    -- Extract parts (using actual column names)
     LEFT(CellPhone, 3) as AreaCode,
-    RIGHT(PostalCode, 4) as Plus4,
+    RIGHT(ZipCode, 4) as Plus4,
     SUBSTRING(EmailAddress, CHARINDEX('@', EmailAddress) + 1, 100) as EmailDomain,
 
-    -- Transform case
-    UPPER(City) as CityUpper,
+    -- Transform case (using actual column names)
+    UPPER(CityName) as CityUpper,
     LOWER(EmailAddress) as EmailLower,
 
     -- Replace and format
@@ -4069,37 +4113,37 @@ HAVING COUNT(*) > 1;</code></pre>
 SELECT
     PeopleId,
     Name,
-    BirthDate,
+    BDate,  -- TouchPoint uses BDate, not BirthDate
 
     -- Age calculations
-    DATEDIFF(year, BirthDate, GETDATE()) as AgeInYears,
-    DATEDIFF(month, BirthDate, GETDATE()) / 12 as ExactAge,
+    DATEDIFF(year, BDate, GETDATE()) as AgeInYears,
+    DATEDIFF(month, BDate, GETDATE()) / 12 as ExactAge,
 
     -- Date parts
-    YEAR(BirthDate) as BirthYear,
-    MONTH(BirthDate) as BirthMonth,
-    DATENAME(month, BirthDate) as BirthMonthName,
-    DATEPART(week, BirthDate) as BirthWeek,
-    DATENAME(weekday, BirthDate) as BirthDayOfWeek,
+    YEAR(BDate) as BirthYear,
+    MONTH(BDate) as BirthMonth,
+    DATENAME(month, BDate) as BirthMonthName,
+    DATEPART(week, BDate) as BirthWeek,
+    DATENAME(weekday, BDate) as BirthDayOfWeek,
 
     -- Date formatting
-    FORMAT(BirthDate, 'MMM dd, yyyy') as FormattedBirthDate,
-    CONVERT(VARCHAR(10), BirthDate, 101) as USDateFormat,
+    FORMAT(BDate, 'MMM dd, yyyy') as FormattedBirthDate,
+    CONVERT(VARCHAR(10), BDate, 101) as USDateFormat,
 
     -- Date calculations
-    DATEADD(year, 1, BirthDate) as FirstBirthday,
-    EOMONTH(BirthDate) as EndOfBirthMonth,
+    DATEADD(year, 1, BDate) as FirstBirthday,
+    EOMONTH(BDate) as EndOfBirthMonth,
 
     -- Upcoming birthday
     CASE
-        WHEN DATEPART(dayofyear, BirthDate) >= DATEPART(dayofyear, GETDATE())
+        WHEN DATEPART(dayofyear, BDate) >= DATEPART(dayofyear, GETDATE())
         THEN DATEDIFF(day, GETDATE(),
-            DATEADD(year, YEAR(GETDATE()) - YEAR(BirthDate), BirthDate))
+            DATEADD(year, YEAR(GETDATE()) - YEAR(BDate), BDate))
         ELSE DATEDIFF(day, GETDATE(),
-            DATEADD(year, YEAR(GETDATE()) - YEAR(BirthDate) + 1, BirthDate))
+            DATEADD(year, YEAR(GETDATE()) - YEAR(BDate) + 1, BDate))
     END as DaysUntilBirthday
 FROM People
-WHERE BirthDate IS NOT NULL;</code></pre>
+WHERE BDate IS NOT NULL;</code></pre>
 
     <h4>3. Mathematical Functions</h4>
     <pre><code class="sql">-- Mathematical calculations for reporting
