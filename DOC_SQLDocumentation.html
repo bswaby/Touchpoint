@@ -955,7 +955,7 @@ OrganizationLeaderName() -- Get leader name (1 param: OrgId)
 InSmallGroup()          -- Check small group membership (2 params)
 
 -- FORMATTING (8 Functions)
-FmtPhone()              -- Format phone numbers (2 params: phone, includecountry)
+FmtPhone()              -- Format phone numbers (1 param: phone)
 FmtZip()               -- Format zip codes (1 param: zip)
 
 -- Function Types:
@@ -5218,27 +5218,32 @@ TaggedPeople, TransactionSearch, WeeklyAttendsForOrgs</code></pre>
     <h3>💡 Using UDFs in Queries</h3>
 
     <h4>Example 1: People Report with Age and Family Info</h4>
-    <pre><code class="sql">SELECT
+    <pre><code class="sql">SELECT TOP 10
     p.PeopleId,
     p.Name,
     dbo.Age(p.PeopleId) as Age,
     dbo.Birthday(p.PeopleId) as Birthday,
     dbo.SpouseId(p.PeopleId) as SpouseId,
     dbo.UName(dbo.SpouseId(p.PeopleId)) as SpouseName,
-    dbo.FamilyGreetingName(p.FamilyId) as FamilyGreeting
+    dbo.FamilyGreetingName(1, p.PeopleId) as FamilyGreeting  -- Takes (type, peopleId)
 FROM People p
 WHERE p.MemberStatusId = 10  -- Members only
+    AND p.IsDeceased = 0
 ORDER BY p.Name;</code></pre>
 
     <h4>Example 2: Contribution Analysis Using Contributions2</h4>
     <pre><code class="sql">-- Use the most important UDF: Contributions2
 -- This handles spouse contributions, excludes non-tax items, etc.
+-- Actual columns: FamilyId, PeopleId, Date, HeadName, SpouseName, Amount, FundName, etc.
 SELECT
     c.FamilyId,
-    c.Name2,
+    c.HeadName,
+    c.SpouseName,
     c.Amount,
-    c.ContributionDate,
-    c.FundName
+    c.Date as ContributionDate,
+    c.FundName,
+    c.CheckNo,
+    c.BundleType
 FROM dbo.Contributions2(
     '2024-01-01',     -- @fd (from date)
     '2024-12-31',     -- @td (to date)
@@ -5252,29 +5257,49 @@ WHERE c.Amount > 100
 ORDER BY c.Amount DESC;</code></pre>
 
     <h4>Example 3: Attendance Tracking</h4>
-    <pre><code class="sql">SELECT
+    <pre><code class="sql">-- Note: LastAttend takes (orgid, peopleid) - parameter order matters!
+-- Some UDFs like OrgPeopleCurrent require SET QUOTED_IDENTIFIER ON
+SET QUOTED_IDENTIFIER ON;
+
+-- Example 1: Check attendance for a specific organization
+DECLARE @orgid INT = 100;  -- Replace with your organization ID
+
+SELECT TOP 10
     p.Name,
-    dbo.LastAttend(p.PeopleId, @orgid) as LastAttendDate,
-    DATEDIFF(day, dbo.LastAttend(p.PeopleId, @orgid), GETDATE()) as DaysSinceAttended,
-    ra.*
+    dbo.LastAttend(@orgid, p.PeopleId) as LastAttendDate,
+    DATEDIFF(day, dbo.LastAttend(@orgid, p.PeopleId), GETDATE()) as DaysSinceAttended
 FROM People p
-CROSS APPLY dbo.RecentAttendance(p.PeopleId, 90) ra  -- Last 90 days
 WHERE p.PeopleId IN (
     SELECT PeopleId FROM dbo.OrgPeopleCurrent(@orgid)
 )
+    AND dbo.LastAttend(@orgid, p.PeopleId) IS NOT NULL
+ORDER BY DaysSinceAttended DESC;
+
+-- Example 2: Check attendance across all organizations (simpler, no variable needed)
+SELECT TOP 10
+    p.Name,
+    dbo.LastAttend(0, p.PeopleId) as LastAttendDate,  -- 0 = all orgs
+    DATEDIFF(day, dbo.LastAttend(0, p.PeopleId), GETDATE()) as DaysSinceAttended
+FROM People p
+WHERE dbo.LastAttend(0, p.PeopleId) IS NOT NULL
 ORDER BY DaysSinceAttended DESC;</code></pre>
 
     <h4>Example 4: Organization Member Lists</h4>
     <pre><code class="sql">-- Get all current members with contact info
-SELECT
+-- Note: OrgPeopleCurrent returns limited columns, JOIN with People for full details
+SET QUOTED_IDENTIFIER ON;  -- Required for OrgPeopleCurrent
+
+SELECT TOP 20
     op.PeopleId,
-    op.Name2,
-    op.EmailAddress,
-    dbo.FmtPhone(op.CellPhone) as CellPhone,
-    op.MemberTypeId,
+    p.Name2,  -- From People table
+    p.EmailAddress,  -- From People table
+    dbo.FmtPhone(p.CellPhone) as CellPhone,  -- FmtPhone takes 1 param
+    op.MemberType,
+    op.AttPct as AttendancePercent,
     dbo.OrganizationLeaderName(101) as LeaderName
 FROM dbo.OrgPeopleCurrent(101) op  -- 101 is the OrgId
-ORDER BY op.Name2;</code></pre>
+JOIN People p ON op.PeopleId = p.PeopleId
+ORDER BY p.Name2;</code></pre>
 
     <h4>Example 5: Tested Real-World UDF Usage</h4>
     <pre><code class="sql">-- Working with Age calculation (BDate column in People table)
