@@ -3191,8 +3191,8 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 <tr>
                     <td><code>SearchNoDiacritics</code></td>
                     <td>Search-friendly names without special characters</td>
-                    <td>17 columns: normalized names for searching</td>
-                    <td><code>SELECT * FROM SearchNoDiacritics WHERE Name LIKE '%jose%'</code></td>
+                    <td>PeopleId, FirstName, LastName, EmailAddress, phones</td>
+                    <td><code>SELECT * FROM SearchNoDiacritics WHERE FirstName LIKE '%jose%' OR LastName LIKE '%jose%'</code></td>
                 </tr>
                 <tr>
                     <td><code>FirstName</code>, <code>LastName</code>, <code>Nick</code></td>
@@ -3231,8 +3231,8 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 <tr>
                     <td><code>TransactionSummary</code></td>
                     <td>Aggregated transaction totals <span class="badge badge-critical">Requires SET QUOTED_IDENTIFIER ON</span></td>
-                    <td>RegId, Name, OrganizationName, TotalAmt, TotalPaid, TotalDue</td>
-                    <td><code>SET QUOTED_IDENTIFIER ON; SELECT * FROM TransactionSummary WHERE TotalPaid > 0</code></td>
+                    <td>RegId, PeopleId, OrganizationId, TotalAmt, TotPaid, TotDue, IndAmt, IndPaid</td>
+                    <td><code>SET QUOTED_IDENTIFIER ON; SELECT * FROM TransactionSummary WHERE TotPaid > 0</code></td>
                 </tr>
                 <tr>
                     <td><code>BundleList</code></td>
