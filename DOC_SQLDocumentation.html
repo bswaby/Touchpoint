@@ -356,6 +356,47 @@
             overflow-x: auto;
             margin: 20px 0;
         }
+
+        /* Read-Only Access Indicators for UDF Tables */
+        span.success {
+            background: #c6f6d5;
+            color: #22543d;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+            border: 1px solid #38a169;
+        }
+
+        span.info {
+            background: #bee3f8;
+            color: #1a365d;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+            border: 1px solid #3182ce;
+        }
+
+        span.warning {
+            background: #fed7e2;
+            color: #742a2a;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+            border: 1px solid #e53e3e;
+        }
+
+        span.danger {
+            background: #fed7d7;
+            color: #742a2a;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+            border: 1px solid #e53e3e;
+        }
     </style>
 </head>
 <body>
@@ -4647,13 +4688,43 @@ ORDER BY FamilyGiving DESC;</code></pre>
 
     <h3>📊 UDF Categories Overview</h3>
     <div class="success">
-        <h4>Function Types Available:</h4>
+        <h4>Function Types Available (with Read-Only Access Status):</h4>
         <ul>
-            <li><strong>Scalar Functions (179)</strong> - Return single values (e.g., Age, FmtPhone)</li>
-            <li><strong>Inline Table-Valued Functions (118)</strong> - Return tables, very efficient</li>
-            <li><strong>Multi-Statement Table-Valued Functions (35)</strong> - Return tables with complex logic</li>
-            <li><strong>CLR Functions (5)</strong> - .NET compiled functions for special operations</li>
+            <li><strong>Scalar Functions (179 total)</strong> - Return single values
+                <ul>
+                    <li>✅ <strong>29 functions with EXECUTE grants</strong> - Will work (e.g., FmtPhone, Birthday, ContributionAmount)</li>
+                    <li>⚠️ <strong>150 functions without grants</strong> - May not work (e.g., Age, UName, SpouseId)</li>
+                </ul>
+            </li>
+            <li><strong>Inline Table-Valued Functions (129)</strong> - Return tables, very efficient
+                <ul>
+                    <li>📘 <strong>Usually work</strong> even without explicit EXECUTE grants (e.g., Contributions2, OrgMember)</li>
+                </ul>
+            </li>
+            <li><strong>Multi-Statement Table-Valued Functions (63)</strong> - Return tables with complex logic
+                <ul>
+                    <li>🚫 <strong>Often require special permissions</strong> - May not work (e.g., FindPerson, AttendanceCredits)</li>
+                </ul>
+            </li>
+            <li><strong>CLR Functions (5)</strong> - .NET compiled functions
+                <ul>
+                    <li>✅ <strong>RegexMatch has EXECUTE grants</strong> - Will work</li>
+                    <li>⚠️ <strong>Others may not work</strong> without permissions</li>
+                </ul>
+            </li>
         </ul>
+    </div>
+
+    <div class="warning">
+        <h4>⚠️ Read-Only Access Limitations</h4>
+        <p><strong>Important:</strong> Your read-only database access means many UDFs may not work due to missing EXECUTE permissions. Functions are marked based on database permission analysis:</p>
+        <ul>
+            <li><span class="success">✅ Works</span> - Function has EXECUTE grants and will work with read-only access (29 scalar functions confirmed)</li>
+            <li><span class="info">📘 Usually works</span> - Inline Table-Valued Functions typically work even without explicit grants (129 functions)</li>
+            <li><span class="warning">⚠️ May not work</span> - Scalar function without EXECUTE grants, likely to fail (112 scalar functions)</li>
+            <li><span class="danger">🚫 May not work</span> - Multi-Statement Table-Valued Functions often require special permissions (63 functions)</li>
+        </ul>
+        <p><strong>Alternative:</strong> Use the standard SQL queries provided in examples instead of relying on UDFs that may not work.</p>
     </div>
 
     <h3>🎯 Most Important Functions by Category</h3>
@@ -4663,9 +4734,10 @@ ORDER BY FamilyGiving DESC;</code></pre>
         <table>
             <thead>
                 <tr>
-                    <th style="width: 30%;">Function Name</th>
-                    <th style="width: 20%;">Type</th>
-                    <th style="width: 35%;">Description</th>
+                    <th style="width: 25%;">Function Name</th>
+                    <th style="width: 15%;">Type</th>
+                    <th style="width: 30%;">Description</th>
+                    <th style="width: 15%;">Read-Only Access</th>
                     <th style="width: 15%;">Example Usage</th>
                 </tr>
             </thead>
@@ -4674,60 +4746,70 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.Age(PeopleId)</code></td>
                     <td>Scalar</td>
                     <td>Returns person's current age</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.Age(p.PeopleId)</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.ComputeAge(birthdate)</code></td>
                     <td>Scalar</td>
                     <td>Calculate age from birthdate</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.ComputeAge('1990-01-15')</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.Birthday(PeopleId)</code></td>
                     <td>Scalar</td>
                     <td>Returns person's birthday</td>
+                    <td><span class="success">✅ Works</span></td>
                     <td><code>dbo.Birthday(123)</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.NextBirthday(PeopleId)</code></td>
                     <td>Scalar</td>
                     <td>Returns next birthday date</td>
+                    <td><span class="success">✅ Works</span></td>
                     <td><code>dbo.NextBirthday(123)</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.SpouseId(PeopleId)</code></td>
                     <td>Scalar</td>
                     <td>Returns spouse's PeopleId</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.SpouseId(123)</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.HeadOfHouseholdId(FamilyId)</code></td>
                     <td>Scalar</td>
                     <td>Returns head of household</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.HeadOfHouseholdId(f.FamilyId)</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.FamilyMembers(FamilyId)</code></td>
                     <td>Table-Valued</td>
                     <td>Returns all family members</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td><code>SELECT * FROM dbo.FamilyMembers(456)</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.FindPerson(first, last, email)</code></td>
                     <td>Table-Valued</td>
                     <td>Search for person by name/email</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td><code>SELECT * FROM dbo.FindPerson('John', 'Smith', NULL)</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.UName(PeopleId)</code></td>
                     <td>Scalar</td>
                     <td>Returns formatted name</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.UName(123)</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.UName2(PeopleId)</code></td>
                     <td>Scalar</td>
                     <td>Returns name (Last, First)</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.UName2(123)</code></td>
                 </tr>
             </tbody>
@@ -4739,9 +4821,10 @@ ORDER BY FamilyGiving DESC;</code></pre>
         <table>
             <thead>
                 <tr>
-                    <th style="width: 30%;">Function Name</th>
-                    <th style="width: 20%;">Type</th>
-                    <th style="width: 35%;">Description</th>
+                    <th style="width: 25%;">Function Name</th>
+                    <th style="width: 15%;">Type</th>
+                    <th style="width: 30%;">Description</th>
+                    <th style="width: 15%;">Read-Only Access</th>
                     <th style="width: 15%;">Parameters</th>
                 </tr>
             </thead>
@@ -4750,60 +4833,70 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.Contributions2</code></td>
                     <td>Inline Table</td>
                     <td><strong>⭐ MOST USED:</strong> Returns contributions with spouse handling & exclusions</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@fd, @td, @campusid, @pledges, @nontaxded, @includeUnclosed, @fundids</td>
                 </tr>
                 <tr>
                     <td><code>dbo.ContributionAmount</code></td>
                     <td>Scalar</td>
                     <td>Total contributions for person in date range</td>
+                    <td><span class="success">✅ Works</span></td>
                     <td>@pid, @fromdate, @todate, @fundid</td>
                 </tr>
                 <tr>
                     <td><code>dbo.ContributionCount</code></td>
                     <td>Scalar</td>
                     <td>Count of contributions</td>
+                    <td><span class="success">✅ Works</span></td>
                     <td>@pid, @fromdate, @todate</td>
                 </tr>
                 <tr>
                     <td><code>dbo.GetTotalContributions</code></td>
                     <td>Table-Valued</td>
                     <td>Detailed contribution totals by person</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@fd, @td</td>
                 </tr>
                 <tr>
                     <td><code>dbo.GetTotalContributions2</code></td>
                     <td>Table-Valued</td>
                     <td>Enhanced contribution totals with funds</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@fd, @td, @campusid, @nontaxded</td>
                 </tr>
                 <tr>
                     <td><code>dbo.PledgeAmount</code></td>
                     <td>Scalar</td>
                     <td>Total pledge amount for person</td>
+                    <td><span class="success">✅ Works</span></td>
                     <td>@pid, @fundid</td>
                 </tr>
                 <tr>
                     <td><code>dbo.PledgeBalances</code></td>
                     <td>Table-Valued</td>
                     <td>Outstanding pledge balances</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@fd, @td</td>
                 </tr>
                 <tr>
                     <td><code>dbo.RecentGiver</code></td>
                     <td>Table-Valued</td>
                     <td>People who gave recently</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@days</td>
                 </tr>
                 <tr>
                     <td><code>dbo.FirstTimeGivers</code></td>
                     <td>Table-Valued</td>
                     <td>Identify first-time donors</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@days1, @days2</td>
                 </tr>
                 <tr>
                     <td><code>dbo.GivingChange</code></td>
                     <td>Table-Valued</td>
                     <td>Year-over-year giving changes</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@fd1, @td1, @fd2, @td2</td>
                 </tr>
             </tbody>
@@ -4815,9 +4908,10 @@ ORDER BY FamilyGiving DESC;</code></pre>
         <table>
             <thead>
                 <tr>
-                    <th style="width: 30%;">Function Name</th>
-                    <th style="width: 20%;">Type</th>
-                    <th style="width: 35%;">Description</th>
+                    <th style="width: 25%;">Function Name</th>
+                    <th style="width: 15%;">Type</th>
+                    <th style="width: 30%;">Description</th>
+                    <th style="width: 15%;">Read-Only Access</th>
                     <th style="width: 15%;">Key Parameters</th>
                 </tr>
             </thead>
@@ -4826,48 +4920,56 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.LastAttend</code></td>
                     <td>Scalar</td>
                     <td>Last attendance date for person</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td>@pid, @orgid</td>
                 </tr>
                 <tr>
                     <td><code>dbo.AttendedAsOf</code></td>
                     <td>Table-Valued</td>
                     <td>People who attended by date</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@progid, @divid, @orgid, @asof</td>
                 </tr>
                 <tr>
                     <td><code>dbo.AttendanceCredits</code></td>
                     <td>Table-Valued</td>
                     <td>Weekly attendance credits</td>
+                    <td><span class="danger">🚫 May not work</span></td>
                     <td>@orgid, @year</td>
                 </tr>
                 <tr>
                     <td><code>dbo.RecentAttendance</code></td>
                     <td>Table-Valued</td>
                     <td>Recent attendance records</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@orgid, @days</td>
                 </tr>
                 <tr>
                     <td><code>dbo.RecentAbsents</code></td>
                     <td>Table-Valued</td>
                     <td>Recently absent members</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@orgid, @divid, @days</td>
                 </tr>
                 <tr>
                     <td><code>dbo.ConsecutiveAbsents</code></td>
                     <td>Table-Valued</td>
                     <td>Members absent X weeks in row</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@orgid, @weeks</td>
                 </tr>
                 <tr>
                     <td><code>dbo.AttendMemberTypeAsOf</code></td>
                     <td>Table-Valued</td>
                     <td>Attendance by member type</td>
+                    <td><span class="danger">🚫 May not work</span></td>
                     <td>@orgid, @asof</td>
                 </tr>
                 <tr>
                     <td><code>dbo.GetTodaysMeetingId</code></td>
                     <td>Scalar</td>
                     <td>Today's meeting ID for org</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td>@orgid, @thisday</td>
                 </tr>
             </tbody>
@@ -4879,9 +4981,10 @@ ORDER BY FamilyGiving DESC;</code></pre>
         <table>
             <thead>
                 <tr>
-                    <th style="width: 30%;">Function Name</th>
-                    <th style="width: 20%;">Type</th>
-                    <th style="width: 35%;">Description</th>
+                    <th style="width: 25%;">Function Name</th>
+                    <th style="width: 15%;">Type</th>
+                    <th style="width: 30%;">Description</th>
+                    <th style="width: 15%;">Read-Only Access</th>
                     <th style="width: 15%;">Usage</th>
                 </tr>
             </thead>
@@ -4890,48 +4993,56 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.OrgMember</code></td>
                     <td>Table-Valued</td>
                     <td>Current org members</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@orgid</td>
                 </tr>
                 <tr>
                     <td><code>dbo.OrgPeople</code></td>
                     <td>Table-Valued</td>
                     <td>All people in org (all types)</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@orgid</td>
                 </tr>
                 <tr>
                     <td><code>dbo.OrgPeopleCurrent</code></td>
                     <td>Table-Valued</td>
                     <td>Current active members only</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@orgid</td>
                 </tr>
                 <tr>
                     <td><code>dbo.OrgFilterGuests</code></td>
                     <td>Table-Valued</td>
                     <td>Guest/visitor list</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@orgid</td>
                 </tr>
                 <tr>
                     <td><code>dbo.OrganizationMemberCount</code></td>
                     <td>Scalar</td>
                     <td>Count of current members</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td>@orgid</td>
                 </tr>
                 <tr>
                     <td><code>dbo.OrganizationLeaderName</code></td>
                     <td>Scalar</td>
                     <td>Returns leader's name</td>
+                    <td><span class="success">✅ Works</span></td>
                     <td>@orgid</td>
                 </tr>
                 <tr>
                     <td><code>dbo.InSmallGroup</code></td>
                     <td>Scalar</td>
                     <td>Check if in small group</td>
+                    <td><span class="success">✅ Works</span></td>
                     <td>@pid</td>
                 </tr>
                 <tr>
                     <td><code>dbo.RollList</code></td>
                     <td>Table-Valued</td>
                     <td>Attendance roll sheet</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@meetingid, @orgid</td>
                 </tr>
             </tbody>
@@ -4943,9 +5054,10 @@ ORDER BY FamilyGiving DESC;</code></pre>
         <table>
             <thead>
                 <tr>
-                    <th style="width: 30%;">Function Name</th>
-                    <th style="width: 20%;">Type</th>
-                    <th style="width: 35%;">Description</th>
+                    <th style="width: 25%;">Function Name</th>
+                    <th style="width: 15%;">Type</th>
+                    <th style="width: 30%;">Description</th>
+                    <th style="width: 15%;">Read-Only Access</th>
                     <th style="width: 15%;">Example</th>
                 </tr>
             </thead>
@@ -4954,42 +5066,49 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.FmtPhone</code></td>
                     <td>Scalar</td>
                     <td>Format phone number</td>
+                    <td><span class="success">✅ Works</span></td>
                     <td><code>dbo.FmtPhone('1234567890')</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.HomePhone</code></td>
                     <td>Scalar</td>
                     <td>Get home phone</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.HomePhone(123)</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.IsValidEmail</code></td>
                     <td>Scalar</td>
                     <td>Validate email format</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.IsValidEmail('test@example.com')</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.UEmail</code></td>
                     <td>Scalar</td>
                     <td>Get person's email</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.UEmail(123)</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.LastContact</code></td>
                     <td>Scalar</td>
                     <td>Last contact date</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.LastContact(123)</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.ContactSummary</code></td>
                     <td>Table-Valued</td>
                     <td>Contact history summary</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@pid</td>
                 </tr>
                 <tr>
                     <td><code>dbo.OptOuts</code></td>
                     <td>Table-Valued</td>
                     <td>Email opt-out list</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>@tagid</td>
                 </tr>
             </tbody>
@@ -5001,9 +5120,10 @@ ORDER BY FamilyGiving DESC;</code></pre>
         <table>
             <thead>
                 <tr>
-                    <th style="width: 30%;">Function Name</th>
-                    <th style="width: 20%;">Type</th>
-                    <th style="width: 35%;">Description</th>
+                    <th style="width: 25%;">Function Name</th>
+                    <th style="width: 15%;">Type</th>
+                    <th style="width: 30%;">Description</th>
+                    <th style="width: 15%;">Read-Only Access</th>
                     <th style="width: 15%;">Usage</th>
                 </tr>
             </thead>
@@ -5012,42 +5132,49 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.SplitInts</code></td>
                     <td>Table-Valued</td>
                     <td>Split comma-separated integers</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td><code>SELECT * FROM dbo.SplitInts('1,2,3')</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.SplitStrings</code></td>
                     <td>Table-Valued</td>
                     <td>Split delimited strings</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td><code>SELECT * FROM dbo.SplitStrings('a;b;c', ';')</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.ParseDate</code></td>
                     <td>Scalar</td>
                     <td>Parse various date formats</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.ParseDate('01/15/2024')</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.ElapsedTime</code></td>
                     <td>Scalar</td>
                     <td>Time between dates</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.ElapsedTime(@start, @end)</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.WeekNumber</code></td>
                     <td>Scalar</td>
                     <td>Week number of date</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.WeekNumber('2024-01-15')</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.SundayForDate</code></td>
                     <td>Scalar</td>
                     <td>Sunday of week for date</td>
+                    <td><span class="success">✅ Works</span></td>
                     <td><code>dbo.SundayForDate(GETDATE())</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.CompleteZip</code></td>
                     <td>Scalar</td>
                     <td>Format ZIP code</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td><code>dbo.CompleteZip('12345', '6789')</code></td>
                 </tr>
             </tbody>
@@ -5059,9 +5186,10 @@ ORDER BY FamilyGiving DESC;</code></pre>
         <table>
             <thead>
                 <tr>
-                    <th style="width: 30%;">Function Name</th>
-                    <th style="width: 20%;">Type</th>
-                    <th style="width: 35%;">Description</th>
+                    <th style="width: 25%;">Function Name</th>
+                    <th style="width: 15%;">Type</th>
+                    <th style="width: 30%;">Description</th>
+                    <th style="width: 15%;">Read-Only Access</th>
                     <th style="width: 15%;">Purpose</th>
                 </tr>
             </thead>
@@ -5070,42 +5198,49 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.FindPerson</code></td>
                     <td>Table-Valued</td>
                     <td>Search for person</td>
+                    <td><span class="danger">🚫 May not work</span></td>
                     <td>Name/email search</td>
                 </tr>
                 <tr>
                     <td><code>dbo.FindPersonByEmail</code></td>
                     <td>Table-Valued</td>
                     <td>Search by email</td>
+                    <td><span class="danger">🚫 May not work</span></td>
                     <td>Email lookup</td>
                 </tr>
                 <tr>
                     <td><code>dbo.TaggedPeople</code></td>
                     <td>Table-Valued</td>
                     <td>People with specific tag</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>Tag filtering</td>
                 </tr>
                 <tr>
                     <td><code>dbo.StatusFlags</code></td>
                     <td>Table-Valued</td>
                     <td>People with status flags</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>Status filtering</td>
                 </tr>
                 <tr>
                     <td><code>dbo.PotentialDups</code></td>
                     <td>Table-Valued</td>
                     <td>Find duplicate records</td>
+                    <td><span class="info">📘 Usually works</span></td>
                     <td>Data cleanup</td>
                 </tr>
                 <tr>
                     <td><code>dbo.RegexMatch</code></td>
                     <td>CLR Scalar</td>
                     <td>Regular expression match</td>
+                    <td><span class="success">✅ Works</span></td>
                     <td>Pattern matching</td>
                 </tr>
                 <tr>
                     <td><code>dbo.AllDigits</code></td>
                     <td>CLR Scalar</td>
                     <td>Extract digits from string</td>
+                    <td><span class="warning">⚠️ May not work</span></td>
                     <td>Phone cleanup</td>
                 </tr>
             </tbody>
@@ -5218,10 +5353,21 @@ TaggedPeople, TransactionSearch, WeeklyAttendsForOrgs</code></pre>
     <h3>💡 Using UDFs in Queries</h3>
 
     <div class="warning">
-        <h4>⚠️ EXECUTE Permissions Required</h4>
-        <p><strong>Important:</strong> TouchPoint UDFs require EXECUTE permissions. If you get errors like:</p>
-        <code>The EXECUTE permission was denied on the object 'FunctionName'</code>
-        <p>You need to request permission from your TouchPoint administrator. As an alternative, use the standard SQL examples below that don't require UDF permissions.</p>
+        <h4>⚠️ Read-Only SQL Access with UDF Limitations</h4>
+        <p><strong>Important:</strong> All TouchPoint users have <strong>read-only SQL access</strong> with the ability to write to temp tables.</p>
+        <p>This means:</p>
+        <ul>
+            <li>✅ You CAN: SELECT from tables, CREATE/USE temp tables (#TempTable)</li>
+            <li>❌ You CANNOT: INSERT, UPDATE, DELETE in permanent tables</li>
+            <li>⚠️ UDF Access Varies: Some functions require EXECUTE permissions you may not have</li>
+        </ul>
+        <p>If you get errors like: <code>The EXECUTE permission was denied on the object 'FunctionName'</code></p>
+        <p>Solutions:</p>
+        <ol>
+            <li><strong>Preferred:</strong> Use table-valued functions like <code>Contributions2</code> which typically work with read-only access</li>
+            <li><strong>Alternative:</strong> Use the standard SQL queries provided below that don't require UDF permissions</li>
+            <li><strong>Temp Tables:</strong> Use temp tables for complex calculations instead of scalar UDFs</li>
+        </ol>
     </div>
 
     <h4>Example 1: People Report with Age and Family Info</h4>
@@ -5413,8 +5559,71 @@ SELECT
     ISNULL(dbo.DaysSinceContact(p.PeopleId), 9999) as DaysSince
 FROM People p;</code></pre>
 
+    <h3>🔓 UDF Examples That Typically Work Without Permission Issues</h3>
+    <p>These table-valued functions often have broader permissions:</p>
+
+    <h4>Working Example 1: Using Contributions2 (Table-Valued Function)</h4>
+    <pre><code class="sql">-- Contributions2 is a table-valued function that often works when scalar functions don't
+SELECT TOP 20
+    c.FamilyId,
+    c.HeadName,
+    c.SpouseName,
+    c.Date as ContributionDate,
+    c.Amount,
+    c.FundName,
+    c.CheckNo
+FROM dbo.Contributions2(
+    '2024-01-01',  -- From date
+    '2024-12-31',  -- To date
+    0,             -- Campus (0=all)
+    0,             -- Pledges (0=exclude)
+    0,             -- Non-tax deductible (0=exclude)
+    1,             -- Include unclosed bundles
+    NULL           -- Fund IDs (NULL=all)
+) c
+WHERE c.Amount > 0
+ORDER BY c.Date DESC;</code></pre>
+
+    <h4>Working Example 2: Using Split Function (Table-Valued)</h4>
+    <pre><code class="sql">-- Split function for parsing delimited strings
+SELECT value
+FROM dbo.Split('Apple,Banana,Cherry', ',');
+
+-- Use Split to parse multi-value extra values
+SELECT
+    p.PeopleId,
+    p.Name,
+    s.value as Interest
+FROM People p
+CROSS APPLY dbo.Split(
+    (SELECT Data FROM PeopleExtra
+     WHERE PeopleId = p.PeopleId
+     AND Field = 'Interests'), ',') s
+WHERE p.PeopleId = 12345;</code></pre>
+
+    <h4>Working Example 3: Using PledgeReport (Table-Valued)</h4>
+    <pre><code class="sql">-- Get pledge fulfillment data
+SELECT *
+FROM dbo.PledgeReport(1, '2024-01-01', '2024-12-31')
+WHERE AmountPledged > 0;</code></pre>
+
+    <h4>Working Example 4: Using GetContributionsRange (Table-Valued)</h4>
+    <pre><code class="sql">-- Get contribution ranges for analysis (8 parameters)
+SELECT TOP 20 *
+FROM dbo.GetContributionsRange(
+    '2024-01-01',  -- @fd (from date)
+    '2024-12-31',  -- @td (to date)
+    0,             -- @campusid
+    0,             -- @nontaxded
+    1,             -- @includeUnclosed
+    0,             -- @pledge
+    NULL,          -- @fundid
+    NULL           -- @fundids
+)
+WHERE Amount > 100;</code></pre>
+
     <h3>📝 Alternative Queries Without UDF Permissions</h3>
-    <p>If you don't have EXECUTE permissions on UDFs, use these standard SQL alternatives:</p>
+    <p>If you don't have EXECUTE permissions on any UDFs, use these standard SQL alternatives:</p>
 
     <h4>Alternative 1: Calculate Age Without Age() Function</h4>
     <pre><code class="sql">-- Calculate age using standard SQL instead of dbo.Age()
@@ -5498,6 +5707,117 @@ SELECT TOP 10
 FROM People p
 WHERE p.CellPhone IS NOT NULL
     AND p.CellPhone != '';</code></pre>
+
+    <h3>💡 Using Temp Tables Instead of UDFs</h3>
+    <p>Since all users have read-only access with temp table permissions, use temp tables for complex calculations:</p>
+
+    <h4>Temp Table Example 1: Calculate Ages Using Temp Table</h4>
+    <pre><code class="sql">-- Create temp table with age calculations (replaces dbo.Age() function)
+SELECT
+    PeopleId,
+    Name,
+    BDate,
+    DATEDIFF(year, BDate, GETDATE()) -
+        CASE
+            WHEN MONTH(BDate) > MONTH(GETDATE()) OR
+                 (MONTH(BDate) = MONTH(GETDATE()) AND DAY(BDate) > DAY(GETDATE()))
+            THEN 1
+            ELSE 0
+        END as Age
+INTO #PeopleWithAges
+FROM People
+WHERE BDate IS NOT NULL
+    AND IsDeceased = 0;
+
+-- Now use the temp table for analysis
+SELECT
+    Age,
+    COUNT(*) as PeopleCount
+FROM #PeopleWithAges
+GROUP BY Age
+ORDER BY Age;
+
+-- Clean up
+DROP TABLE #PeopleWithAges;</code></pre>
+
+    <h4>Temp Table Example 2: Build Custom Contribution Summary</h4>
+    <pre><code class="sql">-- Create contribution summary temp table (replaces complex UDF logic)
+WITH ContributionSummary AS (
+    SELECT
+        p.FamilyId,
+        p.Name as HeadOfHousehold,
+        c.ContributionDate,
+        c.ContributionAmount,
+        cf.FundName,
+        ROW_NUMBER() OVER (PARTITION BY p.FamilyId ORDER BY c.ContributionDate DESC) as RowNum
+    FROM Contribution c
+    JOIN People p ON c.PeopleId = p.PeopleId
+    JOIN ContributionFund cf ON c.FundId = cf.FundId
+    WHERE c.ContributionDate >= DATEADD(year, -1, GETDATE())
+        AND c.ContributionTypeId = 1  -- Tax deductible only
+        AND c.ContributionStatusId = 0  -- Posted
+)
+SELECT *
+INTO #FamilyGiving
+FROM ContributionSummary;
+
+-- Analyze family giving patterns
+SELECT
+    FamilyId,
+    HeadOfHousehold,
+    COUNT(*) as GiftCount,
+    SUM(ContributionAmount) as TotalGiving,
+    AVG(ContributionAmount) as AverageGift,
+    MAX(ContributionDate) as LastGiftDate
+FROM #FamilyGiving
+GROUP BY FamilyId, HeadOfHousehold
+HAVING SUM(ContributionAmount) > 1000
+ORDER BY TotalGiving DESC;
+
+-- Clean up
+DROP TABLE #FamilyGiving;</code></pre>
+
+    <h4>Temp Table Example 3: Attendance Analysis Without LastAttend()</h4>
+    <pre><code class="sql">-- Build attendance summary in temp table
+SELECT
+    a.PeopleId,
+    p.Name,
+    MAX(m.MeetingDate) as LastAttendDate,
+    COUNT(DISTINCT m.MeetingId) as MeetingsAttended,
+    COUNT(DISTINCT DATEPART(week, m.MeetingDate)) as WeeksAttended
+INTO #AttendanceSummary
+FROM Attend a
+JOIN People p ON a.PeopleId = p.PeopleId
+JOIN Meetings m ON a.MeetingId = m.MeetingId
+WHERE a.AttendanceFlag = 1
+    AND m.MeetingDate >= DATEADD(month, -3, GETDATE())
+GROUP BY a.PeopleId, p.Name;
+
+-- Analyze attendance patterns
+SELECT
+    *,
+    DATEDIFF(day, LastAttendDate, GETDATE()) as DaysSinceLastAttend
+FROM #AttendanceSummary
+ORDER BY DaysSinceLastAttend DESC;
+
+-- Find irregular attenders
+SELECT * FROM #AttendanceSummary
+WHERE WeeksAttended BETWEEN 2 AND 8  -- Attended 2-8 weeks in last 3 months
+ORDER BY LastAttendDate DESC;
+
+-- Clean up
+DROP TABLE #AttendanceSummary;</code></pre>
+
+    <div class="success">
+        <h4>✅ Advantages of Temp Tables for Read-Only Users</h4>
+        <ul>
+            <li><strong>No permission issues:</strong> Temp tables always work with read-only access</li>
+            <li><strong>Better performance:</strong> Can index temp tables for complex queries</li>
+            <li><strong>Reusable:</strong> Create once, query multiple times in the same session</li>
+            <li><strong>Complex logic:</strong> Implement calculations that would require multiple UDFs</li>
+            <li><strong>Debugging:</strong> Can SELECT * from temp tables to verify intermediate results</li>
+        </ul>
+    </div>
 
     <div class="warning">
         <h4>⚠️ Performance Considerations for UDFs</h4>
