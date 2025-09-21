@@ -1330,7 +1330,377 @@ ORDER BY Uses DESC</code></pre>
     
     <p>TouchPoint includes 67+ lookup tables that provide business logic, validation rules, and categorization throughout the system.</p>
 
-    <h3>Critical Lookup Tables</h3>
+    <h3>Complete List of All 67 Lookup Tables</h3>
+
+    <div class="info">
+        <p><strong>TouchPoint contains exactly 67 lookup tables in the lookup schema.</strong> Each table stores reference data used throughout the system for consistency and data integrity.</p>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Table Name</th>
+                    <th>Description</th>
+                    <th>Primary Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>AccountCode</code></td>
+                    <td>Account codes for financial tracking</td>
+                    <td>Contribution and transaction categorization</td>
+                </tr>
+                <tr>
+                    <td><code>AddressType</code></td>
+                    <td>Types of addresses (Home, Work, etc.)</td>
+                    <td>Address classification for people and organizations</td>
+                </tr>
+                <tr>
+                    <td><code>AttendCredit</code></td>
+                    <td>Attendance credit types and rules</td>
+                    <td>Tracking different types of attendance credits</td>
+                </tr>
+                <tr>
+                    <td><code>AttendType</code></td>
+                    <td>Attendance classification (Member, Guest, etc.)</td>
+                    <td>Categorizing attendance records</td>
+                </tr>
+                <tr>
+                    <td><code>BackGroundCheckApprovalCodes</code></td>
+                    <td>Background check approval statuses</td>
+                    <td>Volunteer screening and approval tracking</td>
+                </tr>
+                <tr>
+                    <td><code>BackgroundCheckLabels</code></td>
+                    <td>Labels for background check types</td>
+                    <td>Categorizing different background check requirements</td>
+                </tr>
+                <tr>
+                    <td><code>BadgeColor</code></td>
+                    <td>Check-in badge color codes</td>
+                    <td>Visual identification in check-in system</td>
+                </tr>
+                <tr>
+                    <td><code>BaptismStatus</code></td>
+                    <td>Baptism status tracking</td>
+                    <td>Recording baptism completion status</td>
+                </tr>
+                <tr>
+                    <td><code>BaptismType</code></td>
+                    <td>Types of baptism (Immersion, Sprinkling, etc.)</td>
+                    <td>Classifying baptism methods</td>
+                </tr>
+                <tr>
+                    <td><code>BuildingAccessTypes</code></td>
+                    <td>Building access permissions</td>
+                    <td>Facility security and access control</td>
+                </tr>
+                <tr>
+                    <td><code>BundleHeaderTypes</code></td>
+                    <td>Contribution bundle types</td>
+                    <td>Categorizing contribution batches</td>
+                </tr>
+                <tr>
+                    <td><code>BundleStatusTypes</code></td>
+                    <td>Bundle processing statuses</td>
+                    <td>Tracking contribution batch workflow</td>
+                </tr>
+                <tr>
+                    <td><code>Campus</code></td>
+                    <td>Church campus locations</td>
+                    <td>Multi-site church management</td>
+                </tr>
+                <tr>
+                    <td><code>CategoryMobile</code></td>
+                    <td>Mobile app categories</td>
+                    <td>Organizing content in mobile applications</td>
+                </tr>
+                <tr>
+                    <td><code>CommunicationTypes</code></td>
+                    <td>Communication method types</td>
+                    <td>Tracking preferred communication channels</td>
+                </tr>
+                <tr>
+                    <td><code>ContactPreference</code></td>
+                    <td>Contact preference settings</td>
+                    <td>Managing communication preferences</td>
+                </tr>
+                <tr>
+                    <td><code>ContactReason</code></td>
+                    <td>Reasons for contact</td>
+                    <td>Categorizing contact interactions</td>
+                </tr>
+                <tr>
+                    <td><code>ContactType</code></td>
+                    <td>Types of contact interactions</td>
+                    <td>Classifying touchpoints with members</td>
+                </tr>
+                <tr>
+                    <td><code>ContributionSources</code></td>
+                    <td>Sources of contributions</td>
+                    <td>Tracking where donations originate</td>
+                </tr>
+                <tr>
+                    <td><code>ContributionStatus</code></td>
+                    <td>Contribution processing statuses</td>
+                    <td>Managing donation workflow</td>
+                </tr>
+                <tr>
+                    <td><code>ContributionType</code></td>
+                    <td>Types of contributions</td>
+                    <td>Classifying donations (tax-deductible, fees, etc.)</td>
+                </tr>
+                <tr>
+                    <td><code>Country</code></td>
+                    <td>Country codes and names</td>
+                    <td>International address support</td>
+                </tr>
+                <tr>
+                    <td><code>DecisionType</code></td>
+                    <td>Types of spiritual decisions</td>
+                    <td>Recording salvation, baptism, membership decisions</td>
+                </tr>
+                <tr>
+                    <td><code>DropType</code></td>
+                    <td>Reasons for dropping enrollment</td>
+                    <td>Tracking why people leave programs</td>
+                </tr>
+                <tr>
+                    <td><code>EntryPoint</code></td>
+                    <td>Entry points into church</td>
+                    <td>Tracking how people first connect</td>
+                </tr>
+                <tr>
+                    <td><code>EnvelopeOption</code></td>
+                    <td>Envelope assignment options</td>
+                    <td>Managing giving envelope distribution</td>
+                </tr>
+                <tr>
+                    <td><code>FamilyMemberType</code></td>
+                    <td>Family member classifications</td>
+                    <td>Defining relationships within families</td>
+                </tr>
+                <tr>
+                    <td><code>FamilyPosition</code></td>
+                    <td>Position in family hierarchy</td>
+                    <td>Primary Adult, Child, etc.</td>
+                </tr>
+                <tr>
+                    <td><code>FamilyRelationship</code></td>
+                    <td>Family relationship types</td>
+                    <td>Defining specific family connections</td>
+                </tr>
+                <tr>
+                    <td><code>GatewayConfigurationTemplate</code></td>
+                    <td>Payment gateway templates</td>
+                    <td>Online giving configuration</td>
+                </tr>
+                <tr>
+                    <td><code>GatewayReasonCodes</code></td>
+                    <td>Payment gateway response codes</td>
+                    <td>Processing payment results</td>
+                </tr>
+                <tr>
+                    <td><code>Gateways</code></td>
+                    <td>Payment gateway providers</td>
+                    <td>Available payment processors</td>
+                </tr>
+                <tr>
+                    <td><code>GatewayServiceType</code></td>
+                    <td>Types of gateway services</td>
+                    <td>Different payment processing options</td>
+                </tr>
+                <tr>
+                    <td><code>Gender</code></td>
+                    <td>Gender classifications</td>
+                    <td>Male, Female, Unknown</td>
+                </tr>
+                <tr>
+                    <td><code>GradeLevel</code></td>
+                    <td>School grade levels</td>
+                    <td>Age-appropriate ministry grouping</td>
+                </tr>
+                <tr>
+                    <td><code>InterestPoint</code></td>
+                    <td>Ministry interest areas</td>
+                    <td>Tracking ministry preferences</td>
+                </tr>
+                <tr>
+                    <td><code>JoinType</code></td>
+                    <td>How people join church</td>
+                    <td>Baptism, Transfer, Statement, etc.</td>
+                </tr>
+                <tr>
+                    <td><code>LocationMobile</code></td>
+                    <td>Mobile app locations</td>
+                    <td>Location-based features in app</td>
+                </tr>
+                <tr>
+                    <td><code>MaritalStatus</code></td>
+                    <td>Marital status options</td>
+                    <td>Married, Single, Divorced, Widowed</td>
+                </tr>
+                <tr>
+                    <td><code>Medication</code></td>
+                    <td>Common medications list</td>
+                    <td>Medical information for children's ministry</td>
+                </tr>
+                <tr>
+                    <td><code>MeetingType</code></td>
+                    <td>Types of meetings</td>
+                    <td>Regular, Special, Make-up, etc.</td>
+                </tr>
+                <tr>
+                    <td><code>MemberLetterStatus</code></td>
+                    <td>Member letter tracking</td>
+                    <td>Status of membership transfer letters</td>
+                </tr>
+                <tr>
+                    <td><code>MemberStatus</code></td>
+                    <td>Membership statuses</td>
+                    <td>Member, Prospect, Previous Member, etc.</td>
+                </tr>
+                <tr>
+                    <td><code>MemberType</code></td>
+                    <td>Organization member types</td>
+                    <td>Leader, Member, Volunteer, Guest</td>
+                </tr>
+                <tr>
+                    <td><code>MobileAgeRestriction</code></td>
+                    <td>Age restrictions for mobile features</td>
+                    <td>Child safety in mobile app</td>
+                </tr>
+                <tr>
+                    <td><code>NewMemberClassStatus</code></td>
+                    <td>New member class progress</td>
+                    <td>Tracking membership class completion</td>
+                </tr>
+                <tr>
+                    <td><code>OrganizationStatus</code></td>
+                    <td>Organization statuses</td>
+                    <td>Active, Inactive, Pending</td>
+                </tr>
+                <tr>
+                    <td><code>OrganizationType</code></td>
+                    <td>Types of organizations</td>
+                    <td>Class, Home Group, Ministry Team, etc.</td>
+                </tr>
+                <tr>
+                    <td><code>OrgUse</code></td>
+                    <td>Organization usage types</td>
+                    <td>How organizations function in system</td>
+                </tr>
+                <tr>
+                    <td><code>Origin</code></td>
+                    <td>Data origin sources</td>
+                    <td>Where records were created from</td>
+                </tr>
+                <tr>
+                    <td><code>PbActionType</code></td>
+                    <td>Pushpay action types</td>
+                    <td>Integration with Pushpay giving</td>
+                </tr>
+                <tr>
+                    <td><code>PostalLookup</code></td>
+                    <td>ZIP code database</td>
+                    <td>Address validation and standardization</td>
+                </tr>
+                <tr>
+                    <td><code>ProcessStepCompletionType</code></td>
+                    <td>Process step completion methods</td>
+                    <td>Tracking how steps are completed</td>
+                </tr>
+                <tr>
+                    <td><code>PushPayBundleHeaderTypes</code></td>
+                    <td>Pushpay bundle types (VIEW not table)</td>
+                    <td>Pushpay integration bundle categories</td>
+                </tr>
+                <tr>
+                    <td><code>RegistrationMobile</code></td>
+                    <td>Mobile registration options</td>
+                    <td>Mobile app registration settings</td>
+                </tr>
+                <tr>
+                    <td><code>ReservableType</code></td>
+                    <td>Types of reservable resources</td>
+                    <td>Room, Equipment, Vehicle categories</td>
+                </tr>
+                <tr>
+                    <td><code>ResidentCode</code></td>
+                    <td>Resident status codes</td>
+                    <td>Member, Non-member resident tracking</td>
+                </tr>
+                <tr>
+                    <td><code>ResourceMediaFormat</code></td>
+                    <td>Media format types</td>
+                    <td>Audio, Video, Document formats</td>
+                </tr>
+                <tr>
+                    <td><code>ResourceMediaType</code></td>
+                    <td>Media content types</td>
+                    <td>Sermon, Music, Teaching categories</td>
+                </tr>
+                <tr>
+                    <td><code>ScheduledGiftType</code></td>
+                    <td>Recurring giving schedules</td>
+                    <td>Weekly, Monthly, Bi-weekly options</td>
+                </tr>
+                <tr>
+                    <td><code>ShirtSize</code></td>
+                    <td>Apparel sizes</td>
+                    <td>Event registration and volunteer gear</td>
+                </tr>
+                <tr>
+                    <td><code>StateLookup</code></td>
+                    <td>US state codes and names</td>
+                    <td>Address standardization</td>
+                </tr>
+                <tr>
+                    <td><code>SurveyType</code></td>
+                    <td>Survey categories</td>
+                    <td>Feedback and assessment types</td>
+                </tr>
+                <tr>
+                    <td><code>TaskStatus</code></td>
+                    <td>Task workflow statuses</td>
+                    <td>Pending, Active, Complete, Delegated</td>
+                </tr>
+                <tr>
+                    <td><code>TitleCode</code></td>
+                    <td>Name titles and prefixes</td>
+                    <td>Mr., Mrs., Dr., Rev., etc.</td>
+                </tr>
+                <tr>
+                    <td><code>VolApplicationStatus</code></td>
+                    <td>Volunteer application statuses</td>
+                    <td>Tracking volunteer screening process</td>
+                </tr>
+                <tr>
+                    <td><code>VolunteerCodes</code></td>
+                    <td>Volunteer position codes</td>
+                    <td>Categorizing volunteer opportunities</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h3>Query All Lookup Tables</h3>
+    <pre><code class="sql">-- Get all lookup tables with record counts
+SELECT
+    t.TABLE_NAME,
+    (SELECT COUNT(*)
+     FROM lookup.[' + t.TABLE_NAME + ']) as RecordCount
+FROM INFORMATION_SCHEMA.TABLES t
+WHERE t.TABLE_SCHEMA = 'lookup'
+ORDER BY t.TABLE_NAME;
+
+-- Query any specific lookup table
+SELECT * FROM lookup.MemberStatus ORDER BY Id;
+SELECT * FROM lookup.AttendType ORDER BY Id;
+SELECT * FROM lookup.ContributionType ORDER BY Id;</code></pre>
+
+    <h3>Critical Lookup Tables - Detailed Reference</h3>
     
     <div class="info">
         <p><strong>⚠️ Important Note:</strong> Common lookup values shown below may not match your church's configuration. Always verify the actual values in your database by querying the lookup tables directly. Each church customizes these values for their specific needs.</p>
