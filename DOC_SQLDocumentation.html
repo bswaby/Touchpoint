@@ -444,15 +444,12 @@
         <li><a href="#organizations-table">Organizations Table (Involvements)</a></li>
         <li><a href="#organization-members">Organization Membership & Roles</a></li>
         <li><a href="#program-hierarchy">Program → Division → Organization Structure</a></li>
-        <li><a href="#organization-types">Organization Types & Classification</a></li>
     </ul>
 
     <h3>📅 Attendance & Meetings</h3>
     <ul>
         <li><a href="#attend-table">Attend Table - The AttendanceFlag Rule</a></li>
         <li><a href="#meetings-table">Meetings & Scheduling</a></li>
-        <li><a href="#attendance-types">Attendance Types & Classifications</a></li>
-        <li><a href="#attendance-analytics">Attendance Analytics & Patterns</a></li>
     </ul>
 
     <h3>💰 Financial & Contributions</h3>
@@ -467,16 +464,12 @@
     <ul>
         <li><a href="#registration-system">Registration System Architecture</a></li>
         <li><a href="#registration-questions">Custom Forms & Questions</a></li>
-        <li><a href="#registration-fees">Registration Fees & Payments</a></li>
-        <li><a href="#event-management">Event Management & Scheduling</a></li>
     </ul>
 
     <h3>🎫 Check-In System</h3>
     <ul>
         <li><a href="#checkin-overview">Check-In System Overview</a></li>
         <li><a href="#checkin-activity">Check-In Activity & Times</a></li>
-        <li><a href="#checkin-configuration">Check-In Configuration & Settings</a></li>
-        <li><a href="#barcode-system">Barcode & Security Labels</a></li>
     </ul>
 
     <h3>📧 Communication Systems</h3>
@@ -484,7 +477,6 @@
         <li><a href="#email-system">Email Marketing System (3.9M+ records)</a></li>
         <li><a href="#sms-system">SMS/Text Messaging System</a></li>
         <li><a href="#task-system">Tasks & Ministry Communication</a></li>
-        <li><a href="#notification-preferences">Notification Preferences & Opt-outs</a></li>
     </ul>
 
     <h3>📊 Advanced Analytics</h3>
@@ -500,36 +492,26 @@
         <li><a href="#database-views">Database Views Documentation</a></li>
         <li><a href="#extra-values">Extra Value Tables (Custom Fields)</a></li>
         <li><a href="#lookup-tables">Lookup Tables Reference (67+ tables)</a></li>
-        <li><a href="#settings-framework">Settings & Configuration Framework</a></li>
-        <li><a href="#content-management">Content & Template Management</a></li>
     </ul>
 
     <h3>📱 Mobile & Integration</h3>
     <ul>
         <li><a href="#mobile-app">Mobile App Configuration</a></li>
         <li><a href="#picture-system">Picture & Media Management</a></li>
-        <li><a href="#search-optimization">Search Optimization System</a></li>
-        <li><a href="#api-integration">API Integration Points</a></li>
     </ul>
 
     <h3>🔐 Security & Administration</h3>
     <ul>
         <li><a href="#users-roles">Users, Roles & Permissions</a></li>
-        <li><a href="#security-settings">Security Settings & Access Control</a></li>
-        <li><a href="#data-privacy">Data Privacy & Protection</a></li>
     </ul>
 
     <h3>📈 Reporting & Analytics</h3>
     <ul>
         <li><a href="#common-reports">Common Report Patterns</a></li>
-        <li><a href="#dashboard-queries">Dashboard & KPI Queries</a></li>
-        <li><a href="#growth-analytics">Growth & Trend Analytics</a></li>
-        <li><a href="#financial-reports">Financial Reporting Queries</a></li>
     </ul>
 
     <h3>🔧 Reference & Troubleshooting</h3>
     <ul>
-        <li><a href="#field-reference">Complete Field Reference</a></li>
         <li><a href="#relationship-diagram">Table Relationship Diagrams</a></li>
         <li><a href="#common-issues">Common Issues & Solutions</a></li>
         <li><a href="#best-practices">Best Practices & Tips</a></li>
@@ -6738,7 +6720,7 @@ ORDER BY AVG(m.NumPresent) DESC</code></pre>
     <h2>💰 Contribution Table - The TypeId≠99 Rule</h2>
     
     <div class="critical">
-        <h3>🚨 CRITICAL RULES: Exclude Non-Charitable Contributions</h3>
+        <h3 id="contribution-funds">🚨 CRITICAL RULES: Exclude Non-Charitable Contributions</h3>
         <p><strong>ContributionTypeId = 99</strong> represents EVENT REGISTRATION FEES<br>
         <strong>ContributionTypeId = 8</strong> represents PLEDGES (not actual contributions)<br>
         <strong>PledgeFlag = 1</strong> also indicates pledges<br>
@@ -7019,7 +7001,7 @@ WHERE o.RegistrationTypeId > 0  -- Has registration
   AND r.CreatedDate >= DATEADD(month, -3, GETDATE())
 ORDER BY r.CreatedDate DESC</code></pre>
 
-    <h3>Registration Questions & Answers</h3>
+    <h3 id="registration-questions">Registration Questions & Answers</h3>
     <pre><code>-- Custom form responses
 SELECT TOP 1000
     o.OrganizationName,
@@ -7128,7 +7110,7 @@ ORDER BY o.OrganizationName, p.Name, rq.[Order]</code></pre>
         </tr>
     </table>
 
-    <h3>Check-In Activity Query</h3>
+    <h3 id="checkin-activity">Check-In Activity Query</h3>
     <pre><code>  -- Recent check-in activity
   SELECT TOP 100
       cia.Name as PersonName,
@@ -7585,7 +7567,7 @@ HAVING MAX(CASE WHEN pev.Field = 'BackgroundCheck' THEN pev.Data END) IS NOT NUL
   ORDER BY o.OrganizationName, oev.Field</code></pre>
 </div>
 
-<div id="sms-system-complete" class="section">
+<div id="sms-system" class="section">
     <h2>📱 SMS/Text Messaging System</h2>
     
     <h3>SMS System Tables</h3>
@@ -7726,7 +7708,7 @@ WHERE p.PeopleId = 12345  -- Specific person
 ORDER BY MessageTime DESC</code></pre>
 </div>
 
-<div id="task-system-complete" class="section">
+<div id="task-system" class="section">
     <h2>📋 Tasks & Ministry Communication</h2>
     
     <h3>TaskNote Table Structure</h3>
@@ -7856,7 +7838,7 @@ WHERE tn.IsNote = 1  -- Notes only
 ORDER BY tn.CreatedDate DESC</code></pre>
 </div>
 
-<div id="mobile-app-complete" class="section">
+<div id="mobile-app" class="section">
     <h2>📱 Mobile App Configuration</h2>
     
     <h3>Mobile Configuration Tables</h3>
@@ -7937,7 +7919,7 @@ ORDER BY tn.CreatedDate DESC</code></pre>
   ORDER BY [order]</code></pre>
 </div>
 
-<div id="picture-system-complete" class="section">
+<div id="picture-system" class="section">
     <h2>🖼️ Picture & Media Management</h2>
     
     <h3>Picture Table Structure</h3>
@@ -8121,7 +8103,7 @@ WHERE u.IsApproved = 1
 ORDER BY u.LastLoginDate</code></pre>
 </div>
 
-<div id="activity-logging-complete" class="section">
+<div id="activity-logging" class="section">
     <h2>📝 Activity Logging & Audit Trail</h2>
     
     <div class="warning">
@@ -8200,7 +8182,7 @@ ORDER BY u.LastLoginDate</code></pre>
   ORDER BY COUNT(*) DESC</code></pre>
 </div>
 
-<div id="change-tracking-complete" class="section">
+<div id="change-tracking" class="section">
     <h2>🔄 Change Tracking & History</h2>
     
     <h3>Change Tracking Tables</h3>
@@ -8303,7 +8285,7 @@ ORDER BY u.LastLoginDate</code></pre>
 <div id="financial-system-complete" class="section">
     <h2>💳 Financial System Details</h2>
     
-    <h3>Bundle System (Batch Processing)</h3>
+    <h3 id="bundle-system">Bundle System (Batch Processing)</h3>
     
     <h4>BundleHeader Table</h4>
     <table class="field-table">
@@ -8402,7 +8384,7 @@ GROUP BY bh.BundleHeaderId, bh.ContributionDate, bh.DepositDate,
 ORDER BY bh.ContributionDate DESC</code></pre>
 </div>
 
-<div id="transaction-system-complete" class="section">
+<div id="transaction-system" class="section">
     <h2>💰 Transactions & Outstanding Balances</h2>
     
     <h3>Transaction Tables</h3>
