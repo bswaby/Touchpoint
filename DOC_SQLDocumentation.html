@@ -5217,6 +5217,13 @@ TaggedPeople, TransactionSearch, WeeklyAttendsForOrgs</code></pre>
 
     <h3>💡 Using UDFs in Queries</h3>
 
+    <div class="warning">
+        <h4>⚠️ EXECUTE Permissions Required</h4>
+        <p><strong>Important:</strong> TouchPoint UDFs require EXECUTE permissions. If you get errors like:</p>
+        <code>The EXECUTE permission was denied on the object 'FunctionName'</code>
+        <p>You need to request permission from your TouchPoint administrator. As an alternative, use the standard SQL examples below that don't require UDF permissions.</p>
+    </div>
+
     <h4>Example 1: People Report with Age and Family Info</h4>
     <pre><code class="sql">SELECT TOP 10
     p.PeopleId,
@@ -5405,6 +5412,92 @@ SELECT
     p.Name,
     ISNULL(dbo.DaysSinceContact(p.PeopleId), 9999) as DaysSince
 FROM People p;</code></pre>
+
+    <h3>📝 Alternative Queries Without UDF Permissions</h3>
+    <p>If you don't have EXECUTE permissions on UDFs, use these standard SQL alternatives:</p>
+
+    <h4>Alternative 1: Calculate Age Without Age() Function</h4>
+    <pre><code class="sql">-- Calculate age using standard SQL instead of dbo.Age()
+SELECT TOP 10
+    p.PeopleId,
+    p.Name,
+    p.BDate,
+    -- Calculate age manually
+    DATEDIFF(year, p.BDate, GETDATE()) -
+        CASE
+            WHEN MONTH(p.BDate) > MONTH(GETDATE()) OR
+                 (MONTH(p.BDate) = MONTH(GETDATE()) AND DAY(p.BDate) > DAY(GETDATE()))
+            THEN 1
+            ELSE 0
+        END as Age,
+    -- Get spouse info using JOIN instead of dbo.SpouseId()
+    spouse.PeopleId as SpouseId,
+    spouse.Name as SpouseName
+FROM People p
+LEFT JOIN People spouse ON p.SpouseId = spouse.PeopleId
+WHERE p.MemberStatusId = 10
+    AND p.IsDeceased = 0
+ORDER BY p.Name;</code></pre>
+
+    <h4>Alternative 2: Get Contributions Without Contributions2() Function</h4>
+    <pre><code class="sql">-- Get contributions using direct table query instead of dbo.Contributions2()
+SELECT TOP 20
+    p.FamilyId,
+    p.Name as HeadName,
+    c.ContributionDate,
+    c.ContributionAmount as Amount,
+    cf.FundName
+FROM Contribution c
+JOIN People p ON c.PeopleId = p.PeopleId
+JOIN ContributionFund cf ON c.FundId = cf.FundId
+WHERE c.ContributionDate BETWEEN '2024-01-01' AND '2024-12-31'
+    AND c.ContributionTypeId = 1  -- Tax-deductible only
+    AND c.ContributionStatusId = 0  -- Posted
+    AND c.ContributionAmount > 100
+ORDER BY c.ContributionAmount DESC;</code></pre>
+
+    <h4>Alternative 3: Check Attendance Without LastAttend() Function</h4>
+    <pre><code class="sql">-- Get last attendance date using subquery instead of dbo.LastAttend()
+SELECT TOP 10
+    p.PeopleId,
+    p.Name,
+    (SELECT MAX(m.MeetingDate)
+     FROM Attend a
+     JOIN Meetings m ON a.MeetingId = m.MeetingId
+     WHERE a.PeopleId = p.PeopleId
+       AND a.AttendanceFlag = 1) as LastAttendDate,
+    DATEDIFF(day,
+        (SELECT MAX(m.MeetingDate)
+         FROM Attend a
+         JOIN Meetings m ON a.MeetingId = m.MeetingId
+         WHERE a.PeopleId = p.PeopleId
+           AND a.AttendanceFlag = 1),
+        GETDATE()) as DaysSinceAttended
+FROM People p
+WHERE EXISTS (
+    SELECT 1 FROM Attend a
+    WHERE a.PeopleId = p.PeopleId
+    AND a.AttendanceFlag = 1
+)
+ORDER BY DaysSinceAttended DESC;</code></pre>
+
+    <h4>Alternative 4: Format Phone Numbers Without FmtPhone() Function</h4>
+    <pre><code class="sql">-- Format phone numbers using SQL string functions instead of dbo.FmtPhone()
+SELECT TOP 10
+    p.PeopleId,
+    p.Name,
+    p.CellPhone,
+    -- Format phone as (XXX) XXX-XXXX
+    CASE
+        WHEN LEN(REPLACE(REPLACE(REPLACE(p.CellPhone, '-', ''), '(', ''), ')', '')) = 10
+        THEN '(' + SUBSTRING(REPLACE(REPLACE(REPLACE(p.CellPhone, '-', ''), '(', ''), ')', ''), 1, 3) + ') ' +
+             SUBSTRING(REPLACE(REPLACE(REPLACE(p.CellPhone, '-', ''), '(', ''), ')', ''), 4, 3) + '-' +
+             SUBSTRING(REPLACE(REPLACE(REPLACE(p.CellPhone, '-', ''), '(', ''), ')', ''), 7, 4)
+        ELSE p.CellPhone
+    END as FormattedPhone
+FROM People p
+WHERE p.CellPhone IS NOT NULL
+    AND p.CellPhone != '';</code></pre>
 
     <div class="warning">
         <h4>⚠️ Performance Considerations for UDFs</h4>
