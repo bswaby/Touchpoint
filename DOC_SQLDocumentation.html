@@ -2753,6 +2753,7 @@ SELECT Id, Description FROM lookup.MemberStatus;</code></pre>
         <h4>📝 Using Temporary Tables Instead of Views</h4>
         <pre><code class="sql">-- Create a temporary table to simulate a view for active adult members
 -- Temp tables exist only for your current session
+-- Note: LastAttended info comes from attendance records, not People table
 SELECT
     p.PeopleId,
     p.Name2 as FullName,
@@ -2762,13 +2763,21 @@ SELECT
     ms.Description as MemberStatus,
     fp.Description as FamilyPosition,
     c.Description as Campus,
-    p.LastAttended,
-    DATEDIFF(day, p.LastAttended, GETDATE()) as DaysSinceAttended
+    la.LastAttendDate,
+    DATEDIFF(day, la.LastAttendDate, GETDATE()) as DaysSinceAttended
 INTO #ActiveAdultMembers  -- Creates temporary table
 FROM People p
 LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
 LEFT JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
 LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+LEFT JOIN (
+    -- Get last attendance date from Attend table
+    SELECT PeopleId, MAX(MeetingDate) as LastAttendDate
+    FROM Attend a
+    JOIN Meetings m ON a.MeetingId = m.MeetingId
+    WHERE a.AttendanceFlag = 1
+    GROUP BY PeopleId
+) la ON p.PeopleId = la.PeopleId
 WHERE p.IsDeceased = 0
     AND p.ArchivedFlag = 0
     AND p.MemberStatusId = 10  -- Members only
