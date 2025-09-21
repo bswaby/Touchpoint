@@ -2560,6 +2560,13 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
 
     <h3>📊 Complete List of All TouchPoint Database Views (107 Views)</h3>
 
+    <div class="warning">
+        <p><strong>⚠️ IMPORTANT - SET QUOTED_IDENTIFIER Requirement:</strong></p>
+        <p>Some views (particularly TransactionList, TransactionSummary, OrgSchedules2, InProgressRegistrations, and RegistrationList) require:</p>
+        <pre><code>SET QUOTED_IDENTIFIER ON;</code></pre>
+        <p>If you get error "SELECT failed because the following SET options have incorrect settings", add this before your query.</p>
+    </div>
+
     <div class="info">
         <p><strong>TouchPoint contains 107 database views across 4 schemas:</strong> custom (1), dbo (82), export (23), and lookup (1).</p>
         <p>The table below lists ALL views with their descriptions. Detailed SQL examples follow in the next section.</p>
@@ -3167,7 +3174,7 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                     <td><code>PeopleBasicModifed</code></td>
                     <td>Enhanced people data with computed fields</td>
                     <td>21 columns including age calculations</td>
-                    <td><code>SELECT * FROM PeopleBasicModifed WHERE Age > 18</code></td>
+                    <td><code>SET QUOTED_IDENTIFIER ON; SELECT * FROM PeopleBasicModifed</code></td>
                 </tr>
                 <tr>
                     <td><code>AddressInfo</code></td>
@@ -3190,8 +3197,8 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 <tr>
                     <td><code>FirstName</code>, <code>LastName</code>, <code>Nick</code></td>
                     <td>Name parsing helpers</td>
-                    <td>PeopleId, parsed name parts</td>
-                    <td><code>SELECT * FROM FirstName WHERE name LIKE 'John%'</code></td>
+                    <td>PeopleId, FirstName/LastName/Nick</td>
+                    <td><code>SELECT * FROM FirstName WHERE FirstName LIKE 'John%'</code></td>
                 </tr>
             </tbody>
         </table>
@@ -3217,27 +3224,27 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 </tr>
                 <tr>
                     <td><code>TransactionList</code></td>
-                    <td>⭐ Complete transaction details (66 columns!)</td>
-                    <td>All transaction fields including people, orgs, amounts</td>
-                    <td><code>SELECT * FROM TransactionList WHERE TransactionDate > '2024-01-01'</code></td>
+                    <td>⭐ Complete transaction details (66 columns!) <span class="badge badge-critical">Requires SET QUOTED_IDENTIFIER ON</span></td>
+                    <td>Id, TransactionDate, First, Last, Amt, AmtPaid, AmtDue</td>
+                    <td><code>SET QUOTED_IDENTIFIER ON; SELECT * FROM TransactionList WHERE TransactionDate > '2024-01-01'</code></td>
                 </tr>
                 <tr>
                     <td><code>TransactionSummary</code></td>
-                    <td>Aggregated transaction totals</td>
-                    <td>20 columns: summaries by person/org</td>
-                    <td><code>SELECT * FROM TransactionSummary WHERE TotalPaid > 0</code></td>
+                    <td>Aggregated transaction totals <span class="badge badge-critical">Requires SET QUOTED_IDENTIFIER ON</span></td>
+                    <td>RegId, Name, OrganizationName, TotalAmt, TotalPaid, TotalDue</td>
+                    <td><code>SET QUOTED_IDENTIFIER ON; SELECT * FROM TransactionSummary WHERE TotalPaid > 0</code></td>
                 </tr>
                 <tr>
                     <td><code>BundleList</code></td>
                     <td>Contribution bundle management</td>
-                    <td>15 columns: bundle headers and totals</td>
-                    <td><code>SELECT * FROM BundleList WHERE BundleStatusId = 0</code></td>
+                    <td>BundleHeaderId, CreatedDate, Status, TotalCash, TotalChecks</td>
+                    <td><code>SELECT * FROM BundleList WHERE Status = 'Open'</code></td>
                 </tr>
                 <tr>
                     <td><code>ManagedGivingList</code></td>
                     <td>Recurring giving management</td>
                     <td>14 columns: recurring schedules</td>
-                    <td><code>SELECT * FROM ManagedGivingList WHERE Active = 1</code></td>
+                    <td><code>SELECT * FROM ManagedGivingList</code></td>
                 </tr>
                 <tr>
                     <td><code>RecurringGivingDueForToday</code></td>
@@ -3269,21 +3276,21 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
             <tbody>
                 <tr>
                     <td><code>CheckInActivities</code></td>
-                    <td>Real-time check-in tracking</td>
-                    <td>CheckInTime, PeopleId, Name, Location, Activities</td>
+                    <td>Real-time check-in tracking (plural, not CheckInActivity)</td>
+                    <td>CheckInTime, PeopleId, Name, Location, Activities, AccessType</td>
                     <td><code>SELECT * FROM CheckInActivities WHERE CheckInTime > DATEADD(hour, -3, GETDATE())</code></td>
                 </tr>
                 <tr>
                     <td><code>LastAttends</code></td>
                     <td>Most recent attendance by person</td>
-                    <td>11 columns: last attendance details</td>
-                    <td><code>SELECT * FROM LastAttends WHERE LastAttendDate > '2024-01-01'</code></td>
+                    <td>PeopleId, LastAttendedDate, OrganizationId, OrganizationName</td>
+                    <td><code>SELECT * FROM LastAttends WHERE PeopleId IS NOT NULL</code></td>
                 </tr>
                 <tr>
                     <td><code>FirstAttends</code></td>
                     <td>First-time visitor tracking</td>
-                    <td>PeopleId, FirstAttendDate, OrgId</td>
-                    <td><code>SELECT * FROM FirstAttends WHERE FirstDate > DATEADD(month, -1, GETDATE())</code></td>
+                    <td>PeopleId, CreatedDate, FirstAttendedDate</td>
+                    <td><code>SELECT * FROM FirstAttends WHERE PeopleId IS NOT NULL</code></td>
                 </tr>
                 <tr>
                     <td><code>AttendCredits</code>, <code>AttendCredits2</code></td>
@@ -3294,7 +3301,7 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 <tr>
                     <td><code>ActivityAll</code></td>
                     <td>All system activities</td>
-                    <td>Activity, Machine, Name, Date</td>
+                    <td>Id, ActivityDate, Machine, Name, Type</td>
                     <td><code>SELECT * FROM ActivityAll WHERE ActivityDate > DATEADD(day, -7, GETDATE())</code></td>
                 </tr>
             </tbody>
@@ -3315,15 +3322,15 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
             <tbody>
                 <tr>
                     <td><code>OrganizationStructure</code></td>
-                    <td>⭐ Complete org hierarchy with counts</td>
-                    <td>Program, Division, Organization, Members, Vistors</td>
+                    <td>⭐ Complete org hierarchy with counts <span class="badge badge-critical">Note: 'Vistors' column is misspelled</span></td>
+                    <td>Program, Division, Organization, Members, Vistors (typo), Previous, Meetings</td>
                     <td><code>SELECT * FROM OrganizationStructure WHERE Members > 10</code></td>
                 </tr>
                 <tr>
                     <td><code>OrganizationLeaders</code></td>
                     <td>Organization leadership roster</td>
-                    <td>OrgId, LeaderId, LeaderName</td>
-                    <td><code>SELECT * FROM OrganizationLeaders WHERE OrgId = 100</code></td>
+                    <td>OrganizationId, OrganizationName, LeaderName</td>
+                    <td><code>SELECT * FROM OrganizationLeaders WHERE OrganizationId IS NOT NULL</code></td>
                 </tr>
                 <tr>
                     <td><code>OrgSchedules2</code></td>
@@ -3361,9 +3368,9 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
             <tbody>
                 <tr>
                     <td><code>RegistrationList</code></td>
-                    <td>⭐ Complete registration data (24 columns)</td>
-                    <td>RegistrationId, PeopleId, Name, completed, RegStart</td>
-                    <td><code>SELECT * FROM RegistrationList WHERE completed = 1</code></td>
+                    <td>⭐ Complete registration data (24 columns) <span class="badge badge-critical">Requires SET QUOTED_IDENTIFIER ON</span></td>
+                    <td>Id, PeopleId, OrganizationId, UserData columns</td>
+                    <td><code>SET QUOTED_IDENTIFIER ON; SELECT * FROM RegistrationList</code></td>
                 </tr>
                 <tr>
                     <td><code>ActiveRegistrations</code></td>
