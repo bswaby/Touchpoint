@@ -13,8 +13,8 @@
 # 7. Keyboard shortcuts (Ctrl+T, Ctrl+Tab, etc.)
 #####################################################################
 
-# Written By: Ben Swaby
-# Email: bswaby@fbchtn.org
+#written by: Ben Swaby
+#email:bswaby@fbchtn.org
 
 import json
 import re
@@ -657,12 +657,44 @@ ORDER BY p.CreatedDate DESC'''
             
             # Add safety check for destructive queries
             sql_upper = sql.upper()
-            # Use word boundaries to match whole words only
-            destructive_patterns = [r'\bDELETE\b', r'\bUPDATE\b', r'\bINSERT\b', r'\bDROP\b', r'\bCREATE\b', r'\bALTER\b', r'\bTRUNCATE\b']
-            if any(re.search(pattern, sql_upper) for pattern in destructive_patterns):
+
+            # Remove comments before checking to avoid false positives
+            sql_no_comments = re.sub(r'--.*?$', '', sql_upper, flags=re.MULTILINE)
+            sql_no_comments = re.sub(r'/\*.*?\*/', '', sql_no_comments, flags=re.DOTALL)
+
+            # Check for write operations, but allow temp table and table variable operations
+            # More precise patterns that exclude temp tables, table variables, and other allowed operations
+            destructive_patterns = [
+                r'\bDELETE\s+(?!FROM\s+[@#])',     # DELETE not on temp tables or table variables
+                r'\bUPDATE\s+(?![@#])',            # UPDATE not on temp tables or table variables
+                r'\bINSERT\s+(?![@#])',            # INSERT not into temp tables or table variables
+                r'\bDROP\s+(?!TABLE\s+[@#])',      # DROP not on temp tables or table variables
+                r'\bCREATE\s+(?!TABLE\s+[@#])',    # CREATE not temp tables or table variables
+                r'\bALTER\s+TABLE\s+(?![@#])',     # ALTER TABLE not on temp tables or table variables
+                r'\bTRUNCATE\s+',                  # TRUNCATE always blocked
+                r'\bEXEC\s+SP_',                   # Block system stored procedures
+                r'\bEXECUTE\s+SP_'                 # Block system stored procedures
+            ]
+
+            # Check each pattern more carefully
+            found_violation = False
+            for pattern in destructive_patterns:
+                if re.search(pattern, sql_no_comments):
+                    # Special case: Allow INSERT @variable and INSERT #temp
+                    if 'INSERT' in pattern:
+                        # Check if it's INSERT @variable or INSERT #temp
+                        if not re.search(r'\bINSERT\s+[@#]\w+', sql_no_comments):
+                            found_violation = True
+                            break
+                    else:
+                        found_violation = True
+                        break
+
+            # Also allow SELECT INTO #temp
+            if found_violation and not re.search(r'\bSELECT\b.*\bINTO\s+#', sql_no_comments):
                 if not self.is_developer:
                     return {
-                        'error': 'Only developers can execute write operations',
+                        'error': 'Only developers can execute write operations on permanent tables. Temp tables (#TableName) and table variables (@TableName) are allowed for read-only users.',
                         'success': False
                     }
             
