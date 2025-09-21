@@ -363,7 +363,7 @@
 <div class="header">
     <h1>Swaby's TouchPoint SQL Database Reference</h1>
     <p class="subtitle">My Personal Guide to the TouchPoint's Church Management Database</p>
-    <div class="version">Version: The smothered, covered, chunked, diced, and occasionally topped version</div>
+    <div class="version">Version: Updated 09/21/2025</div>
 </div>
 
 <div class="intro-section">
@@ -567,7 +567,7 @@
 
     <h3>📈 Production Data Volumes (from Local Database)</h3>
     <div class="highlight">
-        <p><strong>Real-world production databases contain massive data volumes (actual counts from local DB):</strong></p>
+        <p><strong>Real-world production databases contain massive data volumes (actual counts from a DB.  Your counts may vary pending on how you use the database.):</strong></p>
         <table>
             <tr>
                 <th>Table</th>
@@ -854,7 +854,35 @@ TagShare            -- Shared tag permissions
 Registration        -- Event registrations
 RegPeople           -- People registered for events
 RegAnswer           -- Form responses
-RegSetting          -- Registration configuration</code></pre>
+RegSetting          -- Registration configuration
+
+-- DATABASE VIEWS (107 total across 4 schemas)
+-- Custom Schema (1 view)
+custom.MissionTripTotals_Optimized    -- Mission trip financials
+
+-- DBO Schema Views (82 views) - Key Examples:
+ContributionsView          -- Enriched contribution data with donor info
+OrganizationStructure      -- Complete org hierarchy with programs/divisions
+AttendCredits             -- Weekly attendance credit calculations
+CheckInActivities         -- Check-in activity with person names (denormalized)
+EmailDelegation           -- Email delegation permissions
+UserList                  -- User details with last activity
+FailedEmails              -- Failed email tracking
+MobileAppActions          -- Mobile app user actions
+RecurringGivingDueForToday -- Today's expected recurring gifts
+TasksAssigned             -- Task assignments and status
+IncompleteTasks           -- Open tasks needing completion
+
+-- Export Schema Views (23 views) - For Integration:
+export.XpPeople           -- People data for export (text values not IDs)
+export.XpFamily           -- Family data for export
+export.XpOrganization     -- Organization data for export
+export.XpAttend           -- Attendance data for export
+export.XpContribution     -- Contribution data for export
+export.XpTag              -- Tag assignments for export
+
+-- Lookup Schema Views (1 view):
+lookup.PushPayBundleHeaderTypes -- Pushpay integration bundle types</code></pre>
 
     <h3>🔗 Critical Table Relationships</h3>
     <pre><code>-- User Authentication Chain
@@ -3238,7 +3266,6 @@ ORDER BY v.TABLE_SCHEMA, v.TABLE_NAME;</code></pre>
         <h4>⚠️ OrganizationStructure View - IMPORTANT NOTES</h4>
         <ul>
             <li><strong>Column Typo:</strong> The view has "Vistors" (missing 'i') instead of "Visitors"</li>
-            <li><strong>ProgId Values:</strong> In most databases, ProgId values start at 1108+, not 1</li>
             <li><strong>Performance:</strong> This view is pre-calculated for fast reporting</li>
         </ul>
     </div>
