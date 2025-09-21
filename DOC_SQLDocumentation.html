@@ -494,6 +494,7 @@
     <ul>
         <li><a href="#database-views">Database Views Documentation</a></li>
         <li><a href="#tsql-functions">T-SQL Functions Reference (Read-Only Environment)</a></li>
+        <li><a href="#touchpoint-udfs">TouchPoint User-Defined Functions (UDFs)</a></li>
         <li><a href="#extra-values">Extra Value Tables (Custom Fields)</a></li>
         <li><a href="#lookup-tables">Lookup Tables Reference (67+ tables)</a></li>
     </ul>
@@ -884,7 +885,58 @@ export.XpContribution     -- Contribution data for export
 export.XpTag              -- Tag assignments for export
 
 -- Lookup Schema Views (1 view):
-lookup.PushPayBundleHeaderTypes -- Pushpay integration bundle types</code></pre>
+lookup.PushPayBundleHeaderTypes -- Pushpay integration bundle types
+
+-- T-SQL BUILT-IN FUNCTIONS (No Custom Functions Allowed)
+-- String Functions (20+)
+CONCAT(), SUBSTRING()      -- String concatenation and extraction
+LEFT(), RIGHT(), LEN()     -- String positioning functions
+REPLACE(), STUFF()         -- String modification
+UPPER(), LOWER(), TRIM()   -- Case and whitespace handling
+STRING_AGG(), STRING_SPLIT() -- Row aggregation and splitting (SQL 2016+)
+FORMAT(), QUOTENAME()      -- Formatting and SQL identifiers
+
+-- Date & Time Functions (14+)
+GETDATE(), DATEADD()      -- Current date and date arithmetic
+DATEDIFF(), DATEPART()    -- Date differences and components
+YEAR(), MONTH(), DAY()    -- Date part extraction
+EOMONTH(), DATEFROMPARTS() -- End of month and date construction (SQL 2012+)
+
+-- Mathematical Functions (15+)
+SUM(), AVG(), COUNT()     -- Basic aggregates
+MIN(), MAX()              -- Range functions
+ROUND(), CEILING(), FLOOR() -- Rounding functions
+STDEV(), VAR()            -- Statistical functions
+ABS(), SIGN(), POWER()    -- Mathematical operations
+
+-- Window Functions (12+)
+ROW_NUMBER(), RANK()      -- Ranking functions
+DENSE_RANK(), NTILE()     -- Distribution functions
+LAG(), LEAD()             -- Row offset functions
+FIRST_VALUE(), LAST_VALUE() -- Window boundary values
+PERCENT_RANK(), CUME_DIST() -- Percentile functions
+
+-- Conversion Functions (6+)
+CAST(), CONVERT()         -- Type conversions
+TRY_CAST(), TRY_CONVERT() -- Safe conversions (returns NULL on error)
+PARSE(), TRY_PARSE()      -- Culture-aware parsing (SQL 2012+)
+
+-- Logical Functions (6+)
+CASE WHEN...THEN...END    -- Conditional logic
+IIF(), CHOOSE()           -- Inline conditionals (SQL 2012+)
+COALESCE(), ISNULL()      -- NULL handling
+NULLIF()                  -- Return NULL if equal
+
+-- JSON Functions (SQL 2016+)
+JSON_VALUE(), JSON_QUERY() -- Extract from JSON
+ISJSON(), OPENJSON()      -- Validate and parse JSON
+FOR JSON PATH/AUTO        -- Format results as JSON
+
+-- System Functions (10+)
+@@ROWCOUNT, @@IDENTITY    -- Session values
+DB_NAME(), USER_NAME()    -- Database context
+NEWID(), CHECKSUM()       -- GUIDs and checksums
+ERROR_MESSAGE()           -- Error handling</code></pre>
 
     <h3>🔗 Critical Table Relationships</h3>
     <pre><code>-- User Authentication Chain
@@ -3996,12 +4048,21 @@ SELECT
         WHEN EmailAddress LIKE '%yahoo.com' THEN 'Yahoo'
         WHEN EmailAddress LIKE '%outlook.com' THEN 'Outlook'
         ELSE 'Other'
-    END as EmailProvider,
-
-    -- String aggregation (SQL 2017+)
-    STRING_AGG(Name, ', ') OVER (PARTITION BY FamilyId) as FamilyMembers
+    END as EmailProvider
 FROM People
-WHERE IsDeceased = 0;</code></pre>
+WHERE IsDeceased = 0;
+
+-- String aggregation (SQL 2017+) - Cannot use OVER clause with STRING_AGG
+-- Must use GROUP BY instead
+SELECT
+    FamilyId,
+    STRING_AGG(Name, ', ') WITHIN GROUP (ORDER BY Name) as FamilyMembers,
+    COUNT(*) as FamilyMemberCount
+FROM People
+WHERE FamilyId IS NOT NULL
+    AND IsDeceased = 0
+GROUP BY FamilyId
+HAVING COUNT(*) > 1;</code></pre>
 
     <h4>2. Date Functions</h4>
     <pre><code class="sql">-- Date manipulation and calculations
@@ -4528,6 +4589,773 @@ ORDER BY FamilyGiving DESC;</code></pre>
             <li><strong>Index Awareness:</strong> Functions in WHERE clauses can prevent index usage</li>
             <li><strong>NULL Handling:</strong> Always use ISNULL() or COALESCE() for nullable columns</li>
             <li><strong>Type Safety:</strong> Use TRY_CAST/TRY_CONVERT to prevent conversion errors</li>
+        </ol>
+    </div>
+</div>
+
+<div id="touchpoint-udfs" class="section">
+    <h2>📦 TouchPoint User-Defined Functions (UDFs)</h2>
+
+    <div class="info">
+        <h4>💡 Key Concept: Pre-Built Functions in TouchPoint</h4>
+        <p>TouchPoint provides <strong>337+ User-Defined Functions</strong> that extend SQL Server's capabilities for church-specific operations. While you cannot create new UDFs, you can use these existing functions in your queries.</p>
+    </div>
+
+    <h3>📊 UDF Categories Overview</h3>
+    <div class="success">
+        <h4>Function Types Available:</h4>
+        <ul>
+            <li><strong>Scalar Functions (179)</strong> - Return single values (e.g., Age, FmtPhone)</li>
+            <li><strong>Inline Table-Valued Functions (118)</strong> - Return tables, very efficient</li>
+            <li><strong>Multi-Statement Table-Valued Functions (35)</strong> - Return tables with complex logic</li>
+            <li><strong>CLR Functions (5)</strong> - .NET compiled functions for special operations</li>
+        </ul>
+    </div>
+
+    <h3>🎯 Most Important Functions by Category</h3>
+
+    <h4>👥 People & Demographics Functions</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 30%;">Function Name</th>
+                    <th style="width: 20%;">Type</th>
+                    <th style="width: 35%;">Description</th>
+                    <th style="width: 15%;">Example Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>dbo.Age(PeopleId)</code></td>
+                    <td>Scalar</td>
+                    <td>Returns person's current age</td>
+                    <td><code>dbo.Age(p.PeopleId)</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.ComputeAge(birthdate)</code></td>
+                    <td>Scalar</td>
+                    <td>Calculate age from birthdate</td>
+                    <td><code>dbo.ComputeAge('1990-01-15')</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.Birthday(PeopleId)</code></td>
+                    <td>Scalar</td>
+                    <td>Returns person's birthday</td>
+                    <td><code>dbo.Birthday(123)</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.NextBirthday(PeopleId)</code></td>
+                    <td>Scalar</td>
+                    <td>Returns next birthday date</td>
+                    <td><code>dbo.NextBirthday(123)</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.SpouseId(PeopleId)</code></td>
+                    <td>Scalar</td>
+                    <td>Returns spouse's PeopleId</td>
+                    <td><code>dbo.SpouseId(123)</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.HeadOfHouseholdId(FamilyId)</code></td>
+                    <td>Scalar</td>
+                    <td>Returns head of household</td>
+                    <td><code>dbo.HeadOfHouseholdId(f.FamilyId)</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.FamilyMembers(FamilyId)</code></td>
+                    <td>Table-Valued</td>
+                    <td>Returns all family members</td>
+                    <td><code>SELECT * FROM dbo.FamilyMembers(456)</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.FindPerson(first, last, email)</code></td>
+                    <td>Table-Valued</td>
+                    <td>Search for person by name/email</td>
+                    <td><code>SELECT * FROM dbo.FindPerson('John', 'Smith', NULL)</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.UName(PeopleId)</code></td>
+                    <td>Scalar</td>
+                    <td>Returns formatted name</td>
+                    <td><code>dbo.UName(123)</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.UName2(PeopleId)</code></td>
+                    <td>Scalar</td>
+                    <td>Returns name (Last, First)</td>
+                    <td><code>dbo.UName2(123)</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>💰 Contribution & Finance Functions</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 30%;">Function Name</th>
+                    <th style="width: 20%;">Type</th>
+                    <th style="width: 35%;">Description</th>
+                    <th style="width: 15%;">Parameters</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr class="highlight">
+                    <td><code>dbo.Contributions2</code></td>
+                    <td>Inline Table</td>
+                    <td><strong>⭐ MOST USED:</strong> Returns contributions with spouse handling & exclusions</td>
+                    <td>@fd, @td, @campusid, @pledges, @nontaxded, @includeUnclosed, @fundids</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.ContributionAmount</code></td>
+                    <td>Scalar</td>
+                    <td>Total contributions for person in date range</td>
+                    <td>@pid, @fromdate, @todate, @fundid</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.ContributionCount</code></td>
+                    <td>Scalar</td>
+                    <td>Count of contributions</td>
+                    <td>@pid, @fromdate, @todate</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.GetTotalContributions</code></td>
+                    <td>Table-Valued</td>
+                    <td>Detailed contribution totals by person</td>
+                    <td>@fd, @td</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.GetTotalContributions2</code></td>
+                    <td>Table-Valued</td>
+                    <td>Enhanced contribution totals with funds</td>
+                    <td>@fd, @td, @campusid, @nontaxded</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.PledgeAmount</code></td>
+                    <td>Scalar</td>
+                    <td>Total pledge amount for person</td>
+                    <td>@pid, @fundid</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.PledgeBalances</code></td>
+                    <td>Table-Valued</td>
+                    <td>Outstanding pledge balances</td>
+                    <td>@fd, @td</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.RecentGiver</code></td>
+                    <td>Table-Valued</td>
+                    <td>People who gave recently</td>
+                    <td>@days</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.FirstTimeGivers</code></td>
+                    <td>Table-Valued</td>
+                    <td>Identify first-time donors</td>
+                    <td>@days1, @days2</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.GivingChange</code></td>
+                    <td>Table-Valued</td>
+                    <td>Year-over-year giving changes</td>
+                    <td>@fd1, @td1, @fd2, @td2</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>📅 Attendance Functions</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 30%;">Function Name</th>
+                    <th style="width: 20%;">Type</th>
+                    <th style="width: 35%;">Description</th>
+                    <th style="width: 15%;">Key Parameters</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>dbo.LastAttend</code></td>
+                    <td>Scalar</td>
+                    <td>Last attendance date for person</td>
+                    <td>@pid, @orgid</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.AttendedAsOf</code></td>
+                    <td>Table-Valued</td>
+                    <td>People who attended by date</td>
+                    <td>@progid, @divid, @orgid, @asof</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.AttendanceCredits</code></td>
+                    <td>Table-Valued</td>
+                    <td>Weekly attendance credits</td>
+                    <td>@orgid, @year</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.RecentAttendance</code></td>
+                    <td>Table-Valued</td>
+                    <td>Recent attendance records</td>
+                    <td>@orgid, @days</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.RecentAbsents</code></td>
+                    <td>Table-Valued</td>
+                    <td>Recently absent members</td>
+                    <td>@orgid, @divid, @days</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.ConsecutiveAbsents</code></td>
+                    <td>Table-Valued</td>
+                    <td>Members absent X weeks in row</td>
+                    <td>@orgid, @weeks</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.AttendMemberTypeAsOf</code></td>
+                    <td>Table-Valued</td>
+                    <td>Attendance by member type</td>
+                    <td>@orgid, @asof</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.GetTodaysMeetingId</code></td>
+                    <td>Scalar</td>
+                    <td>Today's meeting ID for org</td>
+                    <td>@orgid, @thisday</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>🏢 Organization Functions</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 30%;">Function Name</th>
+                    <th style="width: 20%;">Type</th>
+                    <th style="width: 35%;">Description</th>
+                    <th style="width: 15%;">Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>dbo.OrgMember</code></td>
+                    <td>Table-Valued</td>
+                    <td>Current org members</td>
+                    <td>@orgid</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.OrgPeople</code></td>
+                    <td>Table-Valued</td>
+                    <td>All people in org (all types)</td>
+                    <td>@orgid</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.OrgPeopleCurrent</code></td>
+                    <td>Table-Valued</td>
+                    <td>Current active members only</td>
+                    <td>@orgid</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.OrgFilterGuests</code></td>
+                    <td>Table-Valued</td>
+                    <td>Guest/visitor list</td>
+                    <td>@orgid</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.OrganizationMemberCount</code></td>
+                    <td>Scalar</td>
+                    <td>Count of current members</td>
+                    <td>@orgid</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.OrganizationLeaderName</code></td>
+                    <td>Scalar</td>
+                    <td>Returns leader's name</td>
+                    <td>@orgid</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.InSmallGroup</code></td>
+                    <td>Scalar</td>
+                    <td>Check if in small group</td>
+                    <td>@pid</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.RollList</code></td>
+                    <td>Table-Valued</td>
+                    <td>Attendance roll sheet</td>
+                    <td>@meetingid, @orgid</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>📱 Contact & Communication Functions</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 30%;">Function Name</th>
+                    <th style="width: 20%;">Type</th>
+                    <th style="width: 35%;">Description</th>
+                    <th style="width: 15%;">Example</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>dbo.FmtPhone</code></td>
+                    <td>Scalar</td>
+                    <td>Format phone number</td>
+                    <td><code>dbo.FmtPhone('1234567890')</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.HomePhone</code></td>
+                    <td>Scalar</td>
+                    <td>Get home phone</td>
+                    <td><code>dbo.HomePhone(123)</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.IsValidEmail</code></td>
+                    <td>Scalar</td>
+                    <td>Validate email format</td>
+                    <td><code>dbo.IsValidEmail('test@example.com')</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.UEmail</code></td>
+                    <td>Scalar</td>
+                    <td>Get person's email</td>
+                    <td><code>dbo.UEmail(123)</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.LastContact</code></td>
+                    <td>Scalar</td>
+                    <td>Last contact date</td>
+                    <td><code>dbo.LastContact(123)</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.ContactSummary</code></td>
+                    <td>Table-Valued</td>
+                    <td>Contact history summary</td>
+                    <td>@pid</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.OptOuts</code></td>
+                    <td>Table-Valued</td>
+                    <td>Email opt-out list</td>
+                    <td>@tagid</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>📊 Utility & Helper Functions</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 30%;">Function Name</th>
+                    <th style="width: 20%;">Type</th>
+                    <th style="width: 35%;">Description</th>
+                    <th style="width: 15%;">Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>dbo.SplitInts</code></td>
+                    <td>Table-Valued</td>
+                    <td>Split comma-separated integers</td>
+                    <td><code>SELECT * FROM dbo.SplitInts('1,2,3')</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.SplitStrings</code></td>
+                    <td>Table-Valued</td>
+                    <td>Split delimited strings</td>
+                    <td><code>SELECT * FROM dbo.SplitStrings('a;b;c', ';')</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.ParseDate</code></td>
+                    <td>Scalar</td>
+                    <td>Parse various date formats</td>
+                    <td><code>dbo.ParseDate('01/15/2024')</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.ElapsedTime</code></td>
+                    <td>Scalar</td>
+                    <td>Time between dates</td>
+                    <td><code>dbo.ElapsedTime(@start, @end)</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.WeekNumber</code></td>
+                    <td>Scalar</td>
+                    <td>Week number of date</td>
+                    <td><code>dbo.WeekNumber('2024-01-15')</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.SundayForDate</code></td>
+                    <td>Scalar</td>
+                    <td>Sunday of week for date</td>
+                    <td><code>dbo.SundayForDate(GETDATE())</code></td>
+                </tr>
+                <tr>
+                    <td><code>dbo.CompleteZip</code></td>
+                    <td>Scalar</td>
+                    <td>Format ZIP code</td>
+                    <td><code>dbo.CompleteZip('12345', '6789')</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>🔍 Search & Filter Functions</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 30%;">Function Name</th>
+                    <th style="width: 20%;">Type</th>
+                    <th style="width: 35%;">Description</th>
+                    <th style="width: 15%;">Purpose</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>dbo.FindPerson</code></td>
+                    <td>Table-Valued</td>
+                    <td>Search for person</td>
+                    <td>Name/email search</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.FindPersonByEmail</code></td>
+                    <td>Table-Valued</td>
+                    <td>Search by email</td>
+                    <td>Email lookup</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.TaggedPeople</code></td>
+                    <td>Table-Valued</td>
+                    <td>People with specific tag</td>
+                    <td>Tag filtering</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.StatusFlags</code></td>
+                    <td>Table-Valued</td>
+                    <td>People with status flags</td>
+                    <td>Status filtering</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.PotentialDups</code></td>
+                    <td>Table-Valued</td>
+                    <td>Find duplicate records</td>
+                    <td>Data cleanup</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.RegexMatch</code></td>
+                    <td>CLR Scalar</td>
+                    <td>Regular expression match</td>
+                    <td>Pattern matching</td>
+                </tr>
+                <tr>
+                    <td><code>dbo.AllDigits</code></td>
+                    <td>CLR Scalar</td>
+                    <td>Extract digits from string</td>
+                    <td>Phone cleanup</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h3>📋 Complete Function List by Type</h3>
+
+    <div class="info">
+        <h4>Function Naming Conventions</h4>
+        <ul>
+            <li><strong>Get*</strong> - Retrieve data (GetTotalContributions)</li>
+            <li><strong>Find*</strong> - Search operations (FindPerson)</li>
+            <li><strong>Last*</strong> - Most recent data (LastAttend)</li>
+            <li><strong>Recent*</strong> - Recent time period (RecentGiver)</li>
+            <li><strong>Org*</strong> - Organization-related (OrgMembers)</li>
+            <li><strong>*AsOf</strong> - Point-in-time queries (AttendedAsOf)</li>
+        </ul>
+    </div>
+
+    <h4>Scalar Functions (179 total)</h4>
+    <details>
+        <summary>Click to expand full list of scalar functions</summary>
+        <pre><code>AddressMatch, Age, AgeInMonths, AllDigits, AllRegexMatchs, AttendDesc, AttendItem,
+AvgSunAttendance, BaptismAgeRange, BibleFellowshipClassId, Birthday, CompactAttendHistory,
+CompleteZip, ComputeAge, ComputePositionInFamily, ContributionAmount, ContributionAmount2,
+ContributionChange, ContributionCount, CoupleFlag, CreateForeignKeys, DayAndTime,
+DaysBetween12Attend, DaysSinceAttend, DaysSinceContact, DecToBase, DOB, DollarRange,
+DonorTotalGifts, DonorTotalGiftsAttrRange, DonorTotalGiftsSize, DonorTotalMean,
+DonorTotalMedian, DonorTotalUnits, DonorTotalUnitsAttrRange, DonorTotalUnitsSize,
+DropForeignKeys, ElapsedTime, EnrollmentTransactionId, EntryPointId,
+FamilyContributionGreetingName, FamilyGreetingName, FamilyMakeup, FindPerson0,
+FindResCode, FirstActivity, FirstMeetingDateLastLear, FirstMondayOfMonth, FmtPhone,
+GetAttendedTodaysMeeting, GetAttendType, GetCurrentBundleByType, GetCurrentMissionTripBundle,
+GetCurrentOnlineBundle, GetCurrentOnlinePledgeBundle, GetDigits, GetEldestFamilyMember,
+GetPeopleIdFromACS, GetPeopleIdFromIndividualNumber, GetScheduleDesc, GetScheduleTime,
+GetSecurityCode, GetStreet, GetTodaysMeetingHour, GetTodaysMeetingId, GetWeekDayNameOfDate,
+HeadOfHouseholdId, HeadOfHouseHoldSpouseId, HomePhone, InSmallGroup, IpVelocity,
+IsSmallGroupLeaderOnly, IsValidEmail, LastActive, LastAttend, LastAttended, LastChanged,
+LastContact, LastDrop, LastIdInTrans, LastMemberTypeInTrans, MaxMeetingDate, MaxPastMeeting,
+MemberDesc, MemberStatusDescription, MemberTypeAsOf, MemberTypeAtLastDrop, MinMeetingDate,
+NextAnniversary, NextBirthday, NextChangeTransactionId, NextChangeTransactionId2,
+NextTranChangeDate, OneHeadOfHouseholdIsMember, OrganizationLeaderId, OrganizationLeaderName,
+OrganizationMemberCount, OrganizationMemberCount2, OrganizationPrevCount,
+OrganizationPrevMemberCount, OrganizationProspectCount, OrgCheckedCount, OrgFee,
+OrgFilterCheckedCount, ParentNames, ParentNamesAndCells, ParseDate, PersonAttendCountOrg,
+PledgeAmount, PledgeCount, PrimaryAddress, PrimaryAddress2, PrimaryBadAddressFlag,
+PrimaryCity, PrimaryCountry, PrimaryResCode, PrimaryState, PrimaryZip, RegexMatch,
+RemoveDiacritics, ScheduleId, SchoolGrade, SchoolGradeLevel, SmallGroupLeader, SpaceToNull,
+SpouseId, SpouseIdJoint, StartsLower, StatusFlag, StatusFlagsAll, SundayForDate,
+SundayForWeek, SundayForWeekNumber, Tool_VarbinaryToVarcharHex, TotalPaid, UEmail,
+UName, UName2, UserName, UserPeopleIdFromEmail, UserRoleList, VisitAttendStr,
+WasDeaconActive2008, WeekNumber, WidowedDate</code></pre>
+    </details>
+
+    <h4>Inline Table-Valued Functions (118 total)</h4>
+    <details>
+        <summary>Click to expand full list of inline table functions</summary>
+        <pre><code>AttendanceChange, AttendanceChangeDetail, AttendanceTypeAsOf, AttendCntHistory,
+AttendCommitments, AttendDaysAfterNthVisitAsOf, AttendedAsOf, CheckInActivitiesSearch,
+ConsecutiveAbsents, ContactSummary, ContactTypeTotals, Contributions2, Contributions2ByPerson,
+Contributions3, ContributionsPledge, Contributors, Donors, DonorsWithoutPledges,
+DownlineDetails, DownlineLevels, DuplicateMergeInfo, EngagementScoresPerson,
+EnrollmentHistory, FamilyGiver, FamilyGiverFunds, FamilyMembers, FirstRecurringGiversByDate,
+FirstTimeGivers, FirstTimeGiversByDate, FN_ContributionsByPerson, FN_FirstTimeGivers,
+GetContributions, GetContributionsDetails, GetContributionsRange,
+GetContributionTotalsBothIfJoint, GetPledgedTotalsBothIfJoint, GetPledgedTotalsBothIfJoint2,
+GetTotalContributions, GetTotalContributions2, GetTotalContributions3,
+GetTotalContributionsAgeRange, GetTotalContributionsDonor, GetTotalContributionsDonor2,
+GetTotalContributionsDonorFund, GetTotalContributionsRange, GetTotalPledgesDonor2,
+GetTotalPledgesDonor3, GiftsInKind, GiftSummary, GivingChange, GivingChangeFund,
+GivingChangeFundQuarters, GivingChangeQuartersFund, GivingChangeQuartersFund2,
+GivingCurrentPercentOfFormer, GuestList, GuestList2, HasIncompleteRegistrations,
+InvolvementCurrent, InvolvementPrevious, LastAddrElement, LastAttendOrg, LastFamilyOrgAttends,
+LastMeetings, MeetingsDataForDateRange, NonTaxContributions, NotAttendedAsOf, OptOuts,
+OrgFilterCurrent, OrgFilterGuests, OrgFilterIds, OrgFilterIds3, OrgFilterInactive,
+OrgFilterPending, OrgFilterPeople, OrgFilterPeople3, OrgFilterPrevious, OrgFilterProspects,
+OrgMember, OrgMemberInfo, OrgMemberQuestions, OrgMembersAsOfDate, OrgMembersAsOfDate2,
+OrgMinistryInfo, OrgPeople, OrgPeopleCurrent, OrgPeopleGuests, OrgPeopleIds,
+OrgPeopleInactive, OrgPeoplePending, OrgPeoplePrevious, OrgPeopleProspects, OrgSearch,
+OrgVisitorsAsOfDate, PeopleIdsFromOrgSearch, PersonStatusFlags, PledgeBalances,
+PledgeFulfillment, PledgeReport, PotentialDups, PotentialSubstitutes, RecentAbsents,
+RecentAttendance, RecentAttendInDaysByCount, RecentAttendInDaysByCountDesc, RecentGiver,
+RecentGiverFund, RecentGiverFunds, RecentRegistrations, RegisterLinksFromMaster,
+RegistrationGradeOptions, Registrations, RegistrationSmallGroups, SchedulerPotentialSubstitutes,
+SearchDivisions, SenderGifts, SoftCreditContributions, SplitFundIds, SplitInts,
+SplitStrings, StatusFlags, StatusFlagsPerson, StockGifts, StringSplitOrdered, TPStats,
+UnitPledgeSummary, VisitNumberSinceDate, VisitsAbsents, VolunteerCalendar</code></pre>
+    </details>
+
+    <h4>Multi-Statement Table-Valued Functions (35 total)</h4>
+    <details>
+        <summary>Click to expand full list of multi-statement table functions</summary>
+        <pre><code>ActiveRecords, ActivityLogSearch, AttendanceCredits, AttendMemberTypeAsOf, CheckinByDate,
+CheckinFamilyMembers, CheckinMatch, CheckinMatchBarCodeOnly, ContributionCountTable,
+Contributions0, Contributions2SearchIds, ContributionSearch, CsvTable, CurrOrgMembers,
+CurrOrgMembers2, DownlineCategories, DownlineSingleTrace, DownlineSummary, FamilyAttendance,
+FilterOnlineReg, FilterOrgSearchName, FindPerson, FindPerson2, FindPerson3, FindPerson4,
+FindPersonByEmail, FindPersonByExtraValue, FirstLast, GenRanges, GetTodaysMeetingHours,
+GetTodaysMeetingHours2, GetTodaysMeetingHours3, MembersAsOf, MembersWhoAttendedOrgs,
+MostRecentItems, NormalContributions, OnlineRegMatches, OrgDayStats, OrgFilterPeople2,
+OrgMembersGroupFiltered, OrgPeople2, PastAttendanceCredits, PbGetInvolvementJoinedCompleted,
+PbGetInvolvementMembersNotInProcess, PeopleWeeklyEngagementScore, Pledges0, PledgesSummary,
+RecentAbsents2, RecentAttendMemberType, RecentAttendType, RecentContributionSummaries,
+RecentIncompleteRegistrations, RecentIncompleteRegistrations2, RecentNewVisitCount,
+RollList, RollListFilteredBySubgroups, RollListHighlight, Split, SplitIntsKey, SundayDates,
+TaggedPeople, TransactionSearch, WeeklyAttendsForOrgs</code></pre>
+    </details>
+
+    <h3>💡 Using UDFs in Queries</h3>
+
+    <h4>Example 1: People Report with Age and Family Info</h4>
+    <pre><code class="sql">SELECT
+    p.PeopleId,
+    p.Name,
+    dbo.Age(p.PeopleId) as Age,
+    dbo.Birthday(p.PeopleId) as Birthday,
+    dbo.SpouseId(p.PeopleId) as SpouseId,
+    dbo.UName(dbo.SpouseId(p.PeopleId)) as SpouseName,
+    dbo.FamilyGreetingName(p.FamilyId) as FamilyGreeting
+FROM People p
+WHERE p.MemberStatusId = 10  -- Members only
+ORDER BY p.Name;</code></pre>
+
+    <h4>Example 2: Contribution Analysis Using Contributions2</h4>
+    <pre><code class="sql">-- Use the most important UDF: Contributions2
+-- This handles spouse contributions, excludes non-tax items, etc.
+SELECT
+    c.FamilyId,
+    c.Name2,
+    c.Amount,
+    c.ContributionDate,
+    c.FundName
+FROM dbo.Contributions2(
+    '2024-01-01',     -- @fd (from date)
+    '2024-12-31',     -- @td (to date)
+    0,                -- @campusid (0 = all campuses)
+    0,                -- @pledges (0 = exclude pledges)
+    0,                -- @nontaxded (0 = tax-deductible only)
+    1,                -- @includeUnclosed (1 = include unclosed bundles)
+    NULL              -- @fundids (NULL = all funds, or '1,2,3' for specific)
+) c
+WHERE c.Amount > 100
+ORDER BY c.Amount DESC;</code></pre>
+
+    <h4>Example 3: Attendance Tracking</h4>
+    <pre><code class="sql">SELECT
+    p.Name,
+    dbo.LastAttend(p.PeopleId, @orgid) as LastAttendDate,
+    DATEDIFF(day, dbo.LastAttend(p.PeopleId, @orgid), GETDATE()) as DaysSinceAttended,
+    ra.*
+FROM People p
+CROSS APPLY dbo.RecentAttendance(p.PeopleId, 90) ra  -- Last 90 days
+WHERE p.PeopleId IN (
+    SELECT PeopleId FROM dbo.OrgPeopleCurrent(@orgid)
+)
+ORDER BY DaysSinceAttended DESC;</code></pre>
+
+    <h4>Example 4: Organization Member Lists</h4>
+    <pre><code class="sql">-- Get all current members with contact info
+SELECT
+    op.PeopleId,
+    op.Name2,
+    op.EmailAddress,
+    dbo.FmtPhone(op.CellPhone) as CellPhone,
+    op.MemberTypeId,
+    dbo.OrganizationLeaderName(101) as LeaderName
+FROM dbo.OrgPeopleCurrent(101) op  -- 101 is the OrgId
+ORDER BY op.Name2;</code></pre>
+
+    <h4>Example 5: Tested Real-World UDF Usage</h4>
+    <pre><code class="sql">-- Working with Age calculation (BDate column in People table)
+SELECT
+    p.PeopleId,
+    p.Name,
+    p.BDate as BirthDate,
+    dbo.Age(p.PeopleId) as CalculatedAge
+FROM People p
+WHERE p.BDate IS NOT NULL
+    AND p.IsDeceased = 0
+ORDER BY CalculatedAge DESC;
+
+-- Using GetTotalContributions (table-valued function)
+-- Note: Returns empty for many people, check contribution records
+SELECT *
+FROM dbo.GetTotalContributions(16901, NULL)  -- PeopleId, optional date
+
+-- Using LastAttend with correct parameters (orgid, peopleid)
+SELECT
+    p.PeopleId,
+    p.Name,
+    dbo.LastAttend(0, p.PeopleId) as LastAttendanceDate  -- 0 = all orgs
+FROM People p
+WHERE EXISTS (
+    SELECT 1 FROM Attend a
+    WHERE a.PeopleId = p.PeopleId
+    AND a.AttendanceFlag = 1
+)
+ORDER BY p.PeopleId;
+
+-- Working with Contributions2 - verified parameters
+SELECT TOP 100
+    FamilyId,
+    HeadName,
+    SpouseName,
+    Date as ContributionDate,
+    Amount,
+    FundName,
+    CheckNo
+FROM dbo.Contributions2(
+    '2020-01-01',  -- From date
+    '2024-12-31',  -- To date
+    0,             -- Campus (0=all)
+    0,             -- Include pledges (0=no)
+    NULL,          -- Non-tax deductible (NULL=default)
+    1,             -- Include unclosed bundles
+    NULL           -- Fund IDs (NULL=all)
+)
+WHERE Amount > 0
+ORDER BY Date DESC, Amount DESC;
+
+-- Using OrgPeopleCurrent - returns specific columns
+-- Columns: PeopleId, Tab, GroupCode, AttPct, LastAttended, Joined,
+--          Dropped, InactiveDate, MemberCode, MemberType, Hidden, Groups, Grade
+SELECT
+    PeopleId,
+    AttPct as AttendancePercent,
+    LastAttended,
+    MemberType
+FROM dbo.OrgPeopleCurrent(100)  -- Single parameter: OrgId
+WHERE AttPct > 50;  -- Members with >50% attendance
+
+-- DaysSinceContact function
+SELECT TOP 20
+    p.PeopleId,
+    p.Name,
+    dbo.DaysSinceContact(p.PeopleId) as DaysSinceLastContact
+FROM People p
+WHERE p.MemberStatusId = 10  -- Members only
+    AND dbo.DaysSinceContact(p.PeopleId) IS NOT NULL
+ORDER BY DaysSinceLastContact DESC;</code></pre>
+
+    <h4>Example 6: Common UDF Patterns and Pitfalls</h4>
+    <pre><code class="sql">-- ⚠️ PITFALL: Some functions require SET QUOTED_IDENTIFIER ON
+SET QUOTED_IDENTIFIER ON;
+SELECT * FROM dbo.SomeTableValuedFunction(params);
+
+-- ⚠️ PITFALL: Birth date column is 'BDate' not 'BirthDate'
+-- The People table stores birth info in: BDate, BirthYear, BirthMonth, BirthDay
+SELECT BDate, BirthYear, BirthMonth, BirthDay FROM People WHERE PeopleId = 117;
+
+-- ✅ CORRECT: Table-valued functions need FROM clause
+SELECT * FROM dbo.GetTotalContributions(117, NULL);  -- Correct
+-- ❌ WRONG: SELECT dbo.GetTotalContributions(117, NULL);  -- Error
+
+-- ✅ CORRECT: Parameter order matters - check sys.parameters
+-- LastAttend takes (orgid, peopleid) NOT (peopleid, orgid)
+SELECT dbo.LastAttend(0, 117);  -- Correct: orgid first
+-- ❌ WRONG: SELECT dbo.LastAttend(117, 0);  -- Wrong order
+
+-- ✅ OPTIMIZATION: Use CROSS APPLY for better performance
+SELECT
+    p.Name,
+    contrib.*
+FROM People p
+CROSS APPLY dbo.GetTotalContributions(p.PeopleId, NULL) contrib
+WHERE p.FamilyId = 8392;
+
+-- ✅ NULL handling in UDFs
+-- Many UDFs return NULL for no data - always handle
+SELECT
+    p.Name,
+    ISNULL(dbo.DaysSinceContact(p.PeopleId), 9999) as DaysSince
+FROM People p;</code></pre>
+
+    <div class="warning">
+        <h4>⚠️ Performance Considerations for UDFs</h4>
+        <ul>
+            <li><strong>Scalar functions in SELECT:</strong> Called once per row, can be slow on large datasets</li>
+            <li><strong>Scalar functions in WHERE:</strong> Can prevent index usage, very slow</li>
+            <li><strong>Inline Table-Valued:</strong> Most efficient, optimizer can optimize</li>
+            <li><strong>Multi-Statement Table-Valued:</strong> Less efficient, acts like temp table</li>
+            <li><strong>Best Practice:</strong> Use CROSS APPLY/OUTER APPLY with table-valued functions</li>
+        </ul>
+    </div>
+
+    <div class="success">
+        <h4>✅ Best Practices for Using UDFs</h4>
+        <ol>
+            <li><strong>Prefer Contributions2 over Contribution table</strong> - Handles complexities automatically</li>
+            <li><strong>Use table-valued functions with CROSS APPLY</strong> - More efficient than subqueries</li>
+            <li><strong>Cache scalar function results in CTEs</strong> - Avoid calling same function multiple times</li>
+            <li><strong>Test with smaller datasets first</strong> - Some functions scan large tables</li>
+            <li><strong>Check function parameters</strong> - Many have optional parameters that change behavior</li>
         </ol>
     </div>
 
