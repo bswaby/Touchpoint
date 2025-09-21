@@ -493,6 +493,7 @@
     <h3>🎛️ Customization Systems</h3>
     <ul>
         <li><a href="#database-views">Database Views Documentation</a></li>
+        <li><a href="#tsql-functions">T-SQL Functions Reference (Read-Only Environment)</a></li>
         <li><a href="#extra-values">Extra Value Tables (Custom Fields)</a></li>
         <li><a href="#lookup-tables">Lookup Tables Reference (67+ tables)</a></li>
     </ul>
@@ -3162,7 +3163,6 @@ SELECT Id, Description FROM lookup.MemberStatus;</code></pre>
         <h4>📝 Using Temporary Tables Instead of Views</h4>
         <pre><code class="sql">-- Create a temporary table to simulate a view for active adult members
 -- Temp tables exist only for your current session
--- Note: LastAttended info comes from attendance records, not People table
 SELECT
     p.PeopleId,
     p.Name2 as FullName,
@@ -3181,7 +3181,7 @@ LEFT JOIN lookup.FamilyPosition fp ON p.PositionInFamilyId = fp.Id
 LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
 LEFT JOIN (
     -- Get last attendance date from Attend table
-    SELECT PeopleId, MAX(MeetingDate) as LastAttendDate
+    SELECT PeopleId, MAX(a.MeetingDate) as LastAttendDate
     FROM Attend a
     JOIN Meetings m ON a.MeetingId = m.MeetingId
     WHERE a.AttendanceFlag = 1
@@ -3199,6 +3199,1336 @@ WHERE DaysSinceAttended <= 30
 ORDER BY DaysSinceAttended;
 
 -- Temp table automatically drops when session ends</code></pre>
+    </div>
+
+    <h2 id="tsql-functions">🧮 T-SQL Functions in TouchPoint (Read-Only Environment)</h2>
+
+    <div class="info">
+        <h4>💡 Key Concept: Using Built-in Functions with Read-Only Access</h4>
+        <p>While you <strong>cannot create custom functions</strong> in TouchPoint's read-only environment, you can leverage SQL Server's extensive built-in functions and combine them with temporary tables for powerful data analysis.</p>
+    </div>
+
+    <h3>📚 Complete T-SQL Function Reference</h3>
+
+    <div class="info">
+        <h4>🔍 Quick Reference: All Available Functions by Category</h4>
+        <p>This comprehensive reference lists all SQL Server built-in functions you can use in TouchPoint's read-only environment.</p>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Function</th>
+                    <th style="width: 20%;">Category</th>
+                    <th style="width: 35%;">Description</th>
+                    <th style="width: 20%;">Example Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- String Functions -->
+                <tr class="category-header">
+                    <td colspan="4"><strong>📝 String Functions</strong></td>
+                </tr>
+                <tr>
+                    <td><code>CONCAT()</code></td>
+                    <td>String</td>
+                    <td>Concatenates two or more strings</td>
+                    <td><code>CONCAT(FirstName, ' ', LastName)</code></td>
+                </tr>
+                <tr>
+                    <td><code>SUBSTRING()</code></td>
+                    <td>String</td>
+                    <td>Extracts part of a string</td>
+                    <td><code>SUBSTRING(Phone, 1, 3)</code></td>
+                </tr>
+                <tr>
+                    <td><code>LEFT()</code></td>
+                    <td>String</td>
+                    <td>Returns leftmost characters</td>
+                    <td><code>LEFT(PostalCode, 5)</code></td>
+                </tr>
+                <tr>
+                    <td><code>RIGHT()</code></td>
+                    <td>String</td>
+                    <td>Returns rightmost characters</td>
+                    <td><code>RIGHT(SSN, 4)</code></td>
+                </tr>
+                <tr>
+                    <td><code>LEN()</code></td>
+                    <td>String</td>
+                    <td>Returns string length</td>
+                    <td><code>LEN(EmailAddress)</code></td>
+                </tr>
+                <tr>
+                    <td><code>CHARINDEX()</code></td>
+                    <td>String</td>
+                    <td>Finds position of substring</td>
+                    <td><code>CHARINDEX('@', Email)</code></td>
+                </tr>
+                <tr>
+                    <td><code>REPLACE()</code></td>
+                    <td>String</td>
+                    <td>Replaces all occurrences</td>
+                    <td><code>REPLACE(Phone, '-', '')</code></td>
+                </tr>
+                <tr>
+                    <td><code>UPPER()</code></td>
+                    <td>String</td>
+                    <td>Converts to uppercase</td>
+                    <td><code>UPPER(City)</code></td>
+                </tr>
+                <tr>
+                    <td><code>LOWER()</code></td>
+                    <td>String</td>
+                    <td>Converts to lowercase</td>
+                    <td><code>LOWER(EmailAddress)</code></td>
+                </tr>
+                <tr>
+                    <td><code>LTRIM()</code></td>
+                    <td>String</td>
+                    <td>Removes leading spaces</td>
+                    <td><code>LTRIM(Name)</code></td>
+                </tr>
+                <tr>
+                    <td><code>RTRIM()</code></td>
+                    <td>String</td>
+                    <td>Removes trailing spaces</td>
+                    <td><code>RTRIM(Name)</code></td>
+                </tr>
+                <tr>
+                    <td><code>TRIM()</code></td>
+                    <td>String</td>
+                    <td>Removes leading/trailing spaces (2017+)</td>
+                    <td><code>TRIM(Name)</code></td>
+                </tr>
+                <tr>
+                    <td><code>STRING_AGG()</code></td>
+                    <td>String</td>
+                    <td>Concatenates rows (2017+)</td>
+                    <td><code>STRING_AGG(Name, ', ')</code></td>
+                </tr>
+                <tr>
+                    <td><code>STRING_SPLIT()</code></td>
+                    <td>String</td>
+                    <td>Splits delimited string (2016+)</td>
+                    <td><code>STRING_SPLIT('a,b,c', ',')</code></td>
+                </tr>
+                <tr>
+                    <td><code>REVERSE()</code></td>
+                    <td>String</td>
+                    <td>Reverses string</td>
+                    <td><code>REVERSE('hello')</code></td>
+                </tr>
+                <tr>
+                    <td><code>REPLICATE()</code></td>
+                    <td>String</td>
+                    <td>Repeats string N times</td>
+                    <td><code>REPLICATE('*', 10)</code></td>
+                </tr>
+                <tr>
+                    <td><code>STUFF()</code></td>
+                    <td>String</td>
+                    <td>Inserts string into another</td>
+                    <td><code>STUFF(Phone, 4, 0, '-')</code></td>
+                </tr>
+                <tr>
+                    <td><code>FORMAT()</code></td>
+                    <td>String</td>
+                    <td>Formats values (2012+)</td>
+                    <td><code>FORMAT(Amount, 'C')</code></td>
+                </tr>
+                <tr>
+                    <td><code>QUOTENAME()</code></td>
+                    <td>String</td>
+                    <td>Adds delimiters for SQL identifiers</td>
+                    <td><code>QUOTENAME('Table Name')</code></td>
+                </tr>
+                <tr>
+                    <td><code>PATINDEX()</code></td>
+                    <td>String</td>
+                    <td>Pattern position in string</td>
+                    <td><code>PATINDEX('%[0-9]%', Address)</code></td>
+                </tr>
+
+                <!-- Date Functions -->
+                <tr class="category-header">
+                    <td colspan="4"><strong>📅 Date & Time Functions</strong></td>
+                </tr>
+                <tr>
+                    <td><code>GETDATE()</code></td>
+                    <td>Date</td>
+                    <td>Current date and time</td>
+                    <td><code>GETDATE()</code></td>
+                </tr>
+                <tr>
+                    <td><code>GETUTCDATE()</code></td>
+                    <td>Date</td>
+                    <td>Current UTC date and time</td>
+                    <td><code>GETUTCDATE()</code></td>
+                </tr>
+                <tr>
+                    <td><code>DATEADD()</code></td>
+                    <td>Date</td>
+                    <td>Adds interval to date</td>
+                    <td><code>DATEADD(day, 7, GETDATE())</code></td>
+                </tr>
+                <tr>
+                    <td><code>DATEDIFF()</code></td>
+                    <td>Date</td>
+                    <td>Difference between dates</td>
+                    <td><code>DATEDIFF(year, BirthDate, GETDATE())</code></td>
+                </tr>
+                <tr>
+                    <td><code>DATEPART()</code></td>
+                    <td>Date</td>
+                    <td>Extract date part as integer</td>
+                    <td><code>DATEPART(month, BirthDate)</code></td>
+                </tr>
+                <tr>
+                    <td><code>DATENAME()</code></td>
+                    <td>Date</td>
+                    <td>Extract date part as string</td>
+                    <td><code>DATENAME(weekday, BirthDate)</code></td>
+                </tr>
+                <tr>
+                    <td><code>DAY()</code></td>
+                    <td>Date</td>
+                    <td>Extract day of month</td>
+                    <td><code>DAY(BirthDate)</code></td>
+                </tr>
+                <tr>
+                    <td><code>MONTH()</code></td>
+                    <td>Date</td>
+                    <td>Extract month</td>
+                    <td><code>MONTH(BirthDate)</code></td>
+                </tr>
+                <tr>
+                    <td><code>YEAR()</code></td>
+                    <td>Date</td>
+                    <td>Extract year</td>
+                    <td><code>YEAR(BirthDate)</code></td>
+                </tr>
+                <tr>
+                    <td><code>EOMONTH()</code></td>
+                    <td>Date</td>
+                    <td>End of month date (2012+)</td>
+                    <td><code>EOMONTH(GETDATE())</code></td>
+                </tr>
+                <tr>
+                    <td><code>DATEFROMPARTS()</code></td>
+                    <td>Date</td>
+                    <td>Create date from parts (2012+)</td>
+                    <td><code>DATEFROMPARTS(2024, 12, 25)</code></td>
+                </tr>
+                <tr>
+                    <td><code>ISDATE()</code></td>
+                    <td>Date</td>
+                    <td>Check if valid date</td>
+                    <td><code>ISDATE('2024-01-01')</code></td>
+                </tr>
+                <tr>
+                    <td><code>SWITCHOFFSET()</code></td>
+                    <td>Date</td>
+                    <td>Change timezone offset</td>
+                    <td><code>SWITCHOFFSET(GETDATE(), '+00:00')</code></td>
+                </tr>
+                <tr>
+                    <td><code>SYSDATETIME()</code></td>
+                    <td>Date</td>
+                    <td>High precision current datetime</td>
+                    <td><code>SYSDATETIME()</code></td>
+                </tr>
+
+                <!-- Mathematical Functions -->
+                <tr class="category-header">
+                    <td colspan="4"><strong>🔢 Mathematical Functions</strong></td>
+                </tr>
+                <tr>
+                    <td><code>ABS()</code></td>
+                    <td>Math</td>
+                    <td>Absolute value</td>
+                    <td><code>ABS(-123)</code></td>
+                </tr>
+                <tr>
+                    <td><code>CEILING()</code></td>
+                    <td>Math</td>
+                    <td>Round up to integer</td>
+                    <td><code>CEILING(123.45)</code></td>
+                </tr>
+                <tr>
+                    <td><code>FLOOR()</code></td>
+                    <td>Math</td>
+                    <td>Round down to integer</td>
+                    <td><code>FLOOR(123.45)</code></td>
+                </tr>
+                <tr>
+                    <td><code>ROUND()</code></td>
+                    <td>Math</td>
+                    <td>Round to specified decimals</td>
+                    <td><code>ROUND(123.456, 2)</code></td>
+                </tr>
+                <tr>
+                    <td><code>POWER()</code></td>
+                    <td>Math</td>
+                    <td>Raise to power</td>
+                    <td><code>POWER(2, 10)</code></td>
+                </tr>
+                <tr>
+                    <td><code>SQRT()</code></td>
+                    <td>Math</td>
+                    <td>Square root</td>
+                    <td><code>SQRT(16)</code></td>
+                </tr>
+                <tr>
+                    <td><code>RAND()</code></td>
+                    <td>Math</td>
+                    <td>Random number 0-1</td>
+                    <td><code>RAND()</code></td>
+                </tr>
+                <tr>
+                    <td><code>SIGN()</code></td>
+                    <td>Math</td>
+                    <td>Returns -1, 0, or 1</td>
+                    <td><code>SIGN(Amount)</code></td>
+                </tr>
+                <tr>
+                    <td><code>EXP()</code></td>
+                    <td>Math</td>
+                    <td>Exponential (e^x)</td>
+                    <td><code>EXP(1)</code></td>
+                </tr>
+                <tr>
+                    <td><code>LOG()</code></td>
+                    <td>Math</td>
+                    <td>Natural logarithm</td>
+                    <td><code>LOG(10)</code></td>
+                </tr>
+                <tr>
+                    <td><code>LOG10()</code></td>
+                    <td>Math</td>
+                    <td>Base-10 logarithm</td>
+                    <td><code>LOG10(100)</code></td>
+                </tr>
+                <tr>
+                    <td><code>PI()</code></td>
+                    <td>Math</td>
+                    <td>Returns PI value</td>
+                    <td><code>PI()</code></td>
+                </tr>
+                <tr>
+                    <td><code>COS()</code></td>
+                    <td>Math</td>
+                    <td>Cosine</td>
+                    <td><code>COS(0)</code></td>
+                </tr>
+                <tr>
+                    <td><code>SIN()</code></td>
+                    <td>Math</td>
+                    <td>Sine</td>
+                    <td><code>SIN(PI()/2)</code></td>
+                </tr>
+                <tr>
+                    <td><code>TAN()</code></td>
+                    <td>Math</td>
+                    <td>Tangent</td>
+                    <td><code>TAN(PI()/4)</code></td>
+                </tr>
+
+                <!-- Aggregate Functions -->
+                <tr class="category-header">
+                    <td colspan="4"><strong>📊 Aggregate Functions</strong></td>
+                </tr>
+                <tr>
+                    <td><code>COUNT()</code></td>
+                    <td>Aggregate</td>
+                    <td>Count rows</td>
+                    <td><code>COUNT(*)</code></td>
+                </tr>
+                <tr>
+                    <td><code>COUNT(DISTINCT)</code></td>
+                    <td>Aggregate</td>
+                    <td>Count unique values</td>
+                    <td><code>COUNT(DISTINCT PeopleId)</code></td>
+                </tr>
+                <tr>
+                    <td><code>SUM()</code></td>
+                    <td>Aggregate</td>
+                    <td>Sum values</td>
+                    <td><code>SUM(Amount)</code></td>
+                </tr>
+                <tr>
+                    <td><code>AVG()</code></td>
+                    <td>Aggregate</td>
+                    <td>Average value</td>
+                    <td><code>AVG(Amount)</code></td>
+                </tr>
+                <tr>
+                    <td><code>MIN()</code></td>
+                    <td>Aggregate</td>
+                    <td>Minimum value</td>
+                    <td><code>MIN(ContributionDate)</code></td>
+                </tr>
+                <tr>
+                    <td><code>MAX()</code></td>
+                    <td>Aggregate</td>
+                    <td>Maximum value</td>
+                    <td><code>MAX(ContributionDate)</code></td>
+                </tr>
+                <tr>
+                    <td><code>STDEV()</code></td>
+                    <td>Aggregate</td>
+                    <td>Standard deviation</td>
+                    <td><code>STDEV(Amount)</code></td>
+                </tr>
+                <tr>
+                    <td><code>STDEVP()</code></td>
+                    <td>Aggregate</td>
+                    <td>Population standard deviation</td>
+                    <td><code>STDEVP(Amount)</code></td>
+                </tr>
+                <tr>
+                    <td><code>VAR()</code></td>
+                    <td>Aggregate</td>
+                    <td>Statistical variance</td>
+                    <td><code>VAR(Amount)</code></td>
+                </tr>
+                <tr>
+                    <td><code>VARP()</code></td>
+                    <td>Aggregate</td>
+                    <td>Population variance</td>
+                    <td><code>VARP(Amount)</code></td>
+                </tr>
+                <tr>
+                    <td><code>GROUPING()</code></td>
+                    <td>Aggregate</td>
+                    <td>Identifies grouped rows</td>
+                    <td><code>GROUPING(CampusId)</code></td>
+                </tr>
+
+                <!-- Window Functions -->
+                <tr class="category-header">
+                    <td colspan="4"><strong>🪟 Window Functions</strong></td>
+                </tr>
+                <tr>
+                    <td><code>ROW_NUMBER()</code></td>
+                    <td>Window</td>
+                    <td>Sequential row number</td>
+                    <td><code>ROW_NUMBER() OVER (ORDER BY Name)</code></td>
+                </tr>
+                <tr>
+                    <td><code>RANK()</code></td>
+                    <td>Window</td>
+                    <td>Rank with gaps</td>
+                    <td><code>RANK() OVER (ORDER BY Amount DESC)</code></td>
+                </tr>
+                <tr>
+                    <td><code>DENSE_RANK()</code></td>
+                    <td>Window</td>
+                    <td>Rank without gaps</td>
+                    <td><code>DENSE_RANK() OVER (ORDER BY Score)</code></td>
+                </tr>
+                <tr>
+                    <td><code>NTILE()</code></td>
+                    <td>Window</td>
+                    <td>Divide into N groups</td>
+                    <td><code>NTILE(4) OVER (ORDER BY Amount)</code></td>
+                </tr>
+                <tr>
+                    <td><code>LAG()</code></td>
+                    <td>Window</td>
+                    <td>Previous row value</td>
+                    <td><code>LAG(Amount, 1) OVER (ORDER BY Date)</code></td>
+                </tr>
+                <tr>
+                    <td><code>LEAD()</code></td>
+                    <td>Window</td>
+                    <td>Next row value</td>
+                    <td><code>LEAD(Amount, 1) OVER (ORDER BY Date)</code></td>
+                </tr>
+                <tr>
+                    <td><code>FIRST_VALUE()</code></td>
+                    <td>Window</td>
+                    <td>First value in window</td>
+                    <td><code>FIRST_VALUE(Name) OVER (PARTITION BY FamilyId)</code></td>
+                </tr>
+                <tr>
+                    <td><code>LAST_VALUE()</code></td>
+                    <td>Window</td>
+                    <td>Last value in window</td>
+                    <td><code>LAST_VALUE(Date) OVER (PARTITION BY PeopleId)</code></td>
+                </tr>
+                <tr>
+                    <td><code>PERCENT_RANK()</code></td>
+                    <td>Window</td>
+                    <td>Relative rank (0-1)</td>
+                    <td><code>PERCENT_RANK() OVER (ORDER BY Score)</code></td>
+                </tr>
+                <tr>
+                    <td><code>CUME_DIST()</code></td>
+                    <td>Window</td>
+                    <td>Cumulative distribution</td>
+                    <td><code>CUME_DIST() OVER (ORDER BY Amount)</code></td>
+                </tr>
+                <tr>
+                    <td><code>PERCENTILE_CONT()</code></td>
+                    <td>Window</td>
+                    <td>Continuous percentile</td>
+                    <td><code>PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY Amount)</code></td>
+                </tr>
+                <tr>
+                    <td><code>PERCENTILE_DISC()</code></td>
+                    <td>Window</td>
+                    <td>Discrete percentile</td>
+                    <td><code>PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY Amount)</code></td>
+                </tr>
+
+                <!-- Conversion Functions -->
+                <tr class="category-header">
+                    <td colspan="4"><strong>🔄 Conversion Functions</strong></td>
+                </tr>
+                <tr>
+                    <td><code>CAST()</code></td>
+                    <td>Conversion</td>
+                    <td>Convert data type</td>
+                    <td><code>CAST('123' AS INT)</code></td>
+                </tr>
+                <tr>
+                    <td><code>CONVERT()</code></td>
+                    <td>Conversion</td>
+                    <td>Convert with style</td>
+                    <td><code>CONVERT(VARCHAR, GETDATE(), 101)</code></td>
+                </tr>
+                <tr>
+                    <td><code>TRY_CAST()</code></td>
+                    <td>Conversion</td>
+                    <td>Safe cast (returns NULL)</td>
+                    <td><code>TRY_CAST('bad' AS INT)</code></td>
+                </tr>
+                <tr>
+                    <td><code>TRY_CONVERT()</code></td>
+                    <td>Conversion</td>
+                    <td>Safe convert</td>
+                    <td><code>TRY_CONVERT(DATE, '2024-13-45')</code></td>
+                </tr>
+                <tr>
+                    <td><code>PARSE()</code></td>
+                    <td>Conversion</td>
+                    <td>Parse string to type (2012+)</td>
+                    <td><code>PARSE('€1,234.56' AS MONEY USING 'de-DE')</code></td>
+                </tr>
+                <tr>
+                    <td><code>TRY_PARSE()</code></td>
+                    <td>Conversion</td>
+                    <td>Safe parse (2012+)</td>
+                    <td><code>TRY_PARSE('bad' AS DATE)</code></td>
+                </tr>
+
+                <!-- Logical Functions -->
+                <tr class="category-header">
+                    <td colspan="4"><strong>🔀 Logical Functions</strong></td>
+                </tr>
+                <tr>
+                    <td><code>IIF()</code></td>
+                    <td>Logical</td>
+                    <td>Inline if-then-else (2012+)</td>
+                    <td><code>IIF(Age >= 18, 'Adult', 'Minor')</code></td>
+                </tr>
+                <tr>
+                    <td><code>CHOOSE()</code></td>
+                    <td>Logical</td>
+                    <td>Select by index (2012+)</td>
+                    <td><code>CHOOSE(2, 'A', 'B', 'C')</code></td>
+                </tr>
+                <tr>
+                    <td><code>CASE</code></td>
+                    <td>Logical</td>
+                    <td>Conditional logic</td>
+                    <td><code>CASE WHEN x > 0 THEN 'Positive' END</code></td>
+                </tr>
+                <tr>
+                    <td><code>COALESCE()</code></td>
+                    <td>Logical</td>
+                    <td>First non-null value</td>
+                    <td><code>COALESCE(Email, Phone, 'No contact')</code></td>
+                </tr>
+                <tr>
+                    <td><code>ISNULL()</code></td>
+                    <td>Logical</td>
+                    <td>Replace NULL</td>
+                    <td><code>ISNULL(MiddleName, '')</code></td>
+                </tr>
+                <tr>
+                    <td><code>NULLIF()</code></td>
+                    <td>Logical</td>
+                    <td>Return NULL if equal</td>
+                    <td><code>NULLIF(Division, 0)</code></td>
+                </tr>
+
+                <!-- System Functions -->
+                <tr class="category-header">
+                    <td colspan="4"><strong>⚙️ System Functions</strong></td>
+                </tr>
+                <tr>
+                    <td><code>@@ROWCOUNT</code></td>
+                    <td>System</td>
+                    <td>Rows affected by last statement</td>
+                    <td><code>SELECT @@ROWCOUNT</code></td>
+                </tr>
+                <tr>
+                    <td><code>@@IDENTITY</code></td>
+                    <td>System</td>
+                    <td>Last inserted identity</td>
+                    <td><code>SELECT @@IDENTITY</code></td>
+                </tr>
+                <tr>
+                    <td><code>@@ERROR</code></td>
+                    <td>System</td>
+                    <td>Last error number</td>
+                    <td><code>SELECT @@ERROR</code></td>
+                </tr>
+                <tr>
+                    <td><code>@@SERVERNAME</code></td>
+                    <td>System</td>
+                    <td>Server name</td>
+                    <td><code>SELECT @@SERVERNAME</code></td>
+                </tr>
+                <tr>
+                    <td><code>@@VERSION</code></td>
+                    <td>System</td>
+                    <td>SQL Server version</td>
+                    <td><code>SELECT @@VERSION</code></td>
+                </tr>
+                <tr>
+                    <td><code>DB_NAME()</code></td>
+                    <td>System</td>
+                    <td>Current database name</td>
+                    <td><code>SELECT DB_NAME()</code></td>
+                </tr>
+                <tr>
+                    <td><code>USER_NAME()</code></td>
+                    <td>System</td>
+                    <td>Current user name</td>
+                    <td><code>SELECT USER_NAME()</code></td>
+                </tr>
+                <tr>
+                    <td><code>NEWID()</code></td>
+                    <td>System</td>
+                    <td>Generate GUID</td>
+                    <td><code>SELECT NEWID()</code></td>
+                </tr>
+                <tr>
+                    <td><code>CHECKSUM()</code></td>
+                    <td>System</td>
+                    <td>Calculate checksum</td>
+                    <td><code>CHECKSUM(Name, Email)</code></td>
+                </tr>
+                <tr>
+                    <td><code>HASHBYTES()</code></td>
+                    <td>System</td>
+                    <td>Generate hash</td>
+                    <td><code>HASHBYTES('SHA2_256', Password)</code></td>
+                </tr>
+
+                <!-- JSON Functions (SQL Server 2016+) -->
+                <tr class="category-header">
+                    <td colspan="4"><strong>📋 JSON Functions (SQL Server 2016+)</strong></td>
+                </tr>
+                <tr>
+                    <td><code>ISJSON()</code></td>
+                    <td>JSON</td>
+                    <td>Validate JSON</td>
+                    <td><code>ISJSON(Data)</code></td>
+                </tr>
+                <tr>
+                    <td><code>JSON_VALUE()</code></td>
+                    <td>JSON</td>
+                    <td>Extract scalar value</td>
+                    <td><code>JSON_VALUE(Data, '$.name')</code></td>
+                </tr>
+                <tr>
+                    <td><code>JSON_QUERY()</code></td>
+                    <td>JSON</td>
+                    <td>Extract object/array</td>
+                    <td><code>JSON_QUERY(Data, '$.address')</code></td>
+                </tr>
+                <tr>
+                    <td><code>JSON_MODIFY()</code></td>
+                    <td>JSON</td>
+                    <td>Update JSON value</td>
+                    <td><code>JSON_MODIFY(Data, '$.age', 25)</code></td>
+                </tr>
+                <tr>
+                    <td><code>OPENJSON()</code></td>
+                    <td>JSON</td>
+                    <td>Parse JSON to table</td>
+                    <td><code>OPENJSON(@json)</code></td>
+                </tr>
+                <tr>
+                    <td><code>FOR JSON</code></td>
+                    <td>JSON</td>
+                    <td>Format results as JSON</td>
+                    <td><code>SELECT * FOR JSON AUTO</code></td>
+                </tr>
+
+                <!-- XML Functions -->
+                <tr class="category-header">
+                    <td colspan="4"><strong>📄 XML Functions</strong></td>
+                </tr>
+                <tr>
+                    <td><code>FOR XML</code></td>
+                    <td>XML</td>
+                    <td>Format as XML</td>
+                    <td><code>SELECT * FOR XML PATH</code></td>
+                </tr>
+                <tr>
+                    <td><code>.value()</code></td>
+                    <td>XML</td>
+                    <td>Extract XML value</td>
+                    <td><code>@xml.value('(/root/item)[1]', 'varchar(100)')</code></td>
+                </tr>
+                <tr>
+                    <td><code>.query()</code></td>
+                    <td>XML</td>
+                    <td>Query XML</td>
+                    <td><code>@xml.query('/root/items')</code></td>
+                </tr>
+                <tr>
+                    <td><code>.exist()</code></td>
+                    <td>XML</td>
+                    <td>Check XML existence</td>
+                    <td><code>@xml.exist('/root/item')</code></td>
+                </tr>
+                <tr>
+                    <td><code>.modify()</code></td>
+                    <td>XML</td>
+                    <td>Modify XML</td>
+                    <td><code>@xml.modify('insert <node/> into /root')</code></td>
+                </tr>
+
+                <!-- Other Useful Functions -->
+                <tr class="category-header">
+                    <td colspan="4"><strong>🔧 Other Useful Functions</strong></td>
+                </tr>
+                <tr>
+                    <td><code>ISNUMERIC()</code></td>
+                    <td>Validation</td>
+                    <td>Check if numeric</td>
+                    <td><code>ISNUMERIC('123.45')</code></td>
+                </tr>
+                <tr>
+                    <td><code>ISDATE()</code></td>
+                    <td>Validation</td>
+                    <td>Check if valid date</td>
+                    <td><code>ISDATE('2024-01-01')</code></td>
+                </tr>
+                <tr>
+                    <td><code>ERROR_MESSAGE()</code></td>
+                    <td>Error</td>
+                    <td>Get error message</td>
+                    <td><code>ERROR_MESSAGE()</code></td>
+                </tr>
+                <tr>
+                    <td><code>ERROR_NUMBER()</code></td>
+                    <td>Error</td>
+                    <td>Get error number</td>
+                    <td><code>ERROR_NUMBER()</code></td>
+                </tr>
+                <tr>
+                    <td><code>ERROR_LINE()</code></td>
+                    <td>Error</td>
+                    <td>Get error line</td>
+                    <td><code>ERROR_LINE()</code></td>
+                </tr>
+                <tr>
+                    <td><code>SCOPE_IDENTITY()</code></td>
+                    <td>Identity</td>
+                    <td>Last identity in scope</td>
+                    <td><code>SCOPE_IDENTITY()</code></td>
+                </tr>
+                <tr>
+                    <td><code>IDENT_CURRENT()</code></td>
+                    <td>Identity</td>
+                    <td>Current identity for table</td>
+                    <td><code>IDENT_CURRENT('People')</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="warning">
+        <h4>⚠️ TouchPoint Limitations</h4>
+        <ul>
+            <li>You <strong>cannot create custom functions</strong> (User-Defined Functions)</li>
+            <li>You <strong>cannot create stored procedures</strong></li>
+            <li>You <strong>can only use built-in SQL Server functions</strong></li>
+            <li>You <strong>can use temporary tables</strong> to simulate function behavior</li>
+            <li>Some functions require specific SQL Server versions (noted above)</li>
+        </ul>
+    </div>
+
+    <h3>Built-in Scalar Functions</h3>
+
+    <h4>1. String Functions</h4>
+    <pre><code class="sql">-- Common string manipulation functions
+SELECT
+    PeopleId,
+    Name,
+    -- Remove extra spaces
+    LTRIM(RTRIM(Name)) as CleanName,
+
+    -- Extract parts
+    LEFT(CellPhone, 3) as AreaCode,
+    RIGHT(PostalCode, 4) as Plus4,
+    SUBSTRING(EmailAddress, CHARINDEX('@', EmailAddress) + 1, 100) as EmailDomain,
+
+    -- Transform case
+    UPPER(City) as CityUpper,
+    LOWER(EmailAddress) as EmailLower,
+
+    -- Replace and format
+    REPLACE(HomePhone, '-', '') as PhoneDigitsOnly,
+    CONCAT(FirstName, ' ', LastName) as FullName,
+
+    -- Pattern matching
+    CASE
+        WHEN EmailAddress LIKE '%gmail.com' THEN 'Gmail'
+        WHEN EmailAddress LIKE '%yahoo.com' THEN 'Yahoo'
+        WHEN EmailAddress LIKE '%outlook.com' THEN 'Outlook'
+        ELSE 'Other'
+    END as EmailProvider,
+
+    -- String aggregation (SQL 2017+)
+    STRING_AGG(Name, ', ') OVER (PARTITION BY FamilyId) as FamilyMembers
+FROM People
+WHERE IsDeceased = 0;</code></pre>
+
+    <h4>2. Date Functions</h4>
+    <pre><code class="sql">-- Date manipulation and calculations
+SELECT
+    PeopleId,
+    Name,
+    BirthDate,
+
+    -- Age calculations
+    DATEDIFF(year, BirthDate, GETDATE()) as AgeInYears,
+    DATEDIFF(month, BirthDate, GETDATE()) / 12 as ExactAge,
+
+    -- Date parts
+    YEAR(BirthDate) as BirthYear,
+    MONTH(BirthDate) as BirthMonth,
+    DATENAME(month, BirthDate) as BirthMonthName,
+    DATEPART(week, BirthDate) as BirthWeek,
+    DATENAME(weekday, BirthDate) as BirthDayOfWeek,
+
+    -- Date formatting
+    FORMAT(BirthDate, 'MMM dd, yyyy') as FormattedBirthDate,
+    CONVERT(VARCHAR(10), BirthDate, 101) as USDateFormat,
+
+    -- Date calculations
+    DATEADD(year, 1, BirthDate) as FirstBirthday,
+    EOMONTH(BirthDate) as EndOfBirthMonth,
+
+    -- Upcoming birthday
+    CASE
+        WHEN DATEPART(dayofyear, BirthDate) >= DATEPART(dayofyear, GETDATE())
+        THEN DATEDIFF(day, GETDATE(),
+            DATEADD(year, YEAR(GETDATE()) - YEAR(BirthDate), BirthDate))
+        ELSE DATEDIFF(day, GETDATE(),
+            DATEADD(year, YEAR(GETDATE()) - YEAR(BirthDate) + 1, BirthDate))
+    END as DaysUntilBirthday
+FROM People
+WHERE BirthDate IS NOT NULL;</code></pre>
+
+    <h4>3. Mathematical Functions</h4>
+    <pre><code class="sql">-- Mathematical calculations for reporting
+SELECT
+    -- Giving statistics
+    PeopleId,
+    COUNT(*) as GiftCount,
+    SUM(ContributionAmount) as TotalGiving,
+    AVG(ContributionAmount) as AverageGift,
+    MIN(ContributionAmount) as SmallestGift,
+    MAX(ContributionAmount) as LargestGift,
+    STDEV(ContributionAmount) as GivingStdDev,
+
+    -- Rounding and formatting
+    ROUND(AVG(ContributionAmount), 2) as RoundedAverage,
+    CEILING(AVG(ContributionAmount)) as RoundUp,
+    FLOOR(AVG(ContributionAmount)) as RoundDown,
+
+    -- Percentage calculations
+    CAST(SUM(ContributionAmount) * 100.0 /
+        SUM(SUM(ContributionAmount)) OVER() as DECIMAL(5,2)) as PercentOfTotal,
+
+    -- Quartile calculations using NTILE
+    NTILE(4) OVER (ORDER BY SUM(ContributionAmount)) as GivingQuartile
+FROM Contribution
+WHERE ContributionDate >= '2024-01-01'
+    AND ContributionTypeId NOT IN (6, 7, 8, 99)
+GROUP BY PeopleId;</code></pre>
+
+    <h4>4. Conversion Functions</h4>
+    <pre><code class="sql">-- Type conversion examples
+SELECT
+    -- String to number conversions
+    CAST('123' as INT) as StringToInt,
+    CONVERT(DECIMAL(10,2), '123.45') as StringToDecimal,
+    TRY_CAST('bad data' as INT) as SafeCast, -- Returns NULL instead of error
+    TRY_CONVERT(DATE, '2024-13-45') as SafeDateConvert,
+
+    -- Number to string formatting
+    CAST(12345.67 as VARCHAR(20)) as NumberToString,
+    FORMAT(12345.67, 'N2') as FormattedNumber,
+    FORMAT(12345.67, 'C', 'en-US') as CurrencyFormat,
+
+    -- Date conversions
+    CAST(GETDATE() as DATE) as DateOnly,
+    CAST(GETDATE() as TIME) as TimeOnly,
+    CONVERT(VARCHAR(10), GETDATE(), 101) as USDateString,
+
+    -- Boolean conversions
+    CAST(CASE WHEN IsDeceased = 1 THEN 'Yes' ELSE 'No' END as VARCHAR(3)) as DeceasedText
+FROM People
+WHERE PeopleId = 1;</code></pre>
+
+    <h3>Window Functions (Analytical Functions)</h3>
+
+    <div class="success">
+        <h4>🚀 Power Feature: Window Functions</h4>
+        <p>Window functions are extremely powerful for analytics and reporting. They allow calculations across sets of rows while keeping row-level detail.</p>
+    </div>
+
+    <h4>5. Ranking Functions</h4>
+    <pre><code class="sql">-- Ranking donors by giving amount
+WITH DonorRanking AS (
+    SELECT
+        p.Name,
+        SUM(c.ContributionAmount) as TotalGiving,
+
+        -- Different ranking methods
+        ROW_NUMBER() OVER (ORDER BY SUM(c.ContributionAmount) DESC) as RowNum,
+        RANK() OVER (ORDER BY SUM(c.ContributionAmount) DESC) as RankNum,
+        DENSE_RANK() OVER (ORDER BY SUM(c.ContributionAmount) DESC) as DenseRankNum,
+        PERCENT_RANK() OVER (ORDER BY SUM(c.ContributionAmount) DESC) as PercentileRank,
+
+        -- Grouping rankings
+        ROW_NUMBER() OVER (
+            PARTITION BY YEAR(c.ContributionDate)
+            ORDER BY SUM(c.ContributionAmount) DESC
+        ) as YearlyRank
+    FROM People p
+    JOIN Contribution c ON p.PeopleId = c.PeopleId
+    WHERE c.ContributionDate >= '2024-01-01'
+        AND c.ContributionTypeId NOT IN (6, 7, 8, 99)
+    GROUP BY p.PeopleId, p.Name, YEAR(c.ContributionDate)
+)
+SELECT * FROM DonorRanking
+WHERE RowNum <= 100; -- Top 100 donors</code></pre>
+
+    <h4>6. Aggregate Window Functions</h4>
+    <pre><code class="sql">-- Running totals and moving averages
+WITH AttendanceAnalysis AS (
+    SELECT
+        MeetingDate,
+        OrganizationId,
+        COUNT(*) as Attendance,
+
+        -- Running total
+        SUM(COUNT(*)) OVER (
+            PARTITION BY OrganizationId
+            ORDER BY MeetingDate
+        ) as RunningTotal,
+
+        -- Moving average (last 4 weeks)
+        AVG(COUNT(*)) OVER (
+            PARTITION BY OrganizationId
+            ORDER BY MeetingDate
+            ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
+        ) as MovingAvg4Week,
+
+        -- Comparison to average
+        COUNT(*) - AVG(COUNT(*)) OVER (
+            PARTITION BY OrganizationId
+        ) as DifferenceFromAvg,
+
+        -- Min/Max in window
+        MIN(COUNT(*)) OVER (
+            PARTITION BY OrganizationId
+            ORDER BY MeetingDate
+            ROWS BETWEEN 11 PRECEDING AND CURRENT ROW
+        ) as Min12Week,
+
+        MAX(COUNT(*)) OVER (
+            PARTITION BY OrganizationId
+            ORDER BY MeetingDate
+            ROWS BETWEEN 11 PRECEDING AND CURRENT ROW
+        ) as Max12Week
+    FROM Attend
+    WHERE AttendanceFlag = 1
+        AND MeetingDate >= DATEADD(month, -6, GETDATE())
+    GROUP BY MeetingDate, OrganizationId
+)
+SELECT * FROM AttendanceAnalysis
+ORDER BY OrganizationId, MeetingDate;</code></pre>
+
+    <h4>7. Lead/Lag Functions</h4>
+    <pre><code class="sql">-- Compare values with previous/next rows
+WITH GivingTrends AS (
+    SELECT
+        PeopleId,
+        YEAR(ContributionDate) as GivingYear,
+        SUM(ContributionAmount) as YearlyTotal,
+
+        -- Previous year's giving
+        LAG(SUM(ContributionAmount), 1, 0) OVER (
+            PARTITION BY PeopleId
+            ORDER BY YEAR(ContributionDate)
+        ) as PreviousYearTotal,
+
+        -- Next year's giving (if exists)
+        LEAD(SUM(ContributionAmount), 1) OVER (
+            PARTITION BY PeopleId
+            ORDER BY YEAR(ContributionDate)
+        ) as NextYearTotal,
+
+        -- Year-over-year change
+        SUM(ContributionAmount) - LAG(SUM(ContributionAmount), 1, 0) OVER (
+            PARTITION BY PeopleId
+            ORDER BY YEAR(ContributionDate)
+        ) as YoYChange,
+
+        -- Percentage change
+        CASE
+            WHEN LAG(SUM(ContributionAmount), 1) OVER (
+                PARTITION BY PeopleId ORDER BY YEAR(ContributionDate)
+            ) > 0
+            THEN CAST(
+                (SUM(ContributionAmount) - LAG(SUM(ContributionAmount), 1) OVER (
+                    PARTITION BY PeopleId ORDER BY YEAR(ContributionDate)
+                )) * 100.0 / LAG(SUM(ContributionAmount), 1) OVER (
+                    PARTITION BY PeopleId ORDER BY YEAR(ContributionDate)
+                ) as DECIMAL(10,2)
+            )
+            ELSE NULL
+        END as YoYPercentChange
+    FROM Contribution
+    WHERE ContributionTypeId NOT IN (6, 7, 8, 99)
+    GROUP BY PeopleId, YEAR(ContributionDate)
+)
+SELECT * FROM GivingTrends
+WHERE PeopleId IN (SELECT TOP 100 PeopleId FROM People)
+ORDER BY PeopleId, GivingYear;</code></pre>
+
+    <h3>Table-Valued Functions with Temporary Tables</h3>
+
+    <div class="info">
+        <h4>💡 Simulating Table-Valued Functions</h4>
+        <p>While you can't create custom functions, you can simulate table-valued function behavior using temporary tables and CTEs.</p>
+    </div>
+
+    <h4>8. Cross Apply Pattern (Simulating Functions)</h4>
+    <pre><code class="sql">-- Using CROSS APPLY to simulate a function that gets last N attendances
+WITH PersonList AS (
+    SELECT TOP 100 PeopleId, Name
+    FROM People
+    WHERE MemberStatusId = 10
+)
+SELECT
+    pl.PeopleId,
+    pl.Name,
+    la.LastAttendances
+FROM PersonList pl
+CROSS APPLY (
+    SELECT STRING_AGG(
+        CONVERT(VARCHAR(10), MeetingDate, 101), ', '
+    ) WITHIN GROUP (ORDER BY MeetingDate DESC) as LastAttendances
+    FROM (
+        SELECT TOP 5 a.MeetingDate
+        FROM Attend a
+        WHERE a.PeopleId = pl.PeopleId
+            AND a.AttendanceFlag = 1
+        ORDER BY a.MeetingDate DESC
+    ) last5
+) la;
+
+-- Alternative using temp table for reusability
+CREATE TABLE #LastAttendances (
+    PeopleId INT,
+    AttendanceList VARCHAR(MAX)
+);
+
+INSERT INTO #LastAttendances
+SELECT
+    p.PeopleId,
+    STRING_AGG(
+        CONVERT(VARCHAR(10), a.MeetingDate, 101), ', '
+    ) WITHIN GROUP (ORDER BY a.MeetingDate DESC)
+FROM People p
+CROSS APPLY (
+    SELECT TOP 5 MeetingDate
+    FROM Attend
+    WHERE PeopleId = p.PeopleId
+        AND AttendanceFlag = 1
+    ORDER BY MeetingDate DESC
+) a
+WHERE p.MemberStatusId = 10
+GROUP BY p.PeopleId;
+
+-- Now use like a function result
+SELECT
+    p.Name,
+    la.AttendanceList
+FROM People p
+JOIN #LastAttendances la ON p.PeopleId = la.PeopleId;</code></pre>
+
+    <h4>9. JSON Functions (SQL Server 2016+)</h4>
+    <pre><code class="sql">-- Working with JSON data in Extra Value fields
+SELECT
+    PeopleId,
+    Field,
+    Data,
+
+    -- Extract JSON values
+    JSON_VALUE(Data, '$.firstName') as FirstName,
+    JSON_VALUE(Data, '$.lastName') as LastName,
+    JSON_VALUE(Data, '$.preferences.emailOptIn') as EmailOptIn,
+
+    -- Query JSON arrays
+    JSON_QUERY(Data, '$.children') as ChildrenArray,
+
+    -- Check if valid JSON
+    ISJSON(Data) as IsValidJson
+FROM PeopleExtra
+WHERE Field = 'CustomData'
+    AND ISJSON(Data) = 1;
+
+-- Parse JSON array
+SELECT
+    p.PeopleId,
+    p.Name,
+    children.ChildName,
+    children.ChildAge
+FROM People p
+CROSS APPLY OPENJSON(
+    (SELECT Data FROM PeopleExtra
+     WHERE PeopleId = p.PeopleId AND Field = 'Children')
+) WITH (
+    ChildName NVARCHAR(100) '$.name',
+    ChildAge INT '$.age'
+) as children;</code></pre>
+
+    <h4>10. System Functions</h4>
+    <pre><code class="sql">-- Useful system functions for debugging and analysis
+SELECT
+    -- Session information
+    @@SERVERNAME as ServerName,
+    DB_NAME() as DatabaseName,
+    USER_NAME() as CurrentUser,
+    GETDATE() as CurrentDateTime,
+    @@VERSION as SQLServerVersion,
+
+    -- Query performance helpers
+    @@ROWCOUNT as LastRowCount,
+
+    -- Null handling
+    ISNULL(NULL, 'Default') as NullReplacement,
+    COALESCE(NULL, NULL, 'First Non-Null') as FirstNonNull,
+    NULLIF(0, 0) as ReturnsNull,
+
+    -- Type checking
+    ISNUMERIC('123.45') as IsNumber,
+    ISDATE('2024-01-01') as IsDate;</code></pre>
+
+    <h3>Practical Function Combinations</h3>
+
+    <h4>Example 1: Engagement Score Calculation</h4>
+    <pre><code class="sql">-- Calculate custom engagement score using multiple functions
+WITH EngagementData AS (
+    SELECT
+        p.PeopleId,
+        p.Name,
+
+        -- Attendance score (0-40 points)
+        CAST(
+            CASE
+                WHEN att.AttendanceCount >= 12 THEN 40
+                WHEN att.AttendanceCount >= 8 THEN 30
+                WHEN att.AttendanceCount >= 4 THEN 20
+                WHEN att.AttendanceCount >= 1 THEN 10
+                ELSE 0
+            END as INT
+        ) as AttendanceScore,
+
+        -- Giving score (0-30 points)
+        CAST(
+            CASE
+                WHEN giv.TotalGiving >= 1000 THEN 30
+                WHEN giv.TotalGiving >= 500 THEN 20
+                WHEN giv.TotalGiving >= 100 THEN 10
+                WHEN giv.TotalGiving > 0 THEN 5
+                ELSE 0
+            END as INT
+        ) as GivingScore,
+
+        -- Involvement score (0-30 points)
+        CAST(
+            CASE
+                WHEN inv.OrgCount >= 3 THEN 30
+                WHEN inv.OrgCount = 2 THEN 20
+                WHEN inv.OrgCount = 1 THEN 10
+                ELSE 0
+            END as INT
+        ) as InvolvementScore
+
+    FROM People p
+    LEFT JOIN (
+        SELECT PeopleId, COUNT(*) as AttendanceCount
+        FROM Attend
+        WHERE AttendanceFlag = 1
+            AND MeetingDate >= DATEADD(month, -3, GETDATE())
+        GROUP BY PeopleId
+    ) att ON p.PeopleId = att.PeopleId
+    LEFT JOIN (
+        SELECT PeopleId, SUM(ContributionAmount) as TotalGiving
+        FROM Contribution
+        WHERE ContributionDate >= DATEADD(month, -3, GETDATE())
+            AND ContributionTypeId NOT IN (6, 7, 8, 99)
+        GROUP BY PeopleId
+    ) giv ON p.PeopleId = giv.PeopleId
+    LEFT JOIN (
+        SELECT PeopleId, COUNT(DISTINCT OrganizationId) as OrgCount
+        FROM OrganizationMembers
+        WHERE OrganizationId IN (
+            SELECT OrganizationId FROM Organizations
+            WHERE OrganizationStatusId = 30
+        )
+        GROUP BY PeopleId
+    ) inv ON p.PeopleId = inv.PeopleId
+    WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+)
+SELECT
+    PeopleId,
+    Name,
+    AttendanceScore,
+    GivingScore,
+    InvolvementScore,
+    AttendanceScore + GivingScore + InvolvementScore as TotalScore,
+
+    -- Percentile ranking
+    PERCENT_RANK() OVER (
+        ORDER BY AttendanceScore + GivingScore + InvolvementScore
+    ) * 100 as PercentileRank,
+
+    -- Categorization
+    CASE
+        WHEN AttendanceScore + GivingScore + InvolvementScore >= 70 THEN 'Highly Engaged'
+        WHEN AttendanceScore + GivingScore + InvolvementScore >= 40 THEN 'Engaged'
+        WHEN AttendanceScore + GivingScore + InvolvementScore >= 20 THEN 'Somewhat Engaged'
+        WHEN AttendanceScore + GivingScore + InvolvementScore > 0 THEN 'Minimally Engaged'
+        ELSE 'Not Engaged'
+    END as EngagementLevel
+FROM EngagementData
+ORDER BY TotalScore DESC;</code></pre>
+
+    <h4>Example 2: Family Analysis Functions</h4>
+    <pre><code class="sql">-- Comprehensive family analysis using multiple functions
+WITH FamilyAnalysis AS (
+    SELECT
+        f.FamilyId,
+
+        -- Family composition
+        COUNT(DISTINCT p.PeopleId) as FamilySize,
+        STRING_AGG(p.Name, ', ') WITHIN GROUP (ORDER BY p.PositionInFamilyId, p.Age DESC) as FamilyMembers,
+
+        -- Age statistics
+        MIN(p.Age) as YoungestAge,
+        MAX(p.Age) as OldestAge,
+        AVG(p.Age) as AverageAge,
+
+        -- Count by position
+        SUM(CASE WHEN p.PositionInFamilyId = 10 THEN 1 ELSE 0 END) as Adults,
+        SUM(CASE WHEN p.PositionInFamilyId = 30 THEN 1 ELSE 0 END) as Children,
+
+        -- Contact information
+        MAX(CASE WHEN p.PositionInFamilyId = 10 THEN p.EmailAddress END) as PrimaryEmail,
+        MAX(CASE WHEN p.PositionInFamilyId = 10 THEN p.CellPhone END) as PrimaryPhone,
+
+        -- Giving (family total)
+        ISNULL(fam_giving.TotalGiving, 0) as FamilyGiving,
+
+        -- Attendance (family average)
+        ISNULL(fam_attend.AvgAttendance, 0) as FamilyAttendance
+
+    FROM Families f
+    JOIN People p ON f.FamilyId = p.FamilyId
+    LEFT JOIN (
+        SELECT
+            p2.FamilyId,
+            SUM(c.ContributionAmount) as TotalGiving
+        FROM Contribution c
+        JOIN People p2 ON c.PeopleId = p2.PeopleId
+        WHERE c.ContributionDate >= DATEADD(year, -1, GETDATE())
+            AND c.ContributionTypeId NOT IN (6, 7, 8, 99)
+        GROUP BY p2.FamilyId
+    ) fam_giving ON f.FamilyId = fam_giving.FamilyId
+    LEFT JOIN (
+        SELECT
+            p3.FamilyId,
+            AVG(CAST(person_attend.AttendCount as FLOAT)) as AvgAttendance
+        FROM People p3
+        JOIN (
+            SELECT PeopleId, COUNT(*) as AttendCount
+            FROM Attend
+            WHERE AttendanceFlag = 1
+                AND MeetingDate >= DATEADD(month, -3, GETDATE())
+            GROUP BY PeopleId
+        ) person_attend ON p3.PeopleId = person_attend.PeopleId
+        GROUP BY p3.FamilyId
+    ) fam_attend ON f.FamilyId = fam_attend.FamilyId
+    WHERE p.IsDeceased = 0
+    GROUP BY f.FamilyId, fam_giving.TotalGiving, fam_attend.AvgAttendance
+)
+SELECT
+    *,
+    -- Classification
+    CASE
+        WHEN Adults >= 2 AND Children > 0 THEN 'Traditional Family'
+        WHEN Adults = 1 AND Children > 0 THEN 'Single Parent'
+        WHEN Adults >= 2 AND Children = 0 THEN 'Couple'
+        WHEN Adults = 1 AND Children = 0 THEN 'Single'
+        ELSE 'Other'
+    END as FamilyType,
+
+    -- Engagement ranking
+    DENSE_RANK() OVER (ORDER BY FamilyGiving DESC) as GivingRank,
+    DENSE_RANK() OVER (ORDER BY FamilyAttendance DESC) as AttendanceRank
+FROM FamilyAnalysis
+WHERE FamilySize > 0
+ORDER BY FamilyGiving DESC;</code></pre>
+
+    <div class="warning">
+        <h4>⚠️ Performance Considerations</h4>
+        <ul>
+            <li>Window functions can be resource-intensive on large datasets</li>
+            <li>Always use WHERE clauses to filter data before applying complex functions</li>
+            <li>Consider creating temporary tables for intermediate results in complex queries</li>
+            <li>Test performance with realistic data volumes</li>
+        </ul>
+    </div>
+
+    <h3>Best Practices for Functions in TouchPoint</h3>
+
+    <div class="success">
+        <h4>✅ Recommended Patterns</h4>
+        <ol>
+            <li><strong>Use CTEs for Readability:</strong> Break complex calculations into logical steps</li>
+            <li><strong>Leverage Temp Tables:</strong> Store intermediate results for reuse</li>
+            <li><strong>Filter Early:</strong> Apply WHERE clauses before complex functions</li>
+            <li><strong>Index Awareness:</strong> Functions in WHERE clauses can prevent index usage</li>
+            <li><strong>NULL Handling:</strong> Always use ISNULL() or COALESCE() for nullable columns</li>
+            <li><strong>Type Safety:</strong> Use TRY_CAST/TRY_CONVERT to prevent conversion errors</li>
+        </ol>
     </div>
 
     <h3>View Metadata Queries</h3>
@@ -3340,11 +4670,10 @@ ORDER BY VisitorRate DESC;</code></pre>
 
     <h4>CheckInActivities Examples</h4>
     <pre><code class="sql">-- Real-time check-in monitoring (last 3 hours)
--- NOTE: Column is 'Activities' (plural), not 'Activity'
 SELECT
     PeopleId,
     Name,
-    Activities,  -- Note: plural form
+    Activities,
     AccessType,
     CheckInTime,
     DATEDIFF(minute, CheckInTime, GETDATE()) as MinutesAgo
@@ -3405,6 +4734,7 @@ GROUP BY
 
     <h4>Financial Views Examples</h4>
     <pre><code class="sql">-- Mission trip funding status using MissionTripTotals
+        -- MissionTripTotals table lookup is slow due to how it updates the views
 SELECT
     Trip,
     COUNT(*) as Participants,
