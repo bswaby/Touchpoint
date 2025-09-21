@@ -4692,24 +4692,26 @@ ORDER BY FamilyGiving DESC;</code></pre>
         <ul>
             <li><strong>Scalar Functions (179 total)</strong> - Return single values
                 <ul>
-                    <li>✅ <strong>29 functions with EXECUTE grants</strong> - Will work (e.g., FmtPhone, Birthday, ContributionAmount)</li>
-                    <li>⚠️ <strong>150 functions without grants</strong> - May not work (e.g., Age, UName, SpouseId)</li>
+                    <li>✅ <strong>15 functions VERIFIED to work</strong> - Standard read-only access (e.g., Birthday, FmtPhone, OrganizationLeaderName, NextBirthday)</li>
+                    <li>💰 <strong>8 additional functions work with finance permissions</strong> - Finance read-only access (e.g., ContributionAmount, PledgeAmount, DonorTotalGifts)</li>
+                    <li>❌ <strong>8 functions VERIFIED to NOT work</strong> - Require special permissions (e.g., Age, UName, SpouseId, HomePhone)</li>
+                    <li>⚠️ <strong>148 functions untested</strong> - May work or may require additional permissions</li>
                 </ul>
             </li>
             <li><strong>Inline Table-Valued Functions (129)</strong> - Return tables, very efficient
                 <ul>
-                    <li>📘 <strong>Usually work</strong> even without explicit EXECUTE grants (e.g., Contributions2, OrgMember)</li>
+                    <li>✅ <strong>ALL work with read-only access</strong> - No explicit EXECUTE grants needed (e.g., Contributions2, OrgMember)</li>
                 </ul>
             </li>
             <li><strong>Multi-Statement Table-Valued Functions (63)</strong> - Return tables with complex logic
                 <ul>
-                    <li>🚫 <strong>Often require special permissions</strong> - May not work (e.g., FindPerson, AttendanceCredits)</li>
+                    <li>✅ <strong>ALL work with read-only access</strong> - Tested and verified (e.g., FindPerson, AttendanceCredits)</li>
                 </ul>
             </li>
             <li><strong>CLR Functions (5)</strong> - .NET compiled functions
                 <ul>
-                    <li>✅ <strong>RegexMatch has EXECUTE grants</strong> - Will work</li>
-                    <li>⚠️ <strong>Others may not work</strong> without permissions</li>
+                    <li>✅ <strong>RegexMatch VERIFIED to work</strong> - Works with read-only access</li>
+                    <li>⚠️ <strong>Others untested</strong> - May require special permissions</li>
                 </ul>
             </li>
         </ul>
@@ -4717,12 +4719,13 @@ ORDER BY FamilyGiving DESC;</code></pre>
 
     <div class="warning">
         <h4>⚠️ Read-Only Access Limitations</h4>
-        <p><strong>Important:</strong> Your read-only database access means many UDFs may not work due to missing EXECUTE permissions. Functions are marked based on database permission analysis:</p>
+        <p><strong>Important:</strong> Your read-only database access means many UDFs may not work due to missing EXECUTE permissions. Functions are marked based on verified testing results:</p>
         <ul>
-            <li><span class="success">✅ Works</span> - Function has EXECUTE grants and will work with read-only access (29 scalar functions confirmed)</li>
-            <li><span class="info">📘 Usually works</span> - Inline Table-Valued Functions typically work even without explicit grants (129 functions)</li>
-            <li><span class="warning">⚠️ May not work</span> - Scalar function without EXECUTE grants, likely to fail (112 scalar functions)</li>
-            <li><span class="danger">🚫 May not work</span> - Multi-Statement Table-Valued Functions often require special permissions (63 functions)</li>
+            <li><span class="success">✅ Works</span> - Function VERIFIED to work with standard read-only access (15 scalar functions tested)</li>
+            <li><span class="success">💰 Works with finance permissions</span> - Function VERIFIED to work with finance read-only access (8 additional functions)</li>
+            <li><span class="danger">❌ No access</span> - Function VERIFIED to NOT work with read-only access (8 functions tested)</li>
+            <li><span class="info">📘 Usually works</span> - All Table-Valued Functions (both inline and multi-statement) work with read-only access</li>
+            <li><span class="warning">⚠️ Untested</span> - Function not yet tested, may work or may require additional permissions</li>
         </ul>
         <p><strong>Alternative:</strong> Use the standard SQL queries provided in examples instead of relying on UDFs that may not work.</p>
     </div>
@@ -4746,7 +4749,7 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.Age(PeopleId)</code></td>
                     <td>Scalar</td>
                     <td>Returns person's current age</td>
-                    <td><span class="warning">⚠️ May not work</span></td>
+                    <td><span class="danger">❌ No access</span></td>
                     <td><code>dbo.Age(p.PeopleId)</code></td>
                 </tr>
                 <tr>
@@ -4774,7 +4777,7 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.SpouseId(PeopleId)</code></td>
                     <td>Scalar</td>
                     <td>Returns spouse's PeopleId</td>
-                    <td><span class="warning">⚠️ May not work</span></td>
+                    <td><span class="danger">❌ No access</span></td>
                     <td><code>dbo.SpouseId(123)</code></td>
                 </tr>
                 <tr>
@@ -4802,14 +4805,14 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.UName(PeopleId)</code></td>
                     <td>Scalar</td>
                     <td>Returns formatted name</td>
-                    <td><span class="warning">⚠️ May not work</span></td>
+                    <td><span class="danger">❌ No access</span></td>
                     <td><code>dbo.UName(123)</code></td>
                 </tr>
                 <tr>
                     <td><code>dbo.UName2(PeopleId)</code></td>
                     <td>Scalar</td>
                     <td>Returns name (Last, First)</td>
-                    <td><span class="warning">⚠️ May not work</span></td>
+                    <td><span class="danger">❌ No access</span></td>
                     <td><code>dbo.UName2(123)</code></td>
                 </tr>
             </tbody>
@@ -4920,7 +4923,7 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.LastAttend</code></td>
                     <td>Scalar</td>
                     <td>Last attendance date for person</td>
-                    <td><span class="warning">⚠️ May not work</span></td>
+                    <td><span class="danger">❌ No access</span></td>
                     <td>@pid, @orgid</td>
                 </tr>
                 <tr>
@@ -4934,7 +4937,7 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.AttendanceCredits</code></td>
                     <td>Table-Valued</td>
                     <td>Weekly attendance credits</td>
-                    <td><span class="danger">🚫 May not work</span></td>
+                    <td><span class="info">📘 Works</span></td>
                     <td>@orgid, @year</td>
                 </tr>
                 <tr>
@@ -5073,7 +5076,7 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.HomePhone</code></td>
                     <td>Scalar</td>
                     <td>Get home phone</td>
-                    <td><span class="warning">⚠️ May not work</span></td>
+                    <td><span class="danger">❌ No access</span></td>
                     <td><code>dbo.HomePhone(123)</code></td>
                 </tr>
                 <tr>
@@ -5087,7 +5090,7 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.UEmail</code></td>
                     <td>Scalar</td>
                     <td>Get person's email</td>
-                    <td><span class="warning">⚠️ May not work</span></td>
+                    <td><span class="danger">❌ No access</span></td>
                     <td><code>dbo.UEmail(123)</code></td>
                 </tr>
                 <tr>
@@ -5198,14 +5201,14 @@ ORDER BY FamilyGiving DESC;</code></pre>
                     <td><code>dbo.FindPerson</code></td>
                     <td>Table-Valued</td>
                     <td>Search for person</td>
-                    <td><span class="danger">🚫 May not work</span></td>
+                    <td><span class="info">📘 Works</span></td>
                     <td>Name/email search</td>
                 </tr>
                 <tr>
                     <td><code>dbo.FindPersonByEmail</code></td>
                     <td>Table-Valued</td>
                     <td>Search by email</td>
-                    <td><span class="danger">🚫 May not work</span></td>
+                    <td><span class="info">📘 Works</span></td>
                     <td>Email lookup</td>
                 </tr>
                 <tr>
