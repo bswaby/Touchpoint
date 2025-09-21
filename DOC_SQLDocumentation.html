@@ -3138,6 +3138,421 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
         </table>
     </div>
 
+    <h3>📂 TouchPoint Views by Category</h3>
+
+    <div class="info">
+        <h4>💡 Why Use Views?</h4>
+        <ul>
+            <li>✅ <strong>Pre-joined data</strong> - Complex joins already done for you</li>
+            <li>✅ <strong>Calculated fields</strong> - Age, totals, percentages pre-computed</li>
+            <li>✅ <strong>Cleaner names</strong> - More intuitive column names than base tables</li>
+            <li>✅ <strong>Performance</strong> - Often indexed and optimized by TouchPoint</li>
+            <li>✅ <strong>Best practice</strong> - TouchPoint's recommended way to access data</li>
+        </ul>
+    </div>
+
+    <h4>👥 People & Contact Views</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 25%;">View Name</th>
+                    <th style="width: 35%;">Purpose</th>
+                    <th style="width: 20%;">Key Columns</th>
+                    <th style="width: 20%;">Example Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>PeopleBasicModifed</code></td>
+                    <td>Enhanced people data with computed fields</td>
+                    <td>21 columns including age calculations</td>
+                    <td><code>SELECT * FROM PeopleBasicModifed WHERE Age > 18</code></td>
+                </tr>
+                <tr>
+                    <td><code>AddressInfo</code></td>
+                    <td>Complete address information with formatting</td>
+                    <td>16 columns: full addresses, city, state, zip</td>
+                    <td><code>SELECT * FROM AddressInfo WHERE State = 'TN'</code></td>
+                </tr>
+                <tr>
+                    <td><code>HeadOrSpouseWithEmail</code></td>
+                    <td>Family heads/spouses with valid emails</td>
+                    <td>PeopleId with email validation</td>
+                    <td><code>SELECT * FROM HeadOrSpouseWithEmail</code></td>
+                </tr>
+                <tr>
+                    <td><code>SearchNoDiacritics</code></td>
+                    <td>Search-friendly names without special characters</td>
+                    <td>17 columns: normalized names for searching</td>
+                    <td><code>SELECT * FROM SearchNoDiacritics WHERE Name LIKE '%jose%'</code></td>
+                </tr>
+                <tr>
+                    <td><code>FirstName</code>, <code>LastName</code>, <code>Nick</code></td>
+                    <td>Name parsing helpers</td>
+                    <td>PeopleId, parsed name parts</td>
+                    <td><code>SELECT * FROM FirstName WHERE name LIKE 'John%'</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>💰 Financial & Giving Views</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 25%;">View Name</th>
+                    <th style="width: 35%;">Purpose</th>
+                    <th style="width: 20%;">Key Columns</th>
+                    <th style="width: 20%;">Example Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>ContributionsView</code></td>
+                    <td>Simplified contribution data with donor names</td>
+                    <td>FundId, Amount, Name, Fund, Status, Type</td>
+                    <td><code>SELECT * FROM ContributionsView WHERE Amount > 100</code></td>
+                </tr>
+                <tr>
+                    <td><code>TransactionList</code></td>
+                    <td>⭐ Complete transaction details (66 columns!)</td>
+                    <td>All transaction fields including people, orgs, amounts</td>
+                    <td><code>SELECT * FROM TransactionList WHERE TransactionDate > '2024-01-01'</code></td>
+                </tr>
+                <tr>
+                    <td><code>TransactionSummary</code></td>
+                    <td>Aggregated transaction totals</td>
+                    <td>20 columns: summaries by person/org</td>
+                    <td><code>SELECT * FROM TransactionSummary WHERE TotalPaid > 0</code></td>
+                </tr>
+                <tr>
+                    <td><code>BundleList</code></td>
+                    <td>Contribution bundle management</td>
+                    <td>15 columns: bundle headers and totals</td>
+                    <td><code>SELECT * FROM BundleList WHERE BundleStatusId = 0</code></td>
+                </tr>
+                <tr>
+                    <td><code>ManagedGivingList</code></td>
+                    <td>Recurring giving management</td>
+                    <td>14 columns: recurring schedules</td>
+                    <td><code>SELECT * FROM ManagedGivingList WHERE Active = 1</code></td>
+                </tr>
+                <tr>
+                    <td><code>RecurringGivingDueForToday</code></td>
+                    <td>Today's expected recurring gifts</td>
+                    <td>PeopleId, Amount, NextDate</td>
+                    <td><code>SELECT * FROM RecurringGivingDueForToday</code></td>
+                </tr>
+                <tr>
+                    <td><code>DepositDateTotals</code></td>
+                    <td>Daily deposit summaries</td>
+                    <td>Date, Total, Count, FundId</td>
+                    <td><code>SELECT * FROM DepositDateTotals WHERE DepositDate = CAST(GETDATE() as DATE)</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>📅 Attendance & Activities Views</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 25%;">View Name</th>
+                    <th style="width: 35%;">Purpose</th>
+                    <th style="width: 20%;">Key Columns</th>
+                    <th style="width: 20%;">Example Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>CheckInActivities</code></td>
+                    <td>Real-time check-in tracking</td>
+                    <td>CheckInTime, PeopleId, Name, Location, Activities</td>
+                    <td><code>SELECT * FROM CheckInActivities WHERE CheckInTime > DATEADD(hour, -3, GETDATE())</code></td>
+                </tr>
+                <tr>
+                    <td><code>LastAttends</code></td>
+                    <td>Most recent attendance by person</td>
+                    <td>11 columns: last attendance details</td>
+                    <td><code>SELECT * FROM LastAttends WHERE LastAttendDate > '2024-01-01'</code></td>
+                </tr>
+                <tr>
+                    <td><code>FirstAttends</code></td>
+                    <td>First-time visitor tracking</td>
+                    <td>PeopleId, FirstAttendDate, OrgId</td>
+                    <td><code>SELECT * FROM FirstAttends WHERE FirstDate > DATEADD(month, -1, GETDATE())</code></td>
+                </tr>
+                <tr>
+                    <td><code>AttendCredits</code>, <code>AttendCredits2</code></td>
+                    <td>Attendance credit calculations</td>
+                    <td>WeekOfYear, AttendanceCredits</td>
+                    <td><code>SELECT * FROM AttendCredits WHERE PeopleId = 123</code></td>
+                </tr>
+                <tr>
+                    <td><code>ActivityAll</code></td>
+                    <td>All system activities</td>
+                    <td>Activity, Machine, Name, Date</td>
+                    <td><code>SELECT * FROM ActivityAll WHERE ActivityDate > DATEADD(day, -7, GETDATE())</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>🏢 Organization Views</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 25%;">View Name</th>
+                    <th style="width: 35%;">Purpose</th>
+                    <th style="width: 20%;">Key Columns</th>
+                    <th style="width: 20%;">Example Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>OrganizationStructure</code></td>
+                    <td>⭐ Complete org hierarchy with counts</td>
+                    <td>Program, Division, Organization, Members, Vistors</td>
+                    <td><code>SELECT * FROM OrganizationStructure WHERE Members > 10</code></td>
+                </tr>
+                <tr>
+                    <td><code>OrganizationLeaders</code></td>
+                    <td>Organization leadership roster</td>
+                    <td>OrgId, LeaderId, LeaderName</td>
+                    <td><code>SELECT * FROM OrganizationLeaders WHERE OrgId = 100</code></td>
+                </tr>
+                <tr>
+                    <td><code>OrgSchedules2</code></td>
+                    <td>Organization meeting schedules</td>
+                    <td>OrgId, MeetingTime, Location</td>
+                    <td><code>SELECT * FROM OrgSchedules2 WHERE NextMeeting > GETDATE()</code></td>
+                </tr>
+                <tr>
+                    <td><code>OrgsWithFees</code>, <code>OrgsWithoutFees</code></td>
+                    <td>Organizations by fee status</td>
+                    <td>OrganizationId</td>
+                    <td><code>SELECT * FROM OrgsWithFees</code></td>
+                </tr>
+                <tr>
+                    <td><code>MasterOrgs</code></td>
+                    <td>Parent organization list</td>
+                    <td>OrgId, Name, ChildCount</td>
+                    <td><code>SELECT * FROM MasterOrgs</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>📝 Registration Views</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 25%;">View Name</th>
+                    <th style="width: 35%;">Purpose</th>
+                    <th style="width: 20%;">Key Columns</th>
+                    <th style="width: 20%;">Example Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>RegistrationList</code></td>
+                    <td>⭐ Complete registration data (24 columns)</td>
+                    <td>RegistrationId, PeopleId, Name, completed, RegStart</td>
+                    <td><code>SELECT * FROM RegistrationList WHERE completed = 1</code></td>
+                </tr>
+                <tr>
+                    <td><code>ActiveRegistrations</code></td>
+                    <td>Currently active registrations</td>
+                    <td>RegistrationId</td>
+                    <td><code>SELECT * FROM ActiveRegistrations</code></td>
+                </tr>
+                <tr>
+                    <td><code>InProgressRegistrations</code></td>
+                    <td>Incomplete registrations</td>
+                    <td>6 columns: partial registration data</td>
+                    <td><code>SELECT * FROM InProgressRegistrations WHERE RegStart > DATEADD(day, -7, GETDATE())</code></td>
+                </tr>
+                <tr>
+                    <td><code>RegistrationTransactionSummary</code></td>
+                    <td>Registration financial summary</td>
+                    <td>23 columns: payment details</td>
+                    <td><code>SELECT * FROM RegistrationTransactionSummary WHERE TotalPaid > 0</code></td>
+                </tr>
+                <tr>
+                    <td><code>RegsettingOptions</code></td>
+                    <td>Registration form settings (55 columns!)</td>
+                    <td>All registration configuration options</td>
+                    <td><code>SELECT * FROM RegsettingOptions WHERE OrgId = 100</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>✅ Task & Status Views</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 25%;">View Name</th>
+                    <th style="width: 35%;">Purpose</th>
+                    <th style="width: 20%;">Key Columns</th>
+                    <th style="width: 20%;">Example Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>IncompleteTasks</code></td>
+                    <td>Open task management (19 columns)</td>
+                    <td>TaskId, Description, AssignedTo, DueDate</td>
+                    <td><code>SELECT * FROM IncompleteTasks WHERE DueDate < GETDATE()</code></td>
+                </tr>
+                <tr>
+                    <td><code>TaskSearch</code></td>
+                    <td>Comprehensive task search (26 columns)</td>
+                    <td>All task fields for searching</td>
+                    <td><code>SELECT * FROM TaskSearch WHERE Description LIKE '%follow up%'</code></td>
+                </tr>
+                <tr>
+                    <td><code>StatusFlagColumns</code></td>
+                    <td>All status flags as columns (29 flags)</td>
+                    <td>PeopleId + 29 flag columns</td>
+                    <td><code>SELECT * FROM StatusFlagColumns WHERE PeopleId = 123</code></td>
+                </tr>
+                <tr>
+                    <td><code>AllStatusFlags</code></td>
+                    <td>Status flag definitions</td>
+                    <td>FlagId, Name, Description</td>
+                    <td><code>SELECT * FROM AllStatusFlags</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>🔧 System & Admin Views</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 25%;">View Name</th>
+                    <th style="width: 35%;">Purpose</th>
+                    <th style="width: 20%;">Key Columns</th>
+                    <th style="width: 20%;">Example Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>UserList</code></td>
+                    <td>System user accounts</td>
+                    <td>11 columns: username, email, roles</td>
+                    <td><code>SELECT * FROM UserList WHERE LastActivity > DATEADD(day, -30, GETDATE())</code></td>
+                </tr>
+                <tr>
+                    <td><code>UserRoles</code></td>
+                    <td>User role assignments</td>
+                    <td>UserId, RoleId, RoleName</td>
+                    <td><code>SELECT * FROM UserRoles WHERE RoleName = 'Admin'</code></td>
+                </tr>
+                <tr>
+                    <td><code>ChangeLogDetails</code></td>
+                    <td>Audit trail details</td>
+                    <td>10 columns: who, what, when</td>
+                    <td><code>SELECT * FROM ChangeLogDetails WHERE ChangeDate > DATEADD(day, -1, GETDATE())</code></td>
+                </tr>
+                <tr>
+                    <td><code>CustomMenuRoles</code>, <code>CustomScriptRoles</code></td>
+                    <td>Custom permissions</td>
+                    <td>Role-based access controls</td>
+                    <td><code>SELECT * FROM CustomScriptRoles</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>📧 Communication Views</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 25%;">View Name</th>
+                    <th style="width: 35%;">Purpose</th>
+                    <th style="width: 20%;">Key Columns</th>
+                    <th style="width: 20%;">Example Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>EmailDelegation</code></td>
+                    <td>Email sending permissions</td>
+                    <td>5 columns: delegation settings</td>
+                    <td><code>SELECT * FROM EmailDelegation WHERE DelegateId = 123</code></td>
+                </tr>
+                <tr>
+                    <td><code>FailedEmails</code></td>
+                    <td>Failed email tracking</td>
+                    <td>EmailId, Error, FailDate</td>
+                    <td><code>SELECT * FROM FailedEmails WHERE FailDate > DATEADD(day, -7, GETDATE())</code></td>
+                </tr>
+                <tr>
+                    <td><code>FirstPersonSameEmail</code></td>
+                    <td>Duplicate email detection</td>
+                    <td>EmailAddress, PeopleId</td>
+                    <td><code>SELECT * FROM FirstPersonSameEmail</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h4>📊 Analytics & Reporting Views</h4>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 25%;">View Name</th>
+                    <th style="width: 35%;">Purpose</th>
+                    <th style="width: 20%;">Key Columns</th>
+                    <th style="width: 20%;">Example Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>MemberData</code></td>
+                    <td>Member statistics and metrics</td>
+                    <td>9 columns: membership analytics</td>
+                    <td><code>SELECT * FROM MemberData WHERE JoinDate > '2024-01-01'</code></td>
+                </tr>
+                <tr>
+                    <td><code>ChAiGiftData</code>, <code>ChAiIndividualData</code></td>
+                    <td>Church analytics data</td>
+                    <td>12 & 21 columns: giving analytics</td>
+                    <td><code>SELECT * FROM ChAiGiftData WHERE GiftAmount > 100</code></td>
+                </tr>
+                <tr>
+                    <td><code>DonorProfileList</code></td>
+                    <td>Donor segmentation</td>
+                    <td>Profile, Count, TotalGiving</td>
+                    <td><code>SELECT * FROM DonorProfileList ORDER BY TotalGiving DESC</code></td>
+                </tr>
+                <tr>
+                    <td><code>ProspectCounts</code>, <code>PreviousMemberCounts</code></td>
+                    <td>Member status counts</td>
+                    <td>StatusId, Count</td>
+                    <td><code>SELECT * FROM ProspectCounts</code></td>
+                </tr>
+                <tr>
+                    <td><code>MissionTripTotals</code></td>
+                    <td>Mission trip summaries</td>
+                    <td>8 columns: trip statistics</td>
+                    <td><code>SELECT * FROM MissionTripTotals WHERE TripYear = 2024</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
     <h3>📝 Using Views in Your Queries</h3>
 
     <div class="highlight">
