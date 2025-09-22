@@ -3380,9 +3380,9 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 </tr>
                 <tr>
                     <td><code>InProgressRegistrations</code></td>
-                    <td>Incomplete registrations</td>
-                    <td>6 columns: partial registration data</td>
-                    <td><code>SELECT * FROM InProgressRegistrations WHERE RegStart > DATEADD(day, -7, GETDATE())</code></td>
+                    <td>Incomplete registrations <span class="badge badge-critical">Requires SET QUOTED_IDENTIFIER ON</span></td>
+                    <td>Name, OrganizationName, Stamp, PeopleId, OrganizationId, RegDataId</td>
+                    <td><code>SET QUOTED_IDENTIFIER ON; SELECT * FROM InProgressRegistrations WHERE Stamp > DATEADD(day, -7, GETDATE())</code></td>
                 </tr>
                 <tr>
                     <td><code>RegistrationTransactionSummary</code></td>
@@ -3393,8 +3393,8 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 <tr>
                     <td><code>RegsettingOptions</code></td>
                     <td>Registration form settings (55 columns!)</td>
-                    <td>All registration configuration options</td>
-                    <td><code>SELECT * FROM RegsettingOptions WHERE OrgId = 100</code></td>
+                    <td>InvId, Involvement, plus 53 setting columns</td>
+                    <td><code>SELECT * FROM RegsettingOptions WHERE InvId = 100</code></td>
                 </tr>
             </tbody>
         </table>
@@ -3415,8 +3415,8 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 <tr>
                     <td><code>IncompleteTasks</code></td>
                     <td>Open task management (19 columns)</td>
-                    <td>TaskId, Description, AssignedTo, DueDate</td>
-                    <td><code>SELECT * FROM IncompleteTasks WHERE DueDate < GETDATE()</code></td>
+                    <td>Id, OwnerId, WhoId, Description, StatusId, CreatedOn, Due</td>
+                    <td><code>SELECT * FROM IncompleteTasks WHERE Due < GETDATE()</code></td>
                 </tr>
                 <tr>
                     <td><code>TaskSearch</code></td>
@@ -3455,20 +3455,20 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 <tr>
                     <td><code>UserList</code></td>
                     <td>System user accounts</td>
-                    <td>11 columns: username, email, roles</td>
-                    <td><code>SELECT * FROM UserList WHERE LastActivity > DATEADD(day, -30, GETDATE())</code></td>
+                    <td>Username, UserId, Name, EmailAddress, LastActivityDate, PeopleId, Roles</td>
+                    <td><code>SELECT * FROM UserList WHERE LastActivityDate > DATEADD(day, -30, GETDATE())</code></td>
                 </tr>
                 <tr>
                     <td><code>UserRoles</code></td>
                     <td>User role assignments</td>
-                    <td>UserId, RoleId, RoleName</td>
-                    <td><code>SELECT * FROM UserRoles WHERE RoleName = 'Admin'</code></td>
+                    <td>Name, EmailAddress, Roles (concatenated comma-separated list)</td>
+                    <td><code>SELECT * FROM UserRoles WHERE Roles LIKE '%Admin%'</code></td>
                 </tr>
                 <tr>
                     <td><code>ChangeLogDetails</code></td>
                     <td>Audit trail details</td>
-                    <td>10 columns: who, what, when</td>
-                    <td><code>SELECT * FROM ChangeLogDetails WHERE ChangeDate > DATEADD(day, -1, GETDATE())</code></td>
+                    <td>Id, PeopleId, Section, Created, UserPeopleId, Field, Before, After</td>
+                    <td><code>SELECT * FROM ChangeLogDetails WHERE Created > DATEADD(day, -1, GETDATE())</code></td>
                 </tr>
                 <tr>
                     <td><code>CustomMenuRoles</code>, <code>CustomScriptRoles</code></td>
@@ -3495,14 +3495,14 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 <tr>
                     <td><code>EmailDelegation</code></td>
                     <td>Email sending permissions</td>
-                    <td>5 columns: delegation settings</td>
-                    <td><code>SELECT * FROM EmailDelegation WHERE DelegateId = 123</code></td>
+                    <td>CanEmailId, CanEmailName, OnBehalfOfIds, OnBehalfOfNames</td>
+                    <td><code>SELECT * FROM EmailDelegation WHERE CanEmailId = 123</code></td>
                 </tr>
                 <tr>
                     <td><code>FailedEmails</code></td>
                     <td>Failed email tracking</td>
-                    <td>EmailId, Error, FailDate</td>
-                    <td><code>SELECT * FROM FailedEmails WHERE FailDate > DATEADD(day, -7, GETDATE())</code></td>
+                    <td>time, Id, PeopleId, Fail (only 4 columns!)</td>
+                    <td><code>SELECT * FROM FailedEmails WHERE time > DATEADD(day, -7, GETDATE())</code></td>
                 </tr>
                 <tr>
                     <td><code>FirstPersonSameEmail</code></td>
@@ -3529,20 +3529,20 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 <tr>
                     <td><code>MemberData</code></td>
                     <td>Member statistics and metrics</td>
-                    <td>9 columns: membership analytics</td>
-                    <td><code>SELECT * FROM MemberData WHERE JoinDate > '2024-01-01'</code></td>
+                    <td>PeopleId, First, Last, Age, Marital, DecisionDt, JoinDt, Decision, Baptism</td>
+                    <td><code>SELECT * FROM MemberData WHERE JoinDt > '2024-01-01'</code></td>
                 </tr>
                 <tr>
                     <td><code>ChAiGiftData</code>, <code>ChAiIndividualData</code></td>
                     <td>Church analytics data</td>
-                    <td>12 & 21 columns: giving analytics</td>
-                    <td><code>SELECT * FROM ChAiGiftData WHERE GiftAmount > 100</code></td>
+                    <td>ChAiGiftData: ContributionId, ContributionDate, ContributionAmount, FundName</td>
+                    <td><code>SELECT * FROM ChAiGiftData WHERE ContributionAmount > 100</code></td>
                 </tr>
                 <tr>
                     <td><code>DonorProfileList</code></td>
                     <td>Donor segmentation</td>
-                    <td>Profile, Count, TotalGiving</td>
-                    <td><code>SELECT * FROM DonorProfileList ORDER BY TotalGiving DESC</code></td>
+                    <td>PeopleId, SpouseId, FamilyId, prof (encoded profile data)</td>
+                    <td><code>SELECT * FROM DonorProfileList WHERE PeopleId IS NOT NULL</code></td>
                 </tr>
                 <tr>
                     <td><code>ProspectCounts</code>, <code>PreviousMemberCounts</code></td>
@@ -3553,8 +3553,8 @@ ORDER BY c.ORDINAL_POSITION;</code></pre>
                 <tr>
                     <td><code>MissionTripTotals</code></td>
                     <td>Mission trip summaries</td>
-                    <td>8 columns: trip statistics</td>
-                    <td><code>SELECT * FROM MissionTripTotals WHERE TripYear = 2024</code></td>
+                    <td>InvolvementId, Trip, PeopleId, Name, TripCost, Raised, Due</td>
+                    <td><code>SELECT * FROM MissionTripTotals WHERE Due > 0</code></td>
                 </tr>
             </tbody>
         </table>
