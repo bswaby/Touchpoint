@@ -75,16 +75,25 @@ class InvolvementSyncManager:
     def get_involvement_details(self, org_id):
         """Get detailed information about an involvement"""
         try:
+            # Simplified query - just get the basic org info we need
             sql = '''
-            SELECT o.OrganizationId, o.OrganizationName, o.DivisionId, 
-                   p.Program, d.Division, o.MemberCount
+            SELECT o.OrganizationId, o.OrganizationName, o.MemberCount
             FROM Organizations o
-            LEFT JOIN Division d ON o.DivisionId = d.Id
-            LEFT JOIN Program p ON d.ProgId = p.Id
             WHERE o.OrganizationId = ''' + str(org_id)
             return q.QuerySqlTop1(sql)
-        except:
+        except Exception as e:
+            print "<!-- DEBUG ERROR in get_involvement_details for org " + str(org_id) + ": " + str(e) + " -->"
             return None
+
+    def verify_organization_exists(self, org_id):
+        """Simple check if organization exists without complex joins"""
+        try:
+            sql = "SELECT OrganizationId FROM Organizations WHERE OrganizationId = " + str(org_id)
+            result = q.QuerySqlTop1(sql)
+            return result is not None
+        except Exception as e:
+            print "<!-- DEBUG ERROR in verify_organization_exists for org " + str(org_id) + ": " + str(e) + " -->"
+            return False
     
     def get_sync_enabled_involvements(self):
         """Get all involvements that have sync enabled"""
@@ -129,19 +138,23 @@ class InvolvementSyncManager:
             
             # Get target organization ID
             target_sql = '''
-            SELECT Data, IntValue FROM OrganizationExtra 
+            SELECT Data, IntValue FROM OrganizationExtra
             WHERE OrganizationId = ''' + str(org_id) + ''' AND Field = \'''' + self.sync_target_field + '''\'
             '''
             target_result = q.QuerySqlTop1(target_sql)
             if target_result:
+                # Debug output
+                print "<!-- DEBUG: For org " + str(org_id) + ", IntValue=" + str(target_result.IntValue) + ", Data=" + str(target_result.Data) + " -->"
+
                 # Try IntValue first, then Data
                 if target_result.IntValue and target_result.IntValue > 0:
                     settings['target_org_id'] = target_result.IntValue
-                elif target_result.Data and str(target_result.Data).isdigit():
-                    settings['target_org_id'] = int(str(target_result.Data))
+                elif target_result.Data and str(target_result.Data).strip().isdigit():
+                    settings['target_org_id'] = int(str(target_result.Data).strip())
                 else:
                     settings['target_org_id'] = None
             else:
+                print "<!-- DEBUG: No target org extra value found for org " + str(org_id) + " -->"
                 settings['target_org_id'] = None
             
             # Get auto sync status
@@ -168,15 +181,22 @@ class InvolvementSyncManager:
     def set_sync_settings(self, org_id, target_org_id, auto_sync=False):
         """Enable sync for an involvement"""
         try:
+            print "<!-- DEBUG: Setting sync settings for org " + str(org_id) + " with target " + str(target_org_id) + " -->"
+
             # Enable sync
             model.AddExtraValueBoolOrg(org_id, self.sync_enabled_field, True)
-            
-            # Set target organization
-            model.AddExtraValueIntOrg(org_id, self.sync_target_field, target_org_id)
-            
+
+            # Set target organization - ensure it's an integer
+            model.AddExtraValueIntOrg(org_id, self.sync_target_field, int(target_org_id))
+
             # Set auto sync
             model.AddExtraValueBoolOrg(org_id, self.sync_auto_field, auto_sync)
-            
+
+            # Verify it was saved correctly
+            test_settings = self.get_sync_settings(org_id)
+            if test_settings['target_org_id'] != int(target_org_id):
+                print "<!-- WARNING: Target org ID mismatch after save. Expected " + str(target_org_id) + ", got " + str(test_settings['target_org_id']) + " -->"
+
             return True
         except Exception as e:
             print "<p style='color:red;'>Error setting sync settings: " + str(e) + "</p>"
@@ -212,25 +232,20 @@ class InvolvementSyncManager:
             except Exception as e:
                 print "<p style='color:orange;'>Template method failed: " + str(e) + "</p>"
             
-            # If template method fails, try basic creation with program and division names
-            try:
-                source_details = self.get_involvement_details(source_org_id)
-                if source_details and source_details.Program and source_details.Division:
-                    new_org_id = model.AddOrganization(new_name, source_details.Program, source_details.Division)
-                    if new_org_id and new_org_id > 0:
-                        return new_org_id
-            except Exception as e:
-                print "<p style='color:orange;'>Basic method failed: " + str(e) + "</p>"
+            # If template method fails, try basic creation
+            # Note: We skip trying to use Program/Division since they may not exist
+            print "<!-- Template method failed, will try default creation -->"
             
-            # If both methods fail, try with default program/division
+            # If template method fails, try with just the name
             try:
-                new_org_id = model.AddOrganization(new_name, "General", "General")
+                # Try the simplest form - just organization name
+                new_org_id = model.AddOrganization(new_name)
                 if new_org_id and new_org_id > 0:
                     return new_org_id
             except Exception as e:
-                print "<p style='color:orange;'>Default method failed: " + str(e) + "</p>"
-            
-            raise Exception("All creation methods failed. You may need admin permissions to create involvements.")
+                print "<p style='color:orange;'>Simple creation failed: " + str(e) + "</p>"
+
+            raise Exception("Failed to create new involvement. Please use an existing involvement ID instead.")
             
         except Exception as e:
             print "<p style='color:red;'>Error creating duplicate involvement: " + str(e) + "</p>"
@@ -976,10 +991,13 @@ else:
                 
                 if target_type == "existing":
                     target_org_id = int(str(model.Data.target_org_id))
-                    # Verify target org exists
+                    # Verify target org exists with simple check first
+                    if not sync_manager.verify_organization_exists(target_org_id):
+                        raise Exception("Target involvement ID " + str(target_org_id) + " does not exist in the database")
+                    # Try to get details (may fail due to missing division/program)
                     target_details = sync_manager.get_involvement_details(target_org_id)
                     if not target_details:
-                        raise Exception("Target involvement ID " + str(target_org_id) + " does not exist")
+                        print "<!-- DEBUG: Organization " + str(target_org_id) + " exists but could not get details (possibly missing Division/Program) -->"
                 else:
                     # Create new involvement
                     new_name = str(model.Data.new_org_name) if hasattr(model.Data, 'new_org_name') and str(model.Data.new_org_name).strip() else None
@@ -1192,7 +1210,11 @@ else:
                 source_org_id = int(str(model.Data.source_org_id))
                 target_org_id = int(str(model.Data.target_org_id))
                 auto_sync = hasattr(model.Data, 'auto_sync') and str(model.Data.auto_sync) == "1"
-                
+
+                # Verify target org exists
+                if not sync_manager.verify_organization_exists(target_org_id):
+                    raise Exception("Target involvement ID " + str(target_org_id) + " does not exist in the database")
+
                 if sync_manager.set_sync_settings(source_org_id, target_org_id, auto_sync):
                     source_name = sync_manager.get_involvement_name(source_org_id)
                     target_name = sync_manager.get_involvement_name(target_org_id)
