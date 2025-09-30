@@ -22,6 +22,14 @@
 # 3. Sync runs automatically or manually as needed
 # 4. All changes (adds/removes) are tracked and reported
 
+# Version 2.0 Updates: Heath Kouns (9/30/25)
+# - Added option to exclude People from Sync via an exclusion involvement
+# - Exclusion involvement Id is stored on Source Involvement as EV (similar to Target Involvement Id)
+# - Add global setting (DisplayExclusionOption) to hide exclusion involvement fields/options from GUI
+# - Added feature to also sync Member Org Type from Source to Target 
+# - Member Type Syncing is controlled by global setting SyncOrgMemType
+                                
+
 #--Upload Instructions Start--
 # To upload code to Touchpoint, use the following steps:
 # 1. Click Admin > Advanced > Special Content > Python
@@ -46,6 +54,15 @@
 import traceback
 import re
 
+########################################################
+### User Config Area
+
+DisplayExclusionOption = True
+SyncOrgMemType = True
+                                
+########################################################
+### Start of Code
+
 model.Header = "Involvement Sync Manager"
 
 class InvolvementSyncManager:
@@ -54,6 +71,7 @@ class InvolvementSyncManager:
     def __init__(self):
         self.sync_enabled_field = "SyncEnabled"
         self.sync_target_field = "SyncTargetOrgId"
+        self.sync_exclusion_field = "SyncExclusionOrgId"
         self.sync_auto_field = "AutoSync"
         self.loading_html = '''
         <div id="loading" style="display:none; text-align:center; margin:20px;">
@@ -78,7 +96,10 @@ class InvolvementSyncManager:
             # Simplified query - just get the basic org info we need
             sql = '''
             SELECT o.OrganizationId, o.OrganizationName, o.MemberCount
+													   
             FROM Organizations o
+													   
+												  
             WHERE o.OrganizationId = ''' + str(org_id)
             return q.QuerySqlTop1(sql)
         except Exception as e:
@@ -94,6 +115,7 @@ class InvolvementSyncManager:
         except Exception as e:
             print "<!-- DEBUG ERROR in verify_organization_exists for org " + str(org_id) + ": " + str(e) + " -->"
             return False
+    
     
     def get_sync_enabled_involvements(self):
         """Get all involvements that have sync enabled"""
@@ -138,7 +160,7 @@ class InvolvementSyncManager:
             
             # Get target organization ID
             target_sql = '''
-            SELECT Data, IntValue FROM OrganizationExtra
+            SELECT Data, IntValue FROM OrganizationExtra 
             WHERE OrganizationId = ''' + str(org_id) + ''' AND Field = \'''' + self.sync_target_field + '''\'
             '''
             target_result = q.QuerySqlTop1(target_sql)
@@ -156,6 +178,26 @@ class InvolvementSyncManager:
             else:
                 print "<!-- DEBUG: No target org extra value found for org " + str(org_id) + " -->"
                 settings['target_org_id'] = None
+            
+            
+            # Get exclusion organization ID
+            exclusion_sql = '''
+            SELECT Data, IntValue FROM OrganizationExtra 
+            WHERE OrganizationId = ''' + str(org_id) + ''' AND Field = \'''' + self.sync_exclusion_field + '''\'
+            '''
+            exclusion_result = q.QuerySqlTop1(exclusion_sql)
+            
+            if exclusion_result:
+                # Try IntValue first, then Data
+                if exclusion_result.IntValue and exclusion_result.IntValue > 0:
+                    settings['exclusion_org_id'] = exclusion_result.IntValue
+                elif exclusion_result.Data and str(exclusion_result.Data).isdigit():
+                    settings['exclusion_org_id'] = int(str(exclusion_result.Data))
+                else:
+                    settings['exclusion_org_id'] = None
+            else:
+                settings['exclusion_org_id'] = None
+            
             
             # Get auto sync status
             auto_sql = '''
@@ -178,7 +220,7 @@ class InvolvementSyncManager:
             print "<!-- DEBUG ERROR in get_sync_settings for org " + str(org_id) + ": " + str(e) + " -->"
             return {'enabled': False, 'target_org_id': None, 'auto_sync': False}
     
-    def set_sync_settings(self, org_id, target_org_id, auto_sync=False):
+    def set_sync_settings(self, org_id, target_org_id, exclusion_org_id, auto_sync=False):
         """Enable sync for an involvement"""
         try:
             print "<!-- DEBUG: Setting sync settings for org " + str(org_id) + " with target " + str(target_org_id) + " -->"
@@ -189,11 +231,19 @@ class InvolvementSyncManager:
             # Set target organization - ensure it's an integer
             model.AddExtraValueIntOrg(org_id, self.sync_target_field, int(target_org_id))
 
+            
+            # Set Exclusion organization
+            if exclusion_org_id:
+                model.AddExtraValueIntOrg(org_id, self.sync_exclusion_field, exclusion_org_id)
+            else:
+                model.AddExtraValueIntOrg(org_id, self.sync_exclusion_field, 0)
+            
             # Set auto sync
             model.AddExtraValueBoolOrg(org_id, self.sync_auto_field, auto_sync)
 
             # Verify it was saved correctly
             test_settings = self.get_sync_settings(org_id)
+            
             if test_settings['target_org_id'] != int(target_org_id):
                 print "<!-- WARNING: Target org ID mismatch after save. Expected " + str(target_org_id) + ", got " + str(test_settings['target_org_id']) + " -->"
 
@@ -246,7 +296,7 @@ class InvolvementSyncManager:
                 print "<p style='color:orange;'>Simple creation failed: " + str(e) + "</p>"
 
             raise Exception("Failed to create new involvement. Please use an existing involvement ID instead.")
-            
+                      
         except Exception as e:
             print "<p style='color:red;'>Error creating duplicate involvement: " + str(e) + "</p>"
             return None
@@ -255,7 +305,7 @@ class InvolvementSyncManager:
         """Get all members of an involvement with their subgroup assignments"""
         try:
             sql = '''
-            SELECT om.PeopleId, p.Name, om.OrganizationId,
+            SELECT om.PeopleId, p.Name, om.OrganizationId,mt.Description AS OrgMemType,
                    STUFF((
                        SELECT ', ' + mt.Name
                        FROM OrgMemMemTags ommt
@@ -265,6 +315,7 @@ class InvolvementSyncManager:
                        FOR XML PATH('')
                    ), 1, 2, '') as SubGroups
             FROM OrganizationMembers om
+            LEFT JOIN lookup.MemberType mt ON mt.Id = om.MemberTypeId
             INNER JOIN People p ON om.PeopleId = p.PeopleId
             WHERE om.OrganizationId = ''' + str(org_id) + '''
             AND om.InactiveDate IS NULL
@@ -275,7 +326,7 @@ class InvolvementSyncManager:
             print "<p style='color:red;'>Error getting members: " + str(e) + "</p>"
             return []
     
-    def sync_members(self, source_org_id, target_org_id):
+    def sync_members(self, source_org_id, target_org_id, exclusion_org_id):
         """Sync members and subgroups from source to target involvement"""
         try:
             results = {
@@ -284,9 +335,10 @@ class InvolvementSyncManager:
                 'members_removed': 0,
                 'subgroups_synced': 0,
                 'subgroups_removed': 0,
-                'errors': []
+                'errors': [],
+                'members_excluded': 0
             }
-            
+
             # Get source members with subgroups
             source_members = self.get_members_with_subgroups(source_org_id)
             source_member_ids = [member.PeopleId for member in source_members]
@@ -294,6 +346,11 @@ class InvolvementSyncManager:
             # Get current target members with their subgroups
             target_members = self.get_members_with_subgroups(target_org_id)
             target_member_ids = [member.PeopleId for member in target_members]
+            
+            # Get current target members with their subgroups
+            if exclusion_org_id:
+                exclusion_members = self.get_members_with_subgroups(exclusion_org_id)
+                exclusion_member_ids = [member.PeopleId for member in exclusion_members]
             
             # Create lookup dictionaries for easier processing
             source_member_subgroups = {}
@@ -316,9 +373,16 @@ class InvolvementSyncManager:
                     people_id = member.PeopleId
                     
                     if people_id not in target_member_ids:
-                        model.AddMemberToOrg(people_id, target_org_id)
-                        results['members_added'] += 1
+                        if exclusion_org_id and people_id in exclusion_member_ids: 
+                            results['members_excluded'] += 1
+                        else:
+                            model.AddMemberToOrg(people_id, target_org_id)
+                            if SyncOrgMemType:
+                                model.SetMemberType(people_id, target_org_id, member.OrgMemType)
+                            results['members_added'] += 1
                     else:
+                        if SyncOrgMemType:
+                            model.SetMemberType(people_id, target_org_id, member.OrgMemType)
                         results['members_updated'] += 1
                         
                 except Exception as e:
@@ -339,7 +403,15 @@ class InvolvementSyncManager:
                     results['errors'].append(error_msg)
             
             # 3. SYNC SUBGROUPS FOR ALL CURRENT MEMBERS
-            for people_id in source_member_ids:
+            
+            
+            if exclusion_org_id: 
+                filtered_member_ids = list(set(source_member_ids) - set(exclusion_member_ids))
+            else:
+                filtered_member_ids = source_member_ids
+            
+
+            for people_id in filtered_member_ids:
                 try:
                     source_subgroups = source_member_subgroups.get(people_id, set())
                     target_subgroups = target_member_subgroups.get(people_id, set())
@@ -385,6 +457,7 @@ class InvolvementSyncManager:
         html += "<li>Members Added: " + str(results['members_added']) + "</li>"
         html += "<li>Members Updated: " + str(results['members_updated']) + "</li>"
         html += "<li>Members Removed: " + str(results['members_removed']) + "</li>"
+        html += "<li>Members Excluded: " + str(results['members_excluded']) + "</li>"
         html += "<li>Subgroups Added: " + str(results['subgroups_synced']) + "</li>"
         html += "<li>Subgroups Removed: " + str(results['subgroups_removed']) + "</li>"
         html += "</ul>"
@@ -622,7 +695,7 @@ def render_main_menu():
                     <!-- Single "i" letter to the right -->
                     <text x="206" y="105" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#0099FF">si</text>
                   </svg></h2>
-        <p style="font-size: 16px; color: #666; margin-bottom: 30px;">Synchronize members and subgroups from primary --> secondary involvement.</p>
+        <p style="font-size: 16px; color: #666; margin-bottom: 30px;">Synchronize members and subgroups from primary --> secondary involvement'''+(" with optional exclusions." if DisplayExclusionOption else ".") +'''</p>
         
         <div style="display: flex; gap: 20px; margin-bottom: 30px;">
             <div style="flex: 1;">
@@ -661,6 +734,11 @@ def render_main_menu():
         </div>
     '''
     
+    if DisplayExclusionOption:
+        exclusion_html = ''' <th>Exclusion Involvement</th>''' 
+    else: 
+        exclusion_html = ''
+        
     # Show configured sync relationships
     if sync_enabled_orgs:
         html += '''
@@ -674,22 +752,33 @@ def render_main_menu():
                         <tr>
                             <th>Primary Involvement</th>
                             <th>Target Involvement</th>
+                            {}
                             <th>Auto Sync</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-        '''
+        '''.format(exclusion_html)
         
         for org in sync_enabled_orgs:
             settings = sync_manager.get_sync_settings(org.OrganizationId)
             target_name = sync_manager.get_involvement_name(settings['target_org_id']) if settings['target_org_id'] else "Not Set"
+            exclusion_name = sync_manager.get_involvement_name(settings['exclusion_org_id']) if settings['exclusion_org_id'] else "Not Set"
             auto_status = "Yes" if settings['auto_sync'] else "No"
+            
+
+
+
+            if DisplayExclusionOption:
+                exclusion_html = '''<td>''' + exclusion_name + '''</td>''' 
+            else: 
+                exclusion_html = ''
+
             
             html += '''
                         <tr>
                             <td><strong>''' + org.OrganizationName + '''</strong></td>
-                            <td>''' + target_name + '''</td>
+                            <td>''' + target_name + '''</td>''' + exclusion_html + '''
                             <td><span style="padding: 2px 8px; border-radius: 3px; background-color: ''' + ("#5cb85c" if settings['auto_sync'] else "#999") + '''; color: white; font-size: 12px;">''' + auto_status + '''</span></td>
                             <td>
                                 <form method="post" action="" style="display:inline;" onsubmit="this.action = getPyScriptAddress(); showLoading()">
@@ -761,6 +850,18 @@ def render_setup_form(org_id=None):
                 <small class="sync-help">This is the involvement that will be the source of the sync.</small>
             </div>
         '''
+        
+    if DisplayExclusionOption:
+        exclusion_html = '''
+        <div id="sync_existing_exclusion" class="sync-form-group">
+            <label for="exclusion_org_id" class="sync-label">Exclusion Involvement ID <i>(optional)</i>:</label>
+            <input type="number" id="exclusion_org_id" name="exclusion_org_id" class="sync-input"
+                   value="''' + str(settings.get('exclusion_org_id', '')) + '''"
+                   placeholder="Enter the ID of an Optional Exclusion involvement">
+        </div>''' 
+    else: 
+        exclusion_html = ''
+    
     
     html += '''
             <div class="sync-form-group">
@@ -784,12 +885,13 @@ def render_setup_form(org_id=None):
                        placeholder="Enter the ID of the target involvement">
             </div>
             
+            
             <div id="sync_new_target" class="sync-form-group sync-hidden">
                 <label for="new_org_name" class="sync-label">New Involvement Name:</label>
                 <input type="text" id="new_org_name" name="new_org_name" class="sync-input"
                        placeholder="Leave blank to auto-generate name">
                 <small class="sync-help">If left blank, will append " - Duplicate" to the primary involvement name.</small>
-            </div>
+            </div> ''' + exclusion_html + '''
             
             <div class="sync-form-group">
                 <div class="sync-checkbox">
@@ -879,6 +981,7 @@ def render_manual_sync_form():
     for org in sync_enabled_orgs:
         settings = sync_manager.get_sync_settings(org.OrganizationId)
         target_name = sync_manager.get_involvement_name(settings['target_org_id']) if settings['target_org_id'] else "Not Set"
+        exclusion_name = sync_manager.get_involvement_name(settings['exclusion_org_id']) if settings['exclusion_org_id'] else "Not Set"
         
         html += '''
                 <div class="sync-radio-option">
@@ -926,13 +1029,15 @@ if script_sync_all == "1":
         settings = sync_manager.get_sync_settings(org.OrganizationId)
         if settings['auto_sync'] and settings['target_org_id']:
             try:
-                results = sync_manager.sync_members(org.OrganizationId, settings['target_org_id'])
+                results = sync_manager.sync_members(org.OrganizationId, settings['target_org_id'], settings['exclusion_org_id'])
                 source_name = sync_manager.get_involvement_name(org.OrganizationId)
                 target_name = sync_manager.get_involvement_name(settings['target_org_id'])
+                exclusion_name = sync_manager.get_involvement_name(settings['exclusion_org_id']) if settings['exclusion_org_id'] else "Not Set"
                 
                 results_summary.append({
                     'source': source_name,
                     'target': target_name,
+                    'excluded': exclusion_name,
                     'success': True,
                     'results': results
                 })
@@ -940,6 +1045,7 @@ if script_sync_all == "1":
                 results_summary.append({
                     'source': org.OrganizationName,
                     'target': 'Unknown',
+                    'excluded': 'Unknown',
                     'success': False,
                     'error': str(e)
                 })
@@ -948,13 +1054,20 @@ if script_sync_all == "1":
     print "Automated Sync Results:"
     for result in results_summary:
         if result['success']:
-            print "SUCCESS: {0} -> {1} | Added: {2}, Updated: {3}, Removed: {4}, Subgroups Added: {5}, Subgroups Removed: {6}".format(
+            
+            if DisplayExclusionOption:
+                exclusion_html = ''', Excluded: ''' + result['results']['members_excluded']
+            else: 
+                exclusion_html = ''
+                
+            print "SUCCESS: {0} -> {1} | Added: {2}, Updated: {3}, Removed: {4}{7}, Subgroups Added: {5}, Subgroups Removed: {6}".format(
                 result['source'], result['target'], 
                 result['results']['members_added'],
                 result['results']['members_updated'],
                 result['results']['members_removed'],
                 result['results']['subgroups_synced'],
-                result['results']['subgroups_removed']
+                result['results']['subgroups_removed'],
+                exclusion_html
             )
         else:
             print "ERROR: {0} -> {1} | {2}".format(
@@ -1006,10 +1119,14 @@ else:
                     if not target_org_id:
                         raise Exception("Failed to create new involvement. Please try using an existing involvement instead.")
                 
+                exclusion_org_id = int(str(model.Data.exclusion_org_id)) if hasattr(model.Data, 'exclusion_org_id') and str(model.Data.exclusion_org_id).strip() else None
+                
+                
                 # Set up sync configuration
-                if sync_manager.set_sync_settings(source_org_id, target_org_id, auto_sync):
+                if sync_manager.set_sync_settings(source_org_id, target_org_id, exclusion_org_id, auto_sync):
                     source_name = sync_manager.get_involvement_name(source_org_id)
                     target_name = sync_manager.get_involvement_name(target_org_id)
+                    #exclusion_name = sync_manager.get_involvement_name(settings['exclusion_org_id']) if DisplayExclusionOption else "Not Set"
                     
                     print get_common_css() + '''
                     <div id="involvement-sync-container">
@@ -1061,7 +1178,7 @@ else:
                     settings = sync_manager.get_sync_settings(org.OrganizationId)
                     if settings['enabled'] and settings['target_org_id']:
                         try:
-                            results = sync_manager.sync_members(org.OrganizationId, settings['target_org_id'])
+                            results = sync_manager.sync_members(org.OrganizationId, settings['target_org_id'], settings['exclusion_org_id'])
                             source_name = sync_manager.get_involvement_name(org.OrganizationId)
                             target_name = sync_manager.get_involvement_name(settings['target_org_id'])
                             
@@ -1078,6 +1195,25 @@ else:
                                 'success': False,
                                 'error': str(e)
                             })
+                    
+                    if settings['enabled'] and settings['exclusion_org_id']:
+                        try:
+                            exclusion_name = sync_manager.get_involvement_name(settings['exclusion_org_id'])
+                            
+                            results_summary.append({
+                                'source': source_name,
+                                'target': target_name,
+                                'excluded': exclusion_name,
+                                'success': True,
+                                'results': results
+                            })
+                        except Exception as e:
+                            results_summary.append({
+                                'source': org.OrganizationName,
+                                'excluded': sync_manager.get_involvement_name(settings['exclusion_org_id']) if settings['exclusion_org_id'] else 'Unknown',
+                                'success': False,
+                                'error': str(e)
+                            })
                 
                 print get_common_css() + '''
                 <div id="involvement-sync-container">
@@ -1091,7 +1227,19 @@ else:
                         <h4>''' + result['source'] + ''' → ''' + result['target'] + '''</h4>
                     '''
                     
+        
+
+                        
                     if result['success']:
+                        if DisplayExclusionOption:
+                            exclusion_html = '''
+                                <div style="text-align: center;">
+                                <strong>''' + str(result['results']['members_excluded']) + '''</strong><br>
+                                <small>Members Excluded</small>
+                                </div>''' 
+                        else: 
+                            exclusion_html = '' 
+                        
                         print '''
                         <div style="display: flex; gap: 15px; margin: 10px 0;">
                             <div style="text-align: center;">
@@ -1117,6 +1265,8 @@ else:
                             <div style="text-align: center;">
                                 <strong>''' + str(len(result['results']['errors'])) + '''</strong><br>
                                 <small>Errors</small>
+                            </div>''' + exclusion_html + '''
+                            
                             </div>
                         </div>
                         '''
@@ -1165,10 +1315,10 @@ else:
                 
                 if not settings['target_org_id']:
                     raise Exception("No target involvement configured for this involvement (ID: " + str(source_org_id) + ")")
-                
+                    
                 # Perform the sync
-                results = sync_manager.sync_members(source_org_id, settings['target_org_id'])
-                
+                results = sync_manager.sync_members(source_org_id, settings['target_org_id'], settings['exclusion_org_id'])
+
                 source_name = sync_manager.get_involvement_name(source_org_id)
                 target_name = sync_manager.get_involvement_name(settings['target_org_id'])
                 
@@ -1209,22 +1359,30 @@ else:
             try:
                 source_org_id = int(str(model.Data.source_org_id))
                 target_org_id = int(str(model.Data.target_org_id))
+                exclusion_org_id = int(str(model.Data.exclusion_org_id)) if str(model.Data.exclusion_org_id) else None
                 auto_sync = hasattr(model.Data, 'auto_sync') and str(model.Data.auto_sync) == "1"
 
                 # Verify target org exists
                 if not sync_manager.verify_organization_exists(target_org_id):
                     raise Exception("Target involvement ID " + str(target_org_id) + " does not exist in the database")
 
-                if sync_manager.set_sync_settings(source_org_id, target_org_id, auto_sync):
+                if sync_manager.set_sync_settings(source_org_id, target_org_id, exclusion_org_id, auto_sync):
                     source_name = sync_manager.get_involvement_name(source_org_id)
                     target_name = sync_manager.get_involvement_name(target_org_id)
+                    exclusion_name = sync_manager.get_involvement_name(exclusion_org_id) if DisplayExclusionOption else "Not Set"
+                    
+                    if DisplayExclusionOption:
+                        exclusion_html = '''<p><strong>Exclusion:</strong> ''' + exclusion_name + '''</p>'''
+                    else: 
+                        exclusion_html = ''
                     
                     print get_common_css() + '''
                     <div id="involvement-sync-container">
                         <div class="sync-alert sync-alert-success">
                             <h4>Sync Configuration Updated Successfully!</h4>
                             <p><strong>Primary:</strong> ''' + source_name + '''</p>
-                            <p><strong>Target:</strong> ''' + target_name + '''</p>
+                            <p><strong>Target:</strong> ''' + target_name + '''</p> 
+                            ''' + exclusion_html + '''
                             <p><strong>Auto Sync:</strong> ''' + ("Enabled" if auto_sync else "Disabled") + '''</p>
                             
                             <button onclick="history.back()" class="sync-btn sync-btn-primary">
