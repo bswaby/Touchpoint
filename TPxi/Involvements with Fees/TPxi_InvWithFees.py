@@ -1443,7 +1443,7 @@ def show_default_view():
                 <div class="form-group" style="margin-left: 15px;">
                     <label>
                         <input type="checkbox" name="include_active" {8}>
-                        Include involvements collecting fees in date range
+                        Include all involvements collecting fees in date range
                     </label>
                 </div>
                 <button type="submit" class="btn btn-primary">
