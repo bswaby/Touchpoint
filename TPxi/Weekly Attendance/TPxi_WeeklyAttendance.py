@@ -31,6 +31,10 @@
 #written by: Ben Swaby
 #email: bswaby@fbchtn.org
 
+# Update Notes 10/26/2025:
+# - Changed to allow 0 attendance count for enrollment
+# - Changed from unique counts to sum count for enrollment metrics, program metrics, and total enrollment
+
 # Update Notes 8/28/2025:
 # - Added exception to add notes on things that affect attendance (weather, Easter, etc..).  these exceptions will automatically display if they are within the 4 week period 
 # - Added actual and YTD KPI metrics
@@ -124,6 +128,11 @@ ENROLLMENT_RATIO_THRESHOLDS = {
     'good_ratio': 59,       # 45-55% is good
     # Above 55% needs outreach
 }
+
+# Include all enrollments in metrics regardless of attendance data
+# Set to True to count ALL enrolled members (true enrollment count)
+# Set to False to only count members who had attendance during the period (legacy behavior)
+INCLUDE_ALL_ENROLLMENTS = True
 
 # Exceptions Configuration
 # Name of the TextContent that stores exception dates
@@ -792,20 +801,20 @@ class AttendanceReport:
     def get_division_enrollment(self, division_id, report_date):
         """
         Get enrollment count for a division as of the report date.
-        
-        This counts people enrolled in organizations in this division
-        as of the report date, but ONLY for organizations that are part of
-        the reporting structure (have RptGroup and ReportLine).
+
+        This counts ALL enrollments in organizations in this division.
+        People in multiple organizations are counted multiple times (once per enrollment).
+        Only includes organizations that are part of the reporting structure.
         """
         # Format date correctly
         if hasattr(report_date, 'strftime'):
             date_str = report_date.strftime('%Y-%m-%d')
         else:
             date_str = str(report_date)
-        
-        # SQL query to count enrolled members, matching the same filters used for attendance
+
+        # SQL query to count ALL enrolled members (not DISTINCT - count each enrollment)
         sql = """
-            SELECT COUNT(DISTINCT om.PeopleId) AS EnrolledCount
+            SELECT COUNT(*) AS EnrolledCount
             FROM OrganizationMembers om
             JOIN Organizations o ON o.OrganizationId = om.OrganizationId
             JOIN OrganizationStructure os ON os.OrgId = om.OrganizationId
@@ -2339,7 +2348,17 @@ class AttendanceReport:
         
         # Get program insertion SQL
         program_insert_sql = self._build_program_insert_sql()
-        
+
+        # Determine HAVING clause based on INCLUDE_ALL_ENROLLMENTS setting
+        if INCLUDE_ALL_ENROLLMENTS:
+            # Include all enrollments, even those with zero attendance
+            having_clause_meetings = ""
+            having_clause_last_sunday = ""
+        else:
+            # Legacy behavior: only include organizations with attendance
+            having_clause_meetings = "HAVING SUM(CAST(COALESCE(m.MaxCount, 0) AS FLOAT)) > 0"
+            having_clause_last_sunday = "HAVING SUM(CAST(COALESCE(m.MaxCount, 0) AS FLOAT)) > 0"
+
         # Format SQL
         sql = """
         -- Define variables at the top
@@ -2391,18 +2410,25 @@ class AttendanceReport:
         ); 
         
         -- Populate the organization base table with program offsets
-        INSERT INTO #OrganizationBase 
-        SELECT DISTINCT 
-            o.OrganizationId, 
+        -- Match the breakout logic: include all org-division combinations from OrganizationStructure
+        -- but ensure each unique organization is only counted once in the overall total
+        INSERT INTO #OrganizationBase
+        SELECT
+            o.OrganizationId,
             o.OrganizationName,
-            -- Count members who were active as of the selected date 
+            -- Count members who were active as of the selected date
+            -- This will count the same enrollment multiple times if org is in multiple divisions,
+            -- but we'll deduplicate when calculating the overall total
             (
-                SELECT COUNT(*) 
-                FROM OrganizationMembers om 
-                WHERE om.OrganizationId = o.OrganizationId 
-                AND (om.EnrollmentDate IS NULL OR om.EnrollmentDate <= @SelectedDate) 
+                SELECT COUNT(*)
+                FROM OrganizationMembers om
+                JOIN People pe ON pe.PeopleId = om.PeopleId
+                WHERE om.OrganizationId = o.OrganizationId
+                AND (om.EnrollmentDate IS NULL OR om.EnrollmentDate <= @SelectedDate)
                 AND (om.InactiveDate IS NULL OR om.InactiveDate > @SelectedDate)
                 AND om.MemberTypeId NOT IN (230, 311) -- Exclude specific member types
+                AND (pe.DeceasedDate IS NULL OR pe.DeceasedDate > @SelectedDate) -- Not deceased
+                AND (pe.DropDate IS NULL OR pe.DropDate > @SelectedDate) -- Not dropped/archived
             ) AS Enrollment,
             p.Name AS ProgramName,
             p.Id AS ProgramId,
@@ -2414,7 +2440,12 @@ class AttendanceReport:
         JOIN OrganizationStructure os ON os.OrgId = o.OrganizationId
         JOIN Division d ON d.Id = os.DivId
         JOIN Program p ON p.Id = d.ProgId AND p.Name IN (SELECT Name FROM #ProgramNames)
-        WHERE o.OrganizationStatusId = 30; 
+        WHERE (
+            o.OrganizationStatusId = 30  -- Currently active
+            OR o.LastMeetingDate >= @StartDate  -- Had meetings during/after report period
+        )
+        AND p.RptGroup IS NOT NULL AND p.RptGroup <> ''  -- Only programs in reporting
+        AND d.ReportLine IS NOT NULL AND d.ReportLine <> '';  -- Only divisions in reporting 
         
         -- Create temporary table for organization meetings 
         CREATE TABLE #OrganizationMeetings (
@@ -2430,34 +2461,34 @@ class AttendanceReport:
         ); 
         
         -- Populate the organization meetings table with program-specific date ranges
-        INSERT INTO #OrganizationMeetings 
-        SELECT 
-            ob.OrganizationId, 
-            ob.OrganizationName, 
-            ob.Enrollment, 
-            ob.ProgramName, 
-            ob.ProgramId, 
-            ob.DivisionName, 
+        INSERT INTO #OrganizationMeetings
+        SELECT
+            ob.OrganizationId,
+            ob.OrganizationName,
+            ob.Enrollment,
+            ob.ProgramName,
+            ob.ProgramId,
+            ob.DivisionName,
             ob.DivisionId,
             SUM(CAST(COALESCE(m.MaxCount, 0) AS FLOAT)) AS TotalAttendance,
             SUM(CAST(COALESCE(m.MaxCount, 0) AS FLOAT)) AS AvgAttendance -- Changed to SUM since we are only looking at a single day
         FROM #OrganizationBase ob
-        JOIN Meetings m ON m.OrganizationId = ob.OrganizationId
-        WHERE (m.DidNotMeet = 0 OR m.DidNotMeet IS NULL)
-        -- Apply program-specific date range using DATETIME for hour offsets
-        AND m.MeetingDate BETWEEN 
-            DATEADD(HOUR, ob.ProgramStartHoursOffset, CAST(DATEADD(DAY, -DATEPART(WEEKDAY, @SelectedDate) + 1, @SelectedDate) AS DATETIME)) 
-            AND 
-            DATEADD(HOUR, ob.ProgramEndHoursOffset, CAST(DATEADD(DAY, -DATEPART(WEEKDAY, @SelectedDate) + 1, @SelectedDate) AS DATETIME))
-        GROUP BY 
-            ob.OrganizationId, 
-            ob.OrganizationName, 
-            ob.Enrollment, 
-            ob.ProgramName, 
-            ob.ProgramId, 
-            ob.DivisionName, 
+        LEFT JOIN Meetings m ON m.OrganizationId = ob.OrganizationId
+            AND (m.DidNotMeet = 0 OR m.DidNotMeet IS NULL)
+            -- Apply program-specific date range using DATETIME for hour offsets
+            AND m.MeetingDate BETWEEN
+                DATEADD(HOUR, ob.ProgramStartHoursOffset, CAST(DATEADD(DAY, -DATEPART(WEEKDAY, @SelectedDate) + 1, @SelectedDate) AS DATETIME))
+                AND
+                DATEADD(HOUR, ob.ProgramEndHoursOffset, CAST(DATEADD(DAY, -DATEPART(WEEKDAY, @SelectedDate) + 1, @SelectedDate) AS DATETIME))
+        GROUP BY
+            ob.OrganizationId,
+            ob.OrganizationName,
+            ob.Enrollment,
+            ob.ProgramName,
+            ob.ProgramId,
+            ob.DivisionName,
             ob.DivisionId
-        HAVING SUM(CAST(COALESCE(m.MaxCount, 0) AS FLOAT)) > 0; 
+        {having_clause_meetings}; 
         
         -- Create temporary table for last Sunday meetings 
         CREATE TABLE #LastSundayMeetings (
@@ -2472,35 +2503,35 @@ class AttendanceReport:
         ); 
         
         -- Populate the last Sunday meetings table with ONLY the Last Sunday
-        INSERT INTO #LastSundayMeetings 
-        SELECT 
-            ob.OrganizationId, 
-            ob.OrganizationName, 
-            ob.Enrollment, 
-            ob.ProgramName, 
-            ob.ProgramId, 
-            ob.DivisionName, 
+        INSERT INTO #LastSundayMeetings
+        SELECT
+            ob.OrganizationId,
+            ob.OrganizationName,
+            ob.Enrollment,
+            ob.ProgramName,
+            ob.ProgramId,
+            ob.DivisionName,
             ob.DivisionId,
             SUM(CAST(COALESCE(m.MaxCount, 0) AS FLOAT)) AS LastSundayAttendance
         FROM #OrganizationBase ob
-        JOIN Meetings m ON m.OrganizationId = ob.OrganizationId
-        WHERE (m.DidNotMeet = 0 OR m.DidNotMeet IS NULL)
-        -- Use the calculated LastSunday date and time range
-        AND CONVERT(DATE, m.MeetingDate) = @LastSunday
-        -- Apply proper hour range for the specific day
-        AND m.MeetingDate BETWEEN 
-            DATEADD(HOUR, ob.ProgramStartHoursOffset, CAST(@LastSunday AS DATETIME)) 
-            AND 
-            DATEADD(HOUR, ob.ProgramEndHoursOffset, CAST(@LastSunday AS DATETIME))
-        GROUP BY 
-            ob.OrganizationId, 
-            ob.OrganizationName, 
-            ob.Enrollment, 
-            ob.ProgramName, 
-            ob.ProgramId, 
-            ob.DivisionName, 
+        LEFT JOIN Meetings m ON m.OrganizationId = ob.OrganizationId
+            AND (m.DidNotMeet = 0 OR m.DidNotMeet IS NULL)
+            -- Use the calculated LastSunday date and time range
+            AND CONVERT(DATE, m.MeetingDate) = @LastSunday
+            -- Apply proper hour range for the specific day
+            AND m.MeetingDate BETWEEN
+                DATEADD(HOUR, ob.ProgramStartHoursOffset, CAST(@LastSunday AS DATETIME))
+                AND
+                DATEADD(HOUR, ob.ProgramEndHoursOffset, CAST(@LastSunday AS DATETIME))
+        GROUP BY
+            ob.OrganizationId,
+            ob.OrganizationName,
+            ob.Enrollment,
+            ob.ProgramName,
+            ob.ProgramId,
+            ob.DivisionName,
             ob.DivisionId
-        HAVING SUM(CAST(COALESCE(m.MaxCount, 0) AS FLOAT)) > 0; 
+        {having_clause_last_sunday}; 
         
         -- Create temporary table for organization ratios 
         CREATE TABLE #OrganizationRatios (
@@ -2620,70 +2651,7 @@ class AttendanceReport:
             SUM(CASE WHEN LastSundayRatioCategory = 'Needs Outreach' THEN 1 ELSE 0 END) AS LastSundayNeedsOutreachCount
         FROM #OrganizationRatios; 
         
-        -- Create temporary table for overall summary 
-        CREATE TABLE #OverallSummary (
-            TotalEnrollment INT,
-            EnrollmentWithMeetings INT,
-            TotalAttendance FLOAT,
-            AvgAttendance FLOAT,
-            LastSundayEnrollment INT,
-            LastSundayAttendance FLOAT
-        ); 
-        
-        -- Populate the overall summary table 
-        INSERT INTO #OverallSummary 
-        SELECT 
-            -- Enrollment for ALL qualifying organizations 
-            SUM(ob.Enrollment) AS TotalEnrollment,
-            -- Enrollment ONLY for organizations that had meetings 
-            SUM(CASE WHEN om.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END) AS EnrollmentWithMeetings,
-            -- Attendance (only for those with meetings) 
-            SUM(COALESCE(om.TotalAttendance, 0)) AS TotalAttendance,
-            -- Average attendance - no longer dividing by @WeeksCount
-            AVG(COALESCE(om.AvgAttendance, 0)) AS AvgAttendance,
-            -- Last Sunday's enrollment (for groups that met) 
-            SUM(CASE WHEN lsm.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END) AS LastSundayEnrollment,
-            -- Last Sunday's attendance 
-            SUM(COALESCE(lsm.LastSundayAttendance, 0)) AS LastSundayAttendance
-        FROM #OrganizationBase ob
-        LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
-        LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId; 
-        
-        -- Create temporary table for program summary 
-        CREATE TABLE #ProgramSummary (
-            ProgramId INT,
-            ProgramName NVARCHAR(100),
-            TotalEnrollment INT,
-            EnrollmentWithMeetings INT,
-            TotalAttendance FLOAT,
-            AvgAttendance FLOAT,
-            LastSundayEnrollment INT,
-            LastSundayAttendance FLOAT
-        ); 
-        
-        -- Populate the program summary table 
-        INSERT INTO #ProgramSummary 
-        SELECT 
-            ob.ProgramId, 
-            ob.ProgramName,
-            -- Enrollment for ALL qualifying organizations in this program 
-            SUM(ob.Enrollment) AS TotalEnrollment,
-            -- Enrollment ONLY for organizations that had meetings 
-            SUM(CASE WHEN om.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END) AS EnrollmentWithMeetings,
-            -- Attendance (only for those with meetings) 
-            SUM(COALESCE(om.TotalAttendance, 0)) AS TotalAttendance,
-            -- Average attendance - no longer dividing by @WeeksCount
-            AVG(COALESCE(om.AvgAttendance, 0)) AS AvgAttendance,
-            -- Last Sunday's enrollment (for groups that met) 
-            SUM(CASE WHEN lsm.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END) AS LastSundayEnrollment,
-            -- Last Sunday's attendance 
-            SUM(COALESCE(lsm.LastSundayAttendance, 0)) AS LastSundayAttendance
-        FROM #OrganizationBase ob
-        LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
-        LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId
-        GROUP BY ob.ProgramId, ob.ProgramName; 
-        
-        -- Create temporary table for division summary 
+        -- Create temporary table for division summary
         CREATE TABLE #DivisionSummary (
             DivisionId INT,
             DivisionName NVARCHAR(100),
@@ -2695,32 +2663,104 @@ class AttendanceReport:
             AvgAttendance FLOAT,
             LastSundayEnrollment INT,
             LastSundayAttendance FLOAT
-        ); 
-        
-        -- Populate the division summary table 
-        INSERT INTO #DivisionSummary 
-        SELECT 
-            ob.DivisionId, 
-            ob.DivisionName, 
-            ob.ProgramId, 
-            ob.ProgramName,
-            -- Enrollment for ALL qualifying organizations in this division 
-            SUM(ob.Enrollment) AS TotalEnrollment,
-            -- Enrollment ONLY for organizations that had meetings 
-            SUM(CASE WHEN om.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END) AS EnrollmentWithMeetings,
-            -- Attendance (only for those with meetings) 
-            SUM(COALESCE(om.TotalAttendance, 0)) AS TotalAttendance,
-            -- Average attendance - no longer dividing by @WeeksCount
-            AVG(COALESCE(om.AvgAttendance, 0)) AS AvgAttendance,
-            -- Last Sunday's enrollment (for groups that met) 
-            SUM(CASE WHEN lsm.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END) AS LastSundayEnrollment,
-            -- Last Sunday's attendance 
-            SUM(COALESCE(lsm.LastSundayAttendance, 0)) AS LastSundayAttendance
-        FROM #OrganizationBase ob
-        LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
-        LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId
-        GROUP BY ob.DivisionId, ob.DivisionName, ob.ProgramId, ob.ProgramName; 
-        
+        );
+
+        -- Debug: Check for duplicate org-division pairs in #OrganizationBase
+        SELECT
+            OrganizationId,
+            DivisionId,
+            Enrollment,
+            COUNT(*) as [RowCount]
+        INTO #OrgDivDuplicates
+        FROM #OrganizationBase
+        GROUP BY OrganizationId, DivisionId, Enrollment
+        HAVING COUNT(*) > 1;
+
+        -- Populate the division summary table
+        -- Deduplicate organizations within each division (org can appear in multiple divs)
+        INSERT INTO #DivisionSummary
+        SELECT
+            DivisionId,
+            DivisionName,
+            ProgramId,
+            ProgramName,
+            SUM(Enrollment) AS TotalEnrollment,
+            SUM(EnrollmentWithMeetings) AS EnrollmentWithMeetings,
+            SUM(TotalAttendance) AS TotalAttendance,
+            AVG(AvgAttendance) AS AvgAttendance,
+            SUM(LastSundayEnrollment) AS LastSundayEnrollment,
+            SUM(LastSundayAttendance) AS LastSundayAttendance
+        FROM (
+            -- Get unique organizations per division
+            SELECT DISTINCT
+                ob.OrganizationId,
+                ob.DivisionId,
+                ob.DivisionName,
+                ob.ProgramId,
+                ob.ProgramName,
+                ob.Enrollment,
+                CASE WHEN om.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END AS EnrollmentWithMeetings,
+                COALESCE(om.TotalAttendance, 0) AS TotalAttendance,
+                COALESCE(om.AvgAttendance, 0) AS AvgAttendance,
+                CASE WHEN lsm.OrganizationId IS NOT NULL THEN ob.Enrollment ELSE 0 END AS LastSundayEnrollment,
+                COALESCE(lsm.LastSundayAttendance, 0) AS LastSundayAttendance
+            FROM #OrganizationBase ob
+            LEFT JOIN #OrganizationMeetings om ON om.OrganizationId = ob.OrganizationId
+            LEFT JOIN #LastSundayMeetings lsm ON lsm.OrganizationId = ob.OrganizationId
+        ) unique_org_divs
+        GROUP BY DivisionId, DivisionName, ProgramId, ProgramName;
+
+        -- Create temporary table for program summary
+        CREATE TABLE #ProgramSummary (
+            ProgramId INT,
+            ProgramName NVARCHAR(100),
+            TotalEnrollment INT,
+            EnrollmentWithMeetings INT,
+            TotalAttendance FLOAT,
+            AvgAttendance FLOAT,
+            LastSundayEnrollment INT,
+            LastSundayAttendance FLOAT
+        );
+
+        -- Populate the program summary table
+        -- Sum from division summary to match hierarchical rollup (divisions sum to program)
+        -- This ensures the program total matches the sum of all division breakouts shown below
+        INSERT INTO #ProgramSummary
+        SELECT
+            ds.ProgramId,
+            ds.ProgramName,
+            SUM(ds.TotalEnrollment) AS TotalEnrollment,
+            SUM(ds.EnrollmentWithMeetings) AS EnrollmentWithMeetings,
+            SUM(ds.TotalAttendance) AS TotalAttendance,
+            AVG(ds.AvgAttendance) AS AvgAttendance,
+            SUM(ds.LastSundayEnrollment) AS LastSundayEnrollment,
+            SUM(ds.LastSundayAttendance) AS LastSundayAttendance
+        FROM #DivisionSummary ds
+        GROUP BY ds.ProgramId, ds.ProgramName;
+
+        -- Create temporary table for overall summary
+        CREATE TABLE #OverallSummary (
+            TotalEnrollment INT,
+            EnrollmentWithMeetings INT,
+            TotalAttendance FLOAT,
+            AvgAttendance FLOAT,
+            LastSundayEnrollment INT,
+            LastSundayAttendance FLOAT
+        );
+
+        -- Populate the overall summary table
+        -- Use the SAME deduplication logic as division summary to ensure consistency
+        INSERT INTO #OverallSummary
+        SELECT
+            -- Sum enrollment from division summary (already deduplicated by division grouping)
+            SUM(ds.TotalEnrollment) AS TotalEnrollment,
+            SUM(ds.EnrollmentWithMeetings) AS EnrollmentWithMeetings,
+            SUM(ds.TotalAttendance) AS TotalAttendance,
+            AVG(ds.AvgAttendance) AS AvgAttendance,
+            SUM(ds.LastSundayEnrollment) AS LastSundayEnrollment,
+            SUM(ds.LastSundayAttendance) AS LastSundayAttendance
+        FROM #DivisionSummary ds;
+
         -- Create temporary table for results to properly handle ordering 
         CREATE TABLE #Results (
             Level NVARCHAR(100),
@@ -3724,11 +3764,11 @@ class AttendanceReport:
                 FROM #OrganizationDetails
                 WHERE LastSundayRatioCategory = 'Needs Outreach'
                 ORDER BY LastSundayAttendanceRatio DESC; 
-            END 
-        END 
-        
-        -- Return the final result, sorted properly 
-        SELECT 
+            END
+        END
+
+        -- Return the final result, sorted properly
+        SELECT
             Level, 
             DivisionId,
             DivisionName, 
@@ -3788,28 +3828,30 @@ class AttendanceReport:
             org_filter=org_filter,
             division_filter=division_filter,
             program_id_filter=program_id_filter,
-            program_insert=program_insert_sql
+            program_insert=program_insert_sql,
+            having_clause_meetings=having_clause_meetings,
+            having_clause_last_sunday=having_clause_last_sunday
         )
         
         return sql
     
     def get_batch_enrollment_data(self, division_ids, report_date):
         """Get enrollment data for multiple divisions in a single query.
-        
-        Only includes organizations that are part of the reporting structure
-        (have RptGroup and ReportLine).
+
+        Counts ALL enrollments - people in multiple organizations are counted multiple times.
+        Only includes organizations that are part of the reporting structure.
         """
         # Format date for SQL
         date_str = report_date.strftime('%Y-%m-%d')
-        
+
         # Create division list for SQL IN clause
         division_list = ", ".join(str(div_id) for div_id in division_ids)
-        
-        # Query all division enrollments at once, matching the same filters used for attendance
+
+        # Query all division enrollments at once - count each enrollment (not DISTINCT)
         sql = """
-        SELECT 
+        SELECT
             os.DivId AS DivisionId,
-            COUNT(DISTINCT om.PeopleId) AS EnrolledCount
+            COUNT(*) AS EnrolledCount
         FROM OrganizationMembers om
         JOIN Organizations o ON o.OrganizationId = om.OrganizationId
         JOIN OrganizationStructure os ON os.OrgId = om.OrganizationId
@@ -3950,14 +3992,15 @@ class AttendanceReport:
             <div id="enrollment-analysis" style="display: none;">
                 <div style="background-color: #f9f9f9; border-radius: 5px; padding: 15px; margin-bottom: 20px;">
                     <h3 style="margin-top: 0;">{title}</h3>
-                    
+
                     <!-- Add explanation about enrollment count -->
                     <div style="margin-bottom: 15px; font-size: 13px; font-style: italic; color: #666; padding: 5px 10px; border-left: 3px solid #4A90E2; background-color: #f0f4f8;">
-                        <strong>Note:</strong> Enrollment numbers only include involvements that have attendance.
+                        <strong>Note:</strong> Enrollment numbers include {enrollment_note}.
                     </div>
-    
+
             """.format(
-                title=program_title
+                title=program_title,
+                enrollment_note="all involvements regardless of attendance" if INCLUDE_ALL_ENROLLMENTS else "only involvements that have attendance"
             )
             
             # Create the main metrics section - find the row where Level='Program' and DivisionName is NULL
@@ -4001,7 +4044,11 @@ class AttendanceReport:
                 
             if data_source:
                 # Direct access to values from the SQL result
-                total_enrollment = getattr(data_source, 'EnrollmentWithMeetings', 0) or 0
+                # Use TotalEnrollment when INCLUDE_ALL_ENROLLMENTS is True, otherwise use EnrollmentWithMeetings
+                if INCLUDE_ALL_ENROLLMENTS:
+                    total_enrollment = getattr(data_source, 'TotalEnrollment', 0) or 0
+                else:
+                    total_enrollment = getattr(data_source, 'EnrollmentWithMeetings', 0) or 0
                 # Use the actual weekly attendance from the same calculation as weekly actuals
                 last_sunday_attendance = float(actual_weekly_attendance) if actual_weekly_attendance else getattr(data_source, 'LastSundayAttendance', 0) or 0
                 #attendance_ratio = getattr(data_source, 'AttendanceRatio', 0) or 0
@@ -4088,12 +4135,16 @@ class AttendanceReport:
                 analysis_html += """<h4 style="margin-top: 20px; margin-bottom: 15px;">Division Breakdown</h4>"""
                 
                 # Process each division
-                for division_item in sorted(organization_levels['Division'], 
+                for division_item in sorted(organization_levels['Division'],
                                       key=lambda x: getattr(x, 'DivisionName', '')):
                     div_name = getattr(division_item, 'DivisionName', 'Unknown Division')
-                    
+
                     # Ensure values are of the correct type
-                    div_enrollment = int(getattr(division_item, 'EnrollmentWithMeetings', 0) or 0)
+                    # Use TotalEnrollment when INCLUDE_ALL_ENROLLMENTS is True, otherwise use EnrollmentWithMeetings
+                    if INCLUDE_ALL_ENROLLMENTS:
+                        div_enrollment = int(getattr(division_item, 'TotalEnrollment', 0) or 0)
+                    else:
+                        div_enrollment = int(getattr(division_item, 'EnrollmentWithMeetings', 0) or 0)
                     
                     # Get the actual weekly attendance from the same source as the main table
                     div_id = getattr(division_item, 'DivisionId', None)
@@ -5258,9 +5309,9 @@ class AttendanceReport:
                     if ENROLLMENT_RATIO_PROGRAM in previous_week_connect['by_program']:
                         weekly_connect_previous = previous_week_connect['by_program'][ENROLLMENT_RATIO_PROGRAM].get('total', 0)
                 
-                # Get enrollment data for current week (matching attendance filters)
+                # Get enrollment data for current week - count ALL enrollments (not unique people)
                 enrollment_sql_current = """
-                    SELECT COUNT(DISTINCT om.PeopleId) as TotalEnrollment
+                    SELECT COUNT(*) as TotalEnrollment
                     FROM OrganizationMembers om
                     JOIN Organizations o ON o.OrganizationId = om.OrganizationId
                     JOIN OrganizationStructure os ON os.OrgId = o.OrganizationId
@@ -5275,16 +5326,16 @@ class AttendanceReport:
                     AND om.MemberTypeId NOT IN (230, 311)  -- Exclude prospects and non-members
                     AND (pe.DeceasedDate IS NULL OR pe.DeceasedDate > '{1}')  -- Not deceased as of report date
                     AND (pe.DropDate IS NULL OR pe.DropDate > '{1}')  -- Not dropped/archived as of report date
-                """.format(ENROLLMENT_RATIO_PROGRAM, 
+                """.format(ENROLLMENT_RATIO_PROGRAM,
                           ReportHelper.format_date(self.report_date))
                 
                 enrollment_result = q.QuerySqlTop1(enrollment_sql_current)
                 if enrollment_result:
                     weekly_enrollment_current = enrollment_result.TotalEnrollment or 0
                 
-                # Get enrollment data for previous year same week (matching attendance filters)
+                # Get enrollment data for previous year same week - count ALL enrollments (not unique people)
                 enrollment_sql_previous = """
-                    SELECT COUNT(DISTINCT om.PeopleId) as TotalEnrollment
+                    SELECT COUNT(*) as TotalEnrollment
                     FROM OrganizationMembers om
                     JOIN Organizations o ON o.OrganizationId = om.OrganizationId
                     JOIN OrganizationStructure os ON os.OrgId = o.OrganizationId
