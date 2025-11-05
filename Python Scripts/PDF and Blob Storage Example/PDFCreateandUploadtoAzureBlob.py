@@ -7,9 +7,11 @@
 # Author: Ben Swaby at FBCHville
 # Editable: True
 
-
+# ===== EDITABLE SECTION =====
 myVariable = 'test123'
-# ========== DO NOT EDIT BELOW THIS POINT ==========
+# ===== END EDITABLE SECTION =====
+
+# DO NOT EDIT
 
 """
 =================================================================================
