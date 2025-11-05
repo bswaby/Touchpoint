@@ -19,6 +19,9 @@ myVariable2 = 'abc123'
 
 # =========  
 
+# PCKGD_MANAGED_SECTION
+# Do not edit below this line - managed by package updates
+
 """
 =================================================================================
 PDF and BLOB Storage EXAMPLE TEMPLATE
