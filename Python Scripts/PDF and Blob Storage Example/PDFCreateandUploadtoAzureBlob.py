@@ -7,7 +7,17 @@
 # Author: Ben Swaby at FBCHville
 # Editable: True
 
-SomeTest = 'blahblahblah'
+# ========== CONFIGURATION ==========
+# Variables you can customize:
+
+AZURE_ACCOUNT_KEY = ""  # Your account key
+AZURE_ACCOUNT_NAME = ""  # Your storage account name
+AZURE_CONTAINER_NAME = ""  # Your container name
+PDF_FILENAME_PREFIX = "SomeFileName"
+myVariable = 'test3222'
+myVariable2 = 'abc123'
+
+# =========  
 
 """
 =================================================================================
