@@ -8,8 +8,15 @@
 # Editable: True
 
 # Custom variables
-myVariable = 'test123'
-newVariable = true
+# Azure Storage Account Settings
+# Replace these with your actual Azure credentials from setup instructions above
+AZURE_ACCOUNT_NAME = ""  # Your storage account name
+AZURE_ACCOUNT_KEY = ""  # Your account key
+AZURE_CONTAINER_NAME = ""  # Your container name
+
+# PDF File Naming Convention
+# The PDF will be named: SomeFileName-YYYYMMDD-HHMMSS.pdf
+PDF_FILENAME_PREFIX = "SomeFileName"
 
 # ========= DO NOT EDIT BELOW THIS LINE =========
 
