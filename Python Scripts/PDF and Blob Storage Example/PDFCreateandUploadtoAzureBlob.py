@@ -7,6 +7,7 @@
 # Author: Ben Swaby at FBCHville
 # Editable: True
 
+SomeTest = 'blahblahblah'
 
 """
 =================================================================================
