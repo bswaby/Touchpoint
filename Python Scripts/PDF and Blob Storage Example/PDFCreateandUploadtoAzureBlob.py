@@ -5,7 +5,11 @@
 # Version: 0.0.7
 # License: AGPL-3.0
 # Author: Ben Swaby at FBCHville
-# Editable: False
+# Editable: True
+
+
+myVariable = 'test123'
+# ========== DO NOT EDIT BELOW THIS POINT ==========
 
 """
 =================================================================================
