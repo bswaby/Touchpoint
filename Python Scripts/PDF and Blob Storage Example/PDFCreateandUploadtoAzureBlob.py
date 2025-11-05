@@ -7,11 +7,11 @@
 # Author: Ben Swaby at FBCHville
 # Editable: True
 
-# ========= EDITABLE SECTION =========
+# Custom variables
 myVariable = 'test123'
-# ========= END EDITABLE SECTION =========
+newVariable = true
 
-# DO NOT EDIT
+# ========= DO NOT EDIT BELOW THIS LINE =========
 
 """
 =================================================================================
