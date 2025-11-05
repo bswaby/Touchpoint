@@ -3896,23 +3896,36 @@ print """<!DOCTYPE html>
             overflow-y: auto;
             overflow-x: auto;  /* Allow horizontal scroll */
             white-space: pre;   /* Don't wrap output text */
-            border-bottom: 2px solid #495057;
-            resize: vertical;
-            position: relative;
         }
-        
+
         .resize-handle {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: #495057;
+            height: 8px;
+            background: linear-gradient(to bottom, #495057 0%, #6c757d 50%, #495057 100%);
             cursor: ns-resize;
+            flex-shrink: 0;
+            z-index: 10;
+            transition: all 0.2s;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        
+
+        .resize-handle::before {
+            content: '⋯';
+            color: #adb5bd;
+            font-size: 16px;
+            letter-spacing: 2px;
+            transform: rotate(90deg);
+        }
+
         .resize-handle:hover {
-            background: #667eea;
+            background: linear-gradient(to bottom, #667eea 0%, #764ba2 50%, #667eea 100%);
+            height: 10px;
+        }
+
+        .resize-handle:hover::before {
+            color: #fff;
         }
         
         .code-container {
@@ -4364,8 +4377,8 @@ print """            </div>
             </div>
             
             <div class="editor-split">
-                <div class="output-panel" id="output">Ready to execute code...<div class="resize-handle" id="outputResizeHandle"></div></div>
-                
+                <div class="output-panel" id="output">Ready to execute code...</div>
+                <div class="resize-handle" id="outputResizeHandle"></div>
                 <div class="code-container">
                     <textarea id="codeEditor" style="display: none;"></textarea>
                 </div>
@@ -4946,65 +4959,11 @@ print """            </div>
             }
         });
         
-        // Helper function to update output while preserving resize handle
+        // Helper function to update output
         function updateOutput(text) {
             var outputPanel = document.getElementById('output');
-            var resizeHandle = document.getElementById('outputResizeHandle');
-            
-            // Clear and update content while preserving the resize handle
-            outputPanel.innerHTML = '';
-            outputPanel.appendChild(document.createTextNode(text));
-            
-            // Re-add the resize handle if it exists
-            if (!resizeHandle) {
-                resizeHandle = document.createElement('div');
-                resizeHandle.className = 'resize-handle';
-                resizeHandle.id = 'outputResizeHandle';
-            }
-            outputPanel.appendChild(resizeHandle);
-        }
-        
-        // Make panels resizable
-        function initResizablePanels() {
-            var outputPanel = document.getElementById('output');
-            var resizeHandle = document.getElementById('outputResizeHandle');
-            var isResizing = false;
-            var startY = 0;
-            var startHeight = 0;
-            
-            resizeHandle.addEventListener('mousedown', function(e) {
-                isResizing = true;
-                startY = e.pageY;
-                startHeight = outputPanel.offsetHeight;
-                document.body.style.cursor = 'ns-resize';
-                e.preventDefault();
-            });
-            
-            document.addEventListener('mousemove', function(e) {
-                if (!isResizing) return;
-                
-                var deltaY = e.pageY - startY;
-                var newHeight = startHeight + deltaY;
-                
-                // Limit the height
-                newHeight = Math.max(100, Math.min(400, newHeight));
-                
-                outputPanel.style.flex = '0 0 ' + newHeight + 'px';
-                
-                // Refresh CodeMirror after resize
-                if (codeEditor) {
-                    setTimeout(function() {
-                        codeEditor.refresh();
-                    }, 0);
-                }
-            });
-            
-            document.addEventListener('mouseup', function() {
-                if (isResizing) {
-                    isResizing = false;
-                    document.body.style.cursor = '';
-                }
-            });
+            // Simply update the text content (resize handle is now separate)
+            outputPanel.textContent = text;
         }
         
         function toggleCategory(header) {
@@ -5250,18 +5209,76 @@ print """            </div>
         
         // Initialize resizable panels
         function initResizablePanels() {
-            // Sidebar resize
+            // === OUTPUT PANEL RESIZE (vertical) ===
+            var outputPanel = document.getElementById('output');
+            var outputResizeHandle = document.getElementById('outputResizeHandle');
+
+            // Prevent multiple event listeners
+            if (outputResizeHandle && !outputResizeHandle.hasAttribute('data-resize-initialized')) {
+                outputResizeHandle.setAttribute('data-resize-initialized', 'true');
+
+                var isResizingOutput = false;
+                var startY = 0;
+                var startHeight = 0;
+
+                var handleOutputMouseDown = function(e) {
+                    isResizingOutput = true;
+                    startY = e.pageY;
+                    startHeight = outputPanel.offsetHeight;
+                    document.body.style.cursor = 'ns-resize';
+                    document.body.style.userSelect = 'none';
+                    e.preventDefault();
+                    e.stopPropagation();
+                };
+
+                var handleOutputMouseMove = function(e) {
+                    if (!isResizingOutput) return;
+
+                    var deltaY = e.pageY - startY;
+                    var newHeight = startHeight + deltaY;
+
+                    // Limit the height
+                    newHeight = Math.max(100, Math.min(600, newHeight));
+
+                    // Use height instead of flex for smoother resizing
+                    outputPanel.style.height = newHeight + 'px';
+                    outputPanel.style.flex = 'none';
+
+                    e.preventDefault();
+                };
+
+                var handleOutputMouseUp = function() {
+                    if (isResizingOutput) {
+                        isResizingOutput = false;
+                        document.body.style.cursor = '';
+                        document.body.style.userSelect = '';
+
+                        // Refresh CodeMirror after resize
+                        if (codeEditor) {
+                            setTimeout(function() {
+                                codeEditor.refresh();
+                            }, 0);
+                        }
+                    }
+                };
+
+                outputResizeHandle.addEventListener('mousedown', handleOutputMouseDown);
+                document.addEventListener('mousemove', handleOutputMouseMove);
+                document.addEventListener('mouseup', handleOutputMouseUp);
+            }
+
+            // === SIDEBAR RESIZE (horizontal) ===
             var sidebarHandle = document.getElementById('sidebarResizeHandle');
             var sidebar = document.getElementById('sidebar');
             var isResizingSidebar = false;
-            
+
             if (sidebarHandle && sidebar) {
                 sidebarHandle.addEventListener('mousedown', function(e) {
                     isResizingSidebar = true;
                     document.body.style.cursor = 'col-resize';
                     e.preventDefault();
                 });
-                
+
                 document.addEventListener('mousemove', function(e) {
                     if (!isResizingSidebar) return;
                     var newWidth = e.clientX;
@@ -5270,26 +5287,25 @@ print """            </div>
                         sidebar.style.flexShrink = '0';
                     }
                 });
-                
+
                 document.addEventListener('mouseup', function() {
                     if (isResizingSidebar) {
                         isResizingSidebar = false;
                         document.body.style.cursor = 'default';
-                        // Refresh CodeMirror after resize
                         if (typeof resizeCodeMirror === 'function') {
                             resizeCodeMirror();
                         }
                     }
                 });
             }
-            
-            // Doc panel resize
+
+            // === DOC PANEL RESIZE (horizontal) ===
             var docHandle = document.getElementById('docResizeHandle');
             var docPanel = document.getElementById('docPanel');
             var isResizingDoc = false;
             var docStartX = 0;
             var docStartWidth = 0;
-            
+
             if (docHandle && docPanel) {
                 docHandle.addEventListener('mousedown', function(e) {
                     isResizingDoc = true;
@@ -5298,23 +5314,21 @@ print """            </div>
                     document.body.style.cursor = 'col-resize';
                     e.preventDefault();
                 });
-                
+
                 document.addEventListener('mousemove', function(e) {
                     if (!isResizingDoc) return;
-                    // Fix: for right panel, dragging left should make it bigger
-                    var diff = e.clientX - docStartX;  // positive when moving right
-                    var newWidth = docStartWidth - diff;  // dragging left (negative diff) = bigger width
+                    var diff = e.clientX - docStartX;
+                    var newWidth = docStartWidth - diff;
                     if (newWidth > 150 && newWidth < 600) {
                         docPanel.style.width = newWidth + 'px';
                         docPanel.style.flexShrink = '0';
                     }
                 });
-                
+
                 document.addEventListener('mouseup', function() {
                     if (isResizingDoc) {
                         isResizingDoc = false;
                         document.body.style.cursor = 'default';
-                        // Refresh CodeMirror after resize
                         if (typeof resizeCodeMirror === 'function') {
                             resizeCodeMirror();
                         }
