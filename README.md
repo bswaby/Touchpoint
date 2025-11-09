@@ -53,6 +53,7 @@ Simplify and streamline financial tracking and reporting
 - **[Payment Manager](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Payment%20Manager)**: Outstanding payment tracking and management
 - **[Deposit Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Deposit%20Report)**: Comprehensive deposit reconciliation
 - **[Fortis Fees](https://github.com/bswaby/Touchpoint/tree/main/Finance/FortisFees)**: Automated fee breakdown
+- **[Giving Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Giving%20Dashboard)**: Bbrings clarity, flexibility, and insight to financial stewardship.
 - **[QCD-Grant Letters](https://github.com/bswaby/Touchpoint/tree/main/Finance/QCD-GrantLetters)**: Automated grant and QCD letter generation
 - **[Weekly Contribution Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Contribution%20Report)**: Detailed financial reporting
 
