@@ -14,6 +14,8 @@ These are mock idea I have for what the next generation of Touchpoint should be.
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/NextGen%20TP%20Mocks/MemberDashboard.png" width="700">
 </p>
+<summary><strong>Leader Login</strong></summary>
+<p>As a leader, you need insights and actionable items to encourage, pour into others, and be flagged on pattern changes as those could be a ministry opportunity.  This dashboard provides a launching point to view all that is happening.</p>
 <ul>
   <li>Navigation | Consistent to easily switch between leader and member</li>
   <li>Ministry Overview | Quick stats to show those leader is over</li>
