@@ -8,7 +8,7 @@ These mocks explore how both **members** and **leaders** could have simpler, mor
 ## 👥 Member Experience
 
 ### Member Login
-One of the biggest issues today is that everything feels buried — there’s no clear path forward or nudge toward the next step.  
+One of the most significant issues today is that everything feels buried. There’s no clear path forward or nudge toward the next step.  
 This design focuses on clarity, simplicity, and purpose.
 
 - **Navigation** – Simple and intuitive with minimal clicks in mind  
@@ -26,8 +26,8 @@ This design focuses on clarity, simplicity, and purpose.
 ## 🧭 Leader Experience
 
 ### Leader Login
-Leaders need quick insights and actionable items to encourage and invest in others — and to be alerted when patterns change that may represent a ministry opportunity.  
-This dashboard provides a launching point to see everything happening within your sphere of ministry.
+Leaders need quick insights and actionable items to encourage and invest in others.  To be alerted when patterns change that may represent a ministry opportunity.  
+This dashboard serves as a launching point to view all activities within your sphere of ministry.
 
 - **Navigation** – Consistent layout to easily switch between member and leader views  
 - **Ministry Overview** – Quick stats and summaries for those under your leadership  
