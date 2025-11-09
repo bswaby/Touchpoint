@@ -14,3 +14,14 @@ These are mock idea I have for what the next generation of Touchpoint should be.
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/NextGen%20TP%20Mocks/MemberDashboard.png" width="700">
 </p>
+<ul>
+  <li>Navigation | Consistent to easily switch between leader and member</li>
+  <li>Ministry Overview | Quick stats to show those leader is over</li>
+  <li>My Teams | Area leader is over with stats on how group(s) are doing</li>
+  <li>Action Items | Quick action items that log efforts with just a click of a button</li>
+  <li>Team Members | Get to patterns of those that you lead</li>
+  <li>Recent Activity | Just a running list of changes</li>
+</ul>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/NextGen%20TP%20Mocks/LeaderDashboard.png" width="700">
+</p>
