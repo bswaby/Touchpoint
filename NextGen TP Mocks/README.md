@@ -23,6 +23,7 @@ These are mock idea I have for what the next generation of Touchpoint should be.
   <li>Action Items | Quick action items that log efforts with just a click of a button</li>
   <li>Team Members | Get to patterns of those that you lead</li>
   <li>Recent Activity | Just a running list of changes</li>
+  <li>Quick Launch | Right toolbar to quickly launch everything from meetings, communications, to tasks.  In mobile view this would be a floating + on the bottom right.</li>
 </ul>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/NextGen%20TP%20Mocks/LeaderDashboard.png" width="700">
