@@ -30,16 +30,16 @@ A budget manager that allows the team to manage the expected budget for the year
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-10-ManageBudgetView.png" width="700" alt="Managed Budget View">
 </p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-ManageBudgetViewAdd.png" width="700" alt="Managed Budget Add">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-9-ManageBudgetViewAdd.png" width="700" alt="Managed Budget Add">
 </p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-ManageBudgetViewAdd2" width="700" alt="Managed Budget Add Special">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-9-ManageBudgetViewAdd2" width="700" alt="Managed Budget Add Special">
 </p>
 
 ### Reporting
 Several reports to slice and dice the giving data.
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-3-Demographics.png" width="700" alt="Demographics">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-3-Demographic.png" width="700" alt="Demographics">
 </p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-4-GivingTypes.png" width="700" alt="Giving Types">
