@@ -6,6 +6,12 @@ As a husband, father of two beautiful daughters, and dad to a special needs chil
 
 I believe God calls us to build His Kingdom in every way we can—including through technology. These tools are designed to help your team work smarter, uncover meaningful insights, and focus more on what matters most: loving people and growing the Kingdom.
 
+## 🎨 Next Generation Mocks
+Concept designs and ideas for what the next generation of Touchpoint could become.  
+These mocks explore how both **members** and **leaders** could have simpler, more guided, and more actionable experiences within the system.
+- **[NextGen TP Mocks](https://github.com/bswaby/Touchpoint/tree/main/NextGen%20TP%20Mocks)**: Visualize and Dream How the NextGen TP Could Function
+
+
 ## 🌟 Tool Categories
 
 ### 🏛️ Organizational Foundations
