@@ -1,13 +1,16 @@
-# Giving Dashboard
+# 💰 Giving Dashboard
 
-This was an exhausting but enjoyable project that significantly improved how we display, manage, and share weekly budget amounts.   For our team here, they can;
+This was an exhausting but rewarding project that greatly improved how we display, manage, and share weekly budget information.
+It brings clarity, flexibility, and insight to financial stewardship within the organization.
 
-- Manage the expected budget
-- See YoY and WoW Comparisons
-- Look for outliers of large gifts
-- Select between years
-- Run a weekly giving report that can have a custom message when sent externally for your stewardship teams
-- Have a series of other financial reports, including opportunities to minister to for those that have lapsed
+With this dashboard, our team can:
+
+- Manage the expected budget and track real-time progress
+- Compare Year-over-Year (YoY) and Week-over-Week (WoW) giving trends
+- Identify outliers such as unusually large gifts for review or celebration
+- Select between years to view historical giving data
+- Run weekly giving reports, complete with a custom message for stewardship teams when sent externally
+- Access a suite of financial reports, including tools to identify lapsed givers and potential ministry opportunities
 
 ---
 
