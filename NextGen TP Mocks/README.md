@@ -12,5 +12,5 @@ These are mock idea I have for what the next generation of Touchpoint should be.
   <li>Family Calendar | Central location to see family schedule</li>
 </ul>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Ministry%20Structure/MinistryStructure.png" width="700">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/NextGen%20TP%20Mocks/MemberDashboard.png" width="700">
 </p>
