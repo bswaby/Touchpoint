@@ -30,7 +30,7 @@ Easy to see how the giving is compared to the budget, along with large gift moni
 A budget manager that allows the team to manage the expected budget for the year, including the ability to create special overlap weeks for fiscal/year-end scenarios.  
 
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-10-ManageBudget.png" width="700" alt="Managed Budget View">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-10-ManageBudgetView.png" width="700" alt="Managed Budget View">
 </p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-9-ManageBudgetAdd.png" width="700" alt="Managed Budget Add">
