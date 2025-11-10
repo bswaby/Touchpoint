@@ -36,7 +36,7 @@ A budget manager that allows the team to manage the expected budget for the year
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-9-ManageBudgetAdd.png" width="700" alt="Managed Budget Add">
 </p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-9-ManageBudgetAdd2" width="700" alt="Managed Budget Add Special">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-9-ManageBudgetAdd2.png" width="700" alt="Managed Budget Add Special">
 </p>
 
 ### Reporting
