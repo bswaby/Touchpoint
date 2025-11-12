@@ -49,13 +49,13 @@ YEAR_PREFIX = 'FY'  # 'FY' for fiscal year, '' for calendar year
 # Option 1: Use specific fund IDs (can be single ID or list)
 DEFAULT_FUND_ID = [1]  # List of fund IDs to track, e.g., [1] or [1, 2, 3]
 # Option 2: Use a fund set (overrides DEFAULT_FUND_ID if set)
-USE_FUND_SET = None  # Fund set ID to use, e.g., 16 for "General" or None to use DEFAULT_FUND_ID
+USE_FUND_SET = None  # Fund set ID to use.  Run "Select * From FundSets Order by Description" to get Id
 
 # Budget Configuration
 ANNUAL_BUDGET = 14844250  # Total annual budget for current fiscal year
 PRIOR_YEAR_ANNUAL_BUDGET = 13015364  # Total annual budget for previous fiscal year
 DEFAULT_WEEKLY_BUDGET = 285467  # Default weekly budget amount for current year
-PRIOR_YEAR_WEEKLY_BUDGET = 250295  # Weekly budget for previous year (13015364 / 52)
+PRIOR_YEAR_WEEKLY_BUDGET = 250295  # Weekly budget for last year (13015364 / 52)
 
 # Contribution Week Report Settings
 ENABLE_WEEK_REPORT = True  # Enable clickable weekly reports
