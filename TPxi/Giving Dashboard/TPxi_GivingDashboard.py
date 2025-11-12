@@ -7,6 +7,7 @@
 # Created by: Ben Swaby
 # Email: bswaby@fbchtn.org
 # ==========================================
+
 # OVERVIEW
 # This is a two-part system:
 #  - TPxi_GivingDashboard | Handles main display and reporting
@@ -14,6 +15,10 @@
 #
 # Note: this code was made for our church, and while every effort was made for this to work in other environments,
 # this may not work in yours or based on how you are structured.  
+
+# UPDATES 1.1 (20251111)
+# - Added ability to add more than 1 FundId
+# - Added ability to use fundsets
 
 # PREREQUISITES
 #  - Both scripts installed
@@ -39,7 +44,12 @@
 DASHBOARD_TITLE = 'Giving Dashboard'
 FISCAL_MONTH_OFFSET = 3  # Months from calendar year (3 = Oct-Sept fiscal year, 0 = calendar year)
 YEAR_PREFIX = 'FY'  # 'FY' for fiscal year, '' for calendar year
-DEFAULT_FUND_ID = 1  # Primary fund to track (usually General Fund)
+
+# Fund Configuration - Choose ONE option:
+# Option 1: Use specific fund IDs (can be single ID or list)
+DEFAULT_FUND_ID = [1]  # List of fund IDs to track, e.g., [1] or [1, 2, 3]
+# Option 2: Use a fund set (overrides DEFAULT_FUND_ID if set)
+USE_FUND_SET = None  # Fund set ID to use, e.g., 16 for "General" or None to use DEFAULT_FUND_ID
 
 # Budget Configuration
 ANNUAL_BUDGET = 14844250  # Total annual budget for current fiscal year
@@ -54,17 +64,17 @@ REPORT_NOTE_NAME = 'ContributionNote'  # TouchPoint HTML content name for pastor
 # External Report (Stewardship) Settings
 REPORT_EMAIL_QUERY = 'FinanceReport' #'SwabyTest'  # Saved search or comma-separated IDs for report recipients
 REPORT_FROM_ID = 25094  # PeopleId of sender (required for email)
-REPORT_FROM_EMAIL = 'finance@noreply.com'
+REPORT_FROM_EMAIL = 'finance@noreply.org'
 REPORT_FROM_NAME = 'Finance'
 REPORT_SUBJECT = 'Weekly Contribution Report'
-REPORT_FOOTER_NAME = 'Finance Administrator'  # Name for report footer
+REPORT_FOOTER_NAME = 'Finance'  # Name for report footer
 REPORT_FOOTER_PHONE = '(615) 555-5555'  # Phone for report footer
-REPORT_FOOTER_EMAIL = 'finance@noreply.com'  # Email for report footer
+REPORT_FOOTER_EMAIL = 'finance@noreply.org'  # Email for report footer
 
 # Internal Report Settings
 INTERNAL_EMAIL_QUERY = 'ContributionInternal'  # Internal recipients (staff/leadership)
 INTERNAL_FROM_ID = 7901  # PeopleId of sender
-INTERNAL_FROM_EMAIL = 'finance@noreply.com'
+INTERNAL_FROM_EMAIL = 'finance@noreply.org'
 INTERNAL_FROM_NAME = 'Finance'
 INTERNAL_SUBJECT = 'Weekly Contribution Report'
 INTERNAL_MESSAGE = 'Please see attached the giving report for last week.'
@@ -135,11 +145,79 @@ online_amount = None
 send_email = False
 is_internal_email = False
 
+# ==========================================
+# HELPER FUNCTIONS
+# ==========================================
+
+# Cache for fund configuration
+_fund_ids_cache = None
+_fund_clause_cache = None
+
+def get_fund_ids():
+    """
+    Get the list of fund IDs to use based on configuration.
+    Returns a list of fund IDs and a SQL IN clause string.
+    Uses caching to avoid repeated queries.
+    """
+    global _fund_ids_cache, _fund_clause_cache
+
+    # Return cached values if available
+    if _fund_ids_cache is not None:
+        return _fund_ids_cache, _fund_clause_cache
+
+    fund_ids = []
+
+    # Option 1: Use fund set if configured
+    if USE_FUND_SET is not None:
+        try:
+            # Check if q is available before trying to query
+            if q is not None:
+                sql = """
+                    SELECT FundId
+                    FROM FundSetFunds
+                    WHERE FundSetId = {}
+                    ORDER BY FundId
+                """.format(USE_FUND_SET)
+
+                results = q.QuerySql(sql)
+                fund_ids = [row.FundId for row in results]
+
+                if not fund_ids:
+                    print "<!-- Warning: Fund set {} contains no funds, falling back to DEFAULT_FUND_ID -->".format(USE_FUND_SET)
+            else:
+                print "<!-- Warning: Query object not available, using DEFAULT_FUND_ID instead of fund set -->"
+        except Exception as e:
+            print "<!-- Error loading fund set {}: {} -->".format(USE_FUND_SET, str(e))
+
+    # Option 2: Use DEFAULT_FUND_ID if no fund set or fund set failed
+    if not fund_ids:
+        if isinstance(DEFAULT_FUND_ID, list):
+            fund_ids = DEFAULT_FUND_ID
+        else:
+            fund_ids = [DEFAULT_FUND_ID]
+
+    # Create SQL IN clause
+    if len(fund_ids) == 1:
+        fund_clause = "= {}".format(fund_ids[0])
+    else:
+        fund_clause = "IN ({})".format(','.join(str(f) for f in fund_ids))
+
+    # Cache the values
+    _fund_ids_cache = fund_ids
+    _fund_clause_cache = fund_clause
+
+    return fund_ids, fund_clause
+
 # Debug output at the very start
 print "<!-- Dashboard script starting -->"
 print "<!-- Has action: %s -->" % (hasattr(model.Data, 'action') if hasattr(model, 'Data') else 'No Data')
 print "<!-- Has t1: %s -->" % (hasattr(model.Data, 't1') if hasattr(model, 'Data') else 'No Data')
 print "<!-- Has fetch_attendance: %s -->" % (hasattr(model.Data, 'fetch_attendance') if hasattr(model, 'Data') else 'No Data')
+
+# Initialize fund configuration - MUST be done early before any queries
+ACTIVE_FUND_IDS, FUND_SQL_CLAUSE = get_fund_ids()
+print "<!-- Active Fund IDs: {} -->".format(ACTIVE_FUND_IDS)
+print "<!-- Fund SQL Clause: {} -->".format(FUND_SQL_CLAUSE)
 
 # Handle attendance fetch request for modal (MUST BE FIRST)
 # Check both Data (POST) and QueryString (GET) for parameters
@@ -662,16 +740,16 @@ if not attendance_fetched and not note_saved:
                     ISNULL(SUM(c.ContributionAmount), 0) as TotalAmount,
                     ISNULL(AVG(c.ContributionAmount), 0) as AvgGift
                 FROM Contribution c
-                WHERE c.ContributionDate >= '{}' 
+                WHERE c.ContributionDate >= '{}'
                 AND c.ContributionDate <= '{}'
-                AND c.FundId = {}
+                AND c.FundId {}
                 AND c.ContributionStatusId = 0
                 AND c.ContributionTypeId NOT IN (6,7,8)
-            '''.format(start_date_corrected, end_date_corrected, DEFAULT_FUND_ID)
-            
+            '''.format(start_date_corrected, end_date_corrected, FUND_SQL_CLAUSE)
+
             print "<p>Executing week data query...</p>"
             print "<p>Query dates: %s to %s</p>" % (start_date_corrected, end_date_corrected)
-            print "<p>Fund ID: %s</p>" % (DEFAULT_FUND_ID)
+            print "<p>Fund IDs: %s</p>" % (ACTIVE_FUND_IDS)
             
             # Use passed values if available, otherwise initialize defaults
             if weekTotal is not None:
@@ -770,9 +848,9 @@ if not attendance_fetched and not note_saved:
                 FROM Contribution c
                 WHERE c.ContributionDate >= '{}'
                 AND c.ContributionDate <= '{}'
-                AND c.FundId = {}
+                AND c.FundId {}
                 AND c.ContributionTypeId NOT IN (99)
-            '''.format(fiscal_start, end_date_corrected, DEFAULT_FUND_ID)
+            '''.format(fiscal_start, end_date_corrected, FUND_SQL_CLAUSE)
             
             # Skip YTD query if we already have the value
             if ytdTotal is None:
@@ -1013,12 +1091,12 @@ if not attendance_fetched and not note_saved:
                 py_week_sql = '''
                     SELECT ISNULL(SUM(c.ContributionAmount), 0) as TotalAmount
                     FROM Contribution c
-                    WHERE c.ContributionDate >= DATEADD(YEAR, -1, '{}') 
+                    WHERE c.ContributionDate >= DATEADD(YEAR, -1, '{}')
                     AND c.ContributionDate <= DATEADD(YEAR, -1, '{}')
-                    AND c.FundId = {}
+                    AND c.FundId {}
                     AND c.ContributionStatusId = 0
                     AND c.ContributionTypeId NOT IN (6,7,8)
-                '''.format(start_date_corrected, end_date_corrected, DEFAULT_FUND_ID)
+                '''.format(start_date_corrected, end_date_corrected, FUND_SQL_CLAUSE)
                 
                 print "<p>Executing prior year week query...</p>"
                 try:
@@ -1038,10 +1116,10 @@ if not attendance_fetched and not note_saved:
                     FROM Contribution c
                     WHERE c.ContributionDate >= DATEADD(YEAR, -1, '{}')
                     AND c.ContributionDate <= DATEADD(YEAR, -1, '{}')
-                    AND c.FundId = {}
+                    AND c.FundId {}
                     AND c.ContributionStatusId = 0
                     AND c.ContributionTypeId NOT IN (6,7,8)
-                '''.format(fiscal_start, end_date_corrected, DEFAULT_FUND_ID)
+                '''.format(fiscal_start, end_date_corrected, FUND_SQL_CLAUSE)
                 
                 print "<p>Executing prior year YTD query...</p>"
                 try:
@@ -1916,7 +1994,7 @@ if not attendance_fetched and not note_saved:
                         SUM(c.ContributionAmount) AS TotalGiven
                     FROM Contribution c
                     INNER JOIN People p ON c.PeopleId = p.PeopleId
-                    WHERE c.FundId = {}
+                    WHERE c.FundId {}
                         AND c.ContributionStatusId = 0
                         AND c.ContributionDate >= '{}'
                         AND c.ContributionDate <= GETDATE()
@@ -1946,7 +2024,7 @@ if not attendance_fetched and not note_saved:
                         SUM(c.ContributionAmount) AS PYTotalGiven
                     FROM Contribution c
                     INNER JOIN People p ON c.PeopleId = p.PeopleId
-                    WHERE c.FundId = {}
+                    WHERE c.FundId {}
                         AND c.ContributionStatusId = 0
                         AND c.ContributionDate >= '{}'
                         AND c.ContributionDate <= DATEADD(year, -1, GETDATE())
@@ -1976,7 +2054,7 @@ if not attendance_fetched and not note_saved:
                 FROM CurrentYear cy
                 LEFT JOIN PreviousYear py ON cy.AgeGroup = py.AgeGroup
                 ORDER BY cy.AgeGroup
-                '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START, DEFAULT_FUND_ID, py_fiscal_start)
+                '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START, FUND_SQL_CLAUSE, py_fiscal_start)
                 
                 try:
                     age_results = q.QuerySql(age_sql)
@@ -2074,7 +2152,7 @@ if not attendance_fetched and not note_saved:
                         c.ContributionAmount
                     FROM Contribution c
                     INNER JOIN People p ON c.PeopleId = p.PeopleId
-                    WHERE c.FundId = {}
+                    WHERE c.FundId {}
                         AND c.ContributionStatusId = 0
                         AND c.ContributionDate >= '{}'
                 )
@@ -2089,7 +2167,7 @@ if not attendance_fetched and not note_saved:
                 WHERE Generation IS NOT NULL
                 GROUP BY Generation
                 ORDER BY MIN(GenOrder)
-                '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START)
+                '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START)
                 
                 try:
                     gen_results = q.QuerySql(gen_sql)
@@ -2155,7 +2233,7 @@ if not attendance_fetched and not note_saved:
                         AVG(c.ContributionAmount) AS AvgGift
                     FROM Contribution c
                     INNER JOIN People p ON c.PeopleId = p.PeopleId
-                    WHERE c.FundId = {}
+                    WHERE c.FundId {}
                         AND c.ContributionStatusId = 0
                         AND c.ContributionDate >= '{}'
                         AND c.ContributionDate <= GETDATE()
@@ -2179,7 +2257,7 @@ if not attendance_fetched and not note_saved:
                         SUM(c.ContributionAmount) AS PYTotalGiven
                     FROM Contribution c
                     INNER JOIN People p ON c.PeopleId = p.PeopleId
-                    WHERE c.FundId = {}
+                    WHERE c.FundId {}
                         AND c.ContributionStatusId = 0
                         AND c.ContributionDate >= '{}'
                         AND c.ContributionDate <= DATEADD(year, -1, GETDATE())
@@ -2204,7 +2282,7 @@ if not attendance_fetched and not note_saved:
                 FROM CurrentYear cy
                 LEFT JOIN PreviousYear py ON cy.MaritalStatus = py.MaritalStatus
                 ORDER BY cy.TotalGiven DESC
-                '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START, DEFAULT_FUND_ID, py_fiscal_start)
+                '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START, FUND_SQL_CLAUSE, py_fiscal_start)
                 
                 try:
                     marital_results = q.QuerySql(marital_sql)
@@ -2276,7 +2354,7 @@ if not attendance_fetched and not note_saved:
                 FROM Contribution c
                 INNER JOIN People p ON c.PeopleId = p.PeopleId
                 LEFT JOIN lookup.Campus cp ON p.CampusId = cp.Id
-                WHERE c.FundId = {}
+                WHERE c.FundId {}
                     AND c.ContributionStatusId = 0
                     AND c.ContributionDate >= '{}'
                 GROUP BY CASE 
@@ -2284,7 +2362,7 @@ if not attendance_fetched and not note_saved:
                         ELSE cp.Description 
                     END
                 ORDER BY SUM(c.ContributionAmount) DESC
-                '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START)
+                '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START)
                 
                 try:
                     campus_results = q.QuerySql(campus_sql)
@@ -2341,11 +2419,11 @@ if not attendance_fetched and not note_saved:
                 current_year_sql = '''
                 SELECT DISTINCT PeopleId 
                 FROM Contribution 
-                WHERE FundId = {}
+                WHERE FundId {}
                     AND ContributionStatusId = 0
                     AND ContributionDate >= '{}'
                     AND PeopleId IS NOT NULL
-                '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START)
+                '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START)
                 
                 current_givers = q.QuerySql(current_year_sql)
                 current_set = set()
@@ -2358,12 +2436,12 @@ if not attendance_fetched and not note_saved:
                 last_year_sql = '''
                 SELECT DISTINCT PeopleId 
                 FROM Contribution 
-                WHERE FundId = {}
+                WHERE FundId {}
                     AND ContributionStatusId = 0
                     AND ContributionDate >= DATEADD(year, -1, '{}')
                     AND ContributionDate < '{}'
                     AND PeopleId IS NOT NULL
-                '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START, FISCAL_YEAR_START)
+                '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START, FISCAL_YEAR_START)
                 
                 last_givers = q.QuerySql(last_year_sql)
                 last_set = set()
@@ -2469,7 +2547,7 @@ if not attendance_fetched and not note_saved:
                     LEFT JOIN BundleDetail bd ON c.ContributionId = bd.ContributionId
                     LEFT JOIN BundleHeader bh ON bd.BundleHeaderId = bh.BundleHeaderId
                     LEFT JOIN lookup.BundleHeaderTypes bht ON bh.BundleHeaderTypeId = bht.Id
-                    WHERE c.FundId = {}
+                    WHERE c.FundId {}
                         AND c.ContributionStatusId = 0
                         AND c.ContributionDate >= '{}'
                         AND c.ContributionDate <= GETDATE()
@@ -2509,7 +2587,7 @@ if not attendance_fetched and not note_saved:
                     LEFT JOIN BundleDetail bd ON c.ContributionId = bd.ContributionId
                     LEFT JOIN BundleHeader bh ON bd.BundleHeaderId = bh.BundleHeaderId
                     LEFT JOIN lookup.BundleHeaderTypes bht ON bh.BundleHeaderTypeId = bht.Id
-                    WHERE c.FundId = {}
+                    WHERE c.FundId {}
                         AND c.ContributionStatusId = 0
                         AND c.ContributionDate >= '{}'
                         AND c.ContributionDate <= DATEADD(year, -1, GETDATE())
@@ -2542,7 +2620,7 @@ if not attendance_fetched and not note_saved:
                 FROM CurrentYear cy
                 LEFT JOIN PreviousYear py ON cy.GivingType = py.GivingType
                 ORDER BY cy.TotalAmount DESC
-                '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START, DEFAULT_FUND_ID, py_fiscal_start)
+                '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START, FUND_SQL_CLAUSE, py_fiscal_start)
                 
                 types_results = q.QuerySql(types_sql)
                 
@@ -2691,11 +2769,11 @@ if not attendance_fetched and not note_saved:
                     total_sql = '''
                     SELECT ISNULL(SUM(ContributionAmount), 0) AS Total12Weeks
                     FROM Contribution
-                    WHERE FundId = {}
+                    WHERE FundId {}
                         AND ContributionStatusId = 0
                         AND ContributionDate >= '{}'
                         AND ContributionDate <= '{}'
-                    '''.format(DEFAULT_FUND_ID, trend_start_date, trend_end_date)
+                    '''.format(FUND_SQL_CLAUSE, trend_start_date, trend_end_date)
                     
                     error_location = 'executing query for dates {} to {}'.format(trend_start_date, trend_end_date)
                     total_result = q.QuerySql(total_sql)
@@ -2756,13 +2834,13 @@ if not attendance_fetched and not note_saved:
                         WITH WeeklyContributions AS (
                             SELECT SUM(ContributionAmount) as Total
                             FROM Contribution WITH (NOLOCK)
-                            WHERE FundId = {}
+                            WHERE FundId {}
                                 AND ContributionStatusId = 0
                                 AND ContributionDate >= '{}'
                                 AND ContributionDate < DATEADD(day, 1, GETDATE())
                         )
                         SELECT COALESCE(Total, 0) AS YTDTotal FROM WeeklyContributions
-                        '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START)
+                        '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START)
                         
                         error_location = 'executing YTD query from {} to {}'.format(FISCAL_YEAR_START, today_str)
                         ytd_total = 0
@@ -2795,11 +2873,11 @@ if not attendance_fetched and not note_saved:
                                 FROM (
                                     SELECT COALESCE(SUM(c.ContributionAmount), 0) as Contributed
                                     FROM Contribution c
-                                    WHERE c.FundId = {}
+                                    WHERE c.FundId {}
                                         AND c.ContributionStatusId = 0
                                         AND c.ContributionDate >= '{}'
                                 ) t
-                                '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START)
+                                '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START)
                                 
                                 weekly_result = q.QuerySql(weekly_sql)
                                 if weekly_result and len(weekly_result) > 0:
@@ -3279,12 +3357,12 @@ if not attendance_fetched and not note_saved:
                     AVG(c.ContributionAmount) AS AvgGift
                 FROM People p
                 INNER JOIN Contribution c ON p.PeopleId = c.PeopleId
-                WHERE c.FundId = {}
+                WHERE c.FundId {}
                     AND c.ContributionStatusId = 0
                 GROUP BY p.PeopleId, p.Name2
                 HAVING MIN(c.ContributionDate) >= '{}'
                 ORDER BY MIN(c.ContributionDate) DESC
-                '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START)
+                '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START)
                 
                 first_timers = q.QuerySql(first_time_sql)
                 
@@ -3339,6 +3417,9 @@ if not attendance_fetched and not note_saved:
                 html += '''
                 <div id="lapsed-giver" class="giver-section">
                     <h3>Lapsed Givers Analysis</h3>
+                    <div class="alert" style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px; margin-bottom: 20px;">
+                        <strong>Note:</strong> This section is still under development. Some functionality and actions may not be fully operational yet.
+                    </div>
                 '''
                 
                 # Calculate lapsed givers using 2x standard deviation approach
@@ -3348,7 +3429,7 @@ if not attendance_fetched and not note_saved:
                     -- First, identify people who have given recently (faster pre-filter)
                     SELECT DISTINCT PeopleId
                     FROM Contribution
-                    WHERE FundId = {}
+                    WHERE FundId {}
                         AND ContributionStatusId = 0
                         AND ContributionDate >= DATEADD(year, -2, GETDATE())
                 ),
@@ -3365,7 +3446,7 @@ if not attendance_fetched and not note_saved:
                     FROM RecentGivers rg
                     INNER JOIN People p ON rg.PeopleId = p.PeopleId
                     INNER JOIN Contribution c ON p.PeopleId = c.PeopleId
-                    WHERE c.FundId = {}
+                    WHERE c.FundId {}
                         AND c.ContributionStatusId = 0
                         AND c.ContributionDate >= DATEADD(year, -2, GETDATE())
                 ),
@@ -3402,7 +3483,7 @@ if not attendance_fetched and not note_saved:
                             AVG(c.ContributionAmount) AS AvgGift
                         FROM Contribution c
                         WHERE c.PeopleId = gs.PeopleId
-                            AND c.FundId = {}
+                            AND c.FundId {}
                             AND c.ContributionStatusId = 0
                             AND c.ContributionDate >= DATEADD(year, -2, GETDATE())
                     ) c2
@@ -3428,7 +3509,7 @@ if not attendance_fetched and not note_saved:
                         ELSE 3 
                     END,
                     TotalAmount DESC
-                '''.format(DEFAULT_FUND_ID, DEFAULT_FUND_ID, DEFAULT_FUND_ID)
+                '''.format(FUND_SQL_CLAUSE, FUND_SQL_CLAUSE, FUND_SQL_CLAUSE)
                 
                 # Add JavaScript initialization BEFORE checking for results
                 html += '''
@@ -3727,16 +3808,12 @@ if not attendance_fetched and not note_saved:
                     if lapsed_results:
                         # Add note about statistical methodology
                         html += '''
-                        <div class="alert alert-warning" style="margin-bottom: 15px;">
-                            <strong>Note:</strong> Functionality of this page is still being worked on. Some features may not be fully operational yet.
-                        </div>
-
                         <div class="alert alert-info" style="margin-bottom: 15px;">
-                            <strong>Statistical Note:</strong> Lapsed status is determined using 2× standard deviation (2σ) from each giver's typical interval pattern.
+                            <strong>Statistical Note:</strong> Lapsed status is determined using 2× standard deviation (2σ) from each giver's typical interval pattern. 
                             This means a giver is marked as "Lapsed" when their time since last gift exceeds their average interval plus 2 standard deviations.
                         </div>
                         '''
-
+                        
                         # Add action buttons with initialization fallback
                         html += '''
                         <div style="margin-bottom: 15px;">
@@ -3888,7 +3965,7 @@ if not attendance_fetched and not note_saved:
                         COUNT(*) AS NumGifts,
                         SUM(ContributionAmount) AS TotalGiven
                     FROM Contribution
-                    WHERE FundId = {}
+                    WHERE FundId {}
                         AND ContributionStatusId = 0
                         AND ContributionDate >= '{}'
                         AND ContributionDate <= GETDATE()
@@ -3900,7 +3977,7 @@ if not attendance_fetched and not note_saved:
                         COUNT(*) AS NumGifts,
                         SUM(ContributionAmount) AS TotalGiven
                     FROM Contribution
-                    WHERE FundId = {}
+                    WHERE FundId {}
                         AND ContributionStatusId = 0
                         AND ContributionDate >= DATEADD(year, -1, '{}')
                         AND ContributionDate <= '{}'
@@ -3967,7 +4044,7 @@ if not attendance_fetched and not note_saved:
                 FROM CurrentFreq c
                 FULL OUTER JOIN LastFreq l ON c.Frequency = l.Frequency
                 ORDER BY COALESCE(c.Frequency, l.Frequency)
-                '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START, DEFAULT_FUND_ID, FISCAL_YEAR_START, last_year_ytd)
+                '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START, FUND_SQL_CLAUSE, FISCAL_YEAR_START, last_year_ytd)
                 
                 try:
                     freq_results = q.QuerySql(freq_sql)
@@ -4093,7 +4170,7 @@ if not attendance_fetched and not note_saved:
                         PeopleId,
                         SUM(ContributionAmount) AS YearTotal
                     FROM Contribution
-                    WHERE FundId = {}
+                    WHERE FundId {}
                         AND ContributionStatusId = 0
                         AND ContributionDate >= '{}'
                         AND ContributionDate <= GETDATE()
@@ -4104,7 +4181,7 @@ if not attendance_fetched and not note_saved:
                         PeopleId,
                         SUM(ContributionAmount) AS YearTotal
                     FROM Contribution
-                    WHERE FundId = {}
+                    WHERE FundId {}
                         AND ContributionStatusId = 0
                         AND ContributionDate >= DATEADD(year, -1, '{}')
                         AND ContributionDate <= '{}'
@@ -4181,7 +4258,7 @@ if not attendance_fetched and not note_saved:
                 FROM CurrentCapacity c
                 FULL OUTER JOIN LastCapacity l ON c.GivingLevel = l.GivingLevel
                 ORDER BY COALESCE(c.GivingLevel, l.GivingLevel)
-                '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START, DEFAULT_FUND_ID, FISCAL_YEAR_START, last_year_ytd)
+                '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START, FUND_SQL_CLAUSE, FISCAL_YEAR_START, last_year_ytd)
                 
                 try:
                     capacity_results = q.QuerySql(capacity_sql)
@@ -4396,14 +4473,14 @@ if not attendance_fetched and not note_saved:
                 c.ContributionDesc
             FROM Contribution c
             INNER JOIN People p ON c.PeopleId = p.PeopleId
-            WHERE c.FundId = {}
+            WHERE c.FundId {}
                 AND c.ContributionStatusId = 0
                 AND c.ContributionAmount >= {}
                 AND c.ContributionAmount < {}
                 AND c.ContributionDate >= '{}'
                 AND c.ContributionDate <= '{}'
             ORDER BY c.ContributionAmount DESC
-            '''.format(DEFAULT_FUND_ID, min_amt, max_amt, period_start, period_end)
+            '''.format(FUND_SQL_CLAUSE, min_amt, max_amt, period_start, period_end)
             
             results = q.QuerySql(large_gifts_sql)
             
@@ -4707,7 +4784,7 @@ if not attendance_fetched and not note_saved:
             SUM(CASE WHEN c.ContributionAmount >= 10000 AND c.ContributionAmount < 100000 THEN 1 ELSE 0 END) AS Gifts10kto99k,
             SUM(CASE WHEN c.ContributionAmount >= 100000 THEN 1 ELSE 0 END) AS Gifts100kPlus
         FROM Contribution c WITH (NOLOCK)
-        WHERE c.FundId = {}
+        WHERE c.FundId {}
             AND c.ContributionStatusId = 0
             AND c.ContributionDate >= '{}'
             AND c.ContributionDate <= '{}'
@@ -4718,7 +4795,7 @@ if not attendance_fetched and not note_saved:
                 END, 
                 c.ContributionDate)
         ORDER BY WeekStart
-        '''.format(DEFAULT_FUND_ID, fy_start.strftime('%Y-%m-%d'), fy_end.strftime('%Y-%m-%d'))
+        '''.format(FUND_SQL_CLAUSE, fy_start.strftime('%Y-%m-%d'), fy_end.strftime('%Y-%m-%d'))
         
         # Execute 2 optimized SQL queries - Prior Fiscal Year  
         sql_prior = '''
@@ -4734,7 +4811,7 @@ if not attendance_fetched and not note_saved:
             COUNT(DISTINCT c.PeopleId) AS PYUniqueGivers,
             SUM(c.ContributionAmount) AS PYTotalGiving
         FROM Contribution c WITH (NOLOCK)
-        WHERE c.FundId = {}
+        WHERE c.FundId {}
             AND c.ContributionStatusId = 0
             AND c.ContributionDate >= '{}'
             AND c.ContributionDate <= '{}'
@@ -4745,7 +4822,7 @@ if not attendance_fetched and not note_saved:
                 END, 
                 c.ContributionDate)
         ORDER BY WeekStart
-        '''.format(DEFAULT_FUND_ID, py_fiscal_start.strftime('%Y-%m-%d'), py_fiscal_end.strftime('%Y-%m-%d'))
+        '''.format(FUND_SQL_CLAUSE, py_fiscal_start.strftime('%Y-%m-%d'), py_fiscal_end.strftime('%Y-%m-%d'))
         
         contributions_raw = []
         py_contributions_raw = []
@@ -4753,7 +4830,7 @@ if not attendance_fetched and not note_saved:
         try:
             print('<!-- Executing SQL queries for all weeks -->')
             print('<!-- FY Start: {}, FY End: {} -->'.format(fy_start.strftime('%Y-%m-%d'), fy_end.strftime('%Y-%m-%d')))
-            print('<!-- DEFAULT_FUND_ID: {} -->'.format(DEFAULT_FUND_ID))
+            print('<!-- FUND_SQL_CLAUSE: {} -->'.format(FUND_SQL_CLAUSE))
             
             # First, let's check if there's ANY data in the database
             test_sql = '''
@@ -4832,13 +4909,13 @@ if not attendance_fetched and not note_saved:
                 COUNT(DISTINCT c.PeopleId) AS Givers,
                 COUNT(*) AS Gifts
             FROM Contribution c WITH (NOLOCK)
-            WHERE c.FundId = {}
+            WHERE c.FundId {}
                 AND c.ContributionStatusId = 0
                 AND c.ContributionDate >= '{}'
                 AND c.ContributionDate <= '{}'
             GROUP BY c.ContributionDate
             ORDER BY c.ContributionDate
-            '''.format(DEFAULT_FUND_ID, fy_start.strftime('%Y-%m-%d'), fy_end.strftime('%Y-%m-%d'))
+            '''.format(FUND_SQL_CLAUSE, fy_start.strftime('%Y-%m-%d'), fy_end.strftime('%Y-%m-%d'))
             
             try:
                 print('<!-- About to execute daily SQL query for special periods -->')
@@ -4964,13 +5041,13 @@ if not attendance_fetched and not note_saved:
                         COUNT(DISTINCT c.PeopleId) AS Givers,
                         COUNT(*) AS Gifts
                     FROM Contribution c WITH (NOLOCK)
-                    WHERE c.FundId = {}
+                    WHERE c.FundId {}
                         AND c.ContributionStatusId = 0
                         AND c.ContributionDate >= '{}'
                         AND c.ContributionDate <= '{}'
                     GROUP BY c.ContributionDate
                     ORDER BY c.ContributionDate
-                    '''.format(DEFAULT_FUND_ID, py_fiscal_start.strftime('%Y-%m-%d'), py_fiscal_end.strftime('%Y-%m-%d'))
+                    '''.format(FUND_SQL_CLAUSE, py_fiscal_start.strftime('%Y-%m-%d'), py_fiscal_end.strftime('%Y-%m-%d'))
                     
                     try:
                         print('<!-- Getting PY daily data for special periods -->')
@@ -5436,11 +5513,11 @@ if not attendance_fetched and not note_saved:
             current_year_sql = '''
             SELECT DISTINCT PeopleId 
             FROM Contribution WITH (NOLOCK)
-            WHERE FundId = {}
+            WHERE FundId {}
                 AND ContributionStatusId = 0
                 AND ContributionDate >= '{}'
                 AND PeopleId IS NOT NULL
-            '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START)
+            '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START)
             
             current_givers = q.QuerySql(current_year_sql)
             current_set = set()
@@ -5453,12 +5530,12 @@ if not attendance_fetched and not note_saved:
             last_year_sql = '''
             SELECT DISTINCT PeopleId 
             FROM Contribution WITH (NOLOCK)
-            WHERE FundId = {}
+            WHERE FundId {}
                 AND ContributionStatusId = 0
                 AND ContributionDate >= DATEADD(year, -1, '{}')
                 AND ContributionDate < '{}'
                 AND PeopleId IS NOT NULL
-            '''.format(DEFAULT_FUND_ID, FISCAL_YEAR_START, FISCAL_YEAR_START)
+            '''.format(FUND_SQL_CLAUSE, FISCAL_YEAR_START, FISCAL_YEAR_START)
             
             last_givers = q.QuerySql(last_year_sql)
             last_set = set()
@@ -5822,7 +5899,7 @@ if not attendance_fetched and not note_saved:
                     <button class="tab-button" onclick="loadTab('demographics', this)">Demographics</button>
                     <button class="tab-button" onclick="loadTab('giving_types', this)">Giving Types</button>
                     <button class="tab-button" onclick="loadTab('retention', this)">Retention</button>
-                    <!-- <button class="tab-button" onclick="loadTab('forecast', this)">Forecast</button> -->
+                    <!--<button class="tab-button" onclick="loadTab('forecast', this)">Forecast</button>-->
                     <button class="tab-button" onclick="loadTab('givers', this)">Givers</button>
                 </div>
                 
