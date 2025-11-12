@@ -31,6 +31,13 @@
 #written by: Ben Swaby
 #email: bswaby@fbchtn.org
 
+# Update Notes 11/12/2025:
+# - Added ability to send to self or saved search.
+# - Fixed report not sending enrollment metrics
+# - Fixed report not sending week summary
+# - Added date to email subject
+# - Cleaned up some spinner and duplicate notifications after email is sent
+
 # Update Notes 10/26/2025:
 # - Changed to allow 0 attendance count for enrollment
 # - Changed from unique counts to sum count for enrollment metrics, program metrics, and total enrollment
@@ -107,6 +114,9 @@ EXCLUDED_PROGRAMS =  ['VBS 2025 K-5', 'VBS 2025 Preschool','VBS 2025 Special Fri
 EMAIL_FROM_NAME = "Attendance Reports"
 EMAIL_FROM_ADDRESS = "attendance@church.org"
 EMAIL_SUBJECT = "Weekly Attendance Report"
+# Default email recipient: "self" to send to current user, or email address/PeopleId
+# Can also use "attendance_group" to send to a specific group (configure in TouchPoint)
+EMAIL_TO = "SwabyTest"  # Options: "self", email address, or PeopleId
 
 # Enable or disable performance debugging (set to True to show timing information)
 DEBUG_PERFORMANCE = False
@@ -2159,19 +2169,31 @@ class AttendanceReport:
         """Generate a date selector form with improved loading indicators."""
         current_date = self.report_date.strftime('%Y-%m-%d')
         send_email_html = ""
-        
+
         # Add email option with improved button states
         if model.Data.send_email != "yes":
+            # Determine default recipient based on EMAIL_TO configuration
+            default_self_checked = 'checked' if EMAIL_TO == "self" else ''
+            default_group_checked = 'checked' if EMAIL_TO != "self" else ''
+            default_email_value = '' if EMAIL_TO == "self" else EMAIL_TO
+
             send_email_html = """
-            <div style="margin-top: 10px;">
-                <label for="email_to">Send Email To:</label>
-                <input type="text" id="email_to" name="email_to" placeholder="email@example.com">
-                <button type="submit" name="send_email" value="yes" id="send-email-btn" 
-                        style="margin-left: 10px; padding: 5px 10px; background-color: #2196F3; color: white; border: none; border-radius: 3px; cursor: pointer; position: relative;">
-                    Send Report
+            <div style="margin-top: 10px; padding: 10px; background-color: #e8f4f8; border-radius: 5px;">
+                <strong>Send Email Report:</strong>
+                <div style="margin-top: 5px;">
+                    <label style="margin-right: 15px;">
+                        <input type="radio" name="email_to" value="self" {0}> Send to Self
+                    </label>
+                    <label style="margin-right: 15px;">
+                        <input type="radio" name="email_to" value="{1}" {2}> Send to Attendance Report Group
+                    </label>
+                </div>
+                <button type="submit" name="send_email" value="yes" id="send-email-btn"
+                        style="margin-top: 10px; padding: 5px 15px; background-color: #2196F3; color: white; border: none; border-radius: 3px; cursor: pointer; position: relative;">
+                    📧 Send Report
                 </button>
             </div>
-            """
+            """.format(default_self_checked, default_email_value, default_group_checked)
         
         # Show option to expand organizations (default is collapsed)
         expand_checked = "" if self.collapse_orgs else "checked"
@@ -3937,18 +3959,19 @@ class AttendanceReport:
         return ""
     
 
-    def generate_enrollment_analysis_section(self):
+    def generate_enrollment_analysis_section(self, for_email=False):
         """Generate a more compact enrollment ratio analysis section."""
         try:
             # Check if we should show this section at all
             if not ENROLLMENT_ANALYSIS_PROGRAMS:
                 return "<p>No programs configured for enrollment analysis.</p>"
             
-            # Start with loading indicator
-            print "<div id='loading-enrollment' style='text-align: center; padding: 30px;'>"
-            print "<p><i class='fa fa-spinner fa-spin fa-3x'></i></p>"
-            print "<p>Loading enrollment analysis data...</p>"
-            print "</div>"
+            # Start with loading indicator (only for browser display, not email)
+            if not for_email:
+                print "<div id='loading-enrollment' style='text-align: center; padding: 30px;'>"
+                print "<p><i class='fa fa-spinner fa-spin fa-3x'></i></p>"
+                print "<p>Loading enrollment analysis data...</p>"
+                print "</div>"
             
             # Get the enrollment SQL and execute it
             try:
@@ -3988,8 +4011,11 @@ class AttendanceReport:
                 )
             
             # Format the HTML using a more compact style
+            # For emails, make visible; for browser, hide by default (JavaScript will show it)
+            display_style = "display: block;" if for_email else "display: none;"
+
             analysis_html = """
-            <div id="enrollment-analysis" style="display: none;">
+            <div id="enrollment-analysis" style="{display_style}">
                 <div style="background-color: #f9f9f9; border-radius: 5px; padding: 15px; margin-bottom: 20px;">
                     <h3 style="margin-top: 0;">{title}</h3>
 
@@ -3999,6 +4025,7 @@ class AttendanceReport:
                     </div>
 
             """.format(
+                display_style=display_style,
                 title=program_title,
                 enrollment_note="all involvements regardless of attendance" if INCLUDE_ALL_ENROLLMENTS else "only involvements that have attendance"
             )
@@ -4233,10 +4260,21 @@ class AttendanceReport:
             analysis_html += """
                 </div>
             </div>
-            
+            """
+
+            # Add JavaScript to hide loading spinner (only for browser display)
+            if not for_email:
+                analysis_html += """
             <script>
-                document.getElementById('loading-enrollment').style.display = 'none';
-                document.getElementById('enrollment-analysis').style.display = 'block';
+                // Hide the loading spinner and show the enrollment section
+                var loadingDiv = document.getElementById('loading-enrollment');
+                if (loadingDiv) {
+                    loadingDiv.style.display = 'none';
+                }
+                var enrollmentDiv = document.getElementById('enrollment-analysis');
+                if (enrollmentDiv) {
+                    enrollmentDiv.style.display = 'block';
+                }
             </script>
             """
             
@@ -4883,7 +4921,7 @@ class AttendanceReport:
         
         return summary_html
     
-    def generate_overall_summary(self, current_total, previous_total, current_ytd_total, previous_ytd_total, four_week_totals=None):
+    def generate_overall_summary(self, current_total, previous_total, current_ytd_total, previous_ytd_total, four_week_totals=None, for_email=False):
         """Generate an improved overall summary section with robust error handling and performance tracking."""
         import traceback
         import time  # Add timing functionality
@@ -4894,7 +4932,8 @@ class AttendanceReport:
         # Create a dictionary to track execution times of different sections
         timing_data = {}
         summary_html = ""
-        
+        weekly_kpi_html = ""  # Initialize to prevent errors if exception occurs
+
         try:
             # Ensure all input parameters have valid types
             current_total = current_total or 0
@@ -4925,9 +4964,11 @@ class AttendanceReport:
                     try:
                         worship_program_sql = self.get_specific_programs_sql([WORSHIP_PROGRAM])
                         timing_data['get_programs_sql'] = time.time() - start_time_sql
-                        print "<p class='debug'>SQL generation took: {:.2f} seconds</p>".format(timing_data['get_programs_sql'])
+                        if not for_email:
+                            print "<p class='debug'>SQL generation took: {:.2f} seconds</p>".format(timing_data['get_programs_sql'])
                         if not worship_program_sql:
-                            print "<p class='debug'>Warning: get_specific_programs_sql returned empty SQL</p>"
+                            if not for_email:
+                                print "<p class='debug'>Warning: get_specific_programs_sql returned empty SQL</p>"
                             worship_program_sql = """
                             SELECT p.Id, p.Name 
                             FROM Program p 
@@ -5528,54 +5569,85 @@ class AttendanceReport:
             </div>
             """
             
-            print performance_html
-            
-            # Add a button to toggle debug info
-            print """
-            <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    // Initially hide all debug elements
-                    var debugElements = document.querySelectorAll('.debug');
-                    for (var i = 0; i < debugElements.length; i++) {
-                        debugElements[i].style.display = 'none';
-                    }
-                    
-                    // Create toggle button
-                    var button = document.createElement('button');
-                    button.textContent = 'Show Debug Info';
-                    button.style.margin = '10px 0';
-                    button.style.padding = '5px 10px';
-                    button.style.backgroundColor = '#337ab7';
-                    button.style.color = 'white';
-                    button.style.border = 'none';
-                    button.style.borderRadius = '4px';
-                    button.style.cursor = 'pointer';
-                    
-                    button.onclick = function() {
-                        var isHidden = debugElements[0].style.display === 'none';
+            # Only print performance data if not generating for email
+            if not for_email:
+                print performance_html
+
+                # Add a button to toggle debug info
+                print """
+                <script>
+                    document.addEventListener('DOMContentLoaded', function() {
+                        // Initially hide all debug elements
+                        var debugElements = document.querySelectorAll('.debug');
                         for (var i = 0; i < debugElements.length; i++) {
-                            debugElements[i].style.display = isHidden ? 'block' : 'none';
+                            debugElements[i].style.display = 'none';
                         }
-                        button.textContent = isHidden ? 'Hide Debug Info' : 'Show Debug Info';
-                    };
-                    
-                    // Insert button at top of page
-                    document.body.insertBefore(button, document.body.firstChild);
-                });
-            </script>
-            """
-        
+
+                        // Create toggle button
+                        var button = document.createElement('button');
+                        button.textContent = 'Show Debug Info';
+                        button.style.margin = '10px 0';
+                        button.style.padding = '5px 10px';
+                        button.style.backgroundColor = '#337ab7';
+                        button.style.color = 'white';
+                        button.style.border = 'none';
+                        button.style.borderRadius = '4px';
+                        button.style.cursor = 'pointer';
+
+                        button.onclick = function() {
+                            var isHidden = debugElements[0].style.display === 'none';
+                            for (var i = 0; i < debugElements.length; i++) {
+                                debugElements[i].style.display = isHidden ? 'block' : 'none';
+                            }
+                            button.textContent = isHidden ? 'Hide Debug Info' : 'Show Debug Info';
+                        };
+
+                        // Insert button at top of page
+                        document.body.insertBefore(button, document.body.firstChild);
+                    });
+                </script>
+                """
+
         # Return both the weekly KPIs and the summary HTML
         return weekly_kpi_html + summary_html
         
     def send_email_report(self, email_to, report_content):
         """Send the report via email."""
         try:
+            # Resolve email recipient based on EMAIL_TO configuration
+            if not email_to or email_to == "self":
+                email_id = model.UserPeopleId
+                email_display = "yourself"
+            else:
+                # Try to parse as PeopleId first
+                try:
+                    email_id = int(email_to)
+                    # Get person name for display
+                    try:
+                        person = model.GetPerson(email_id)
+                        email_display = person.Name if person else "PeopleId: {}".format(email_id)
+                    except:
+                        email_display = "PeopleId: {}".format(email_id)
+                except ValueError:
+                    # Try to find by email address
+                    try:
+                        email_id = model.FindPersonId(email_to)
+                        if not email_id:
+                            # Fallback to current user
+                            email_id = model.UserPeopleId
+                            email_display = "yourself (email lookup failed)"
+                        else:
+                            email_display = email_to
+                    except:
+                        # Final fallback
+                        email_id = model.UserPeopleId
+                        email_display = "yourself (lookup failed)"
+
             # Add indication that email is being sent
             email_status = """
             <div id="email-status" style="padding: 15px; background-color: #fff8e1; color: #856404; border-radius: 5px; margin-bottom: 20px;">
                 <strong>Sending email to {}...</strong>
-                <div class="spinner-small" style="display: inline-block; margin-left: 10px;"></div>
+                <span id="email-spinner" class="spinner-small" style="display: inline-block; margin-left: 10px;"></span>
             </div>
             <script>
             document.addEventListener('DOMContentLoaded', function() {{
@@ -5585,61 +5657,69 @@ class AttendanceReport:
                 }}
             }});
             </script>
-            """.format(email_to)
-            
+            """.format(email_display)
+
             print email_status
-            
+
             # Set up email parameters
             QueuedBy = model.UserPeopleId
-            
+
             # Set email tracking
             email_content = report_content + "{track}{tracklinks}"
-            
-            # Use the provided email_to instead of hardcoding
-            # Convert to PeopleId if needed or use a query to get PeopleId from email
-            try:
-                # If email_to is a number (PeopleId), use it directly
-                email_id = int(email_to)
-            except ValueError:
-                # Otherwise, query by email address or use the current user
-                # For now, just use the current user as fallback
-                email_id = model.UserPeopleId
-            
+
+            # Add report date to email subject
+            report_date_str = self.report_date.strftime('%m/%d/%Y')
+            email_subject = "{} - {}".format(EMAIL_SUBJECT, report_date_str)
+
             # Send the email
-            model.Email(email_id, QueuedBy, EMAIL_FROM_ADDRESS, EMAIL_FROM_NAME, EMAIL_SUBJECT, email_content)
+            model.Email(email_id, QueuedBy, EMAIL_FROM_ADDRESS, EMAIL_FROM_NAME, email_subject, email_content)
             
             # Update status to success
             success_message = """
             <script>
+            // Hide the spinner first
+            var spinner = document.getElementById('email-spinner');
+            if (spinner) {{
+                spinner.style.display = 'none';
+            }}
+
+            // Update the status box
             var emailStatus = document.getElementById('email-status');
             if (emailStatus) {{
                 emailStatus.className = '';
                 emailStatus.style.backgroundColor = '#d4edda';
                 emailStatus.style.color = '#155724';
-                emailStatus.innerHTML = '<strong>Success!</strong> Email sent successfully to {}';
+                emailStatus.innerHTML = '<strong>Success!</strong> Email sent successfully to {0}';
             }}
             </script>
-            """.format(email_to)
-            
+            """.format(email_display)
+
             print success_message
-            
-            return True, "Email sent successfully to {}".format(email_to)
+
+            return True, "Email sent successfully to {}".format(email_display)
         except Exception as e:
             # Update status to error
             error_message = """
             <script>
+            // Hide the spinner first
+            var spinner = document.getElementById('email-spinner');
+            if (spinner) {{
+                spinner.style.display = 'none';
+            }}
+
+            // Update the status box
             var emailStatus = document.getElementById('email-status');
             if (emailStatus) {{
                 emailStatus.className = '';
                 emailStatus.style.backgroundColor = '#f8d7da';
                 emailStatus.style.color = '#721c24';
-                emailStatus.innerHTML = '<strong>Error:</strong> {}';
+                emailStatus.innerHTML = '<strong>Error:</strong> {0}';
             }}
             </script>
             """.format(str(e))
-            
+
             print error_message
-            
+
             return False, "Error sending email: {}".format(str(e))
     
     def generate_header_row(self, service_times):
@@ -6422,15 +6502,49 @@ class AttendanceReport:
         """Generate just the report content (used for both display and email)."""
         
         performance_timer.start("generate_report_content")
-    
+
         global SHOW_ENROLLMENT_COLUMN
-        
-        # Debug output to verify the setting
-        print('<div class="debug">SHOW_ENROLLMENT_COLUMN after init = {}</div>'.format(SHOW_ENROLLMENT_COLUMN))
-    
-        
+
         report_content = ""
-        
+
+        # Add date header for emails
+        if for_email:
+            # Format dates for display
+            current_week_start = self.week_start_date.strftime('%m/%d/%Y')
+            current_week_end = self.report_date.strftime('%m/%d/%Y')
+            prev_week_start = self.previous_week_start.strftime('%m/%d/%Y')
+            prev_week_end = self.previous_week_date.strftime('%m/%d/%Y')
+            prev_year_start = ReportHelper.get_week_start_date(self.previous_year_date).strftime('%m/%d/%Y')
+            prev_year_end = self.previous_year_date.strftime('%m/%d/%Y')
+            four_weeks_start = self.four_weeks_ago_start_date.strftime('%m/%d/%Y')
+            prev_four_weeks_start = (self.four_weeks_ago_start_date - datetime.timedelta(days=364)).strftime('%m/%d/%Y')
+            prev_four_weeks_end = (self.report_date - datetime.timedelta(days=364)).strftime('%m/%d/%Y')
+
+            report_content += """
+            <div style="background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 5px; padding: 20px; margin-bottom: 20px; font-family: Arial, sans-serif;">
+                <h2 style="margin-top: 0; color: #2c3e50;">Weekly Report - <span style="color: #27ae60;">{}</span></h2>
+                <div style="line-height: 1.8; color: #34495e;">
+                    <div><strong>Current Week:</strong> {} to {}</div>
+                    <div><strong>Previous Week:</strong> {} to {}</div>
+                    <div><strong>Previous Year:</strong> {} to {}</div>
+                    <div><strong>Current 4 Weeks:</strong> {} to {}</div>
+                    <div><strong>Previous Year 4 Weeks:</strong> {} to {}</div>
+                </div>
+            </div>
+            """.format(
+                self.report_date.strftime('%m/%d/%Y'),
+                current_week_start,
+                current_week_end,
+                prev_week_start,
+                prev_week_end,
+                prev_year_start,
+                prev_year_end,
+                four_weeks_start,
+                current_week_end,
+                prev_four_weeks_start,
+                prev_four_weeks_end
+            )
+
         # Only include progress indicators if not generating for email
         if not for_email:
             report_content += """
@@ -6596,13 +6710,22 @@ class AttendanceReport:
             """
         
         # First add the overall summary section
-        report_content += self.generate_overall_summary(
-            overall_totals[self.current_year],
-            overall_totals[self.current_year - 1] if self.current_year - 1 in overall_totals else 0,
-            ytd_overall_totals[self.current_year],
-            ytd_overall_totals[self.current_year - 1] if self.current_year - 1 in ytd_overall_totals else 0,
-            four_week_totals if SHOW_FOUR_WEEK_COMPARISON else None
-        )
+        try:
+            overall_summary = self.generate_overall_summary(
+                overall_totals[self.current_year],
+                overall_totals[self.current_year - 1] if self.current_year - 1 in overall_totals else 0,
+                ytd_overall_totals[self.current_year],
+                ytd_overall_totals[self.current_year - 1] if self.current_year - 1 in ytd_overall_totals else 0,
+                four_week_totals if SHOW_FOUR_WEEK_COMPARISON else None,
+                for_email=for_email
+            )
+            report_content += overall_summary
+        except Exception as e:
+            # If there's an error, add a placeholder and log it
+            error_msg = "<!-- Error generating overall summary: {} -->".format(str(e))
+            report_content += error_msg
+            if not for_email:
+                print "<div style='color: red;'>Error: {}</div>".format(str(e))
         
         # Add exceptions display if enabled
         if SHOW_EXCEPTIONS and self.exceptions_manager:
@@ -6621,8 +6744,12 @@ class AttendanceReport:
         )
                 
         # Add enrollment analysis section if any configured programs are present
-        if any(prog in ENROLLMENT_ANALYSIS_PROGRAMS for prog in [p.Name for p in programs]):
-            report_content += self.generate_enrollment_analysis_section()
+        program_names = [p.Name for p in programs]
+        has_enrollment_programs = any(prog in ENROLLMENT_ANALYSIS_PROGRAMS for prog in program_names)
+
+        if has_enrollment_programs:
+            enrollment_section = self.generate_enrollment_analysis_section(for_email=for_email)
+            report_content += enrollment_section
         
         # Get data for program totals section
         current_week_data = self.get_week_attendance_data(self.week_start_date, self.report_date)
@@ -7474,19 +7601,14 @@ class AttendanceReport:
             )
             
             # Email sending section
-            if model.Data.send_email == "yes" and hasattr(model.Data, 'email_to') and model.Data.email_to:
-                email_to = model.Data.email_to
+            if model.Data.send_email == "yes":
+                # Use email_to from form if provided, otherwise use EMAIL_TO config
+                email_to = model.Data.email_to if hasattr(model.Data, 'email_to') and model.Data.email_to else EMAIL_TO
                 email_report = self.generate_report_content(for_email=True)
                 success, message = self.send_email_report(email_to, email_report)
-                
-                if success:
-                    report_html += '<div style="padding: 15px; background-color: #d4edda; color: #155724; border-radius: 5px; margin-bottom: 20px;">'
-                    report_html += '<strong>Success!</strong> {}'.format(message)
-                    report_html += '</div>'
-                else:
-                    report_html += '<div style="padding: 15px; background-color: #f8d7da; color: #721c24; border-radius: 5px; margin-bottom: 20px;">'
-                    report_html += '<strong>Error:</strong> {}'.format(message)
-                    report_html += '</div>'
+
+                # The send_email_report method already prints the status message via JavaScript
+                # No need to add duplicate message here
             
             # Add date selector form 
             report_html += self.generate_date_selector_form()
