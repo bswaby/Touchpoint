@@ -4,12 +4,18 @@ Enhanced Emergency List for TouchPoint
 This report generates a comprehensive emergency contact and medical information list for selected individuals.
 Perfect for events, trips, or emergency preparedness.
 
+Written By: Ben Swaby
+Email: bswaby@fbchtn.org
+
 Features:
 - Title page with counts and church information
 - Missing information summary (helps identify incomplete records)
 - Quick reference allergy page
 - Comprehensive medical information page
 - Detailed individual cards with photos, emergency contacts, and medical data
+
+Update 2025113:
+- Added variables to increase photo size for screen and print
 
 Installation:
 1. Go to Admin > Advanced > Special Content > Python Scripts
@@ -25,15 +31,23 @@ Configuration:
 - Adjust settings in the Config class below to customize pages and features
 - Modify EXCLUDE_ANSWERS list to filter out non-meaningful responses
 
-Written By: Ben Swaby
-Email: bswaby@fbchtn.org
+
 '''
 
 # ===== CONFIGURATION SECTION =====
 class Config:
     # Display settings
     PAGE_TITLE = "Enhanced Emergency List"
-    ENTRIES_PER_PAGE = 7  # Max number of people per page (reduced due to larger photos)
+    ENTRIES_PER_PAGE = 6  # Max number of people per page (reduced due to larger photos)
+
+    # Photo size settings (in pixels)
+    # Adjust these values to make photos larger or smaller
+    # Recommended ratios: Print size should be ~70% of screen size for best results
+    # Larger photos may reduce ENTRIES_PER_PAGE to maintain layout
+    PHOTO_SIZE_SCREEN = 140  # Profile photo size for screen display (default: 120)
+    PHOTO_SIZE_PRINT = 140    # Profile photo size for print (default: 83)
+    PHOTO_SIZE_FLOAT_SCREEN = 90  # Floated photo size for screen - if used (default: 70)
+    PHOTO_SIZE_FLOAT_PRINT = 90   # Floated photo size for print - if used (default: 55)
     
     # Page Enable/Disable Settings
     SHOW_TITLE_PAGE = True  # Show title page with counts and church info
@@ -106,62 +120,62 @@ def print_styles():
     print """
     <style>
         /* General Styles */
-        body {
+        body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: #333;
-        }
-        
-        h2 {
+        }}
+
+        h2 {{
             color: #2c5282;
             border-bottom: 3px solid #2c5282;
             padding-bottom: 10px;
             margin-bottom: 20px;
-        }
-        
+        }}
+
         /* Container and layout styles */
-        .emergency-list-container {
+        .emergency-list-container {{
             width: 100%;
-        }
-        
-        .person-container {
+        }}
+
+        .person-container {{
             border-bottom: 2px solid #e2e8f0;
             page-break-inside: avoid;
             margin-bottom: 15px;
-        }
-        
-        .person-content {
+        }}
+
+        .person-content {{
             display: flex;
             flex-direction: row;
             align-items: flex-start;
             gap: 10px;
             padding: 5px 0;
-        }
+        }}
         
         /* Column specific styles */
-        .photo-column {
-            flex: 0 0 113px;
+        .photo-column {{
+            flex: 0 0 {0}px;
             text-align: center;
-        }
-        
-        .medical-column {
+        }}
+
+        .medical-column {{
             flex: 1 1 45%;
             padding: 0 5px;
-        }
-        
-        .contacts-column {
+        }}
+
+        .contacts-column {{
             flex: 1 1 45%;
             padding: 0 5px;
-        }
-        
+        }}
+
         /* Person Header */
-        .person-header {
+        .person-header {{
             background-color: #f7fafc;
             border-left: 4px solid #2c5282;
             padding-left: 12px;
             margin-bottom: 10px;
-        }
-        
-        .person-number {
+        }}
+
+        .person-number {{
             display: inline-block;
             background-color: #2c5282;
             color: white;
@@ -169,291 +183,291 @@ def print_styles():
             border-radius: 4px;
             font-weight: bold;
             margin-right: 8px;
-        }
-        
-        .person-name {
+        }}
+
+        .person-name {{
             font-size: 18px;
             font-weight: bold;
             color: #2c5282;
-        }
-        
-        .person-age {
+        }}
+
+        .person-age {{
             font-size: 16px;
             font-weight: normal;
             color: #718096;
             margin-left: 10px;
-        }
-        
-        .member-type {
+        }}
+
+        .member-type {{
             color: #4299e1;
             font-weight: bold;
             font-size: 14px;
             margin-top: 4px;
-        }
+        }}
         
         /* Profile Image */
-        .profile-img {
-            width: 120px;
-            height: 120px;
+        .profile-img {{
+            width: {0}px;
+            height: {0}px;
             object-fit: cover;
             border-radius: 6px;
             box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-        }
-        
+        }}
+
         /* Floated profile image */
-        .profile-img-float {
-            width: 70px;
-            height: 70px;
+        .profile-img-float {{
+            width: {1}px;
+            height: {1}px;
             object-fit: cover;
             border-radius: 6px;
             box-shadow: 0 1px 4px rgba(0,0,0,0.1);
             float: left;
             margin-right: 8px;
             margin-bottom: 5px;
-        }
+        }}
         
         /* Contact Information */
-        .contact-section {
+        .contact-section {{
             background-color: #f7fafc;
             padding: 10px;
             border-radius: 6px;
             margin: 10px 0;
-        }
-        
-        .contact-label {
+        }}
+
+        .contact-label {{
             font-weight: bold;
             color: #4a5568;
             display: inline-block;
             width: 100px;
-        }
-        
+        }}
+
         /* Medical Information */
-        .medical-section {
+        .medical-section {{
             background-color: #fff5f5;
             border: 1px solid #feb2b2;
             padding: 8px;
             border-radius: 6px;
             margin: 0;
             font-size: 12px;
-        }
-        
-        .medical-header {
+        }}
+
+        .medical-header {{
             color: #c53030;
             font-weight: bold;
             font-size: 14px;
             margin-bottom: 6px;
             border-bottom: 1px solid #feb2b2;
             padding-bottom: 3px;
-        }
-        
-        .medical-field {
+        }}
+
+        .medical-field {{
             margin: 4px 0;
             padding-left: 8px;
             line-height: 1.3;
-        }
-        
-        .medical-label {
+        }}
+
+        .medical-label {{
             font-weight: bold;
             color: #742a2a;
             display: inline-block;
             width: 110px;
             font-size: 11px;
-        }
-        
-        .medical-value {
+        }}
+
+        .medical-value {{
             color: #4a5568;
-        }
-        
+        }}
+
         /* Highlight medical notes */
-        .medical-notes {
+        .medical-notes {{
             background-color: #fef3c7;
             border-left: 3px solid #f59e0b;
             padding: 4px 6px;
             margin: 4px 0;
             font-weight: bold;
-        }
-        
+        }}
+
         /* Medication pills style */
-        .medication-pills {
+        .medication-pills {{
             display: inline-flex;
             gap: 6px;
             flex-wrap: wrap;
-        }
-        
-        .med-pill {
+        }}
+
+        .med-pill {{
             background-color: #4299e1;
             color: white;
             padding: 3px 10px;
             border-radius: 12px;
             font-size: 12px;
             font-weight: 500;
-        }
-        
+        }}
+
         /* Emergency Contact */
-        .emergency-contact {
+        .emergency-contact {{
             padding: 6px 10px;
             border-radius: 6px;
             font-weight: bold;
             display: inline-block;
             margin: 0 0 10px 0;
             font-size: 13px;
-        }
-        
-        .emergency-present {
+        }}
+
+        .emergency-present {{
             background-color: #c6f6d5;
             color: #22543d;
             border: 1px solid #9ae6b4;
-        }
-        
-        .emergency-missing {
+        }}
+
+        .emergency-missing {{
             background-color: #fed7d7;
             color: #742a2a;
             border: 1px solid #fc8181;
-        }
-        
+        }}
+
         /* Family Information */
-        .family-section {
+        .family-section {{
             background-color: #e6fffa;
             border-left: 4px solid #319795;
             padding: 6px;
             margin: 0;
             font-size: 11px;
-        }
-        
-        .family-header {
+        }}
+
+        .family-header {{
             color: #234e52;
             font-weight: bold;
             margin-bottom: 4px;
             font-size: 12px;
-        }
-        
-        .family-member {
+        }}
+
+        .family-member {{
             margin: 3px 0;
             padding-left: 6px;
             line-height: 1.3;
-        }
-        
-        .family-name {
+        }}
+
+        .family-name {{
             font-weight: bold;
             color: #234e52;
-        }
-        
-        .family-email {
+        }}
+
+        .family-email {{
             color: #2c5282;
             text-decoration: none;
-        }
-        
-        .family-email:hover {
+        }}
+
+        .family-email:hover {{
             text-decoration: underline;
-        }
+        }}
         
         /* Print Styles */
-        @media print {
-            * {
+        @media print {{
+            * {{
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
-            }
-            
+            }}
+
             /* Hide the TouchPoint page header when printing */
-            #page-header {
+            #page-header {{
                 display: none !important;
-            }
-            
-            body {
+            }}
+
+            body {{
                 font-size: 11pt;
-            }
+            }}
             
             /* Container adjustments for print */
-            .emergency-list-container {
+            .emergency-list-container {{
                 width: 100% !important;
-            }
-            
-            .person-container {
+            }}
+
+            .person-container {{
                 page-break-inside: avoid !important;
                 margin-bottom: 10px !important;
                 border-bottom: 1px solid #e2e8f0 !important;
-            }
-            
+            }}
+
             /* Flexbox layout for print with minimal spacing */
-            .person-content {
+            .person-content {{
                 display: flex !important;
                 flex-direction: row !important;
                 align-items: flex-start !important;
                 gap: 5px !important;
                 padding: 2px 0 !important;
-            }
+            }}
             
             /* Photo column - fixed width, no grow */
-            .photo-column {
-                flex: 0 0 90px !important;
-                width: 90px !important;
+            .photo-column {{
+                flex: 0 0 {2}px !important;
+                width: {2}px !important;
                 padding: 0 !important;
                 margin: 0 !important;
                 text-align: center !important;
-            }
+            }}
             
             /* Medical column - takes available space */
-            .medical-column {
+            .medical-column {{
                 flex: 1 1 48% !important;
                 padding: 0 2px !important;
                 margin: 0 !important;
-            }
-            
+            }}
+
             /* Contacts column */
-            .contacts-column {
+            .contacts-column {{
                 flex: 1 1 48% !important;
                 padding: 0 2px !important;
                 margin: 0 !important;
-            }
-            
-            .person-header {
+            }}
+
+            .person-header {{
                 padding: 6px !important;
                 margin-bottom: 6px !important;
                 background-color: #f7fafc !important;
                 border-left: 4px solid #2c5282 !important;
-            }
-            
-            .person-number {
+            }}
+
+            .person-number {{
                 background-color: #2c5282 !important;
                 color: white !important;
-            }
-            
-            .person-age {
+            }}
+
+            .person-age {{
                 font-size: 14px !important;
                 color: #718096 !important;
                 margin-left: 8px !important;
-            }
-            
-            .medical-section {
+            }}
+
+            .medical-section {{
                 background-color: #fff5f5 !important;
                 border: 1px solid #feb2b2 !important;
                 padding: 3px !important;
                 margin: 0 0 3px 0 !important;
-            }
-            
-            .medical-header {
+            }}
+
+            .medical-header {{
                 color: #c53030 !important;
                 border-bottom: 1px solid #feb2b2 !important;
                 font-weight: bold !important;
-            }
-            
-            .family-section {
+            }}
+
+            .family-section {{
                 background-color: #e6fffa !important;
                 border-left: 3px solid #319795 !important;
                 padding: 3px !important;
                 margin: 0 0 3px 0 !important;
-            }
-            
-            .emergency-present {
+            }}
+
+            .emergency-present {{
                 background-color: #c6f6d5 !important;
                 border: 1px solid #22543d !important;
                 color: #22543d !important;
                 padding: 4px 6px !important;
                 font-size: 11px !important;
                 font-weight: bold !important;
-            }
-            
-            .emergency-missing {
+            }}
+
+            .emergency-missing {{
                 background-color: #fed7d7 !important;
                 border: 1px solid #742a2a !important;
                 color: #742a2a !important;
@@ -461,88 +475,93 @@ def print_styles():
                 font-size: 11px !important;
                 font-weight: bold !important;
                 font-style: italic;
-            }
-            
-            tr {
+            }}
+
+            tr {{
                 page-break-inside: avoid !important;
-            }
+            }}
             
-            .profile-img {
-                width: 83px !important;
-                height: 83px !important;
+            .profile-img {{
+                width: {2}px !important;
+                height: {2}px !important;
                 margin: 0 !important;
                 display: block !important;
-            }
-            
+            }}
+
             /* Floated image in print */
-            .profile-img-float {
-                width: 55px !important;
-                height: 55px !important;
+            .profile-img-float {{
+                width: {3}px !important;
+                height: {3}px !important;
                 float: left !important;
                 margin-right: 5px !important;
                 margin-bottom: 3px !important;
-            }
+            }}
             
-            .medical-label {
+            .medical-label {{
                 width: 95px !important;
                 font-size: 10px !important;
-            }
-            
-            .medical-field {
+            }}
+
+            .medical-field {{
                 margin: 2px 0 !important;
                 padding-left: 5px !important;
-            }
-            
+            }}
+
             .medical-header,
-            .family-header {
+            .family-header {{
                 font-size: 12px !important;
                 margin-bottom: 3px !important;
-            }
-            
-            .med-pill {
+            }}
+
+            .med-pill {{
                 background-color: #4299e1 !important;
                 color: white !important;
                 padding: 2px 6px !important;
                 font-size: 10px !important;
                 border-radius: 10px !important;
                 font-weight: bold !important;
-            }
-            
-            .medical-notes {
+            }}
+
+            .medical-notes {{
                 background-color: #fef3c7 !important;
                 border-left: 3px solid #f59e0b !important;
                 padding: 4px 6px !important;
                 margin: 4px 0 !important;
                 font-weight: bold !important;
-            }
-        }
+            }}
+        }}
         
         /* Responsive adjustments - only for screen, not print */
-        @media screen and (max-width: 768px) {
-            .person-content {
+        @media screen and (max-width: 768px) {{
+            .person-content {{
                 flex-direction: column;
                 gap: 10px;
-            }
-            
-            .photo-column {
+            }}
+
+            .photo-column {{
                 flex: 0 0 auto;
                 width: 100%;
                 text-align: center;
-            }
-            
+            }}
+
             .medical-column,
-            .contacts-column {
+            .contacts-column {{
                 flex: 1 1 100%;
                 width: 100%;
-            }
-            
-            .profile-img {
+            }}
+
+            .profile-img {{
                 margin: 0 auto;
                 display: block;
-            }
-        }
+            }}
+        }}
     </style>
-    """
+    """.format(
+        Config.PHOTO_SIZE_SCREEN,
+        Config.PHOTO_SIZE_FLOAT_SCREEN,
+        Config.PHOTO_SIZE_PRINT,
+        Config.PHOTO_SIZE_FLOAT_PRINT
+    )
 
 def get_member_type_description(people_id, org_id):
     """Get organization member type description"""
