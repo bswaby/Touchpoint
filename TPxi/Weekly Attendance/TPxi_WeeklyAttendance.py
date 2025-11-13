@@ -34,6 +34,7 @@
 # Update Notes 11/13/2025:
 # - Fixed bug in unique attendance counting.  It was not honoring week-at-a-glance reporting groups.    
 # - Added prospects and guests () to unique attendance counting.
+# - Added note on prospects and guests to ensure it's clear as it's in ()
 
 # Update Notes 11/12/2025:
 # - Added ability to send to self or saved search.
@@ -4929,17 +4930,17 @@ class AttendanceReport:
             summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd; background-color: #f8f8fc;">{}</td>'.format(
                 ReportHelper.format_number(unique_enrolled)
             )
-            # Display attendance with guest count in parentheses: "376 (38)"
+            # Display attendance with guest count in parentheses: "376 (38)+" with superscript
             current_display = ReportHelper.format_number(current_unique)
             if current_guests > 0:
-                current_display += ' <span style="color: #666;">({0})</span>'.format(ReportHelper.format_number(current_guests))
+                current_display += ' <span style="color: #666;">({0})<sup>+</sup></span>'.format(ReportHelper.format_number(current_guests))
             summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd; background-color: #f8f8fc;">{}</td>'.format(
                 current_display
             )
             # Display previous year attendance with guest count in parentheses
             prev_display = ReportHelper.format_number(prev_unique)
             if prev_guests > 0:
-                prev_display += ' <span style="color: #666;">({0})</span>'.format(ReportHelper.format_number(prev_guests))
+                prev_display += ' <span style="color: #666;">({0})<sup>+</sup></span>'.format(ReportHelper.format_number(prev_guests))
             summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd; background-color: #f8f8fc;">{}</td>'.format(
                 prev_display
             )
@@ -4950,10 +4951,13 @@ class AttendanceReport:
             # Close the row
             summary_html += "</tr>"
         
-        # Close the table and container
+        # Close the table and add footnote
         summary_html += """
                     </tbody>
                 </table>
+                <div style="margin-top: 8px; padding: 8px; font-size: 0.85em; color: #666; font-style: italic;">
+                    <sup>+</sup>Note: Numbers in parentheses represent additional guests and prospects who attended with non-member status at the time of attendance.
+                </div>
             </div>
         </div>
         """
