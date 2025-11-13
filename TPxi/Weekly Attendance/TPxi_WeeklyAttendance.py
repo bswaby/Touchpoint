@@ -31,12 +31,16 @@
 #written by: Ben Swaby
 #email: bswaby@fbchtn.org
 
+# Update Notes 11/13/2025:
+# - Fixed bug in unique attendance counting.  It was not honoring week-at-a-glance reporting groups.    
+# - Added prospects and guests () to unique attendance counting.
+
 # Update Notes 11/12/2025:
 # - Added ability to send to self or saved search.
 # - Fixed report not sending enrollment metrics
 # - Fixed report not sending week summary
 # - Added date to email subject
-# - Cleaned up some spinner and duplicate notifications after email is sent
+# - Cleaned up some spinner and duplicate notications after email is sent
 
 # Update Notes 10/26/2025:
 # - Changed to allow 0 attendance count for enrollment
@@ -1685,7 +1689,7 @@ class AttendanceReport:
         # Get per-program unique counts (people may be in multiple orgs within a program)
         # Using same filters as other enrollment queries for consistency
         sql = """
-        SELECT 
+        SELECT
             p.Name AS ProgramName,
             COUNT(DISTINCT om.PeopleId) AS UniqueInvolvements,
             COUNT(DISTINCT o.OrganizationId) AS OrgCount
@@ -1719,7 +1723,7 @@ class AttendanceReport:
             # Calculate total unique across all programs (someone might be in multiple programs)
             # Using same filters as other enrollment queries for consistency
             total_sql = """
-            SELECT 
+            SELECT
                 COUNT(DISTINCT om.PeopleId) AS TotalUnique,
                 COUNT(DISTINCT o.OrganizationId) AS TotalOrgs
             FROM Program p
@@ -1750,31 +1754,34 @@ class AttendanceReport:
         return involvement_data
     
     def get_unique_attendance_data(self, program_names, start_date, end_date):
-        """Get distinct count of people who attended for specified programs across last 4 Sundays."""
+        """Get distinct count of people who attended for specified programs across last 4 Sundays.
+        Returns both total attendees and guest count (not enrolled in OrganizationMembers)."""
         unique_data = {
             'total': 0,
-            'by_program': {}
+            'by_program': {},
+            'guests': 0,
+            'guests_by_program': {}
         }
-        
+
         if not program_names or len(program_names) == 0:
             return unique_data
-        
+
         # Build safe SQL for program names
         safe_names = []
         for name in program_names:
             safe_name = name.replace("'", "''")
             safe_names.append("'{}'".format(safe_name))
-        
+
         # Calculate the last 4 Sundays from end_date
         # Note: SQL Server DATEPART(dw, date) returns 1 for Sunday
         end_date_str = str(end_date).split(' ')[0] if ' ' in str(end_date) else str(end_date)
-        
-        # Get unique attendance using program-specific time windows
+
+        # Get unique attendance AND guest counts using program-specific time windows
         # This respects each program's StartHoursOffset and EndHoursOffset
         sql = """
         WITH ProgramWindows AS (
             -- Generate 4 Sunday dates with program-specific time windows
-            SELECT p.Id AS ProgramId, p.Name AS ProgramName, 
+            SELECT p.Id AS ProgramId, p.Name AS ProgramName,
                    p.StartHoursOffset, p.EndHoursOffset, s.SundayDate,
                    DATEADD(HOUR, ISNULL(p.StartHoursOffset, 0), s.SundayDate) AS WindowStart,
                    DATEADD(HOUR, ISNULL(p.EndHoursOffset, 24), s.SundayDate) AS WindowEnd
@@ -1788,33 +1795,52 @@ class AttendanceReport:
             WHERE p.Name IN ({0})
                 AND (p.StartHoursOffset IS NOT NULL OR p.EndHoursOffset IS NOT NULL)
         )
-        SELECT 
+        SELECT
             pw.ProgramName,
-            COUNT(DISTINCT a.PeopleId) AS UniquePeople
+            -- Count only enrolled members (excluding guests and prospects)
+            -- Use Attend.MemberTypeId which captures their status at time of attendance
+            COUNT(DISTINCT CASE
+                WHEN a.MemberTypeId IS NOT NULL
+                    AND a.MemberTypeId NOT IN (230, 311)
+                THEN a.PeopleId
+            END) AS UniquePeople,
+            -- Count guests (not enrolled) + prospects (MemberTypeId 230, 311)
+            COUNT(DISTINCT CASE
+                WHEN a.MemberTypeId IS NULL
+                    OR a.MemberTypeId IN (230, 311)
+                THEN a.PeopleId
+            END) AS GuestCount
         FROM ProgramWindows pw
         INNER JOIN Division d ON d.ProgId = pw.ProgramId
-        INNER JOIN DivOrg do ON do.DivId = d.Id
-        INNER JOIN Organizations o ON o.OrganizationId = do.OrgId
+        INNER JOIN OrganizationStructure os ON os.DivId = d.Id
+        INNER JOIN Organizations o ON o.OrganizationId = os.OrgId
         INNER JOIN Attend a ON a.OrganizationId = o.OrganizationId
         INNER JOIN People pe ON pe.PeopleId = a.PeopleId
-        WHERE a.MeetingDate >= pw.WindowStart 
+        WHERE a.MeetingDate >= pw.WindowStart
             AND a.MeetingDate < pw.WindowEnd
             AND a.AttendanceFlag = 1  -- Present
             AND o.OrganizationStatusId = 30  -- Active organizations
             AND (pe.IsDeceased = 0 OR pe.IsDeceased IS NULL)  -- Exclude deceased
             AND pe.ArchivedFlag = 0  -- Exclude archived
+            AND d.ReportLine IS NOT NULL  -- Only divisions included in reporting
         GROUP BY pw.ProgramName
         """.format(','.join(safe_names), end_date_str)
-        
+
         try:
             results = q.QuerySql(sql)
             found_programs = set()
-            
+
+            print "<!-- Debug: get_unique_attendance_data received {} results -->".format(len(list(results)) if results else 0)
+
             for row in results:
                 program_name = row.ProgramName
                 unique_count = row.UniquePeople or 0
+                guest_count = row.GuestCount or 0
+                print "<!-- Debug: Program={}, Unique={}, Guests={} -->".format(program_name, unique_count, guest_count)
                 unique_data['by_program'][program_name] = unique_count
+                unique_data['guests_by_program'][program_name] = guest_count
                 unique_data['total'] += unique_count
+                unique_data['guests'] += guest_count
                 found_programs.add(program_name)
             
             # For programs without individual attendance records, estimate based on average attendance
@@ -1859,11 +1885,14 @@ class AttendanceReport:
                         if estimate_results and len(estimate_results) > 0:
                             estimated_count = estimate_results[0].EstimatedUnique or 0
                             unique_data['by_program'][program_name] = estimated_count
+                            unique_data['guests_by_program'][program_name] = 0  # No guest data for estimates
                             unique_data['total'] += estimated_count
                         else:
                             unique_data['by_program'][program_name] = 0
+                            unique_data['guests_by_program'][program_name] = 0
                     except:
                         unique_data['by_program'][program_name] = 0
+                        unique_data['guests_by_program'][program_name] = 0
                         
         except Exception as e:
             print "<!-- Error getting unique attendance: {} -->".format(str(e))
@@ -4772,11 +4801,11 @@ class AttendanceReport:
         
         # Add headers for unique metrics (always show these 5 columns)
         summary_html += """
-                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;">Inv</th>
-                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;">Enrolled</th>
-                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;">Last 4 Weeks</th>
-                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;">PY 4 Weeks</th>
-                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;">Change</th>
+                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;" title="Number of organizations/involvements">Inv</th>
+                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;" title="Total unique people enrolled">Enrolled</th>
+                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;" title="Enrolled members attended (Guests/Prospects)">Last 4 Weeks</th>
+                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;" title="Enrolled members attended (Guests/Prospects) - Previous Year">PY 4 Weeks</th>
+                            <th style="padding: 6px 10px; text-align: center; border: 1px solid #ddd; background-color: #e8e8f0;" title="Percentage change from previous year">Change</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -4887,10 +4916,12 @@ class AttendanceReport:
             # Add unique metrics columns for the same row
             org_count = involvement_data['org_by_program'].get(program_name, 0)
             unique_enrolled = involvement_data['by_program'].get(program_name, 0)
-            current_unique = current_unique_data['by_program'].get(program_name, 0)
-            prev_unique = prev_year_unique_data['by_program'].get(program_name, 0)
+            current_unique = current_unique_data.get('by_program', {}).get(program_name, 0)
+            current_guests = current_unique_data.get('guests_by_program', {}).get(program_name, 0)
+            prev_unique = prev_year_unique_data.get('by_program', {}).get(program_name, 0)
+            prev_guests = prev_year_unique_data.get('guests_by_program', {}).get(program_name, 0)
             unique_trend = ReportHelper.get_trend_indicator(current_unique, prev_unique)
-            
+
             # Add unique columns with different background
             summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd; background-color: #f8f8fc;">{}</td>'.format(
                 ReportHelper.format_number(org_count)
@@ -4898,11 +4929,19 @@ class AttendanceReport:
             summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd; background-color: #f8f8fc;">{}</td>'.format(
                 ReportHelper.format_number(unique_enrolled)
             )
+            # Display attendance with guest count in parentheses: "376 (38)"
+            current_display = ReportHelper.format_number(current_unique)
+            if current_guests > 0:
+                current_display += ' <span style="color: #666;">({0})</span>'.format(ReportHelper.format_number(current_guests))
             summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd; background-color: #f8f8fc;">{}</td>'.format(
-                ReportHelper.format_number(current_unique)
+                current_display
             )
+            # Display previous year attendance with guest count in parentheses
+            prev_display = ReportHelper.format_number(prev_unique)
+            if prev_guests > 0:
+                prev_display += ' <span style="color: #666;">({0})</span>'.format(ReportHelper.format_number(prev_guests))
             summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd; background-color: #f8f8fc;">{}</td>'.format(
-                ReportHelper.format_number(prev_unique)
+                prev_display
             )
             summary_html += '<td style="padding: 4px 8px; text-align: center; border: 1px solid #ddd; background-color: #f8f8fc;">{}</td>'.format(
                 unique_trend
