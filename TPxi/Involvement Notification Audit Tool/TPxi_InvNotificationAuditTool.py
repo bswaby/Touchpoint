@@ -10,6 +10,10 @@ Features:
 - Provides direct links to edit involvement notification settings
 - Allows export to CSV for bulk processing
 
+Updates: 2025-12-02 
+- Staff without usernames (no user account at all)
+- Staff listed in RegMessageConfirmationEmailFrom for new registration confirmation emails
+
 --Upload Instructions Start--
 To upload code to Touchpoint, use the following steps.
 1. Click Admin ~ Advanced ~ Special Content ~ Python
@@ -45,28 +49,28 @@ class NotificationAuditor:
         """
         # This is a more detailed query to get all login accounts for each person
         sql = """
-        SELECT 
-            p.PeopleId, 
+        SELECT
+            p.PeopleId,
             p.Name,
             p.EmailAddress,
             u.UserId,
             u.Username,
             u.LastLoginDate,
             u.LastActivityDate,
-            CASE 
+            CASE
                 WHEN u.LastLoginDate IS NULL THEN 999999 -- Treat NULL as a very large number of days
-                ELSE DATEDIFF(day, u.LastLoginDate, GETDATE()) 
+                ELSE DATEDIFF(day, u.LastLoginDate, GETDATE())
             END AS DaysSinceLogin
-        FROM 
+        FROM
             People p
-            JOIN Users u ON p.PeopleId = u.PeopleId
-        WHERE 
-            CASE 
+            LEFT JOIN Users u ON p.PeopleId = u.PeopleId
+        WHERE
+            (u.PeopleId IS NULL OR  -- Include people without any user account
+            CASE
                 WHEN u.LastLoginDate IS NULL THEN 999999 -- Treat NULL as a very large number of days
-                ELSE DATEDIFF(day, u.LastLoginDate, GETDATE()) 
-            END > {0}
-            AND u.Username IS NOT NULL
-        ORDER BY 
+                ELSE DATEDIFF(day, u.LastLoginDate, GETDATE())
+            END > {0})
+        ORDER BY
             p.Name, u.LastLoginDate DESC
         """.format(self.days_inactive)
         
@@ -84,26 +88,27 @@ class NotificationAuditor:
         if not self.include_inactive_orgs:
             org_status_filter = "AND o.OrganizationStatusId = 30 /* Active organizations only */"
         
-        # For people_list method, directly search for those IDs in NotifyIds
+        # For people_list method, directly search for those IDs in NotifyIds or RegMessageConfirmationEmailFrom
         notifyids_filter = ""
         if (self.identification_method == "people_list" or self.identification_method == "organization") and self.staff_ids:
-            # Create conditions for each People ID to match in NotifyIds - using simpler LIKE approach
+            # Create conditions for each People ID to match in NotifyIds or RegMessageConfirmationEmailFrom
             notifyids_conditions = []
             for staff_id in self.staff_ids:
-                # Just use a simple LIKE with % on both sides - most reliable approach
-                notifyids_conditions.append("o.NotifyIds LIKE '%{0}%'".format(staff_id))
-            
+                # Check both NotifyIds and RegMessageConfirmationEmailFrom
+                notifyids_conditions.append("(o.NotifyIds LIKE '%{0}%' OR o.RegMessageConfirmationEmailFrom = '{0}')".format(staff_id))
+
             if notifyids_conditions:
                 notifyids_filter = "AND ({0})".format(" OR ".join(notifyids_conditions))
-        
+
         print "<!-- DEBUG: NotifyIds filter: {0} -->".format(notifyids_filter)
         
-        # Build the base SQL to get all organizations with NotifyIds
+        # Build the base SQL to get all organizations with NotifyIds or RegMessageConfirmationEmailFrom
         sql = """
-        SELECT 
+        SELECT
             o.OrganizationId,
             o.OrganizationName,
             o.NotifyIds,
+            o.RegMessageConfirmationEmailFrom,
             o.CreatedDate,
             o.MemberCount,
             o.OrganizationStatusId,
@@ -111,7 +116,7 @@ class NotificationAuditor:
             p.Program,
             d.Name AS Division,
             DATEDIFF(day, ISNULL(m.MeetingDate, o.CreatedDate), GETDATE()) AS DaysSinceLastMeeting
-        FROM 
+        FROM
             Organizations o
             LEFT JOIN OrganizationStructure p ON o.OrganizationId = p.OrgId
             LEFT JOIN Division d ON o.DivisionId = d.Id
@@ -120,9 +125,9 @@ class NotificationAuditor:
                 FROM Meetings
                 GROUP BY OrganizationId
             ) m ON o.OrganizationId = m.OrganizationId
-        WHERE 
-            o.NotifyIds IS NOT NULL
-            AND o.NotifyIds <> ''
+        WHERE
+            ((o.NotifyIds IS NOT NULL AND o.NotifyIds <> '')
+             OR (o.RegMessageConfirmationEmailFrom IS NOT NULL AND o.RegMessageConfirmationEmailFrom <> ''))
             {0}
             {1}
         ORDER BY
@@ -222,35 +227,46 @@ class NotificationAuditor:
             
             # Now check each involvement against these members
             for involvement in involvements:
-                if not involvement.NotifyIds:
-                    continue
-                
                 # Parse the NotifyIds into a list of integers
                 notify_ids = []
-                for id_str in involvement.NotifyIds.split(','):
-                    id_str = id_str.strip()
-                    if id_str and id_str.isdigit():
-                        notify_ids.append(int(id_str))
-                
-                # Find staff members from our organization in the NotifyIds
+                if involvement.NotifyIds:
+                    for id_str in involvement.NotifyIds.split(','):
+                        id_str = id_str.strip()
+                        if id_str and id_str.isdigit():
+                            notify_ids.append(int(id_str))
+
+                # Check RegMessageConfirmationEmailFrom (contains PeopleId as string)
+                reg_confirm_from_id = None
+                if hasattr(involvement, 'RegMessageConfirmationEmailFrom') and involvement.RegMessageConfirmationEmailFrom:
+                    try:
+                        reg_confirm_from_id = int(involvement.RegMessageConfirmationEmailFrom)
+                    except (ValueError, TypeError):
+                        pass
+
+                # Find staff members from our organization in the NotifyIds or RegMessageConfirmationEmailFrom
                 staff_in_notify = []
                 for member in current_members:
-                    if member.PeopleId in notify_ids:
+                    if member.PeopleId in notify_ids or member.PeopleId == reg_confirm_from_id:
                         staff_in_notify.append(member)
-                
+
                 if staff_in_notify:
                     # Calculate updated NotifyIds without staff
                     updated_notify_ids = []
                     for notify_id in notify_ids:
                         if not any(member.PeopleId == notify_id for member in staff_in_notify):
                             updated_notify_ids.append(str(notify_id))
-                    
+
                     updated_notify_ids_str = ','.join(updated_notify_ids) if updated_notify_ids else ''
-                    
+
+                    # Build current notify info string (include RegMessageConfirmationEmailFrom if set)
+                    current_notify_info = involvement.NotifyIds if involvement.NotifyIds else ''
+                    if reg_confirm_from_id:
+                        current_notify_info += ' | RegConfirmFrom: ' + str(reg_confirm_from_id)
+
                     results.append({
                         'involvement': involvement,
                         'former_staff': staff_in_notify,
-                        'current_notify_ids': involvement.NotifyIds,
+                        'current_notify_ids': current_notify_info,
                         'updated_notify_ids': updated_notify_ids_str
                     })
                     
@@ -309,38 +325,49 @@ class NotificationAuditor:
             
             # Now check each involvement
             for involvement in involvements:
-                if not involvement.NotifyIds:
-                    continue
-                
                 # Parse the NotifyIds into a list of integers
                 notify_ids = []
-                for id_str in involvement.NotifyIds.split(','):
-                    id_str = id_str.strip()
-                    if id_str and id_str.isdigit():
-                        notify_ids.append(int(id_str))
-                
-                # Find staff members in the NotifyIds
+                if involvement.NotifyIds:
+                    for id_str in involvement.NotifyIds.split(','):
+                        id_str = id_str.strip()
+                        if id_str and id_str.isdigit():
+                            notify_ids.append(int(id_str))
+
+                # Check RegMessageConfirmationEmailFrom (contains PeopleId as string)
+                reg_confirm_from_id = None
+                if hasattr(involvement, 'RegMessageConfirmationEmailFrom') and involvement.RegMessageConfirmationEmailFrom:
+                    try:
+                        reg_confirm_from_id = int(involvement.RegMessageConfirmationEmailFrom)
+                    except (ValueError, TypeError):
+                        pass
+
+                # Find staff members in the NotifyIds or RegMessageConfirmationEmailFrom
                 staff_in_notify = []
                 for person in staff_people:
-                    if person.PeopleId in notify_ids:
+                    if person.PeopleId in notify_ids or person.PeopleId == reg_confirm_from_id:
                         staff_in_notify.append(person)
-                
+
                 if staff_in_notify:
                     # Calculate updated NotifyIds without staff
                     updated_notify_ids = []
                     for notify_id in notify_ids:
                         if not any(person.PeopleId == notify_id for person in staff_in_notify):
                             updated_notify_ids.append(str(notify_id))
-                    
+
                     updated_notify_ids_str = ','.join(updated_notify_ids) if updated_notify_ids else ''
-                    
+
+                    # Build current notify info string (include RegMessageConfirmationEmailFrom if set)
+                    current_notify_info = involvement.NotifyIds if involvement.NotifyIds else ''
+                    if reg_confirm_from_id:
+                        current_notify_info += ' | RegConfirmFrom: ' + str(reg_confirm_from_id)
+
                     results.append({
                         'involvement': involvement,
                         'former_staff': staff_in_notify,
-                        'current_notify_ids': involvement.NotifyIds,
+                        'current_notify_ids': current_notify_info,
                         'updated_notify_ids': updated_notify_ids_str
                     })
-        
+
         else:  # Default "all" method - find users who haven't logged in for a while
             # Group staff by PeopleId (to handle multiple login accounts)
             staff_by_id = {}
@@ -363,38 +390,49 @@ class NotificationAuditor:
             
             # Check for each involvement
             for involvement in involvements:
-                if not involvement.NotifyIds:
-                    continue
-                
                 # Parse the NotifyIds
                 notify_ids = []
-                for id_str in involvement.NotifyIds.split(','):
-                    id_str = id_str.strip()
-                    if id_str and id_str.isdigit():
-                        notify_ids.append(int(id_str))
-                
-                # Find former staff in the NotifyIds
+                if involvement.NotifyIds:
+                    for id_str in involvement.NotifyIds.split(','):
+                        id_str = id_str.strip()
+                        if id_str and id_str.isdigit():
+                            notify_ids.append(int(id_str))
+
+                # Check RegMessageConfirmationEmailFrom (contains PeopleId as string)
+                reg_confirm_from_id = None
+                if hasattr(involvement, 'RegMessageConfirmationEmailFrom') and involvement.RegMessageConfirmationEmailFrom:
+                    try:
+                        reg_confirm_from_id = int(involvement.RegMessageConfirmationEmailFrom)
+                    except (ValueError, TypeError):
+                        pass
+
+                # Find former staff in the NotifyIds or RegMessageConfirmationEmailFrom
                 former_staff_in_notify = []
                 for staff_id, staff_data in staff_by_id.items():
-                    if staff_id in notify_ids:
+                    if staff_id in notify_ids or staff_id == reg_confirm_from_id:
                         former_staff_in_notify.append(staff_data)
-                
+
                 if former_staff_in_notify:
                     # Calculate updated NotifyIds without former staff
                     updated_notify_ids = []
                     for notify_id in notify_ids:
                         if notify_id not in staff_by_id:
                             updated_notify_ids.append(str(notify_id))
-                    
+
                     updated_notify_ids_str = ','.join(updated_notify_ids) if updated_notify_ids else ''
-                    
+
+                    # Build current notify info string (include RegMessageConfirmationEmailFrom if set)
+                    current_notify_info = involvement.NotifyIds if involvement.NotifyIds else ''
+                    if reg_confirm_from_id:
+                        current_notify_info += ' | RegConfirmFrom: ' + str(reg_confirm_from_id)
+
                     results.append({
                         'involvement': involvement,
                         'former_staff': former_staff_in_notify,
-                        'current_notify_ids': involvement.NotifyIds,
+                        'current_notify_ids': current_notify_info,
                         'updated_notify_ids': updated_notify_ids_str
                     })
-                
+
         self.audit_results = results
         return results
 
