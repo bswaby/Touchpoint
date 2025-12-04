@@ -4,8 +4,8 @@
 #This comprehensive email troubleshooting tool shows email success/failures 
 #from multiple perspectives with advanced diagnostics.
 #
-# Written By: Ben Swaby
-# Email: bswaby@fbchtn.org
+#Written By: Ben Swaby
+#Email: bswaby@fbchtn.org
 #
 #Features:
 # - Email status overview with failure classifications
@@ -16,6 +16,18 @@
 # - Domain reputation analysis
 # - Quick links to email logs and individual records
 # - Detailed failure explanations and remediation steps
+# - Campaign send performance analysis
+# - Email body size and image analysis
+#
+#Update Log:
+# 2025-12-04:
+#   - Added Campaign Send Performance section with configurable minimum recipients filter
+#   - Added recipient size bucket analysis with visual bar chart (how recipient count affects send time)
+#   - Added email body size analysis with size buckets (Small to Huge 500KB+)
+#   - Added image detection: counts <img> tags and detects base64 embedded images
+#   - Fixed scheduled email timing calculation (uses SendWhen instead of Queued for scheduled emails)
+#   - Enhanced Recent Campaign Details table with Size (KB), Images, Embedded?, and Type columns
+#   - Added info box explaining linked vs embedded images (linked ~100 bytes, embedded 1-4MB each)
 #
 #Installation:
 #  Installation is easy, but it does require rights to Special Content.
@@ -40,6 +52,8 @@ model.Header = 'Email Technical Diagnostics Dashboard' #Page Name
 from datetime import datetime  # Import datetime at the beginning of the function
 import datetime
 from decimal import Decimal
+import re
+import json
 
 current_date = datetime.date.today().strftime("%B %d, %Y")
 sDate = model.Data.sDate
@@ -133,6 +147,48 @@ FAILURE_CLASSIFICATIONS = {
         'remediation': 'Check Failed tab for history. Address may be in SendGrid suppression. After 30+ days, retry cycle may begin again.',
         'severity': 'high',
         'touchpoint_note': 'Dropped emails indicate the address is on a suppression list. Status shows as "Not Delivered" in TouchPoint.'
+    },
+    'Missing Subject': {
+        'description': 'Email queued without a subject line and will not send',
+        'causes': ['No subject provided when email was created', 'Draft/test email accidentally queued', 'API call missing subject parameter'],
+        'remediation': 'Edit the email to add a subject line or delete if it was a test. TouchPoint requires a subject line for all emails.',
+        'severity': 'high',
+        'touchpoint_note': 'Emails without subjects appear as "sent" in UI but never actually process. This is a safety feature to prevent malformed emails.'
+    },
+    'No Schedule Date': {
+        'description': 'Email has no SendWhen date set for immediate sending but has not processed',
+        'causes': ['Missing subject line', 'Empty email body', 'System processing issue', 'Email in draft state'],
+        'remediation': 'Check if email has subject and body content. For immediate send, SendWhen should be NULL. May need to recreate the email.',
+        'severity': 'medium',
+        'touchpoint_note': 'Immediate emails (SendWhen=NULL) should send right away. If stuck, usually missing required fields like subject or body.'
+    },
+    'Empty Body': {
+        'description': 'Email queued without any body content and will not send',
+        'causes': ['No body content provided', 'Test email with only subject', 'API call missing body parameter', 'Template loading failure'],
+        'remediation': 'Add body content to the email or delete if it was a test. TouchPoint requires both subject AND body content for emails to send.',
+        'severity': 'high',
+        'touchpoint_note': 'Emails without body content are blocked from sending even if they have valid subjects and recipients. This prevents empty emails.'
+    },
+    'Processing Issue': {
+        'description': 'Email has all required fields but has not been processed by the email system',
+        'causes': ['Email service temporarily down', 'Queue processing paused', 'System maintenance', 'SendGrid API issues'],
+        'remediation': 'Contact TouchPoint support. Email appears valid but may be stuck in processing queue. May need to be requeued.',
+        'severity': 'critical',
+        'touchpoint_note': 'These emails should have sent immediately but are stuck. Usually indicates a system-level issue requiring support intervention.'
+    },
+    'Past Due': {
+        'description': 'Scheduled email that should have sent but failed',
+        'causes': ['SendGrid rejection', 'API failures', 'Service interruption at scheduled time', 'Invalid recipients discovered at send time'],
+        'remediation': 'Review email details and error logs. May need to reschedule or recreate the email.',
+        'severity': 'high',
+        'touchpoint_note': 'These emails were scheduled for a past date/time but never sent. Check the Failed tab for specific error details.'
+    },
+    'No Recipients': {
+        'description': 'Email has no recipients in the EmailQueueTo table',
+        'causes': ['Query returned no results', 'Recipients removed after queuing', 'Test email without recipients', 'Template email not personalized'],
+        'remediation': 'Add recipients or delete if this is a template. Emails without recipients cannot be sent.',
+        'severity': 'medium',
+        'touchpoint_note': 'Common for email templates and test emails. These will never send without recipients being added.'
     }
 }
 
@@ -458,15 +514,216 @@ SELECT TOP 10
     eq.Id,
     eq.Subject,
     eq.Queued,
+    eq.SendWhen,
     eq.QueuedBy,
     p.Name AS QueuedByName,
     DATEDIFF(hour, eq.Queued, GETDATE()) AS HoursOld,
-    (SELECT COUNT(*) FROM EmailQueueTo WHERE Id = eq.Id) AS RecipientCount
+    (SELECT COUNT(*) FROM EmailQueueTo WHERE Id = eq.Id) AS RecipientCount,
+    CASE
+        WHEN eq.Subject IS NULL OR eq.Subject = '' THEN 'Missing Subject'
+        WHEN eq.Body IS NULL OR LEN(eq.Body) = 0 THEN 'Empty Body'
+        WHEN eq.SendWhen IS NULL AND DATEDIFF(hour, eq.Queued, GETDATE()) > 1
+             AND (eq.Subject IS NOT NULL AND eq.Subject != '')
+             AND (eq.Body IS NOT NULL AND LEN(eq.Body) > 0) THEN 'Processing Issue'
+        WHEN eq.SendWhen IS NOT NULL AND eq.SendWhen <= GETDATE() AND (SELECT COUNT(*) FROM EmailQueueTo WHERE Id = eq.Id) > 0 THEN 'Past Due'
+        WHEN (SELECT COUNT(*) FROM EmailQueueTo WHERE Id = eq.Id) = 0 THEN 'No Recipients'
+        ELSE 'Unknown'
+    END AS FailureReason
 FROM EmailQueue eq
 LEFT JOIN People p ON p.PeopleId = eq.QueuedBy
 WHERE eq.Sent IS NULL
 ORDER BY eq.Queued
 '''
+
+# Campaign Send Performance SQL - measures time from scheduled/queue time to completion
+# For scheduled emails (SendWhen IS NOT NULL), measure from SendWhen to Sent
+# For immediate emails (SendWhen IS NULL), measure from Queued to Sent
+sqlCampaignPerformance = """
+SELECT
+    eq.Id,
+    eq.Subject,
+    eq.Queued,
+    eq.SendWhen,
+    eq.Sent AS CompletedAt,
+    p.Name AS SentBy,
+    COUNT(eqt.PeopleId) AS Recipients,
+    DATEDIFF(second, COALESCE(eq.SendWhen, eq.Queued), eq.Sent) AS SendDurationSeconds,
+    CASE
+        WHEN DATEDIFF(second, COALESCE(eq.SendWhen, eq.Queued), eq.Sent) < 60 THEN CAST(DATEDIFF(second, COALESCE(eq.SendWhen, eq.Queued), eq.Sent) AS VARCHAR) + ' sec'
+        WHEN DATEDIFF(second, COALESCE(eq.SendWhen, eq.Queued), eq.Sent) < 3600 THEN CAST(DATEDIFF(minute, COALESCE(eq.SendWhen, eq.Queued), eq.Sent) AS VARCHAR) + ' min'
+        ELSE CAST(CAST(DATEDIFF(minute, COALESCE(eq.SendWhen, eq.Queued), eq.Sent) / 60.0 AS DECIMAL(10,1)) AS VARCHAR) + ' hrs'
+    END AS SendDuration,
+    CASE WHEN eq.SendWhen IS NOT NULL THEN 'Scheduled' ELSE 'Immediate' END AS SendType,
+    LEN(eq.Body) AS BodySizeBytes,
+    CAST(LEN(eq.Body) / 1024.0 AS DECIMAL(10,1)) AS BodySizeKB,
+    (LEN(eq.Body) - LEN(REPLACE(eq.Body, '<img', ''))) / 4 AS ImageCount,
+    CASE WHEN eq.Body LIKE '%data:image%' THEN 'Yes' ELSE 'No' END AS HasEmbeddedImages
+FROM EmailQueue eq
+JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
+LEFT JOIN People p ON p.PeopleId = eq.QueuedBy
+WHERE eq.Sent IS NOT NULL
+    AND eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+    {2} {3} {4}
+GROUP BY eq.Id, eq.Subject, eq.Queued, eq.SendWhen, eq.Sent, p.Name, eq.Body
+HAVING COUNT(eqt.PeopleId) >= {5}
+ORDER BY eq.Sent DESC
+"""
+
+# Campaign Performance Summary SQL - overall stats
+# Uses COALESCE to measure from SendWhen (for scheduled) or Queued (for immediate)
+sqlCampaignPerformanceSummary = '''
+WITH CampaignStats AS (
+    SELECT
+        eq.Id,
+        eq.Queued,
+        eq.SendWhen,
+        eq.Sent,
+        COUNT(eqt.PeopleId) AS Recipients,
+        DATEDIFF(second, COALESCE(eq.SendWhen, eq.Queued), eq.Sent) AS SendDurationSeconds
+    FROM EmailQueue eq
+    JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
+    WHERE eq.Sent IS NOT NULL
+        AND eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+        {2} {3} {4}
+    GROUP BY eq.Id, eq.Queued, eq.SendWhen, eq.Sent
+    HAVING COUNT(eqt.PeopleId) >= {5}
+)
+SELECT
+    COUNT(*) AS TotalCampaigns,
+    SUM(Recipients) AS TotalRecipients,
+    AVG(Recipients) AS AvgRecipients,
+    AVG(SendDurationSeconds) AS AvgSendDurationSeconds,
+    MIN(SendDurationSeconds) AS FastestSendSeconds,
+    MAX(SendDurationSeconds) AS SlowestSendSeconds
+FROM CampaignStats
+'''
+
+# Monthly Campaign Performance Trend SQL
+# Uses COALESCE to measure from SendWhen (for scheduled) or Queued (for immediate)
+sqlCampaignMonthlyTrend = '''
+WITH MonthlyCampaigns AS (
+    SELECT
+        FORMAT(eq.Sent, 'yyyy-MM') AS Month,
+        eq.Id,
+        DATEDIFF(second, COALESCE(eq.SendWhen, eq.Queued), eq.Sent) AS SendDurationSeconds,
+        COUNT(eqt.PeopleId) AS Recipients
+    FROM EmailQueue eq
+    JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
+    WHERE eq.Sent IS NOT NULL
+        AND eq.Sent >= DATEADD(month, -12, GETDATE())
+        {0} {1} {2}
+    GROUP BY FORMAT(eq.Sent, 'yyyy-MM'), eq.Id, eq.Queued, eq.SendWhen, eq.Sent
+    HAVING COUNT(eqt.PeopleId) >= {3}
+)
+SELECT
+    Month,
+    COUNT(*) AS Campaigns,
+    SUM(Recipients) AS TotalRecipients,
+    AVG(Recipients) AS AvgRecipients,
+    AVG(SendDurationSeconds) AS AvgSendSeconds,
+    MIN(SendDurationSeconds) AS FastestSendSeconds,
+    MAX(SendDurationSeconds) AS SlowestSendSeconds
+FROM MonthlyCampaigns
+GROUP BY Month
+ORDER BY Month DESC
+'''
+
+# Recipient Size Bucket Analysis SQL - groups campaigns by recipient count ranges
+sqlRecipientBucketAnalysis = '''
+WITH CampaignStats AS (
+    SELECT
+        eq.Id,
+        COUNT(eqt.PeopleId) AS Recipients,
+        DATEDIFF(second, COALESCE(eq.SendWhen, eq.Queued), eq.Sent) AS SendDurationSeconds,
+        LEN(eq.Body) AS BodySize
+    FROM EmailQueue eq
+    JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
+    WHERE eq.Sent IS NOT NULL
+        AND eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+        {2} {3} {4}
+    GROUP BY eq.Id, eq.Queued, eq.SendWhen, eq.Sent, eq.Body
+    HAVING COUNT(eqt.PeopleId) >= {5}
+)
+SELECT
+    CASE
+        WHEN Recipients BETWEEN {5} AND 250 THEN '1. {5}-250'
+        WHEN Recipients BETWEEN 251 AND 500 THEN '2. 251-500'
+        WHEN Recipients BETWEEN 501 AND 1000 THEN '3. 501-1000'
+        WHEN Recipients BETWEEN 1001 AND 2500 THEN '4. 1001-2500'
+        WHEN Recipients BETWEEN 2501 AND 5000 THEN '5. 2501-5000'
+        ELSE '6. 5000+'
+    END AS RecipientBucket,
+    COUNT(*) AS CampaignCount,
+    AVG(Recipients) AS AvgRecipients,
+    AVG(SendDurationSeconds) AS AvgSendSeconds,
+    MIN(SendDurationSeconds) AS FastestSendSeconds,
+    MAX(SendDurationSeconds) AS SlowestSendSeconds,
+    AVG(BodySize) AS AvgBodySize
+FROM CampaignStats
+GROUP BY
+    CASE
+        WHEN Recipients BETWEEN {5} AND 250 THEN '1. {5}-250'
+        WHEN Recipients BETWEEN 251 AND 500 THEN '2. 251-500'
+        WHEN Recipients BETWEEN 501 AND 1000 THEN '3. 501-1000'
+        WHEN Recipients BETWEEN 1001 AND 2500 THEN '4. 1001-2500'
+        WHEN Recipients BETWEEN 2501 AND 5000 THEN '5. 2501-5000'
+        ELSE '6. 5000+'
+    END
+ORDER BY RecipientBucket
+'''
+
+# Email Body Size Analysis SQL - groups by body size ranges
+# Note: LEN(Body) includes base64 embedded images which can be HUGE (4MB+)
+# Linked/external images only add a small URL string to the body
+sqlBodySizeAnalysis = """
+WITH CampaignStats AS (
+    SELECT
+        eq.Id,
+        COUNT(eqt.PeopleId) AS Recipients,
+        DATEDIFF(second, COALESCE(eq.SendWhen, eq.Queued), eq.Sent) AS SendDurationSeconds,
+        LEN(eq.Body) AS BodySize,
+        (LEN(eq.Body) - LEN(REPLACE(eq.Body, '<img', ''))) / 4 AS ImageCount,
+        CASE WHEN eq.Body LIKE '%data:image%' THEN 1 ELSE 0 END AS HasBase64Images
+    FROM EmailQueue eq
+    JOIN EmailQueueTo eqt ON eq.Id = eqt.Id
+    WHERE eq.Sent IS NOT NULL
+        AND eqt.Sent BETWEEN '{0} 00:00:00' AND '{1} 23:59:59.999'
+        AND eq.Body IS NOT NULL
+        {2} {3} {4}
+    GROUP BY eq.Id, eq.Queued, eq.SendWhen, eq.Sent, eq.Body
+    HAVING COUNT(eqt.PeopleId) >= {5}
+)
+SELECT
+    CASE
+        WHEN BodySize < 5000 THEN '1. Small (<5KB)'
+        WHEN BodySize BETWEEN 5000 AND 15000 THEN '2. Medium (5-15KB)'
+        WHEN BodySize BETWEEN 15001 AND 50000 THEN '3. Large (15-50KB)'
+        WHEN BodySize BETWEEN 50001 AND 100000 THEN '4. XL (50-100KB)'
+        WHEN BodySize BETWEEN 100001 AND 500000 THEN '5. XXL (100-500KB)'
+        ELSE '6. Huge (500KB+, likely embedded images)'
+    END AS SizeBucket,
+    COUNT(*) AS CampaignCount,
+    AVG(Recipients) AS AvgRecipients,
+    AVG(SendDurationSeconds) AS AvgSendSeconds,
+    MIN(SendDurationSeconds) AS FastestSendSeconds,
+    MAX(SendDurationSeconds) AS SlowestSendSeconds,
+    AVG(BodySize) AS AvgBodySizeBytes,
+    MIN(BodySize) AS MinBodySize,
+    MAX(BodySize) AS MaxBodySize,
+    AVG(ImageCount) AS AvgImageCount,
+    SUM(HasBase64Images) AS EmailsWithBase64Images
+FROM CampaignStats
+GROUP BY
+    CASE
+        WHEN BodySize < 5000 THEN '1. Small (<5KB)'
+        WHEN BodySize BETWEEN 5000 AND 15000 THEN '2. Medium (5-15KB)'
+        WHEN BodySize BETWEEN 15001 AND 50000 THEN '3. Large (15-50KB)'
+        WHEN BodySize BETWEEN 50001 AND 100000 THEN '4. XL (50-100KB)'
+        WHEN BodySize BETWEEN 100001 AND 500000 THEN '5. XXL (100-500KB)'
+        ELSE '6. Huge (500KB+, likely embedded images)'
+    END
+ORDER BY SizeBucket
+"""
 
 if sDate is not None:
     optionsDate = ' value="' + sDate + '"'
@@ -518,6 +775,18 @@ frmSentByOption = """
     <input type="text" name="sentby" id="sentby" value="{0}" placeholder="e.g. 123 or 123,456,789" style="width: 200px;">
     <span style="font-size: 11px; color: #666; margin-left: 5px;">Enter one or more PeopleIDs separated by commas</span>
 """.format(sentByValue)
+
+# Create text input for Minimum Recipients filter (for campaign performance)
+minRecipientsValue = model.Data.minrecipients if model.Data.minrecipients else '100'
+try:
+    minRecipients = int(minRecipientsValue)
+except:
+    minRecipients = 100
+frmMinRecipientsOption = """
+    <label for="minrecipients">Min Recipients:</label>
+    <input type="number" name="minrecipients" id="minrecipients" value="{0}" min="1" style="width: 80px;">
+    <span style="font-size: 11px; color: #666; margin-left: 5px;">For campaign performance (show emails with at least this many recipients)</span>
+""".format(minRecipients)
 
 
 filterProgram = '' if model.Data.program == str(999999) else ' AND pro.Id = {}'.format(model.Data.program) if model.Data.program else ''
@@ -643,7 +912,7 @@ headerTemplate = '''
             color: #28a745;
         }}
     </style>
-    
+
     <div class="dashboard-header">
         <h1>Email Technical Diagnostics Dashboard</h1>
         <p>Comprehensive email delivery analysis and troubleshooting tool</p>
@@ -672,6 +941,9 @@ headerTemplate = '''
                 {6}
             </div>
             <div style="margin-bottom: 10px;">
+                {7}
+            </div>
+            <div style="margin-bottom: 10px;">
                 <label for="sDate">Start Date:</label>
                 <input type="date" id="sDate" name="sDate" required {0}>
                 <label for="eDate">End Date:</label>
@@ -684,7 +956,7 @@ headerTemplate = '''
             <input type="submit" value="Generate Report" style="background: #667eea; color: white; border: none; padding: 8px 20px; border-radius: 4px; cursor: pointer;">
         </form>
     </div>
-'''.format(optionsDate,optioneDate,optionHideSuccess,frmProgramOption,frmFailClassificationsOption,current_date,frmSentByOption)
+'''.format(optionsDate,optioneDate,optionHideSuccess,frmProgramOption,frmFailClassificationsOption,current_date,frmSentByOption,frmMinRecipientsOption)
 
 
 
@@ -1062,13 +1334,14 @@ if rsqlEmailQueueStatus:
                     }
                     
                     detail_columns = {
-                        "hide_columns": ['QueuedBy'],
-                        "column_order": ['Id', 'Subject', 'QueuedByName', 'RecipientCount', 'HoursOld', 'Queued'],
+                        "hide_columns": ['QueuedBy', 'SendWhen'],
+                        "column_order": ['Id', 'Subject', 'FailureReason', 'QueuedByName', 'RecipientCount', 'HoursOld', 'Queued'],
                     }
                     
                     detail_rename = {
                         "Id": "Email ID",
                         "Subject": "Subject",
+                        "FailureReason": "Issue",
                         "QueuedByName": "Sender",
                         "RecipientCount": "Recipients",
                         "HoursOld": "Hours Old",
@@ -1109,6 +1382,458 @@ if rsqlEmailQueueStatus:
             '''
             
             bodyTemplate += "</div>"
+
+####### Campaign Send Performance #######
+# Helper function to format seconds into human-readable duration
+def format_duration(seconds):
+    """Convert seconds to a human-readable format"""
+    if seconds is None:
+        return "N/A"
+    seconds = int(seconds)
+    if seconds < 60:
+        return "{0} sec".format(seconds)
+    elif seconds < 3600:
+        minutes = seconds / 60
+        return "{0} min".format(int(minutes))
+    else:
+        hours = seconds / 3600.0
+        return "{0:.1f} hrs".format(hours)
+
+if sDate and eDate:
+    # Get campaign performance summary stats
+    rsqlCampaignSummary = q.QuerySql(sqlCampaignPerformanceSummary.format(sDate, eDate, filterProgram, filterFailClassfication, filterSentBy, minRecipients))
+
+    # Safe check for results - TotalCampaigns may be None
+    hasCampaignData = False
+    totalCampaigns = 0
+    summary = None
+    summaryList = []
+
+    # Convert to list and safely extract data - wrap in try/except for .NET errors
+    try:
+        if rsqlCampaignSummary:
+            for row in rsqlCampaignSummary:
+                rowDict = {}
+                for attr in dir(row):
+                    if not attr.startswith("_"):
+                        try:
+                            rowDict[attr] = getattr(row, attr, None)
+                        except BaseException:
+                            rowDict[attr] = None
+                summaryList.append(rowDict)
+    except BaseException:
+        summaryList = []
+
+    if len(summaryList) > 0:
+        summary = summaryList[0]
+        totalCampaigns = summary.get('TotalCampaigns', 0) or 0
+        if totalCampaigns > 0:
+            hasCampaignData = True
+
+    if hasCampaignData:
+        # summary is already a dictionary from summaryList[0]
+
+        bodyTemplate += '''
+        <div class="stat-card">
+            <h3>Email Campaign Send Performance</h3>
+            <p style="font-size: 12px; color: #666; margin-bottom: 15px;">
+                Showing campaigns with {0}+ recipients | Measures time from queue to send completion
+            </p>
+
+            <div style="display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">
+                <div style="flex: 1; min-width: 150px; background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 28px; font-weight: bold; color: #667eea;">{1}</div>
+                    <div style="font-size: 12px; color: #666;">Total Campaigns</div>
+                </div>
+                <div style="flex: 1; min-width: 150px; background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 28px; font-weight: bold; color: #667eea;">{2}</div>
+                    <div style="font-size: 12px; color: #666;">Total Recipients</div>
+                </div>
+                <div style="flex: 1; min-width: 150px; background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 28px; font-weight: bold; color: #667eea;">{3}</div>
+                    <div style="font-size: 12px; color: #666;">Avg Recipients/Email</div>
+                </div>
+            </div>
+
+            <div style="display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">
+                <div style="flex: 1; min-width: 150px; background: #d4edda; padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 24px; font-weight: bold; color: #28a745;">{4}</div>
+                    <div style="font-size: 12px; color: #666;">Avg Time to Complete</div>
+                </div>
+                <div style="flex: 1; min-width: 150px; background: #d1ecf1; padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 24px; font-weight: bold; color: #17a2b8;">{5}</div>
+                    <div style="font-size: 12px; color: #666;">Fastest Send</div>
+                </div>
+                <div style="flex: 1; min-width: 150px; background: #fff3cd; padding: 15px; border-radius: 8px; text-align: center;">
+                    <div style="font-size: 24px; font-weight: bold; color: #856404;">{6}</div>
+                    <div style="font-size: 12px; color: #666;">Slowest Send</div>
+                </div>
+            </div>
+        '''.format(
+            minRecipients,
+            summary.get('TotalCampaigns', 0),
+            int(summary.get('TotalRecipients', 0) or 0),
+            int(summary.get('AvgRecipients', 0) or 0),
+            format_duration(summary.get('AvgSendDurationSeconds')),
+            format_duration(summary.get('FastestSendSeconds')),
+            format_duration(summary.get('SlowestSendSeconds'))
+        )
+
+        # Get monthly trend
+        rsqlMonthlyTrend = q.QuerySql(sqlCampaignMonthlyTrend.format(filterProgram, filterFailClassfication, filterSentBy, minRecipients))
+
+        if rsqlMonthlyTrend:
+            trend_data = [{attr: getattr(row, attr) for attr in dir(row) if not attr.startswith("_")} for row in rsqlMonthlyTrend]
+
+            # Convert seconds to readable format for display
+            for row in trend_data:
+                row['AvgSendTime'] = format_duration(row.get('AvgSendSeconds'))
+                row['FastestSend'] = format_duration(row.get('FastestSendSeconds'))
+                row['SlowestSend'] = format_duration(row.get('SlowestSendSeconds'))
+
+            bodyTemplate += '<h4>Monthly Campaign Performance Trend (Last 12 Months)</h4>'
+
+            trend_config = {
+                "table_width": "100%",
+                "remove_borders": False,
+            }
+
+            trend_columns = {
+                "hide_columns": ['AvgSendSeconds', 'FastestSendSeconds', 'SlowestSendSeconds'],
+                "column_order": ['Month', 'Campaigns', 'TotalRecipients', 'AvgRecipients', 'AvgSendTime', 'FastestSend', 'SlowestSend'],
+            }
+
+            trend_rename = {
+                "TotalRecipients": "Total Recipients",
+                "AvgRecipients": "Avg Recipients",
+                "AvgSendTime": "Avg Send Time",
+                "FastestSend": "Fastest",
+                "SlowestSend": "Slowest",
+            }
+
+            trend_alignment = {
+                "Month": "left",
+                "Campaigns": "right",
+                "TotalRecipients": "right",
+                "AvgRecipients": "right",
+                "AvgSendTime": "right",
+                "FastestSend": "right",
+                "SlowestSend": "right",
+            }
+
+            merged_trend = {}
+            merged_trend.update(trend_config)
+            merged_trend.update(trend_columns)
+            merged_trend.update({"header_rename": trend_rename})
+            merged_trend.update({"column_alignment": trend_alignment})
+            merged_trend.update({"row_colors": ["#f9f9f9", "#ffffff"]})
+
+            bodyTemplate += generate_html_table(trend_data, **merged_trend)
+
+        # Get recipient bucket analysis
+        try:
+            rsqlRecipientBucket = q.QuerySql(sqlRecipientBucketAnalysis.format(sDate, eDate, filterProgram, filterFailClassfication, filterSentBy, minRecipients))
+            if rsqlRecipientBucket:
+                bucket_data = []
+                for row in rsqlRecipientBucket:
+                    rowDict = {}
+                    for attr in dir(row):
+                        if not attr.startswith("_"):
+                            try:
+                                rowDict[attr] = getattr(row, attr, None)
+                            except BaseException:
+                                rowDict[attr] = None
+                    bucket_data.append(rowDict)
+
+                if len(bucket_data) > 0:
+                    # Find max avg send time for scaling the bar chart
+                    max_avg_time = max([row.get('AvgSendSeconds', 0) or 0 for row in bucket_data])
+                    if max_avg_time == 0:
+                        max_avg_time = 1
+
+                    bodyTemplate += '''
+                    <h4>Send Time by Recipient Count (Size Analysis)</h4>
+                    <p style="font-size: 11px; color: #666;">Does email size (by recipients) affect send time?</p>
+                    <div style="margin: 15px 0;">
+                    '''
+
+                    for row in bucket_data:
+                        bucket_name = row.get('RecipientBucket', 'Unknown')
+                        # Remove the sorting prefix (e.g., "1. " from "1. 100-250")
+                        display_name = bucket_name[3:] if len(bucket_name) > 3 else bucket_name
+                        campaign_count = row.get('CampaignCount', 0) or 0
+                        avg_recipients = int(row.get('AvgRecipients', 0) or 0)
+                        avg_seconds = row.get('AvgSendSeconds', 0) or 0
+                        fastest = row.get('FastestSendSeconds', 0) or 0
+                        slowest = row.get('SlowestSendSeconds', 0) or 0
+                        bar_width = int((avg_seconds / max_avg_time) * 100) if max_avg_time > 0 else 0
+
+                        bodyTemplate += '''
+                        <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                            <div style="width: 120px; font-weight: bold; font-size: 12px;">{0} recipients</div>
+                            <div style="flex: 1; background: #e9ecef; border-radius: 4px; height: 28px; position: relative;">
+                                <div style="width: {1}%; background: linear-gradient(90deg, #667eea, #764ba2); height: 100%; border-radius: 4px; min-width: 2px;"></div>
+                                <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 11px; color: #333; font-weight: bold;">{2}</span>
+                            </div>
+                            <div style="width: 180px; text-align: right; font-size: 11px; color: #666; margin-left: 10px;">
+                                {3} campaigns | Fastest: {4} | Slowest: {5}
+                            </div>
+                        </div>
+                        '''.format(
+                            display_name,
+                            bar_width,
+                            format_duration(avg_seconds),
+                            campaign_count,
+                            format_duration(fastest),
+                            format_duration(slowest)
+                        )
+
+                    bodyTemplate += '</div>'
+
+                    # Also show as a table for detailed view
+                    for row in bucket_data:
+                        row['AvgSendTime'] = format_duration(row.get('AvgSendSeconds'))
+                        row['FastestSend'] = format_duration(row.get('FastestSendSeconds'))
+                        row['SlowestSend'] = format_duration(row.get('SlowestSendSeconds'))
+                        row['AvgBodySizeKB'] = '{:.1f} KB'.format((row.get('AvgBodySize', 0) or 0) / 1024.0)
+
+                    bucket_config = {
+                        "table_width": "100%",
+                        "remove_borders": False,
+                    }
+                    bucket_columns = {
+                        "hide_columns": ['AvgSendSeconds', 'FastestSendSeconds', 'SlowestSendSeconds', 'AvgBodySize'],
+                        "column_order": ['RecipientBucket', 'CampaignCount', 'AvgRecipients', 'AvgSendTime', 'FastestSend', 'SlowestSend', 'AvgBodySizeKB'],
+                    }
+                    bucket_rename = {
+                        "RecipientBucket": "Recipient Range",
+                        "CampaignCount": "Campaigns",
+                        "AvgRecipients": "Avg Recipients",
+                        "AvgSendTime": "Avg Send Time",
+                        "FastestSend": "Fastest",
+                        "SlowestSend": "Slowest",
+                        "AvgBodySizeKB": "Avg Email Size",
+                    }
+                    bucket_alignment = {
+                        "RecipientBucket": "left",
+                        "CampaignCount": "right",
+                        "AvgRecipients": "right",
+                        "AvgSendTime": "right",
+                        "FastestSend": "right",
+                        "SlowestSend": "right",
+                        "AvgBodySizeKB": "right",
+                    }
+                    merged_bucket = {}
+                    merged_bucket.update(bucket_config)
+                    merged_bucket.update(bucket_columns)
+                    merged_bucket.update({"header_rename": bucket_rename})
+                    merged_bucket.update({"column_alignment": bucket_alignment})
+                    merged_bucket.update({"row_colors": ["#f9f9f9", "#ffffff"]})
+
+                    bodyTemplate += generate_html_table(bucket_data, **merged_bucket)
+        except BaseException:
+            pass  # Skip bucket analysis if there's an error
+
+        # Get body size analysis
+        try:
+            rsqlBodySize = q.QuerySql(sqlBodySizeAnalysis.format(sDate, eDate, filterProgram, filterFailClassfication, filterSentBy, minRecipients))
+            if rsqlBodySize:
+                body_data = []
+                for row in rsqlBodySize:
+                    rowDict = {}
+                    for attr in dir(row):
+                        if not attr.startswith("_"):
+                            try:
+                                rowDict[attr] = getattr(row, attr, None)
+                            except BaseException:
+                                rowDict[attr] = None
+                    body_data.append(rowDict)
+
+                if len(body_data) > 0:
+                    # Find max avg send time for scaling the bar chart
+                    max_avg_time = max([row.get('AvgSendSeconds', 0) or 0 for row in body_data])
+                    if max_avg_time == 0:
+                        max_avg_time = 1
+
+                    bodyTemplate += '''
+                    <h4>Send Time by Email Body Size</h4>
+                    <p style="font-size: 11px; color: #666;">Does email content size affect send time? (Body size includes base64 embedded images)</p>
+                    <div style="margin: 15px 0;">
+                    '''
+
+                    for row in body_data:
+                        bucket_name = row.get('SizeBucket', 'Unknown')
+                        display_name = bucket_name[3:] if len(bucket_name) > 3 else bucket_name
+                        campaign_count = row.get('CampaignCount', 0) or 0
+                        avg_recipients = int(row.get('AvgRecipients', 0) or 0)
+                        avg_seconds = row.get('AvgSendSeconds', 0) or 0
+                        avg_body_kb = (row.get('AvgBodySizeBytes', 0) or 0) / 1024.0
+                        avg_images = int(row.get('AvgImageCount', 0) or 0)
+                        base64_count = int(row.get('EmailsWithBase64Images', 0) or 0)
+                        bar_width = int((avg_seconds / max_avg_time) * 100) if max_avg_time > 0 else 0
+
+                        bodyTemplate += '''
+                        <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                            <div style="width: 180px; font-weight: bold; font-size: 12px;">{0}</div>
+                            <div style="flex: 1; background: #e9ecef; border-radius: 4px; height: 28px; position: relative;">
+                                <div style="width: {1}%; background: linear-gradient(90deg, #28a745, #20c997); height: 100%; border-radius: 4px; min-width: 2px;"></div>
+                                <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 11px; color: #333; font-weight: bold;">{2}</span>
+                            </div>
+                            <div style="width: 280px; text-align: right; font-size: 11px; color: #666; margin-left: 10px;">
+                                {3} emails | {4:.0f} KB | ~{5} imgs | {6} embedded
+                            </div>
+                        </div>
+                        '''.format(
+                            display_name,
+                            bar_width,
+                            format_duration(avg_seconds),
+                            campaign_count,
+                            avg_body_kb,
+                            avg_images,
+                            base64_count
+                        )
+
+                    bodyTemplate += '</div>'
+
+                    # Info box about image types
+                    bodyTemplate += '''
+                    <div style="margin: 10px 0; padding: 10px; background: #fff3cd; border-left: 3px solid #ffc107; font-size: 11px;">
+                        <strong>Note:</strong> Body size includes base64 embedded images (can be 1-4MB each!).
+                        Linked/external images only add ~100 bytes per URL. "Huge" emails likely have embedded images.
+                    </div>
+                    '''
+
+                    # Also show as a table
+                    for row in body_data:
+                        row['AvgSendTime'] = format_duration(row.get('AvgSendSeconds'))
+                        row['FastestSend'] = format_duration(row.get('FastestSendSeconds'))
+                        row['SlowestSend'] = format_duration(row.get('SlowestSendSeconds'))
+                        row['AvgSizeKB'] = '{:.1f} KB'.format((row.get('AvgBodySizeBytes', 0) or 0) / 1024.0)
+                        row['AvgImages'] = int(row.get('AvgImageCount', 0) or 0)
+                        row['Base64Count'] = int(row.get('EmailsWithBase64Images', 0) or 0)
+
+                    body_config = {
+                        "table_width": "100%",
+                        "remove_borders": False,
+                    }
+                    body_columns = {
+                        "hide_columns": ['AvgSendSeconds', 'FastestSendSeconds', 'SlowestSendSeconds', 'AvgBodySizeBytes', 'MinBodySize', 'MaxBodySize', 'AvgImageCount', 'EmailsWithBase64Images'],
+                        "column_order": ['SizeBucket', 'CampaignCount', 'AvgRecipients', 'AvgSizeKB', 'AvgImages', 'Base64Count', 'AvgSendTime', 'FastestSend', 'SlowestSend'],
+                    }
+                    body_rename = {
+                        "SizeBucket": "Email Size",
+                        "CampaignCount": "Campaigns",
+                        "AvgRecipients": "Avg Recipients",
+                        "AvgSizeKB": "Avg Size",
+                        "AvgImages": "Avg Images",
+                        "Base64Count": "Has Embedded",
+                        "AvgSendTime": "Avg Send Time",
+                        "FastestSend": "Fastest",
+                        "SlowestSend": "Slowest",
+                    }
+                    body_alignment = {
+                        "SizeBucket": "left",
+                        "CampaignCount": "right",
+                        "AvgRecipients": "right",
+                        "AvgSizeKB": "right",
+                        "AvgImages": "right",
+                        "Base64Count": "right",
+                        "AvgSendTime": "right",
+                        "FastestSend": "right",
+                        "SlowestSend": "right",
+                    }
+                    merged_body = {}
+                    merged_body.update(body_config)
+                    merged_body.update(body_columns)
+                    merged_body.update({"header_rename": body_rename})
+                    merged_body.update({"column_alignment": body_alignment})
+                    merged_body.update({"row_colors": ["#f9f9f9", "#ffffff"]})
+
+                    bodyTemplate += generate_html_table(body_data, **merged_body)
+        except BaseException:
+            pass  # Skip body size analysis if there's an error
+
+        # Get individual campaign details
+        rsqlCampaignPerf = q.QuerySql(sqlCampaignPerformance.format(sDate, eDate, filterProgram, filterFailClassfication, filterSentBy, minRecipients))
+
+        if rsqlCampaignPerf:
+            campaign_data = [{attr: getattr(row, attr) for attr in dir(row) if not attr.startswith("_")} for row in rsqlCampaignPerf]
+
+            # Limit to top 50 campaigns for performance
+            campaign_data = campaign_data[:50]
+
+            bodyTemplate += '<h4>Recent Campaign Details (Top 50)</h4>'
+
+            campaign_config = {
+                "table_width": "100%",
+                "remove_borders": False,
+            }
+
+            campaign_columns = {
+                "hide_columns": ['SendDurationSeconds', 'Queued', 'BodySizeBytes', 'SendWhen', 'Id'],
+                "column_order": ['Subject', 'SentBy', 'Recipients', 'BodySizeKB', 'ImageCount', 'HasEmbeddedImages', 'SendDuration', 'SendType', 'CompletedAt'],
+            }
+
+            campaign_rename = {
+                "Subject": "Email Subject",
+                "SentBy": "Sent By",
+                "Recipients": "Recipients",
+                "BodySizeKB": "Size (KB)",
+                "ImageCount": "Images",
+                "HasEmbeddedImages": "Embedded?",
+                "SendDuration": "Send Time",
+                "SendType": "Type",
+                "CompletedAt": "Completed",
+            }
+
+            campaign_url_columns = {
+                "Subject": '/Manage/Emails/Details/{Id}'
+            }
+
+            campaign_alignment = {
+                "Subject": "left",
+                "SentBy": "left",
+                "Recipients": "right",
+                "BodySizeKB": "right",
+                "ImageCount": "right",
+                "HasEmbeddedImages": "center",
+                "SendDuration": "right",
+                "SendType": "center",
+                "CompletedAt": "left",
+            }
+
+            merged_campaign = {}
+            merged_campaign.update(campaign_config)
+            merged_campaign.update(campaign_columns)
+            merged_campaign.update({"header_rename": campaign_rename})
+            merged_campaign.update({"column_alignment": campaign_alignment})
+            merged_campaign.update({"date_columns": ['CompletedAt']})
+            merged_campaign.update({"row_colors": ["#f9f9f9", "#ffffff"]})
+
+            bodyTemplate += generate_html_table(campaign_data, url_columns=campaign_url_columns, **merged_campaign)
+
+        bodyTemplate += '''
+            <div style="margin-top: 15px; padding: 10px; background: #f0f8ff; border-radius: 5px;">
+                <strong>Understanding Campaign Performance:</strong>
+                <ul style="margin: 5px 0;">
+                    <li><strong>Send Time</strong> = Time from when email was queued/scheduled to when sending completed</li>
+                    <li><strong>Size (KB)</strong> = Email body size including HTML and any base64 embedded images</li>
+                    <li><strong>Images</strong> = Count of &lt;img&gt; tags (both linked and embedded)</li>
+                    <li><strong>Embedded?</strong> = "Yes" if email contains base64 embedded images (can be 1-4MB each!)</li>
+                    <li><strong>Type</strong> = Scheduled (set to send later) vs Immediate (sent right away)</li>
+                    <li>Linked images (URLs) only add ~100 bytes each. Embedded images add the full image size.</li>
+                </ul>
+            </div>
+        '''
+
+        bodyTemplate += "</div>"
+    else:
+        bodyTemplate += '''
+        <div class="stat-card">
+            <h3>Email Campaign Send Performance</h3>
+            <p style="color: #666;">No campaigns found with {0}+ recipients in the selected date range. Try lowering the minimum recipients filter.</p>
+        </div>
+        '''.format(minRecipients)
 
 ####### Involvement Stats #######
 rsqlOrgStat = q.QuerySql(sqlOrgStat.format(sDate,eDate,sqlHideSuccess,filterProgram,filterFailClassficationOrgStat,filterSentByOrgStat))
@@ -1301,7 +2026,7 @@ footerTemplate = '''
     <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #dee2e6; font-size: 11px; color: #6c757d;">
         Report Period: {0} to {1}<br>
         Generated: {2}<br>
-        Filters Applied: Program={3}, Classification={4}, Sent By={5}, Hide Success={6}
+        Filters Applied: Program={3}, Classification={4}, Sent By={5}, Min Recipients={7}, Hide Success={6}
     </div>
 </div>
 '''.format(
@@ -1311,10 +2036,11 @@ footerTemplate = '''
     'All' if model.Data.program == str(999999) or not model.Data.program else model.Data.program,
     'All' if model.Data.failclassification == str(999999) or not model.Data.failclassification else model.Data.failclassification,
     model.Data.sentby if model.Data.sentby else 'All',
-    'No' if model.Data.HideSuccess == 'yes' else 'Yes'
+    'No' if model.Data.HideSuccess == 'yes' else 'Yes',
+    minRecipients
 )
 
 Report = model.RenderTemplate(headerTemplate)
 Report += model.RenderTemplate(bodyTemplate)
 Report += model.RenderTemplate(footerTemplate)
-print(Report)
+print Report
