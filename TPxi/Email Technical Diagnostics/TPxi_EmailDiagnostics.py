@@ -1490,6 +1490,17 @@ if sDate and eDate:
                 row['AvgSendTime'] = format_duration(row.get('AvgSendSeconds'))
                 row['FastestSend'] = format_duration(row.get('FastestSendSeconds'))
                 row['SlowestSend'] = format_duration(row.get('SlowestSendSeconds'))
+                # Calculate average time per email
+                avg_secs = row.get('AvgSendSeconds', 0) or 0
+                avg_recips = row.get('AvgRecipients', 0) or 0
+                if avg_recips > 0:
+                    sec_per_email = avg_secs / float(avg_recips)
+                    if sec_per_email < 1:
+                        row['SecPerEmail'] = '{:.0f} ms'.format(sec_per_email * 1000)
+                    else:
+                        row['SecPerEmail'] = '{:.2f} sec'.format(sec_per_email)
+                else:
+                    row['SecPerEmail'] = '-'
 
             bodyTemplate += '<h4>Monthly Campaign Performance Trend (Last 12 Months)</h4>'
 
@@ -1500,13 +1511,14 @@ if sDate and eDate:
 
             trend_columns = {
                 "hide_columns": ['AvgSendSeconds', 'FastestSendSeconds', 'SlowestSendSeconds'],
-                "column_order": ['Month', 'Campaigns', 'TotalRecipients', 'AvgRecipients', 'AvgSendTime', 'FastestSend', 'SlowestSend'],
+                "column_order": ['Month', 'Campaigns', 'TotalRecipients', 'AvgRecipients', 'AvgSendTime', 'SecPerEmail', 'FastestSend', 'SlowestSend'],
             }
 
             trend_rename = {
                 "TotalRecipients": "Total Recipients",
                 "AvgRecipients": "Avg Recipients",
                 "AvgSendTime": "Avg Send Time",
+                "SecPerEmail": "Time/Email",
                 "FastestSend": "Fastest",
                 "SlowestSend": "Slowest",
             }
@@ -1517,6 +1529,7 @@ if sDate and eDate:
                 "TotalRecipients": "right",
                 "AvgRecipients": "right",
                 "AvgSendTime": "right",
+                "SecPerEmail": "right",
                 "FastestSend": "right",
                 "SlowestSend": "right",
             }
@@ -1546,56 +1559,25 @@ if sDate and eDate:
                     bucket_data.append(rowDict)
 
                 if len(bucket_data) > 0:
-                    # Find max avg send time for scaling the bar chart
-                    max_avg_time = max([row.get('AvgSendSeconds', 0) or 0 for row in bucket_data])
-                    if max_avg_time == 0:
-                        max_avg_time = 1
+                    bodyTemplate += '<h4>Send Time by Recipient Count (Size Analysis)</h4>'
 
-                    bodyTemplate += '''
-                    <h4>Send Time by Recipient Count (Size Analysis)</h4>
-                    <p style="font-size: 11px; color: #666;">Does email size (by recipients) affect send time?</p>
-                    <div style="margin: 15px 0;">
-                    '''
-
-                    for row in bucket_data:
-                        bucket_name = row.get('RecipientBucket', 'Unknown')
-                        # Remove the sorting prefix (e.g., "1. " from "1. 100-250")
-                        display_name = bucket_name[3:] if len(bucket_name) > 3 else bucket_name
-                        campaign_count = row.get('CampaignCount', 0) or 0
-                        avg_recipients = int(row.get('AvgRecipients', 0) or 0)
-                        avg_seconds = row.get('AvgSendSeconds', 0) or 0
-                        fastest = row.get('FastestSendSeconds', 0) or 0
-                        slowest = row.get('SlowestSendSeconds', 0) or 0
-                        bar_width = int((avg_seconds / max_avg_time) * 100) if max_avg_time > 0 else 0
-
-                        bodyTemplate += '''
-                        <div style="display: flex; align-items: center; margin-bottom: 8px;">
-                            <div style="width: 120px; font-weight: bold; font-size: 12px;">{0} recipients</div>
-                            <div style="flex: 1; background: #e9ecef; border-radius: 4px; height: 28px; position: relative;">
-                                <div style="width: {1}%; background: linear-gradient(90deg, #667eea, #764ba2); height: 100%; border-radius: 4px; min-width: 2px;"></div>
-                                <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 11px; color: #333; font-weight: bold;">{2}</span>
-                            </div>
-                            <div style="width: 180px; text-align: right; font-size: 11px; color: #666; margin-left: 10px;">
-                                {3} campaigns | Fastest: {4} | Slowest: {5}
-                            </div>
-                        </div>
-                        '''.format(
-                            display_name,
-                            bar_width,
-                            format_duration(avg_seconds),
-                            campaign_count,
-                            format_duration(fastest),
-                            format_duration(slowest)
-                        )
-
-                    bodyTemplate += '</div>'
-
-                    # Also show as a table for detailed view
+                    # Process data for table display
                     for row in bucket_data:
                         row['AvgSendTime'] = format_duration(row.get('AvgSendSeconds'))
                         row['FastestSend'] = format_duration(row.get('FastestSendSeconds'))
                         row['SlowestSend'] = format_duration(row.get('SlowestSendSeconds'))
                         row['AvgBodySizeKB'] = '{:.1f} KB'.format((row.get('AvgBodySize', 0) or 0) / 1024.0)
+                        # Calculate seconds per email
+                        avg_secs = row.get('AvgSendSeconds', 0) or 0
+                        avg_recips = row.get('AvgRecipients', 0) or 0
+                        if avg_recips > 0:
+                            sec_per_email = avg_secs / float(avg_recips)
+                            if sec_per_email < 1:
+                                row['SecPerEmail'] = '{:.0f} ms'.format(sec_per_email * 1000)
+                            else:
+                                row['SecPerEmail'] = '{:.2f} sec'.format(sec_per_email)
+                        else:
+                            row['SecPerEmail'] = '-'
 
                     bucket_config = {
                         "table_width": "100%",
@@ -1603,13 +1585,14 @@ if sDate and eDate:
                     }
                     bucket_columns = {
                         "hide_columns": ['AvgSendSeconds', 'FastestSendSeconds', 'SlowestSendSeconds', 'AvgBodySize'],
-                        "column_order": ['RecipientBucket', 'CampaignCount', 'AvgRecipients', 'AvgSendTime', 'FastestSend', 'SlowestSend', 'AvgBodySizeKB'],
+                        "column_order": ['RecipientBucket', 'CampaignCount', 'AvgRecipients', 'AvgSendTime', 'SecPerEmail', 'FastestSend', 'SlowestSend', 'AvgBodySizeKB'],
                     }
                     bucket_rename = {
                         "RecipientBucket": "Recipient Range",
                         "CampaignCount": "Campaigns",
                         "AvgRecipients": "Avg Recipients",
                         "AvgSendTime": "Avg Send Time",
+                        "SecPerEmail": "Time/Email",
                         "FastestSend": "Fastest",
                         "SlowestSend": "Slowest",
                         "AvgBodySizeKB": "Avg Email Size",
@@ -1619,6 +1602,7 @@ if sDate and eDate:
                         "CampaignCount": "right",
                         "AvgRecipients": "right",
                         "AvgSendTime": "right",
+                        "SecPerEmail": "right",
                         "FastestSend": "right",
                         "SlowestSend": "right",
                         "AvgBodySizeKB": "right",
