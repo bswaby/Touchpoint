@@ -31,6 +31,9 @@
 #written by: Ben Swaby
 #email: bswaby@fbchtn.org
 
+# Update Notes 01/07/2026:
+# - Added a brief mode for executives only folks 
+
 # Update Notes 11/13/2025:
 # - Fixed bug in unique attendance counting.  It was not honoring week-at-a-glance reporting groups.    
 # - Added prospects and guests () to unique attendance counting.
@@ -77,7 +80,7 @@ YEAR_PREFIX_LABEL = "AY"     # Default: "FY" - Used for year labels like "FY24-2
 YTD_PREFIX_LABEL = "AY"    # Default: "FYTD" - Used for year-to-date metrics
 
 # If YEAR_TYPE = "fiscal", set the first month and day of fiscal year
-FISCAL_YEAR_START_MONTH = 8  # October
+FISCAL_YEAR_START_MONTH = 10  # October
 FISCAL_YEAR_START_DAY = 1     # 1st
 
 # Number of years to display in comparison (current year + this many previous years)
@@ -96,8 +99,22 @@ SHOW_ZERO_ATTENDANCE = True
 # Default to collapsed organizations - set to TRUE
 DEFAULT_COLLAPSED = True
 
-# Show/hide program summary section
+# Report Type: "brief" or "extended"
+# Brief = shows program summary headers only (hides individual org breakouts)
+# Extended = shows program summary headers AND individual org breakouts underneath
+DEFAULT_REPORT_TYPE = "brief"
+
+# Show/hide program summary section (top section with aggregated stats)
 SHOW_PROGRAM_SUMMARY = True
+
+# Show/hide detailed program tables (the "Worship", "Online Worship", etc. sections)
+# When False (Brief): shows only Program Summary table at top
+# When True (Extended): shows Program Summary AND detailed program tables with org breakouts
+SHOW_PROGRAM_BREAKOUTS = False  # Default False for brief mode
+
+# Brief mode flag - when True, shows only Weekly Actuals and Enrollment Metrics
+# with a link to full report
+BRIEF_MODE = False
 
 # Show/hide specific columns in program tables
 SHOW_CURRENT_WEEK_COLUMN = False
@@ -2227,7 +2244,12 @@ class AttendanceReport:
         
         # Show option to expand organizations (default is collapsed)
         expand_checked = "" if self.collapse_orgs else "checked"
-        
+
+        # Determine report type (brief or extended)
+        report_type = getattr(model.Data, 'report_type', None) or DEFAULT_REPORT_TYPE
+        brief_checked = "checked" if report_type == "brief" else ""
+        extended_checked = "checked" if report_type == "extended" else ""
+
         # Set checked states based on current settings
         show_program_summary_checked = "checked" if SHOW_PROGRAM_SUMMARY else ""
         show_four_week_comparison_checked = "checked" if SHOW_FOUR_WEEK_COMPARISON else ""
@@ -2244,23 +2266,34 @@ class AttendanceReport:
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
                 <label for="report_date">Report Date (Sunday):</label>
                 <input type="date" id="report_date" name="report_date" value="{0:}" required>
-                
+
+                <span style="margin-left: 15px; display: inline-flex; align-items: center; gap: 15px; background-color: #e8e8e8; padding: 5px 12px; border-radius: 4px;">
+                    <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer; margin: 0;">
+                        <input type="radio" name="report_type" value="brief" {15:} onchange="toggleReportType()">
+                        <strong>Brief</strong>
+                    </label>
+                    <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer; margin: 0;">
+                        <input type="radio" name="report_type" value="extended" {16:} onchange="toggleReportType()">
+                        <strong>Extended</strong>
+                    </label>
+                </span>
+
                 <button type="submit" id="run-report-btn" style="padding: 5px 10px; background-color: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer; position: relative;">
                     Run Report
                 </button>
-                
+
                 <button type="button" onclick="toggleExceptionsPanel()" style="padding: 5px 10px; background-color: #FF9800; color: white; border: none; border-radius: 3px; cursor: pointer;">
                     ⚠️ Manage Exceptions
                 </button>
             </div>
-            
-            <div style="margin-top: 10px;">
+
+            <div id="expand-involvements-option" style="margin-top: 10px; display: none;">
                 <label>
                     <input type="checkbox" name="collapse_orgs" value="no" {1:}>
                     Expand Involvements (Default is Collapsed).. Note: This is slow.. 3+ minutes slow at times.
                 </label>
             </div>
-            
+
             <div style="margin-top: 15px;">
                 <details>
                     <summary style="cursor: pointer; padding: 5px; background-color: #f0f0f0; border-radius: 3px;">Advanced Display Options</summary>
@@ -2330,6 +2363,28 @@ class AttendanceReport:
         </form>
         
         <script>
+        // Toggle report type visibility
+        // Brief = shows Program Summary table only (hides detailed program tables like "Worship", "Online Worship", etc.)
+        // Extended = shows Program Summary AND detailed program tables with org breakouts
+        function toggleReportType() {{
+            var reportType = document.querySelector('input[name="report_type"]:checked').value;
+            var expandOption = document.getElementById('expand-involvements-option');
+
+            if (reportType === 'extended') {{
+                // Extended mode: show expand involvements option (org breakouts will be shown)
+                expandOption.style.display = 'block';
+            }} else {{
+                // Brief mode: hide expand involvements option (org breakouts will be hidden)
+                expandOption.style.display = 'none';
+                // Uncheck expand involvements when switching to brief
+                var collapseCheckbox = document.querySelector('input[name="collapse_orgs"]');
+                if (collapseCheckbox) collapseCheckbox.checked = false;
+            }}
+
+            // Save report type preference
+            localStorage.setItem('attendance_report_type', reportType);
+        }}
+
         // Store form settings in localStorage when form is submitted
         document.getElementById('report-form').addEventListener('submit', function(e) {{
             var checkboxes = this.querySelectorAll('input[type="checkbox"]');
@@ -2338,10 +2393,39 @@ class AttendanceReport:
                     localStorage.setItem('attendance_' + checkbox.name, checkbox.checked ? 'yes' : 'no');
                 }}
             }});
+            // Save report type
+            var reportType = document.querySelector('input[name="report_type"]:checked');
+            if (reportType) {{
+                localStorage.setItem('attendance_report_type', reportType.value);
+            }}
         }});
-        
+
         // Load saved settings when page loads
         document.addEventListener('DOMContentLoaded', function() {{
+            // Check if report_type is in URL parameters first - URL takes precedence over localStorage
+            var urlParams = new URLSearchParams(window.location.search);
+            var urlReportType = urlParams.get('report_type');
+
+            if (urlReportType) {{
+                // URL parameter exists - use it and update localStorage
+                var radioBtn = document.querySelector('input[name="report_type"][value="' + urlReportType + '"]');
+                if (radioBtn) {{
+                    radioBtn.checked = true;
+                    localStorage.setItem('attendance_report_type', urlReportType);
+                }}
+            }} else {{
+                // No URL parameter - fall back to localStorage
+                var savedReportType = localStorage.getItem('attendance_report_type');
+                if (savedReportType) {{
+                    var radioBtn = document.querySelector('input[name="report_type"][value="' + savedReportType + '"]');
+                    if (radioBtn) {{
+                        radioBtn.checked = true;
+                    }}
+                }}
+            }}
+            // Apply visibility based on current selection
+            toggleReportType();
+
             var checkboxes = document.querySelectorAll('input[type="checkbox"]');
             checkboxes.forEach(function(checkbox) {{
                 if (checkbox.name && checkbox.name !== 'collapse_orgs' && !checkbox.disabled) {{
@@ -2373,10 +2457,10 @@ class AttendanceReport:
             show_fytd_avg_checked,                # {11:}
             ReportHelper.get_ytd_label(),         # {12:}
             send_email_html,                      # {13:}
-            show_detailed_enrollment_checked      # {14:}  # Add this line
+            show_detailed_enrollment_checked,     # {14:}
+            brief_checked,                        # {15:}
+            extended_checked                      # {16:}
         )
-        
-        return form_html
         
     def get_enrollment_ratio_sql(self, program_id=None, division_id=None, org_id=None):
         """Get SQL to calculate enrollment to attendance ratio over rolling window."""
@@ -5651,7 +5735,10 @@ class AttendanceReport:
                 </script>
                 """
 
-        # Return both the weekly KPIs and the summary HTML
+        # In brief mode, return only the weekly KPIs section
+        # In extended mode, return both the weekly KPIs and the summary HTML
+        if BRIEF_MODE:
+            return weekly_kpi_html
         return weekly_kpi_html + summary_html
         
     def send_email_report(self, email_to, report_content):
@@ -6770,8 +6857,8 @@ class AttendanceReport:
             if not for_email:
                 print "<div style='color: red;'>Error: {}</div>".format(str(e))
         
-        # Add exceptions display if enabled
-        if SHOW_EXCEPTIONS and self.exceptions_manager:
+        # Add exceptions display if enabled - only in extended mode
+        if not BRIEF_MODE and SHOW_EXCEPTIONS and self.exceptions_manager:
             # Get exceptions for the current report period (4 weeks)
             exceptions_in_period = self.exceptions_manager.get_exceptions_in_range(
                 self.four_weeks_ago_start_date,
@@ -6779,13 +6866,14 @@ class AttendanceReport:
             )
             if exceptions_in_period:
                 report_content += self.exceptions_manager.format_exceptions_html(exceptions_in_period)
-        
-        # Add fiscal year-to-date summary (only once) - pass worship-specific YTD
-        report_content += self.generate_fiscal_year_summary(
-            worship_ytd_totals.get(self.current_year, 0),
-            worship_ytd_totals.get(self.current_year - 1, 0)
-        )
-                
+
+        # Add fiscal year-to-date summary - only in extended mode
+        if not BRIEF_MODE:
+            report_content += self.generate_fiscal_year_summary(
+                worship_ytd_totals.get(self.current_year, 0),
+                worship_ytd_totals.get(self.current_year - 1, 0)
+            )
+
         # Add enrollment analysis section if any configured programs are present
         program_names = [p.Name for p in programs]
         has_enrollment_programs = any(prog in ENROLLMENT_ANALYSIS_PROGRAMS for prog in program_names)
@@ -6793,22 +6881,39 @@ class AttendanceReport:
         if has_enrollment_programs:
             enrollment_section = self.generate_enrollment_analysis_section(for_email=for_email)
             report_content += enrollment_section
-        
-        # Get data for program totals section
-        current_week_data = self.get_week_attendance_data(self.week_start_date, self.report_date)
-        previous_week_data = self.get_week_attendance_data(
-            self.previous_week_start_date, 
-            self.previous_year_date
-        )
-        
-        # Add program totals section if enabled
-        if SHOW_PROGRAM_SUMMARY:
-            report_content += self.generate_selected_program_average_summaries(
-                current_week_data,
-                previous_week_data,
-                ytd_overall_totals[self.current_year],
-                ytd_overall_totals[self.current_year - 1] if self.current_year - 1 in ytd_overall_totals else 0
+
+        # In brief mode, add a link to the full report after the enrollment section
+        if BRIEF_MODE:
+            # Format the report date for the URL
+            report_date_str = self.report_date.strftime('%Y-%m-%d')
+            report_content += """
+            <div style="margin-top: 20px; margin-bottom: 20px; padding: 15px; background-color: #e8f4fd; border-radius: 5px; border-left: 4px solid #2196F3; text-align: center;">
+                <p style="margin: 0; font-size: 14px; color: #333;">
+                    <strong>Want more details?</strong>
+                    <a href="https://myfbch.com/PyScript/TPxi_WeeklyAttendance?report_type=extended&report_date={0}"
+                       style="color: #1976D2; text-decoration: none; font-weight: bold; margin-left: 10px;">
+                        View Full Report &rarr;
+                    </a>
+                </p>
+            </div>
+            """.format(report_date_str)
+
+        # Get data for program totals section - only in extended mode
+        if not BRIEF_MODE:
+            current_week_data = self.get_week_attendance_data(self.week_start_date, self.report_date)
+            previous_week_data = self.get_week_attendance_data(
+                self.previous_week_start_date,
+                self.previous_year_date
             )
+
+            # Add program totals section if enabled
+            if SHOW_PROGRAM_SUMMARY:
+                report_content += self.generate_selected_program_average_summaries(
+                    current_week_data,
+                    previous_week_data,
+                    ytd_overall_totals[self.current_year],
+                    ytd_overall_totals[self.current_year - 1] if self.current_year - 1 in ytd_overall_totals else 0
+                )
         
         # Update progress before program tables
         if not for_email:
@@ -6836,114 +6941,115 @@ class AttendanceReport:
             </script>
             """
         
-        # Generate program tables
-        performance_timer.start("generate_program_tables")
-        for program in programs:
-            order, service_times = ReportHelper.parse_program_rpt_group(program.RptGroup)
-            if not service_times:
-                continue
-            
-            # Start a new table for each program section
-            report_content += """
-            <h3>{}. {}</h3>
-            <table>
-            """.format(order, program.Name)
-            
-            # Add the header row
-            report_content += self.generate_header_row(service_times)
-            
-            # Get program attendance data for multiple years
-            years_program_data = self.get_multiple_years_attendance_data(
-                self.report_date,
-                program_id=program.Id
-            )
-            
-            # Get YTD data for multiple years
-            years_program_ytd = self.get_multiple_years_ytd_data(
-                self.report_date,
-                program_id=program.Id
-            )
-            
-            # Get four-week comparison data if enabled
-            four_week_data = None
-            if SHOW_FOUR_WEEK_COMPARISON:
-                four_week_data = self.get_four_week_attendance_comparison(program_id=program.Id)
-            
-            # Add program row
-            report_content += self.generate_program_row(
-                program, 
-                years_program_data, 
-                years_program_ytd,
-                four_week_data
-            )
-            
-            # Get divisions for this program
-            divisions = q.QuerySql(self.get_divisions_sql(program.Id))
-            
-            for division in divisions:
-                # Get division attendance data for multiple years
-                years_division_data = self.get_multiple_years_attendance_data(
+        # Generate program tables (only in Extended mode, Brief mode shows only Program Summary)
+        if SHOW_PROGRAM_BREAKOUTS:
+            performance_timer.start("generate_program_tables")
+            for program in programs:
+                order, service_times = ReportHelper.parse_program_rpt_group(program.RptGroup)
+                if not service_times:
+                    continue
+
+                # Start a new table for each program section
+                report_content += """
+                <h3>{}. {}</h3>
+                <table>
+                """.format(order, program.Name)
+
+                # Add the header row
+                report_content += self.generate_header_row(service_times)
+
+                # Get program attendance data for multiple years
+                years_program_data = self.get_multiple_years_attendance_data(
                     self.report_date,
-                    division_id=division.Id
+                    program_id=program.Id
                 )
-                
+
                 # Get YTD data for multiple years
-                years_division_ytd = self.get_multiple_years_ytd_data(
+                years_program_ytd = self.get_multiple_years_ytd_data(
                     self.report_date,
-                    division_id=division.Id
+                    program_id=program.Id
                 )
-                
-                # Get four-week comparison data for division if enabled
-                division_four_week_data = None
+
+                # Get four-week comparison data if enabled
+                four_week_data = None
                 if SHOW_FOUR_WEEK_COMPARISON:
-                    division_four_week_data = self.get_four_week_attendance_comparison(division_id=division.Id)
-                
-                # # Add division row
-                division_row = self.generate_division_row(
-                    division, 
-                    years_division_data, 
-                    years_division_ytd,
-                    division_four_week_data
+                    four_week_data = self.get_four_week_attendance_comparison(program_id=program.Id)
+
+                # Add program row
+                report_content += self.generate_program_row(
+                    program,
+                    years_program_data,
+                    years_program_ytd,
+                    four_week_data
                 )
-                report_content += division_row
-                
-                # Add organizations if needed and not collapsed
-                if SHOW_ORGANIZATION_DETAILS and not self.collapse_orgs and (division_row != ""):
-                    organizations = q.QuerySql(self.get_organizations_sql(division.Id))
-                    
-                    for org in organizations:
-                        # Get organization attendance data for multiple years
-                        performance_timer.start("org_processing_{}".format(org.OrganizationId))
-                        years_org_data = self.get_multiple_years_attendance_data(
-                            self.report_date,
-                            org_id=org.OrganizationId
-                        )
-                        
-                        # Get YTD data for multiple years
-                        years_org_ytd = self.get_multiple_years_ytd_data(
-                            self.report_date,
-                            org_id=org.OrganizationId
-                        )
-                        
-                        # Get four-week comparison data for organization if enabled
-                        org_four_week_data = None
-                        if SHOW_FOUR_WEEK_COMPARISON:
-                            org_four_week_data = self.get_four_week_attendance_comparison(org_id=org.OrganizationId)
-                            
-                        performance_timer.log("org_processing_{}".format(org.OrganizationId))
-                        
-                        # Add organization row
-                        report_content += self.generate_organization_row(
-                            org, 
-                            years_org_data, 
-                            years_org_ytd,
-                            org_four_week_data
-                        )
-            
-            # Close the table
-            report_content += "</table>"
-        
-        performance_timer.end("generate_program_tables")
+
+                # Get divisions for this program
+                divisions = q.QuerySql(self.get_divisions_sql(program.Id))
+
+                for division in divisions:
+                    # Get division attendance data for multiple years
+                    years_division_data = self.get_multiple_years_attendance_data(
+                        self.report_date,
+                        division_id=division.Id
+                    )
+
+                    # Get YTD data for multiple years
+                    years_division_ytd = self.get_multiple_years_ytd_data(
+                        self.report_date,
+                        division_id=division.Id
+                    )
+
+                    # Get four-week comparison data for division if enabled
+                    division_four_week_data = None
+                    if SHOW_FOUR_WEEK_COMPARISON:
+                        division_four_week_data = self.get_four_week_attendance_comparison(division_id=division.Id)
+
+                    # Add division row
+                    division_row = self.generate_division_row(
+                        division,
+                        years_division_data,
+                        years_division_ytd,
+                        division_four_week_data
+                    )
+                    report_content += division_row
+
+                    # Add organizations if needed and not collapsed
+                    if SHOW_ORGANIZATION_DETAILS and not self.collapse_orgs and (division_row != ""):
+                        organizations = q.QuerySql(self.get_organizations_sql(division.Id))
+
+                        for org in organizations:
+                            # Get organization attendance data for multiple years
+                            performance_timer.start("org_processing_{}".format(org.OrganizationId))
+                            years_org_data = self.get_multiple_years_attendance_data(
+                                self.report_date,
+                                org_id=org.OrganizationId
+                            )
+
+                            # Get YTD data for multiple years
+                            years_org_ytd = self.get_multiple_years_ytd_data(
+                                self.report_date,
+                                org_id=org.OrganizationId
+                            )
+
+                            # Get four-week comparison data for organization if enabled
+                            org_four_week_data = None
+                            if SHOW_FOUR_WEEK_COMPARISON:
+                                org_four_week_data = self.get_four_week_attendance_comparison(org_id=org.OrganizationId)
+
+                            performance_timer.log("org_processing_{}".format(org.OrganizationId))
+
+                            # Add organization row
+                            report_content += self.generate_organization_row(
+                                org,
+                                years_org_data,
+                                years_org_ytd,
+                                org_four_week_data
+                            )
+
+                # Close the table
+                report_content += "</table>"
+
+            performance_timer.end("generate_program_tables")
         
         # Signal completion
         if not for_email:
@@ -7720,39 +7826,59 @@ class AttendanceReport:
                     four_week_totals if SHOW_FOUR_WEEK_COMPARISON else None
                 )
                 
-                # Add fiscal year-to-date summary - pass worship-specific YTD
-                report_html += self.generate_fiscal_year_summary(
-                    worship_ytd_totals.get(self.current_year, 0),
-                    worship_ytd_totals.get(self.current_year - 1, 0)
-                )
-                
+                # Add fiscal year-to-date summary - only in extended mode
+                if not BRIEF_MODE:
+                    report_html += self.generate_fiscal_year_summary(
+                        worship_ytd_totals.get(self.current_year, 0),
+                        worship_ytd_totals.get(self.current_year - 1, 0)
+                    )
+
                 # Add enrollment analysis section if configured
                 if any(prog in ENROLLMENT_ANALYSIS_PROGRAMS for prog in [p.Name for p in programs]):
                     report_html += self.generate_enrollment_analysis_section()
-                
-                # Get data for program totals section
-                current_week_data = self.get_week_attendance_data(self.week_start_date, self.report_date)
-                previous_week_data = self.get_week_attendance_data(
-                    self.previous_week_start_date, 
-                    self.previous_year_date
-                )
-                
-                # Add program totals section if enabled
-                if SHOW_PROGRAM_SUMMARY:
-                    report_html += self.generate_selected_program_average_summaries(
-                        current_week_data,
-                        previous_week_data,
-                        ytd_overall_totals[self.current_year],
-                        ytd_overall_totals[self.current_year - 1] if self.current_year - 1 in ytd_overall_totals else 0
+
+                # In brief mode, add a link to the full report after the enrollment section
+                if BRIEF_MODE:
+                    # Format the report date for the URL
+                    report_date_str = self.report_date.strftime('%Y-%m-%d')
+                    report_html += """
+                    <div style="margin-top: 20px; margin-bottom: 20px; padding: 15px; background-color: #e8f4fd; border-radius: 5px; border-left: 4px solid #2196F3; text-align: center;">
+                        <p style="margin: 0; font-size: 14px; color: #333;">
+                            <strong>Want more details?</strong>
+                            <a href="https://myfbch.com/PyScript/TPxi_WeeklyAttendance?report_type=extended&report_date={0}"
+                               target="_blank"
+                               style="color: #1976D2; text-decoration: none; font-weight: bold; margin-left: 10px;">
+                                View Full Report &rarr;
+                            </a>
+                        </p>
+                    </div>
+                    """.format(report_date_str)
+
+                # Get data for program totals section - only in extended mode
+                if not BRIEF_MODE:
+                    current_week_data = self.get_week_attendance_data(self.week_start_date, self.report_date)
+                    previous_week_data = self.get_week_attendance_data(
+                        self.previous_week_start_date,
+                        self.previous_year_date
                     )
-                
-                # Now generate the detailed program tables using the optimized method
-                report_html += self.generate_report_content_optimized()
-                
-                # Add 4-week exceptions display at the bottom if applicable
-                if SHOW_EXCEPTIONS and self.exceptions_manager:
+
+                    # Add program totals section if enabled
+                    if SHOW_PROGRAM_SUMMARY:
+                        report_html += self.generate_selected_program_average_summaries(
+                            current_week_data,
+                            previous_week_data,
+                            ytd_overall_totals[self.current_year],
+                            ytd_overall_totals[self.current_year - 1] if self.current_year - 1 in ytd_overall_totals else 0
+                        )
+
+                # Now generate the detailed program tables using the optimized method (only in Extended mode)
+                if SHOW_PROGRAM_BREAKOUTS:
+                    report_html += self.generate_report_content_optimized()
+
+                # Add 4-week exceptions display at the bottom if applicable (only in extended mode)
+                if not BRIEF_MODE and SHOW_EXCEPTIONS and self.exceptions_manager:
                     report_html += self.generate_four_week_exceptions_display()
-                    
+
                     # Add the full exceptions list (collapsible)
                     report_html += self.generate_all_exceptions_display()
             else:
@@ -8033,7 +8159,23 @@ try:
             SHOW_PROGRAM_SUMMARY = True
         elif show_program_summary == 'no':
             SHOW_PROGRAM_SUMMARY = False
-    
+
+        # Handle report_type parameter (brief/extended)
+        # Brief hides detailed program tables, Extended shows them
+        # Also sets BRIEF_MODE which controls what sections are shown
+        global BRIEF_MODE
+        report_type = getattr(model.Data, 'report_type', None) or DEFAULT_REPORT_TYPE
+        if report_type == 'brief':
+            SHOW_PROGRAM_BREAKOUTS = False
+            BRIEF_MODE = True
+        elif report_type == 'extended':
+            SHOW_PROGRAM_BREAKOUTS = True
+            BRIEF_MODE = False
+        else:
+            # Fallback to brief if unknown value
+            SHOW_PROGRAM_BREAKOUTS = False
+            BRIEF_MODE = True
+
         show_four_week = getattr(model.Data, 'show_four_week', None)
         if show_four_week == 'yes':
             SHOW_FOUR_WEEK_COMPARISON = True
