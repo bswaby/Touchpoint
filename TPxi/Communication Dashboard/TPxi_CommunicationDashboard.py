@@ -6,6 +6,33 @@
 # - SMS/text message statistics with delivery performance
 # - Top senders analytics with delivery rates
 # - Program-specific communication metrics
+# - Department-based communication tracking
+#
+# Features:
+# - Modular design for easier maintenance
+# - Better error handling with user-friendly messages
+# - Loading indicators for long-running operations
+# - Configurable options for customization
+# - Fixed SQL queries with proper column references
+# - Improved UI with responsive design
+# - Complete SMS analytics with sender information and failure breakdowns
+# - Department tracking with email-to-department mapping
+#
+#####################################################################
+#### UPDATE HISTORY
+#####################################################################
+# 2026-01-24 - Department Tracking Enhancement
+#   - Added Departments tab with combined Email + SMS stats per department
+#   - Added department breakdown to Email Stats tab (above campaigns)
+#   - Added department breakdown to SMS Stats tab (above campaigns)
+#   - Added Settings tab for email-to-department mapping management
+#   - Settings supports both involvement-based subgroups (dynamic) AND
+#     custom department names (for churches without department involvements)
+#   - Added "Add Mapping" modal with dropdown for existing departments
+#   - Added failure type breakdown by department for both Email and SMS
+#   - Fixed SMS delivery rate calculation (Delivered / (Delivered+Failed))
+#   - Fixed format specifier errors for delivery rate percentages
+#   - Shows "N/A" instead of "0.0%" when no data exists for a department
 #
 #####################################################################
 #### UPLOAD INSTRUCTIONS
@@ -65,7 +92,25 @@ class Config:
     PAGINATION_DEBUG = False
     
     # Performance mode - set to True to use simplified queries for large datasets
-    PERFORMANCE_MODE = False  # Disabled actual metrics
+    PERFORMANCE_MODE = False  # Disabled to show actual metrics
+
+    # Department Tracking (Optional)
+    # Enable to track communications by department using involvement subgroups
+    # NOTE: You can use department tracking in TWO ways:
+    #   1. With an involvement (DEPARTMENT_ORG_ID) - dropdown will show subgroup names
+    #   2. Without an involvement - set DEPARTMENT_ORG_ID = 0 and create custom
+    #      department names in the Settings tab. Users can always create custom
+    #      departments regardless of whether an involvement is configured.
+    DEPARTMENT_TRACKING_ENABLED = True  # Set to False to disable department tab
+    DEPARTMENT_ORG_ID = 852  # Staff involvement with department subgroups (or 0 for none)
+    DEPARTMENT_TAB_LABEL = "Departments"
+
+    # Modern UI Styling
+    USE_MODERN_STYLING = True  # Enable modern card-based UI styling
+
+    # Email Mapping Settings
+    EMAIL_MAPPING_CONTENT_NAME = "CommDashboard_EmailMappings"  # Special Content name for storing mappings
+    SETTINGS_TAB_ENABLED = True  # Enable settings tab for email mapping management
 
 #####################################################################
 #### INITIALIZATION
@@ -267,7 +312,7 @@ class ErrorHandler:
         if Config.DEBUG_MODE:
             return """
             <div class="alert alert-danger">
-                <h4><i class="glyphicon glyphicon-exclamation-sign"></i> Error in {0}</h4>
+                <h4>⚠️ Error in {0}</h4>
                 <p>{1}</p>
                 <pre style="max-height: 200px; overflow-y: auto;">{2}</pre>
             </div>
@@ -275,7 +320,7 @@ class ErrorHandler:
         else:
             return """
             <div class="alert alert-danger">
-                <h4><i class="glyphicon glyphicon-exclamation-sign"></i> Error</h4>
+                <h4>⚠️ Error</h4>
                 <p>An error occurred while loading {0}. Please try again later or contact support.</p>
             </div>
             """.format(section_name)
@@ -712,16 +757,17 @@ class DataRetrieval:
                 delivery_rate = 0
             
             # Calculate open rate
+            # Use total_emails to match how individual campaigns calculate rates
             open_rate = 0
-            if sent_emails > 0:
-                open_rate = (float(opens) / float(sent_emails)) * 100
+            if total_emails > 0:
+                open_rate = (float(opens) / float(total_emails)) * 100
             
             # Calculate click-through rate
             # Note: clicks are total clicks (not unique), opens are unique people
-            # So this rate might exceed 100% if people clicked multiple times
+            # Use total_emails to be consistent with individual campaign calculations
             click_rate = 0
-            if sent_emails > 0:
-                click_rate = (float(clicks) / float(sent_emails)) * 100
+            if total_emails > 0:
+                click_rate = (float(clicks) / float(total_emails)) * 100
             
             # Calculate bounce rate
             bounce_rate = 0
@@ -1849,6 +1895,620 @@ class DataRetrieval:
             print("<div class='alert alert-danger'>Error retrieving SMS top senders: {0}</div>".format(str(e)))
             return []
 
+    @staticmethod
+    def get_departments(dept_org_id):
+        """Dynamically discover departments (subgroups) in the staff involvement"""
+        try:
+            sql = """
+            SELECT
+                mt.Id as DepartmentId,
+                mt.Name as DepartmentName,
+                COUNT(DISTINCT ommt.PeopleId) as MemberCount
+            FROM dbo.MemberTags mt
+            LEFT JOIN dbo.OrgMemMemTags ommt ON mt.Id = ommt.MemberTagId AND mt.OrgId = ommt.OrgId
+            WHERE mt.OrgId = {org_id}
+            GROUP BY mt.Id, mt.Name
+            ORDER BY mt.Name
+            """.format(org_id=dept_org_id)
+
+            results = q.QuerySql(sql)
+            departments = []
+
+            for row in results:
+                try:
+                    dept_id = getattr(row, 'DepartmentId', 0)
+                    dept_name = getattr(row, 'DepartmentName', 'Unknown')
+                    member_count = getattr(row, 'MemberCount', 0)
+
+                    if dept_name:
+                        departments.append({
+                            'DepartmentId': dept_id,
+                            'DepartmentName': dept_name,
+                            'MemberCount': member_count if member_count else 0
+                        })
+                except:
+                    continue
+
+            return departments
+        except Exception as e:
+            print("<div class='alert alert-warning'>Warning: Unable to retrieve departments. {0}</div>".format(str(e)))
+            return []
+
+    @staticmethod
+    def get_department_communication_stats(sDate, eDate, dept_org_id):
+        """Get communication stats by department using PeopleId matching AND email mappings"""
+        try:
+            # Load email mappings for fallback
+            mappings = DataRetrieval.get_email_mappings()
+            email_map = mappings.get('emailMappings', {})
+            email_map_lower = {k.lower(): v for k, v in email_map.items()}
+
+            # Modified query to include sender email for mapping lookup
+            # Get per-sender stats first, then aggregate by department
+            sql = """
+            SELECT
+                ISNULL(mt.Name, '') as SubgroupDept,
+                ISNULL(p.EmailAddress, eq.FromAddr) as SenderEmail,
+                COUNT(DISTINCT eq.Id) as EmailCampaigns,
+                COUNT(DISTINCT eqt.PeopleId) as UniqueRecipients,
+                SUM(CASE WHEN fe.Id IS NULL THEN 1 ELSE 0 END) as Delivered,
+                SUM(CASE WHEN fe.Id IS NOT NULL THEN 1 ELSE 0 END) as Failed,
+                SUM(CASE WHEN er.Type = 'o' THEN 1 ELSE 0 END) as Opens,
+                COUNT(*) as TotalEmails
+            FROM dbo.EmailQueue eq
+            INNER JOIN dbo.People p ON eq.QueuedBy = p.PeopleId
+            INNER JOIN dbo.EmailQueueTo eqt ON eq.Id = eqt.Id
+            LEFT JOIN dbo.OrgMemMemTags ommt ON ommt.PeopleId = eq.QueuedBy
+                AND ommt.OrgId = {org_id}
+            LEFT JOIN dbo.MemberTags mt ON ommt.MemberTagId = mt.Id AND mt.OrgId = {org_id}
+            LEFT JOIN dbo.FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId
+            LEFT JOIN dbo.EmailResponses er ON eq.Id = er.EmailQueueId AND eqt.PeopleId = er.PeopleId
+            WHERE eqt.Sent BETWEEN '{sDate} 00:00:00' AND '{eDate} 23:59:59.999'
+            GROUP BY mt.Name, p.EmailAddress, eq.FromAddr
+            ORDER BY EmailCampaigns DESC
+            """.format(org_id=dept_org_id, sDate=sDate, eDate=eDate)
+
+            results = q.QuerySql(sql)
+
+            # Aggregate by department (considering email mappings)
+            dept_stats = {}
+
+            for row in results:
+                try:
+                    subgroup_dept = getattr(row, 'SubgroupDept', '') or ''
+                    sender_email = getattr(row, 'SenderEmail', '') or ''
+                    campaigns = getattr(row, 'EmailCampaigns', 0) or 0
+                    recipients = getattr(row, 'UniqueRecipients', 0) or 0
+                    delivered = getattr(row, 'Delivered', 0) or 0
+                    failed = getattr(row, 'Failed', 0) or 0
+                    opens = getattr(row, 'Opens', 0) or 0
+                    total_emails = getattr(row, 'TotalEmails', 0) or 0
+
+                    # Determine department: subgroup first, then email mapping, then "No Department"
+                    if subgroup_dept:
+                        dept_name = subgroup_dept
+                    elif sender_email and sender_email.lower() in email_map_lower:
+                        dept_name = email_map_lower[sender_email.lower()]
+                    else:
+                        dept_name = 'No Department'
+
+                    # Aggregate into department
+                    if dept_name not in dept_stats:
+                        dept_stats[dept_name] = {
+                            'Department': dept_name,
+                            'EmailCampaigns': 0,
+                            'UniqueRecipients': 0,
+                            'Delivered': 0,
+                            'Failed': 0,
+                            'Opens': 0,
+                            'TotalEmails': 0
+                        }
+
+                    dept_stats[dept_name]['EmailCampaigns'] += campaigns
+                    dept_stats[dept_name]['UniqueRecipients'] += recipients
+                    dept_stats[dept_name]['Delivered'] += delivered
+                    dept_stats[dept_name]['Failed'] += failed
+                    dept_stats[dept_name]['Opens'] += opens
+                    dept_stats[dept_name]['TotalEmails'] += total_emails
+                except:
+                    continue
+
+            # Convert to list and calculate rates
+            stats = []
+            for dept_name, data in dept_stats.items():
+                total_emails = data['TotalEmails']
+                delivery_rate = 0
+                open_rate = 0
+                if total_emails > 0:
+                    delivery_rate = (float(data['Delivered']) / float(total_emails)) * 100
+                    open_rate = (float(data['Opens']) / float(total_emails)) * 100
+
+                stats.append({
+                    'Department': dept_name,
+                    'EmailCampaigns': data['EmailCampaigns'],
+                    'UniqueRecipients': data['UniqueRecipients'],
+                    'Delivered': data['Delivered'],
+                    'Failed': data['Failed'],
+                    'Opens': data['Opens'],
+                    'TotalEmails': total_emails,
+                    'DeliveryRate': delivery_rate,
+                    'OpenRate': open_rate
+                })
+
+            # Sort by campaign count descending
+            stats.sort(key=lambda x: x['EmailCampaigns'], reverse=True)
+
+            return stats
+        except Exception as e:
+            print("<div class='alert alert-danger'>Error retrieving department communication stats: {0}</div>".format(str(e)))
+            return []
+
+    @staticmethod
+    def get_top_senders_by_department(sDate, eDate, dept_org_id):
+        """Get top senders grouped by their department (using subgroups AND email mappings)"""
+        try:
+            # Load email mappings for fallback
+            mappings = DataRetrieval.get_email_mappings()
+            email_map = mappings.get('emailMappings', {})
+            email_map_lower = {k.lower(): v for k, v in email_map.items()}
+
+            # Include sender email for mapping lookup
+            sql = """
+            SELECT TOP 100
+                p.Name2 as SenderName,
+                p.PeopleId as SenderId,
+                ISNULL(p.EmailAddress, eq.FromAddr) as SenderEmail,
+                ISNULL(mt.Name, '') as SubgroupDept,
+                COUNT(DISTINCT eq.Id) as Campaigns,
+                COUNT(DISTINCT eqt.PeopleId) as Recipients,
+                COUNT(*) as TotalEmails,
+                SUM(CASE WHEN fe.Id IS NULL THEN 1 ELSE 0 END) as Delivered
+            FROM dbo.EmailQueue eq
+            INNER JOIN dbo.People p ON eq.QueuedBy = p.PeopleId
+            INNER JOIN dbo.EmailQueueTo eqt ON eq.Id = eqt.Id
+            LEFT JOIN dbo.OrgMemMemTags ommt ON ommt.PeopleId = eq.QueuedBy
+                AND ommt.OrgId = {org_id}
+            LEFT JOIN dbo.MemberTags mt ON ommt.MemberTagId = mt.Id AND mt.OrgId = {org_id}
+            LEFT JOIN dbo.FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId
+            WHERE eqt.Sent BETWEEN '{sDate} 00:00:00' AND '{eDate} 23:59:59.999'
+            GROUP BY p.Name2, p.PeopleId, p.EmailAddress, eq.FromAddr, mt.Name
+            ORDER BY Campaigns DESC
+            """.format(org_id=dept_org_id, sDate=sDate, eDate=eDate)
+
+            results = q.QuerySql(sql)
+            senders = []
+
+            for row in results:
+                try:
+                    sender_name = getattr(row, 'SenderName', 'Unknown')
+                    sender_id = getattr(row, 'SenderId', 0)
+                    sender_email = getattr(row, 'SenderEmail', '') or ''
+                    subgroup_dept = getattr(row, 'SubgroupDept', '') or ''
+                    campaigns = getattr(row, 'Campaigns', 0) or 0
+                    recipients = getattr(row, 'Recipients', 0) or 0
+                    total_emails = getattr(row, 'TotalEmails', 0) or 0
+                    delivered = getattr(row, 'Delivered', 0) or 0
+
+                    # Determine department: subgroup first, then email mapping, then "No Department"
+                    if subgroup_dept:
+                        department = subgroup_dept
+                    elif sender_email and sender_email.lower() in email_map_lower:
+                        department = email_map_lower[sender_email.lower()]
+                    else:
+                        department = 'No Department'
+
+                    # Calculate delivery rate
+                    delivery_rate = 0
+                    if total_emails > 0:
+                        delivery_rate = (float(delivered) / float(total_emails)) * 100
+
+                    senders.append({
+                        'SenderName': sender_name if sender_name else 'Unknown',
+                        'SenderId': sender_id,
+                        'Department': department,
+                        'Campaigns': campaigns,
+                        'Recipients': recipients,
+                        'TotalEmails': total_emails,
+                        'Delivered': delivered,
+                        'DeliveryRate': delivery_rate
+                    })
+                except:
+                    continue
+
+            # Sort by department name, then campaigns
+            senders.sort(key=lambda x: (x['Department'], -x['Campaigns']))
+
+            return senders[:50]  # Return top 50
+        except Exception as e:
+            print("<div class='alert alert-danger'>Error retrieving top senders by department: {0}</div>".format(str(e)))
+            return []
+
+    @staticmethod
+    def get_department_email_failure_breakdown(sDate, eDate, dept_org_id):
+        """Get email failure breakdown by department and failure type"""
+        try:
+            # Load email mappings for department lookup
+            mappings = DataRetrieval.get_email_mappings()
+            email_map = mappings.get('emailMappings', {})
+            email_map_lower = {k.lower(): v for k, v in email_map.items()}
+
+            # Get failures grouped by sender and failure type
+            sql = """
+            SELECT
+                ISNULL(mt.Name, '') as SubgroupDept,
+                ISNULL(p.EmailAddress, eq.FromAddr) as SenderEmail,
+                COALESCE(fe.Fail, 'Unknown') as FailureType,
+                COUNT(*) as FailCount
+            FROM dbo.EmailQueue eq
+            INNER JOIN dbo.EmailQueueTo eqt ON eq.Id = eqt.Id
+            INNER JOIN dbo.FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId
+            INNER JOIN dbo.People p ON eq.QueuedBy = p.PeopleId
+            LEFT JOIN dbo.OrgMemMemTags ommt ON ommt.PeopleId = eq.QueuedBy
+                AND ommt.OrgId = {org_id}
+            LEFT JOIN dbo.MemberTags mt ON ommt.MemberTagId = mt.Id AND mt.OrgId = {org_id}
+            WHERE eqt.Sent BETWEEN '{sDate} 00:00:00' AND '{eDate} 23:59:59.999'
+            GROUP BY mt.Name, p.EmailAddress, eq.FromAddr, fe.Fail
+            ORDER BY COUNT(*) DESC
+            """.format(org_id=dept_org_id, sDate=sDate, eDate=eDate)
+
+            results = q.QuerySql(sql)
+
+            # Aggregate by department and failure type
+            dept_failures = {}
+
+            for row in results:
+                try:
+                    subgroup_dept = getattr(row, 'SubgroupDept', '') or ''
+                    sender_email = getattr(row, 'SenderEmail', '') or ''
+                    failure_type = getattr(row, 'FailureType', 'Unknown') or 'Unknown'
+                    count = getattr(row, 'FailCount', 0) or 0
+
+                    # Determine department
+                    if subgroup_dept:
+                        dept_name = subgroup_dept
+                    elif sender_email and sender_email.lower() in email_map_lower:
+                        dept_name = email_map_lower[sender_email.lower()]
+                    else:
+                        dept_name = 'No Department'
+
+                    # Create department entry if needed
+                    if dept_name not in dept_failures:
+                        dept_failures[dept_name] = {'Department': dept_name, 'FailureTypes': {}, 'TotalFailures': 0}
+
+                    # Add to failure type count
+                    if failure_type not in dept_failures[dept_name]['FailureTypes']:
+                        dept_failures[dept_name]['FailureTypes'][failure_type] = 0
+                    dept_failures[dept_name]['FailureTypes'][failure_type] += count
+                    dept_failures[dept_name]['TotalFailures'] += count
+                except:
+                    continue
+
+            # Convert to list format
+            result = []
+            for dept_name, data in dept_failures.items():
+                failure_list = [{'Type': ft, 'Count': cnt} for ft, cnt in sorted(data['FailureTypes'].items(), key=lambda x: -x[1])]
+                result.append({
+                    'Department': dept_name,
+                    'TotalFailures': data['TotalFailures'],
+                    'FailureTypes': failure_list
+                })
+
+            # Sort by total failures descending
+            result.sort(key=lambda x: x['TotalFailures'], reverse=True)
+
+            return result
+        except Exception as e:
+            print("<div class='alert alert-danger'>Error retrieving department email failure breakdown: {0}</div>".format(str(e)))
+            return []
+
+    @staticmethod
+    def get_department_sms_stats(sDate, eDate, dept_org_id):
+        """Get SMS stats by department using PeopleId matching AND email mappings"""
+        try:
+            # Load email mappings for fallback (can use same mappings for SMS senders)
+            mappings = DataRetrieval.get_email_mappings()
+            email_map = mappings.get('emailMappings', {})
+            email_map_lower = {k.lower(): v for k, v in email_map.items()}
+
+            # Get SMS stats grouped by sender, then aggregate by department
+            sql = """
+            SELECT
+                ISNULL(mt.Name, '') as SubgroupDept,
+                ISNULL(p.EmailAddress, '') as SenderEmail,
+                COUNT(DISTINCT sl.Id) as MessageCount,
+                SUM(CASE WHEN si.ResultStatus = 'Delivered' THEN 1 ELSE 0 END) as Delivered,
+                SUM(CASE WHEN si.ResultStatus != 'Delivered' OR si.ResultStatus IS NULL THEN 1 ELSE 0 END) as Failed
+            FROM dbo.SMSList sl
+            INNER JOIN dbo.SMSItems si ON sl.Id = si.ListId
+            INNER JOIN dbo.People p ON sl.SenderId = p.PeopleId
+            LEFT JOIN dbo.OrgMemMemTags ommt ON ommt.PeopleId = sl.SenderId
+                AND ommt.OrgId = {org_id}
+            LEFT JOIN dbo.MemberTags mt ON ommt.MemberTagId = mt.Id AND mt.OrgId = {org_id}
+            WHERE sl.SendAt BETWEEN '{sDate} 00:00:00' AND '{eDate} 23:59:59.999'
+            GROUP BY mt.Name, p.EmailAddress
+            """.format(org_id=dept_org_id, sDate=sDate, eDate=eDate)
+
+            results = q.QuerySql(sql)
+
+            # Aggregate by department (considering email mappings)
+            dept_stats = {}
+
+            for row in results:
+                try:
+                    subgroup_dept = getattr(row, 'SubgroupDept', '') or ''
+                    sender_email = getattr(row, 'SenderEmail', '') or ''
+                    messages = getattr(row, 'MessageCount', 0) or 0
+                    delivered = getattr(row, 'Delivered', 0) or 0
+                    failed = getattr(row, 'Failed', 0) or 0
+
+                    # Determine department: subgroup first, then email mapping, then "No Department"
+                    if subgroup_dept:
+                        dept_name = subgroup_dept
+                    elif sender_email and sender_email.lower() in email_map_lower:
+                        dept_name = email_map_lower[sender_email.lower()]
+                    else:
+                        dept_name = 'No Department'
+
+                    # Aggregate into department
+                    if dept_name not in dept_stats:
+                        dept_stats[dept_name] = {
+                            'Department': dept_name,
+                            'Messages': 0,
+                            'Delivered': 0,
+                            'Failed': 0
+                        }
+
+                    dept_stats[dept_name]['Messages'] += messages
+                    dept_stats[dept_name]['Delivered'] += delivered
+                    dept_stats[dept_name]['Failed'] += failed
+                except:
+                    continue
+
+            # Convert to list and calculate rates
+            stats = []
+            for dept_name, data in dept_stats.items():
+                # Calculate delivery rate based on actual items (Delivered + Failed), not campaign count
+                total_items = data['Delivered'] + data['Failed']
+                delivery_rate = 0
+                if total_items > 0:
+                    delivery_rate = (float(data['Delivered']) / float(total_items)) * 100
+
+                stats.append({
+                    'Department': dept_name,
+                    'Messages': data['Messages'],
+                    'Delivered': data['Delivered'],
+                    'Failed': data['Failed'],
+                    'DeliveryRate': delivery_rate
+                })
+
+            # Sort by message count descending
+            stats.sort(key=lambda x: x['Messages'], reverse=True)
+
+            return stats
+        except Exception as e:
+            print("<div class='alert alert-danger'>Error retrieving department SMS stats: {0}</div>".format(str(e)))
+            return []
+
+    @staticmethod
+    def get_department_sms_failure_breakdown(sDate, eDate, dept_org_id):
+        """Get SMS failure breakdown by department and failure type"""
+        try:
+            # Check if tables exist
+            if not DatabaseHelper.table_exists('SMSList') or not DatabaseHelper.table_exists('SMSItems'):
+                return []
+
+            # Load email mappings for department lookup
+            mappings = DataRetrieval.get_email_mappings()
+            email_map = mappings.get('emailMappings', {})
+            email_map_lower = {k.lower(): v for k, v in email_map.items()}
+
+            # Get failures grouped by sender and status
+            sql = """
+            SELECT
+                ISNULL(mt.Name, '') as SubgroupDept,
+                ISNULL(p.EmailAddress, '') as SenderEmail,
+                COALESCE(si.ResultStatus, 'Unknown') as FailureType,
+                COUNT(*) as FailCount
+            FROM dbo.SMSList sl
+            INNER JOIN dbo.SMSItems si ON sl.Id = si.ListId
+            INNER JOIN dbo.People p ON sl.SenderId = p.PeopleId
+            LEFT JOIN dbo.OrgMemMemTags ommt ON ommt.PeopleId = sl.SenderId
+                AND ommt.OrgId = {org_id}
+            LEFT JOIN dbo.MemberTags mt ON ommt.MemberTagId = mt.Id AND mt.OrgId = {org_id}
+            WHERE sl.SendAt BETWEEN '{sDate} 00:00:00' AND '{eDate} 23:59:59.999'
+                AND si.ResultStatus IS NOT NULL
+                AND si.ResultStatus <> 'Delivered'
+            GROUP BY mt.Name, p.EmailAddress, si.ResultStatus
+            ORDER BY COUNT(*) DESC
+            """.format(org_id=dept_org_id, sDate=sDate, eDate=eDate)
+
+            results = q.QuerySql(sql)
+
+            # Aggregate by department and failure type
+            dept_failures = {}
+
+            for row in results:
+                try:
+                    subgroup_dept = getattr(row, 'SubgroupDept', '') or ''
+                    sender_email = getattr(row, 'SenderEmail', '') or ''
+                    failure_type = getattr(row, 'FailureType', 'Unknown') or 'Unknown'
+                    count = getattr(row, 'FailCount', 0) or 0
+
+                    # Determine department
+                    if subgroup_dept:
+                        dept_name = subgroup_dept
+                    elif sender_email and sender_email.lower() in email_map_lower:
+                        dept_name = email_map_lower[sender_email.lower()]
+                    else:
+                        dept_name = 'No Department'
+
+                    # Create department entry if needed
+                    if dept_name not in dept_failures:
+                        dept_failures[dept_name] = {'Department': dept_name, 'FailureTypes': {}, 'TotalFailures': 0}
+
+                    # Add to failure type count
+                    if failure_type not in dept_failures[dept_name]['FailureTypes']:
+                        dept_failures[dept_name]['FailureTypes'][failure_type] = 0
+                    dept_failures[dept_name]['FailureTypes'][failure_type] += count
+                    dept_failures[dept_name]['TotalFailures'] += count
+                except:
+                    continue
+
+            # Convert to list format
+            result = []
+            for dept_name, data in dept_failures.items():
+                failure_list = [{'Type': ft, 'Count': cnt} for ft, cnt in sorted(data['FailureTypes'].items(), key=lambda x: -x[1])]
+                result.append({
+                    'Department': dept_name,
+                    'TotalFailures': data['TotalFailures'],
+                    'FailureTypes': failure_list
+                })
+
+            # Sort by total failures descending
+            result.sort(key=lambda x: x['TotalFailures'], reverse=True)
+
+            return result
+        except Exception as e:
+            print("<div class='alert alert-danger'>Error retrieving department SMS failure breakdown: {0}</div>".format(str(e)))
+            return []
+
+    @staticmethod
+    def get_email_mappings():
+        """Load email-to-department mappings from TouchPoint Special Content"""
+        try:
+            import json
+            content = model.TextContent(Config.EMAIL_MAPPING_CONTENT_NAME)
+            if content:
+                return json.loads(content)
+            else:
+                # Return default structure if no content exists
+                return {
+                    "emailMappings": {},
+                    "customDepartments": [],
+                    "useInvolvementSubgroups": True
+                }
+        except Exception as e:
+            print("<div class='alert alert-warning'>Warning: Unable to load email mappings. {0}</div>".format(str(e)))
+            return {
+                "emailMappings": {},
+                "customDepartments": [],
+                "useInvolvementSubgroups": True
+            }
+
+    @staticmethod
+    def save_email_mappings(mappings_data):
+        """Save email-to-department mappings to TouchPoint Special Content"""
+        try:
+            import json
+            content = json.dumps(mappings_data, indent=2)
+            model.WriteContentText(Config.EMAIL_MAPPING_CONTENT_NAME, content, "")
+            return True
+        except Exception as e:
+            print("<div class='alert alert-danger'>Error saving email mappings: {0}</div>".format(str(e)))
+            return False
+
+    @staticmethod
+    def get_unmapped_senders(sDate, eDate, dept_org_id):
+        """Find email senders that are not mapped to any department"""
+        try:
+            # Get all unique senders in date range, grouped by email address
+            sql = """
+            SELECT
+                MAX(eq.QueuedBy) as SenderId,
+                MAX(p.Name2) as SenderName,
+                LOWER(ISNULL(p.EmailAddress, eq.FromAddr)) as SenderEmail,
+                SUM(cnt.CampaignCount) as CampaignCount
+            FROM (
+                SELECT eq2.QueuedBy, COUNT(DISTINCT eq2.Id) as CampaignCount
+                FROM dbo.EmailQueue eq2
+                INNER JOIN dbo.EmailQueueTo eqt2 ON eq2.Id = eqt2.Id
+                WHERE eqt2.Sent BETWEEN '{sDate} 00:00:00' AND '{eDate} 23:59:59.999'
+                GROUP BY eq2.QueuedBy
+            ) cnt
+            INNER JOIN dbo.EmailQueue eq ON cnt.QueuedBy = eq.QueuedBy
+            INNER JOIN dbo.People p ON eq.QueuedBy = p.PeopleId
+            -- Exclude those already in a department subgroup
+            WHERE NOT EXISTS (
+                SELECT 1 FROM dbo.OrgMemMemTags ommt
+                WHERE ommt.PeopleId = eq.QueuedBy
+                AND ommt.OrgId = {org_id}
+            )
+            GROUP BY LOWER(ISNULL(p.EmailAddress, eq.FromAddr))
+            ORDER BY CampaignCount DESC
+            """.format(org_id=dept_org_id, sDate=sDate, eDate=eDate)
+
+            results = q.QuerySql(sql)
+            senders = []
+
+            # Load existing mappings to check which are already mapped
+            mappings = DataRetrieval.get_email_mappings()
+            email_map = mappings.get('emailMappings', {})
+
+            for row in results:
+                try:
+                    sender_id = getattr(row, 'SenderId', 0)
+                    sender_name = getattr(row, 'SenderName', 'Unknown')
+                    sender_email = getattr(row, 'SenderEmail', '')
+                    campaign_count = getattr(row, 'CampaignCount', 0)
+
+                    # Check if this email is already mapped
+                    is_mapped = sender_email.lower() in [k.lower() for k in email_map.keys()] if sender_email else False
+                    mapped_dept = None
+                    if is_mapped:
+                        for k, v in email_map.items():
+                            if k.lower() == sender_email.lower():
+                                mapped_dept = v
+                                break
+
+                    senders.append({
+                        'SenderId': sender_id,
+                        'SenderName': sender_name,
+                        'SenderEmail': sender_email or 'No email',
+                        'CampaignCount': campaign_count,
+                        'IsMapped': is_mapped,
+                        'MappedDepartment': mapped_dept
+                    })
+                except:
+                    continue
+
+            return senders
+        except Exception as e:
+            print("<div class='alert alert-danger'>Error retrieving unmapped senders: {0}</div>".format(str(e)))
+            return []
+
+    @staticmethod
+    def get_all_available_departments(dept_org_id):
+        """Get all available departments from involvement subgroups AND custom mappings"""
+        departments = set()
+
+        # Get involvement subgroups
+        try:
+            subgroups = DataRetrieval.get_departments(dept_org_id)
+            for sg in subgroups:
+                dept_name = sg.get('DepartmentName', '')
+                if dept_name:
+                    departments.add(dept_name)
+        except:
+            pass
+
+        # Get custom departments from mappings
+        try:
+            mappings = DataRetrieval.get_email_mappings()
+            custom_depts = mappings.get('customDepartments', [])
+            for dept in custom_depts:
+                if dept:
+                    departments.add(dept)
+
+            # Also add departments from email mappings
+            email_map = mappings.get('emailMappings', {})
+            for dept in email_map.values():
+                if dept:
+                    departments.add(dept)
+        except:
+            pass
+
+        return sorted(list(departments))
+
 #####################################################################
 #### UI RENDERING FUNCTIONS
 #####################################################################
@@ -1947,10 +2607,10 @@ class UIRenderer:
                         <div class="form-group">
                             <div class="col-sm-offset-2 col-sm-10">
                                 <button type="submit" class="btn btn-primary">
-                                    <i class="glyphicon glyphicon-filter"></i> Apply Filters
+                                    🔍 Apply Filters
                                 </button>
                                 <a href="?" class="btn btn-default">
-                                    <i class="glyphicon glyphicon-refresh"></i> Reset Filters
+                                    🔄 Reset Filters
                                 </a>
                             </div>
                         </div>
@@ -1973,46 +2633,105 @@ class UIRenderer:
 
     @staticmethod
     def render_nav_tabs():
-        """Render navigation tabs for different sections"""
-        
-        # Define tabs
+        """Render navigation tabs for different sections with modern styling"""
+
+        # Define tabs with Unicode icons
         tabs = [
-            {'id': 'dashboard', 'label': 'Dashboard Overview', 'icon': 'dashboard'},
-            {'id': 'email', 'label': 'Email Stats', 'icon': 'envelope'},
-            {'id': 'sms', 'label': 'SMS Stats', 'icon': 'phone'},
-            {'id': 'senders', 'label': 'Top Senders', 'icon': 'user'},
-            {'id': 'programs', 'label': 'Program Stats', 'icon': 'list-alt'}
+            {'id': 'dashboard', 'label': 'Dashboard Overview', 'icon': '📊'},
+            {'id': 'email', 'label': 'Email Stats', 'icon': '📧'},
+            {'id': 'sms', 'label': 'SMS Stats', 'icon': '📱'},
+            {'id': 'senders', 'label': 'Top Senders', 'icon': '👤'},
+            {'id': 'programs', 'label': 'Program Stats', 'icon': '📋'}
         ]
-        
-        html = """
-        <ul class="nav nav-tabs" role="tablist">
-        """
-        
-        for tab in tabs:
-            active = 'active' if model.Data.activeTab == tab['id'] else ''
+
+        # Add department tab if enabled
+        if Config.DEPARTMENT_TRACKING_ENABLED:
+            tabs.append({
+                'id': 'departments',
+                'label': Config.DEPARTMENT_TAB_LABEL,
+                'icon': '🏢'
+            })
+
+        # Add settings tab if enabled
+        if Config.SETTINGS_TAB_ENABLED:
+            tabs.append({
+                'id': 'settings',
+                'label': 'Settings',
+                'icon': '⚙️'
+            })
+
+        # Use modern styling if enabled
+        if Config.USE_MODERN_STYLING:
+            html = """
+            <ul class="nav-tabs-modern" role="tablist">
+            """
+
+            for tab in tabs:
+                active = 'active' if model.Data.activeTab == tab['id'] else ''
+                html += """
+                <li role="presentation">
+                    <a href="?activeTab={}&sDate={}&eDate={}&program={}&failclassification={}&HideSuccess={}" class="{}">
+                        <span class="tab-icon">{}</span> {}
+                    </a>
+                </li>
+                """.format(
+                    tab['id'],
+                    model.Data.sDate,
+                    model.Data.eDate,
+                    model.Data.program,
+                    model.Data.failclassification,
+                    'no' if model.Data.HideSuccess != 'yes' else 'yes',
+                    active,
+                    tab['icon'],
+                    tab['label']
+                )
+
             html += """
-            <li role="presentation" class="{}">
-                <a href="?activeTab={}&sDate={}&eDate={}&program={}&failclassification={}&HideSuccess={}">
-                    <i class="glyphicon glyphicon-{}"></i> {}
-                </a>
-            </li>
-            """.format(
-                active,
-                tab['id'],
-                model.Data.sDate,
-                model.Data.eDate,
-                model.Data.program,
-                model.Data.failclassification,
-                'no' if model.Data.HideSuccess != 'yes' else 'yes',
-                tab['icon'],
-                tab['label']
-            )
-        
-        html += """
-        </ul>
-        <div class="tab-content" style="padding-top: 20px;">
-        """
-        
+            </ul>
+            <div class="tab-content" style="padding-top: 20px;">
+            """
+        else:
+            # Fallback to original Bootstrap 3 tabs
+            html = """
+            <ul class="nav nav-tabs" role="tablist">
+            """
+
+            # Icon mapping for glyphicons (legacy)
+            icon_map = {
+                '📊': 'dashboard',
+                '📧': 'envelope',
+                '📱': 'phone',
+                '👤': 'user',
+                '📋': 'list-alt',
+                '🏢': 'th-large'
+            }
+
+            for tab in tabs:
+                active = 'active' if model.Data.activeTab == tab['id'] else ''
+                glyphicon = icon_map.get(tab['icon'], 'star')
+                html += """
+                <li role="presentation" class="{}">
+                    <a href="?activeTab={}&sDate={}&eDate={}&program={}&failclassification={}&HideSuccess={}">
+                        <i class="glyphicon glyphicon-{}"></i> {}
+                    </a>
+                </li>
+                """.format(
+                    active,
+                    tab['id'],
+                    model.Data.sDate,
+                    model.Data.eDate,
+                    model.Data.program,
+                    model.Data.failclassification,
+                    'no' if model.Data.HideSuccess != 'yes' else 'yes',
+                    glyphicon,
+                    tab['label']
+                )
+
+            html += """
+            </ul>
+            <div class="tab-content" style="padding-top: 20px;">
+            """
+
         return html
 
     @staticmethod
@@ -2051,173 +2770,313 @@ class UIRenderer:
                 float(combined_delivery_items)
             ) * 100
         
-        # Create HTML
-        html = """
-        <div class="panel panel-primary">
-            <div class="panel-heading">
-                <h3 class="panel-title">Communication Summary ({0} to {1})</h3>
+        # Build modern vs legacy HTML based on config
+        if Config.USE_MODERN_STYLING:
+            # Modern card-based layout
+            html = """
+            <!-- Communication Summary Header -->
+            <div class="section-card">
+                <div class="section-card-header">
+                    <h3>📊 Communication Summary ({0} to {1})</h3>
+                </div>
+                <div class="section-card-body">
+                    <!-- Modern Metric Grid -->
+                    <div class="metric-grid">
+                        <div class="metric-card primary">
+                            <div class="metric-icon">📨</div>
+                            <div class="metric-value">{2}</div>
+                            <div class="metric-label">Total Communications</div>
+                        </div>
+                        <div class="metric-card info">
+                            <div class="metric-icon">📧</div>
+                            <div class="metric-value">{3}</div>
+                            <div class="metric-label">Email Campaigns</div>
+                        </div>
+                        <div class="metric-card success">
+                            <div class="metric-icon">📱</div>
+                            <div class="metric-value">{4}</div>
+                            <div class="metric-label">SMS Campaigns</div>
+                        </div>
+                        <div class="metric-card warning">
+                            <div class="metric-icon">✅</div>
+                            <div class="metric-value">{5}</div>
+                            <div class="metric-label">Overall Delivery Rate</div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="panel-body">
-                <!-- Overall metrics -->
-                <div class="row text-center">
-                    <div class="col-md-3 col-sm-6">
-                        <div class="well well-sm">
-                            <h2>{2}</h2>
-                            <p>Total Communications</p>
+
+            <!-- Email & SMS Summary Cards -->
+            <div class="row" style="margin-bottom: 24px;">
+                <div class="col-md-6">
+                    <div class="section-card" style="height: 100%;">
+                        <div class="section-card-header">
+                            <h4>📧 Email Summary</h4>
                         </div>
-                    </div>
-                    <div class="col-md-3 col-sm-6">
-                        <div class="well well-sm">
-                            <h2>{3}</h2>
-                            <p>Email Campaigns</p>
-                        </div>
-                    </div>
-                    <div class="col-md-3 col-sm-6">
-                        <div class="well well-sm">
-                            <h2>{4}</h2>
-                            <p>SMS Campaigns</p>
-                        </div>
-                    </div>
-                    <div class="col-md-3 col-sm-6">
-                        <div class="well well-sm">
-                            <h2>{5}</h2>
-                            <p>Overall Delivery Rate</p>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Detailed sections in columns -->
-                <div class="row">
-                    <!-- Email summary section -->
-                    <div class="col-md-6">
-                        <div class="panel panel-info">
-                            <div class="panel-heading">
-                                <h3 class="panel-title">Email Summary</h3>
-                            </div>
-                            <div class="panel-body">
-                                <div class="row text-center">
-                                    <div class="col-xs-6">
-                                        <div class="well well-sm">
-                                            <h3>{6}</h3>
-                                            <p>Total Emails</p>
-                                        </div>
-                                    </div>
-                                    <div class="col-xs-6">
-                                        <div class="well well-sm">
-                                            <h3>{7}</h3>
-                                            <p>Delivery Rate</p>
-                                        </div>
-                                    </div>
+                        <div class="section-card-body">
+                            <div style="display: flex; gap: 20px; margin-bottom: 16px;">
+                                <div style="flex: 1; text-align: center;">
+                                    <div style="font-size: 28px; font-weight: 700; color: #1f2937;">{6}</div>
+                                    <div style="font-size: 12px; color: #6b7280; text-transform: uppercase;">Total Emails</div>
                                 </div>
-                                <div class="progress">
-                                    <div class="progress-bar progress-bar-info" role="progressbar" 
-                                        style="width: {8}%;" aria-valuenow="{9}" aria-valuemin="0" aria-valuemax="100">
-                                        {10}%
-                                    </div>
-                                </div>
-                                <div class="text-center">
-                                    <a href="?activeTab=email&sDate={11}&eDate={12}" class="btn btn-info btn-sm">
-                                        <i class="glyphicon glyphicon-stats"></i> Detailed Email Stats
-                                    </a>
+                                <div style="flex: 1; text-align: center;">
+                                    <div style="font-size: 28px; font-weight: 700; color: #3b82f6;">{7}</div>
+                                    <div style="font-size: 12px; color: #6b7280; text-transform: uppercase;">Delivery Rate</div>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-                    
-                    <!-- SMS summary section -->
-                    <div class="col-md-6">
-                        <div class="panel panel-success">
-                            <div class="panel-heading">
-                                <h3 class="panel-title">SMS Summary</h3>
+                            <div class="progress-modern">
+                                <div class="progress-bar-modern info" style="width: {8}%;"></div>
                             </div>
-                            <div class="panel-body">
-                                <div class="row text-center">
-                                    <div class="col-xs-6">
-                                        <div class="well well-sm">
-                                            <h3>{13}</h3>
-                                            <p>Total SMS</p>
-                                        </div>
-                                    </div>
-                                    <div class="col-xs-6">
-                                        <div class="well well-sm">
-                                            <h3>{14}</h3>
-                                            <p>Delivery Rate</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="progress">
-                                    <div class="progress-bar progress-bar-success" role="progressbar" 
-                                        style="width: {15}%;" aria-valuenow="{16}" aria-valuemin="0" aria-valuemax="100">
-                                        {17}%
-                                    </div>
-                                </div>
-                                <div class="text-center">
-                                    <a href="?activeTab=sms&sDate={18}&eDate={19}" class="btn btn-success btn-sm">
-                                        <i class="glyphicon glyphicon-stats"></i> Detailed SMS Stats
-                                    </a>
-                                </div>
+                            <div style="text-align: center; margin-top: 16px;">
+                                <a href="?activeTab=email&sDate={11}&eDate={12}" class="btn-modern primary">
+                                    📊 Detailed Email Stats
+                                </a>
                             </div>
                         </div>
                     </div>
                 </div>
-                
-                <!-- Additional shortcuts -->
-                <div class="row">
-                    <div class="col-md-12">
-                        <div class="panel panel-default">
-                            <div class="panel-heading">
-                                <h3 class="panel-title">Quick Links</h3>
-                            </div>
-                            <div class="panel-body">
-                                <div class="row text-center">
-                                    <div class="col-xs-4">
-                                        <a href="?activeTab=senders&sDate={20}&eDate={21}" class="btn btn-primary btn-block">
-                                            <i class="glyphicon glyphicon-user"></i> Top Senders
-                                        </a>
-                                    </div>
-                                    <div class="col-xs-4">
-                                        <a href="?activeTab=programs&sDate={22}&eDate={23}" class="btn btn-primary btn-block">
-                                            <i class="glyphicon glyphicon-list-alt"></i> Program Stats
-                                        </a>
-                                    </div>
-                                    <div class="col-xs-4">
-                                        <a href="https://www.twilio.com/docs/sendgrid/ui/analytics-and-reporting/bounce-and-block-classifications" 
-                                           target="_blank" class="btn btn-default btn-block">
-                                            <i class="glyphicon glyphicon-question-sign"></i> Failure Documentation
-                                        </a>
-                                    </div>
+
+                <div class="col-md-6">
+                    <div class="section-card" style="height: 100%;">
+                        <div class="section-card-header">
+                            <h4>📱 SMS Summary</h4>
+                        </div>
+                        <div class="section-card-body">
+                            <div style="display: flex; gap: 20px; margin-bottom: 16px;">
+                                <div style="flex: 1; text-align: center;">
+                                    <div style="font-size: 28px; font-weight: 700; color: #1f2937;">{13}</div>
+                                    <div style="font-size: 12px; color: #6b7280; text-transform: uppercase;">Total SMS</div>
                                 </div>
+                                <div style="flex: 1; text-align: center;">
+                                    <div style="font-size: 28px; font-weight: 700; color: #10b981;">{14}</div>
+                                    <div style="font-size: 12px; color: #6b7280; text-transform: uppercase;">Delivery Rate</div>
+                                </div>
+                            </div>
+                            <div class="progress-modern">
+                                <div class="progress-bar-modern success" style="width: {15}%;"></div>
+                            </div>
+                            <div style="text-align: center; margin-top: 16px;">
+                                <a href="?activeTab=sms&sDate={18}&eDate={19}" class="btn-modern primary">
+                                    📊 Detailed SMS Stats
+                                </a>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
-        """.format(
-            start_date, end_date,
-            FormatHelper.format_number(combined_delivery_items),
-            FormatHelper.format_number(email_campaign_count),
-            FormatHelper.format_number(sms_campaign_count),
-            FormatHelper.format_percent(combined_delivery_rate),
-            
-            FormatHelper.format_number(total_emails),
-            FormatHelper.format_percent(email_delivery_rate),
-            min(100, max(0, email_delivery_rate)),
-            int(email_delivery_rate),
-            int(email_delivery_rate),
-            model.Data.sDate, model.Data.eDate,
-            
-            FormatHelper.format_number(total_sms),
-            FormatHelper.format_percent(sms_delivery_rate),
-            min(100, max(0, sms_delivery_rate)),
-            int(sms_delivery_rate),
-            int(sms_delivery_rate),
-            model.Data.sDate, model.Data.eDate,
-            
-            model.Data.sDate, model.Data.eDate,
-            model.Data.sDate, model.Data.eDate
-        )
-        
+
+            <!-- Quick Links Section -->
+            <div class="section-card">
+                <div class="section-card-header">
+                    <h4>🔗 Quick Links</h4>
+                </div>
+                <div class="section-card-body">
+                    <div style="display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;">
+                        <a href="?activeTab=senders&sDate={20}&eDate={21}" class="btn-modern primary">
+                            👤 Top Senders
+                        </a>
+                        <a href="?activeTab=programs&sDate={22}&eDate={23}" class="btn-modern primary">
+                            📋 Program Stats
+                        </a>
+                        <a href="https://www.twilio.com/docs/sendgrid/ui/analytics-and-reporting/bounce-and-block-classifications"
+                           target="_blank" class="btn-modern secondary">
+                            ❓ Failure Documentation
+                        </a>
+                    </div>
+                </div>
+            </div>
+            """.format(
+                start_date, end_date,
+                FormatHelper.format_number(combined_delivery_items),
+                FormatHelper.format_number(email_campaign_count),
+                FormatHelper.format_number(sms_campaign_count),
+                FormatHelper.format_percent(combined_delivery_rate),
+
+                FormatHelper.format_number(total_emails),
+                FormatHelper.format_percent(email_delivery_rate),
+                min(100, max(0, email_delivery_rate)),
+                int(email_delivery_rate),
+                int(email_delivery_rate),
+                model.Data.sDate, model.Data.eDate,
+
+                FormatHelper.format_number(total_sms),
+                FormatHelper.format_percent(sms_delivery_rate),
+                min(100, max(0, sms_delivery_rate)),
+                int(sms_delivery_rate),
+                int(sms_delivery_rate),
+                model.Data.sDate, model.Data.eDate,
+
+                model.Data.sDate, model.Data.eDate,
+                model.Data.sDate, model.Data.eDate
+            )
+        else:
+            # Legacy Bootstrap 3 panel layout
+            html = """
+            <div class="panel panel-primary">
+                <div class="panel-heading">
+                    <h3 class="panel-title">Communication Summary ({0} to {1})</h3>
+                </div>
+                <div class="panel-body">
+                    <!-- Overall metrics -->
+                    <div class="row text-center">
+                        <div class="col-md-3 col-sm-6">
+                            <div class="well well-sm">
+                                <h2>{2}</h2>
+                                <p>Total Communications</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3 col-sm-6">
+                            <div class="well well-sm">
+                                <h2>{3}</h2>
+                                <p>Email Campaigns</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3 col-sm-6">
+                            <div class="well well-sm">
+                                <h2>{4}</h2>
+                                <p>SMS Campaigns</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3 col-sm-6">
+                            <div class="well well-sm">
+                                <h2>{5}</h2>
+                                <p>Overall Delivery Rate</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Detailed sections in columns -->
+                    <div class="row">
+                        <!-- Email summary section -->
+                        <div class="col-md-6">
+                            <div class="panel panel-info">
+                                <div class="panel-heading">
+                                    <h3 class="panel-title">Email Summary</h3>
+                                </div>
+                                <div class="panel-body">
+                                    <div class="row text-center">
+                                        <div class="col-xs-6">
+                                            <div class="well well-sm">
+                                                <h3>{6}</h3>
+                                                <p>Total Emails</p>
+                                            </div>
+                                        </div>
+                                        <div class="col-xs-6">
+                                            <div class="well well-sm">
+                                                <h3>{7}</h3>
+                                                <p>Delivery Rate</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="progress">
+                                        <div class="progress-bar progress-bar-info" role="progressbar"
+                                            style="width: {8}%;" aria-valuenow="{9}" aria-valuemin="0" aria-valuemax="100">
+                                            {10}%
+                                        </div>
+                                    </div>
+                                    <div class="text-center">
+                                        <a href="?activeTab=email&sDate={11}&eDate={12}" class="btn btn-info btn-sm">
+                                            <i class="glyphicon glyphicon-stats"></i> Detailed Email Stats
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SMS summary section -->
+                        <div class="col-md-6">
+                            <div class="panel panel-success">
+                                <div class="panel-heading">
+                                    <h3 class="panel-title">SMS Summary</h3>
+                                </div>
+                                <div class="panel-body">
+                                    <div class="row text-center">
+                                        <div class="col-xs-6">
+                                            <div class="well well-sm">
+                                                <h3>{13}</h3>
+                                                <p>Total SMS</p>
+                                            </div>
+                                        </div>
+                                        <div class="col-xs-6">
+                                            <div class="well well-sm">
+                                                <h3>{14}</h3>
+                                                <p>Delivery Rate</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="progress">
+                                        <div class="progress-bar progress-bar-success" role="progressbar"
+                                            style="width: {15}%;" aria-valuenow="{16}" aria-valuemin="0" aria-valuemax="100">
+                                            {17}%
+                                        </div>
+                                    </div>
+                                    <div class="text-center">
+                                        <a href="?activeTab=sms&sDate={18}&eDate={19}" class="btn btn-success btn-sm">
+                                            <i class="glyphicon glyphicon-stats"></i> Detailed SMS Stats
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Additional shortcuts -->
+                    <div class="row">
+                        <div class="col-md-12">
+                            <div class="panel panel-default">
+                                <div class="panel-heading">
+                                    <h3 class="panel-title">Quick Links</h3>
+                                </div>
+                                <div class="panel-body">
+                                    <div class="row text-center">
+                                        <div class="col-xs-4">
+                                            <a href="?activeTab=senders&sDate={20}&eDate={21}" class="btn btn-primary btn-block">
+                                                <i class="glyphicon glyphicon-user"></i> Top Senders
+                                            </a>
+                                        </div>
+                                        <div class="col-xs-4">
+                                            <a href="?activeTab=programs&sDate={22}&eDate={23}" class="btn btn-primary btn-block">
+                                                <i class="glyphicon glyphicon-list-alt"></i> Program Stats
+                                            </a>
+                                        </div>
+                                        <div class="col-xs-4">
+                                            <a href="https://www.twilio.com/docs/sendgrid/ui/analytics-and-reporting/bounce-and-block-classifications"
+                                               target="_blank" class="btn btn-default btn-block">
+                                                <i class="glyphicon glyphicon-question-sign"></i> Failure Documentation
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """.format(
+                start_date, end_date,
+                FormatHelper.format_number(combined_delivery_items),
+                FormatHelper.format_number(email_campaign_count),
+                FormatHelper.format_number(sms_campaign_count),
+                FormatHelper.format_percent(combined_delivery_rate),
+
+                FormatHelper.format_number(total_emails),
+                FormatHelper.format_percent(email_delivery_rate),
+                min(100, max(0, email_delivery_rate)),
+                int(email_delivery_rate),
+                int(email_delivery_rate),
+                model.Data.sDate, model.Data.eDate,
+
+                FormatHelper.format_number(total_sms),
+                FormatHelper.format_percent(sms_delivery_rate),
+                min(100, max(0, sms_delivery_rate)),
+                int(sms_delivery_rate),
+                int(sms_delivery_rate),
+                model.Data.sDate, model.Data.eDate,
+
+                model.Data.sDate, model.Data.eDate,
+                model.Data.sDate, model.Data.eDate
+            )
+
         return html
 
     @staticmethod
@@ -2369,8 +3228,8 @@ class UIRenderer:
         
         # Calculate some values for the funnel
         funnel_delivery_width = delivery_rate
-        funnel_open_width = open_rate if sent_emails > 0 else 0
-        funnel_click_width = (float(clicks) / float(total_emails) * 100) if total_emails > 0 else 0
+        funnel_open_width = open_rate  # Use the already calculated open_rate
+        funnel_click_width = click_rate  # Use the already calculated click_rate
         
         # Format all values
         formatted_values = {
@@ -3107,7 +3966,92 @@ class UIRenderer:
         """
         
         return html
-        
+
+    @staticmethod
+    def render_department_failure_breakdown(dept_failures, comm_type="sms"):
+        """Render failure breakdown by department (works for both Email and SMS)"""
+
+        type_label = "Email" if comm_type == "email" else "SMS"
+        collapse_prefix = "dept_{0}_fail".format(comm_type)
+
+        if not dept_failures:
+            return '<div class="alert alert-info">No {0} failures by department in the selected time period.</div>'.format(type_label)
+
+        # Build the collapsible sections for each department
+        sections_html = ''
+        for i, dept in enumerate(dept_failures[:10]):  # Top 10 departments with failures
+            dept_name = dept.get('Department', 'Unknown')
+            total_failures = dept.get('TotalFailures', 0)
+            failure_types = dept.get('FailureTypes', [])
+
+            # Build failure type rows
+            type_rows = ''
+            for ft in failure_types[:5]:  # Top 5 failure types per department
+                type_rows += """
+                    <tr>
+                        <td style="padding-left: 30px;">{failure_type}</td>
+                        <td class="text-right">{count}</td>
+                    </tr>
+                """.format(
+                    failure_type=ft.get('Type', 'Unknown'),
+                    count=FormatHelper.format_number(ft.get('Count', 0))
+                )
+
+            # Collapsible section for this department
+            collapse_id = '{0}_{1}'.format(collapse_prefix, i)
+            sections_html += """
+            <tr class="dept-header" data-toggle="collapse" data-target="#{collapse_id}" style="cursor: pointer; background: #f9f9f9;">
+                <td>
+                    <strong>🏢 {dept_name}</strong>
+                    <span class="glyphicon glyphicon-chevron-down pull-right" style="color: #999;"></span>
+                </td>
+                <td class="text-right"><span class="label label-danger">{total}</span></td>
+            </tr>
+            <tr class="collapse" id="{collapse_id}">
+                <td colspan="2" style="padding: 0;">
+                    <table class="table table-condensed" style="margin: 0; background: #fefefe;">
+                        {type_rows}
+                    </table>
+                </td>
+            </tr>
+            """.format(
+                collapse_id=collapse_id,
+                dept_name=dept_name[:30] + ('...' if len(dept_name) > 30 else ''),
+                total=FormatHelper.format_number(total_failures),
+                type_rows=type_rows if type_rows else '<tr><td colspan="2" class="text-muted">No details available</td></tr>'
+            )
+
+        no_data_msg = '<tr><td colspan="2" class="text-center text-muted">No {0} failures found.</td></tr>'.format(type_label)
+
+        html = """
+        <div class="panel panel-warning" style="margin-top: 20px;">
+            <div class="panel-heading">
+                <h4 class="panel-title">📊 {type_label} Failures by Department</h4>
+            </div>
+            <div class="panel-body">
+                <p class="text-muted" style="margin-bottom: 10px;">Click on a department to expand failure details.</p>
+                <div class="table-responsive">
+                    <table class="table table-hover" style="margin-bottom: 0;">
+                        <thead>
+                            <tr>
+                                <th>Department</th>
+                                <th class="text-right">Total Failures</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sections}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        """.format(
+            type_label=type_label,
+            sections=sections_html if sections_html else no_data_msg
+        )
+
+        return html
+
     @staticmethod
     def render_sms_failure_breakdown(failed_types):
         """Render SMS failure type breakdown section"""
@@ -3186,14 +4130,865 @@ class UIRenderer:
             </div>
         </div>
         """
-        
+
+        return html
+
+    @staticmethod
+    def render_department_stats(dept_stats, top_senders, departments=None):
+        """Render department communication statistics with modern card layout"""
+
+        if not dept_stats and not top_senders:
+            return '<div class="alert alert-info">No department data available. Make sure you have staff assigned to departments in the organization (ID: {0}).</div>'.format(Config.DEPARTMENT_ORG_ID)
+
+        # Get max values for bar chart scaling
+        max_campaigns = max([s.get('EmailCampaigns', 0) for s in dept_stats]) if dept_stats else 1
+        max_emails = max([s.get('TotalEmails', 0) for s in dept_stats]) if dept_stats else 1
+
+        # Bar colors for visual variety
+        bar_colors = ['blue', 'green', 'orange', 'purple', 'pink']
+
+        # Generate department summary cards
+        dept_cards_html = ''
+        for i, stat in enumerate(dept_stats[:6]):  # Show top 6 departments
+            delivery_rate = stat.get('DeliveryRate', 0)
+            status_class = 'success' if delivery_rate >= 95 else ('warning' if delivery_rate >= 90 else 'danger')
+
+            dept_cards_html += """
+            <div class="metric-card {status_class}">
+                <div class="dept-card">
+                    <div class="dept-card-header">
+                        🏢 {dept_name}
+                    </div>
+                    <div class="dept-stats">
+                        <div class="dept-stat">
+                            <div class="dept-stat-value">{campaigns}</div>
+                            <div class="dept-stat-label">Campaigns</div>
+                        </div>
+                        <div class="dept-stat">
+                            <div class="dept-stat-value">{emails}</div>
+                            <div class="dept-stat-label">Emails</div>
+                        </div>
+                        <div class="dept-stat">
+                            <div class="dept-stat-value">{delivery_rate:.1f}%</div>
+                            <div class="dept-stat-label">Delivered</div>
+                        </div>
+                        <div class="dept-stat">
+                            <div class="dept-stat-value">{open_rate:.1f}%</div>
+                            <div class="dept-stat-label">Open Rate</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """.format(
+                status_class=status_class,
+                dept_name=stat.get('Department', 'Unknown')[:20],
+                campaigns=stat.get('EmailCampaigns', 0),
+                emails=FormatHelper.format_number(stat.get('TotalEmails', 0)),
+                delivery_rate=delivery_rate,
+                open_rate=stat.get('OpenRate', 0)
+            )
+
+        # Generate bar chart for department comparison
+        bars_html = ''
+        for i, stat in enumerate(dept_stats[:10]):  # Show top 10 in bar chart
+            campaigns = stat.get('EmailCampaigns', 0)
+            bar_width = (float(campaigns) / float(max_campaigns) * 100) if max_campaigns > 0 else 0
+            color = bar_colors[i % len(bar_colors)]
+
+            bars_html += """
+            <div class="bar-item">
+                <div class="bar-label" title="{full_name}">{short_name}</div>
+                <div class="bar-track">
+                    <div class="bar-fill {color}" style="width: {width}%;">
+                        {value}
+                    </div>
+                </div>
+            </div>
+            """.format(
+                full_name=stat.get('Department', 'Unknown'),
+                short_name=stat.get('Department', 'Unknown')[:15] + ('...' if len(stat.get('Department', '')) > 15 else ''),
+                color=color,
+                width=max(5, bar_width),  # Minimum 5% for visibility
+                value=campaigns if bar_width > 20 else ''  # Only show value if bar is wide enough
+            )
+
+        # Generate sender rows grouped by department
+        sender_rows_html = ''
+        current_dept = None
+        for sender in top_senders[:30]:  # Show top 30 senders
+            dept = sender.get('Department', 'No Department')
+
+            # Add department separator if changed
+            if dept != current_dept:
+                sender_rows_html += """
+                <tr class="department-separator">
+                    <td colspan="5" style="background: #f3f4f6; font-weight: 600; color: #374151;">
+                        🏢 {dept}
+                    </td>
+                </tr>
+                """.format(dept=dept)
+                current_dept = dept
+
+            sender_rows_html += """
+            <tr>
+                <td><a href="/Person2/{sender_id}" target="_blank">{sender_name}</a></td>
+                <td>{campaigns}</td>
+                <td>{recipients}</td>
+                <td>{total_emails}</td>
+                <td>
+                    <span class="status-badge {badge_class}">{delivery_rate:.1f}%</span>
+                </td>
+            </tr>
+            """.format(
+                sender_id=sender.get('SenderId', 0),
+                sender_name=sender.get('SenderName', 'Unknown'),
+                campaigns=sender.get('Campaigns', 0),
+                recipients=FormatHelper.format_number(sender.get('Recipients', 0)),
+                total_emails=FormatHelper.format_number(sender.get('TotalEmails', 0)),
+                delivery_rate=sender.get('DeliveryRate', 0),
+                badge_class='success' if sender.get('DeliveryRate', 0) >= 95 else ('warning' if sender.get('DeliveryRate', 0) >= 90 else 'danger')
+            )
+
+        # Assemble the full HTML
+        html = """
+        <!-- Department Statistics -->
+        <div class="section-card">
+            <div class="section-card-header">
+                <h3>🏢 Department Communication Overview</h3>
+            </div>
+            <div class="section-card-body">
+                <div class="metric-grid">
+                    {dept_cards}
+                </div>
+            </div>
+        </div>
+
+        <!-- Department Comparison Chart -->
+        <div class="section-card">
+            <div class="section-card-header">
+                <h4>📊 Campaigns by Department</h4>
+            </div>
+            <div class="section-card-body">
+                <div class="bar-chart">
+                    {dept_bars}
+                </div>
+            </div>
+        </div>
+
+        <!-- Top Senders by Department -->
+        <div class="section-card">
+            <div class="section-card-header">
+                <h4>👤 Top Senders by Department</h4>
+            </div>
+            <div class="section-card-body">
+                <div class="table-responsive">
+                    <table class="table-modern">
+                        <thead>
+                            <tr>
+                                <th>Sender</th>
+                                <th>Campaigns</th>
+                                <th>Recipients</th>
+                                <th>Total Emails</th>
+                                <th>Delivery Rate</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sender_rows}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        """.format(
+            dept_cards=dept_cards_html if dept_cards_html else '<div class="alert alert-info">No department statistics available.</div>',
+            dept_bars=bars_html if bars_html else '<div class="text-muted">No data available for chart.</div>',
+            sender_rows=sender_rows_html if sender_rows_html else '<tr><td colspan="5" class="text-center text-muted">No sender data available.</td></tr>'
+        )
+
+        return html
+
+    @staticmethod
+    def render_department_stats_combined(email_stats, sms_stats, top_senders, departments=None):
+        """Render combined Email + SMS department statistics"""
+
+        if not email_stats and not sms_stats:
+            return '<div class="alert alert-info">No department data available. Make sure you have staff assigned to departments or configure email mappings in Settings.</div>'
+
+        # Merge email and SMS stats by department
+        combined = {}
+
+        # Add email stats
+        for stat in (email_stats or []):
+            dept = stat.get('Department', 'Unknown')
+            if dept not in combined:
+                combined[dept] = {'Department': dept, 'Email': {}, 'SMS': {}}
+            combined[dept]['Email'] = {
+                'Campaigns': stat.get('EmailCampaigns', 0),
+                'TotalEmails': stat.get('TotalEmails', 0),
+                'Delivered': stat.get('Delivered', 0),
+                'Failed': stat.get('Failed', 0),
+                'DeliveryRate': stat.get('DeliveryRate', 0),
+                'OpenRate': stat.get('OpenRate', 0)
+            }
+
+        # Add SMS stats
+        for stat in (sms_stats or []):
+            dept = stat.get('Department', 'Unknown')
+            if dept not in combined:
+                combined[dept] = {'Department': dept, 'Email': {}, 'SMS': {}}
+            combined[dept]['SMS'] = {
+                'Messages': stat.get('Messages', 0),
+                'Delivered': stat.get('Delivered', 0),
+                'Failed': stat.get('Failed', 0),
+                'DeliveryRate': stat.get('DeliveryRate', 0)
+            }
+
+        # Sort by total communication volume (total emails + total SMS messages)
+        sorted_depts = sorted(combined.values(), key=lambda x: (
+            x.get('Email', {}).get('TotalEmails', 0) + x.get('SMS', {}).get('Messages', 0)
+        ), reverse=True)
+
+        # Build combined table rows
+        rows_html = ''
+        for dept_data in sorted_depts[:15]:  # Top 15 departments
+            dept_name = dept_data.get('Department', 'Unknown')
+            email = dept_data.get('Email', {})
+            sms = dept_data.get('SMS', {})
+
+            email_rate = float(email.get('DeliveryRate', 0) or 0)
+            sms_rate = float(sms.get('DeliveryRate', 0) or 0)
+
+            # Check if there's actual data - show N/A if no communications
+            email_has_data = email.get('TotalEmails', 0) > 0
+            sms_has_data = sms.get('Messages', 0) > 0
+
+            # Determine badge classes - use 'default' for N/A
+            if not email_has_data:
+                email_class = 'default'
+                email_rate_display = 'N/A'
+            else:
+                email_class = 'success' if email_rate >= 95 else ('warning' if email_rate >= 90 else 'danger')
+                email_rate_display = '{:.1f}%'.format(email_rate)
+
+            if not sms_has_data:
+                sms_class = 'default'
+                sms_rate_display = 'N/A'
+            else:
+                sms_class = 'success' if sms_rate >= 95 else ('warning' if sms_rate >= 90 else 'danger')
+                sms_rate_display = '{:.1f}%'.format(sms_rate)
+
+            rows_html += """
+            <tr>
+                <td><strong>🏢 {dept}</strong></td>
+                <td class="text-center">{email_campaigns}</td>
+                <td class="text-center">{email_total}</td>
+                <td class="text-center"><span class="label label-{email_class}">{email_rate_display}</span></td>
+                <td class="text-center">{sms_messages}</td>
+                <td class="text-center">{sms_delivered}</td>
+                <td class="text-center"><span class="label label-{sms_class}">{sms_rate_display}</span></td>
+            </tr>
+            """.format(
+                dept=dept_name[:25] + ('...' if len(dept_name) > 25 else ''),
+                email_campaigns=email.get('Campaigns', 0),
+                email_total=FormatHelper.format_number(email.get('TotalEmails', 0)),
+                email_rate_display=email_rate_display,
+                email_class=email_class,
+                sms_messages=sms.get('Messages', 0),
+                sms_delivered=FormatHelper.format_number(sms.get('Delivered', 0)),
+                sms_rate_display=sms_rate_display,
+                sms_class=sms_class
+            )
+
+        # Build sender rows
+        sender_rows_html = ''
+        current_dept = None
+        for sender in (top_senders or [])[:30]:
+            dept = sender.get('Department', 'No Department')
+            if dept != current_dept:
+                sender_rows_html += """
+                <tr class="department-separator">
+                    <td colspan="5" style="background: #f3f4f6; font-weight: 600; color: #374151;">🏢 {dept}</td>
+                </tr>
+                """.format(dept=dept)
+                current_dept = dept
+
+            sender_rows_html += """
+            <tr>
+                <td><a href="/Person2/{sender_id}" target="_blank">{name}</a></td>
+                <td>{campaigns}</td>
+                <td>{recipients}</td>
+                <td>{total}</td>
+                <td><span class="label label-{badge}">{rate:.1f}%</span></td>
+            </tr>
+            """.format(
+                sender_id=sender.get('SenderId', 0),
+                name=sender.get('SenderName', 'Unknown'),
+                campaigns=sender.get('Campaigns', 0),
+                recipients=FormatHelper.format_number(sender.get('Recipients', 0)),
+                total=FormatHelper.format_number(sender.get('TotalEmails', 0)),
+                rate=float(sender.get('DeliveryRate', 0) or 0),
+                badge='success' if float(sender.get('DeliveryRate', 0) or 0) >= 95 else ('warning' if float(sender.get('DeliveryRate', 0) or 0) >= 90 else 'danger')
+            )
+
+        html = """
+        <!-- Combined Department Communications -->
+        <div class="panel panel-primary">
+            <div class="panel-heading">
+                <h3 class="panel-title">📊 Department Communications Overview</h3>
+            </div>
+            <div class="panel-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th rowspan="2">Department</th>
+                                <th colspan="3" class="text-center" style="background: #e3f2fd; border-bottom: 2px solid #1976d2;">📧 Email</th>
+                                <th colspan="3" class="text-center" style="background: #e8f5e9; border-bottom: 2px solid #388e3c;">📱 SMS</th>
+                            </tr>
+                            <tr>
+                                <th class="text-center" style="background: #e3f2fd;">Campaigns</th>
+                                <th class="text-center" style="background: #e3f2fd;">Total</th>
+                                <th class="text-center" style="background: #e3f2fd;">Delivery</th>
+                                <th class="text-center" style="background: #e8f5e9;">Messages</th>
+                                <th class="text-center" style="background: #e8f5e9;">Delivered</th>
+                                <th class="text-center" style="background: #e8f5e9;">Delivery</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top Senders by Department -->
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <h3 class="panel-title">👤 Top Email Senders by Department</h3>
+            </div>
+            <div class="panel-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>Sender</th>
+                                <th>Campaigns</th>
+                                <th>Recipients</th>
+                                <th>Total Emails</th>
+                                <th>Delivery Rate</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sender_rows}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        """.format(
+            rows=rows_html if rows_html else '<tr><td colspan="7" class="text-center text-muted">No department data available.</td></tr>',
+            sender_rows=sender_rows_html if sender_rows_html else '<tr><td colspan="5" class="text-center text-muted">No sender data available.</td></tr>'
+        )
+
+        return html
+
+    @staticmethod
+    def render_department_breakdown_compact(dept_stats, title="Communications by Department", comm_type="email"):
+        """Render a compact department breakdown table for Email/SMS Stats tabs"""
+
+        if not dept_stats:
+            return '<div class="alert alert-info">No department data available. Configure department mappings in the Settings tab.</div>'
+
+        # Sort by campaigns/messages descending
+        sorted_stats = sorted(dept_stats, key=lambda x: x.get('EmailCampaigns', x.get('Messages', 0)), reverse=True)
+
+        rows_html = ''
+        for stat in sorted_stats[:10]:  # Show top 10 departments
+            dept_name = stat.get('Department', 'Unknown')
+
+            if comm_type == 'email':
+                campaigns = stat.get('EmailCampaigns', 0)
+                total = stat.get('TotalEmails', 0)
+                delivery_rate = stat.get('DeliveryRate', 0)
+                open_rate = stat.get('OpenRate', 0)
+
+                status_class = 'success' if delivery_rate >= 95 else ('warning' if delivery_rate >= 90 else 'danger')
+
+                rows_html += """
+                <tr>
+                    <td><strong>{dept}</strong></td>
+                    <td class="text-center">{campaigns}</td>
+                    <td class="text-center">{total}</td>
+                    <td class="text-center"><span class="label label-{status}">{rate:.1f}%</span></td>
+                    <td class="text-center">{open_rate:.1f}%</td>
+                </tr>
+                """.format(
+                    dept=dept_name[:25] + ('...' if len(dept_name) > 25 else ''),
+                    campaigns=campaigns,
+                    total=FormatHelper.format_number(total),
+                    status=status_class,
+                    rate=delivery_rate,
+                    open_rate=open_rate
+                )
+            else:  # SMS
+                messages = stat.get('Messages', 0)
+                delivered = stat.get('Delivered', 0)
+                failed = stat.get('Failed', 0)
+                delivery_rate = stat.get('DeliveryRate', 0)
+
+                status_class = 'success' if delivery_rate >= 95 else ('warning' if delivery_rate >= 90 else 'danger')
+
+                rows_html += """
+                <tr>
+                    <td><strong>{dept}</strong></td>
+                    <td class="text-center">{messages}</td>
+                    <td class="text-center">{delivered}</td>
+                    <td class="text-center">{failed}</td>
+                    <td class="text-center"><span class="label label-{status}">{rate:.1f}%</span></td>
+                </tr>
+                """.format(
+                    dept=dept_name[:25] + ('...' if len(dept_name) > 25 else ''),
+                    messages=FormatHelper.format_number(messages),
+                    delivered=FormatHelper.format_number(delivered),
+                    failed=FormatHelper.format_number(failed),
+                    status=status_class,
+                    rate=delivery_rate
+                )
+
+        if comm_type == 'email':
+            header = """
+                <tr>
+                    <th>Department</th>
+                    <th class="text-center">Campaigns</th>
+                    <th class="text-center">Total Emails</th>
+                    <th class="text-center">Delivery Rate</th>
+                    <th class="text-center">Open Rate</th>
+                </tr>
+            """
+        else:
+            header = """
+                <tr>
+                    <th>Department</th>
+                    <th class="text-center">Messages</th>
+                    <th class="text-center">Delivered</th>
+                    <th class="text-center">Failed</th>
+                    <th class="text-center">Delivery Rate</th>
+                </tr>
+            """
+
+        html = """
+        <div class="panel panel-default" style="margin-top: 20px;">
+            <div class="panel-heading">
+                <h4 class="panel-title">🏢 {title}</h4>
+            </div>
+            <div class="panel-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover" style="margin-bottom: 0;">
+                        <thead>{header}</thead>
+                        <tbody>{rows}</tbody>
+                    </table>
+                </div>
+                <p class="text-muted" style="margin-top: 10px; font-size: 12px;">
+                    <em>Configure department mappings in the Settings tab for better tracking.</em>
+                </p>
+            </div>
+        </div>
+        """.format(title=title, header=header, rows=rows_html)
+
+        return html
+
+    @staticmethod
+    def render_settings_tab(unmapped_senders, all_departments, current_mappings):
+        """Render the Settings tab with email mapping management UI"""
+
+        # Get current email mappings
+        email_map = current_mappings.get('emailMappings', {})
+        custom_depts = current_mappings.get('customDepartments', [])
+        use_subgroups = current_mappings.get('useInvolvementSubgroups', True)
+
+        # Build department options for dropdown
+        dept_options_html = '<option value="">-- Select Department --</option>'
+        for dept in all_departments:
+            dept_options_html += '<option value="{0}">{0}</option>'.format(dept)
+
+        # Build existing mappings table rows
+        existing_mappings_html = ''
+        for email, dept in sorted(email_map.items()):
+            existing_mappings_html += """
+            <tr data-email="{email}">
+                <td>{email}</td>
+                <td>{dept}</td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="removeMapping('{email}')">
+                        🗑️ Remove
+                    </button>
+                </td>
+            </tr>
+            """.format(email=email, dept=dept)
+
+        if not existing_mappings_html:
+            existing_mappings_html = '<tr><td colspan="3" class="text-center text-muted">No email mappings configured yet.</td></tr>'
+
+        # Build unmapped senders table rows
+        unmapped_rows_html = ''
+        for sender in unmapped_senders[:50]:  # Limit to 50
+            email = sender.get('SenderEmail', '')
+            if sender.get('IsMapped'):
+                # Already mapped - show with badge
+                unmapped_rows_html += """
+                <tr class="success">
+                    <td><a href="/Person2/{sender_id}" target="_blank">{name}</a></td>
+                    <td>{email}</td>
+                    <td>{campaigns}</td>
+                    <td><span class="status-badge success">✓ {dept}</span></td>
+                    <td>
+                        <button type="button" class="btn btn-xs btn-default" disabled>Already Mapped</button>
+                    </td>
+                </tr>
+                """.format(
+                    sender_id=sender.get('SenderId', 0),
+                    name=sender.get('SenderName', 'Unknown'),
+                    email=email,
+                    campaigns=sender.get('CampaignCount', 0),
+                    dept=sender.get('MappedDepartment', 'Unknown')
+                )
+            else:
+                # Not mapped - show with quick-add button
+                unmapped_rows_html += """
+                <tr>
+                    <td><a href="/Person2/{sender_id}" target="_blank">{name}</a></td>
+                    <td>{email}</td>
+                    <td>{campaigns}</td>
+                    <td><span class="status-badge warning">Not Mapped</span></td>
+                    <td>
+                        <button type="button" class="btn btn-xs btn-primary" onclick="quickAddMapping('{email}')">
+                            ➕ Add Mapping
+                        </button>
+                    </td>
+                </tr>
+                """.format(
+                    sender_id=sender.get('SenderId', 0),
+                    name=sender.get('SenderName', 'Unknown'),
+                    email=email,
+                    campaigns=sender.get('CampaignCount', 0)
+                )
+
+        if not unmapped_rows_html:
+            unmapped_rows_html = '<tr><td colspan="5" class="text-center text-muted">All senders are mapped to departments!</td></tr>'
+
+        # Build custom departments list
+        custom_depts_html = ''
+        for dept in custom_depts:
+            custom_depts_html += '<span class="label label-info" style="margin-right: 5px; display: inline-block; margin-bottom: 5px;">{0} <a href="#" onclick="removeCustomDept(\'{0}\'); return false;" style="color: white;">×</a></span>'.format(dept)
+
+        html = """
+        <!-- Settings Tab Content -->
+        <div class="section-card">
+            <div class="section-card-header">
+                <h3>⚙️ Email Mapping Settings</h3>
+            </div>
+            <div class="section-card-body">
+                <p class="text-muted">
+                    Map email senders to departments for communication tracking. You can:
+                </p>
+                <ul class="text-muted" style="margin-bottom: 15px;">
+                    <li><strong>Auto-detect departments</strong> from a staff involvement with subgroups (configured as Org {org_id})</li>
+                    <li><strong>Create custom departments</strong> by typing a name in the "Or enter new department" field</li>
+                    <li><strong>Use both</strong> - involvement subgroups appear in the dropdown, plus you can add custom ones</li>
+                </ul>
+                <div class="alert alert-info" style="margin-bottom: 15px;">
+                    <strong>💡 Tip:</strong> No staff involvement? No problem! Just type custom department names when adding mappings.
+                    They'll be saved and appear in future dropdowns.
+                </div>
+
+                <!-- Add New Mapping Form -->
+                <div class="metric-card info" style="margin-bottom: 24px;">
+                    <h4 style="margin-top: 0;">➕ Add New Email Mapping</h4>
+                    <form id="add-mapping-form" class="form-inline" onsubmit="return addMapping();">
+                        <div class="form-group" style="margin-right: 10px;">
+                            <label class="sr-only">Email Address</label>
+                            <input type="email" class="form-control" id="new-email" placeholder="email@church.org" required style="width: 250px;">
+                        </div>
+                        <div class="form-group" style="margin-right: 10px;">
+                            <label class="sr-only">Department</label>
+                            <select class="form-control" id="new-dept" required style="width: 200px;">
+                                {dept_options}
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-right: 10px;">
+                            <input type="text" class="form-control" id="new-custom-dept" placeholder="Or enter new department" style="width: 180px;">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Add Mapping</button>
+                    </form>
+                </div>
+
+                <!-- Current Mappings Table -->
+                <div class="section-card" style="margin-bottom: 24px;">
+                    <div class="section-card-header">
+                        <h4>📋 Current Email Mappings</h4>
+                    </div>
+                    <div class="section-card-body">
+                        <div class="table-responsive">
+                            <table class="table-modern" id="mappings-table">
+                                <thead>
+                                    <tr>
+                                        <th>Email Address</th>
+                                        <th>Department</th>
+                                        <th style="width: 120px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {existing_mappings}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Unmapped Senders Section -->
+        <div class="section-card">
+            <div class="section-card-header">
+                <h4>👤 Senders Without Department Assignment</h4>
+            </div>
+            <div class="section-card-body">
+                <p class="text-muted">
+                    These senders have sent emails but are not yet assigned to a department.
+                    Click "Add Mapping" to assign them - you can select an existing department or create a new one.
+                </p>
+                <div class="table-responsive">
+                    <table class="table-modern">
+                        <thead>
+                            <tr>
+                                <th>Sender Name</th>
+                                <th>Email</th>
+                                <th>Campaigns</th>
+                                <th>Status</th>
+                                <th style="width: 120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {unmapped_rows}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Custom Departments Section -->
+        <div class="section-card">
+            <div class="section-card-header">
+                <h4>🏷️ Custom Departments</h4>
+            </div>
+            <div class="section-card-body">
+                <p class="text-muted">
+                    Create your own department names to organize senders. These are independent of any involvement
+                    and can be used even if you don't have a staff involvement configured.
+                </p>
+                <div id="custom-depts-list" style="margin-bottom: 15px;">
+                    {custom_depts_html}
+                </div>
+                <form class="form-inline" onsubmit="return addCustomDept();">
+                    <div class="form-group" style="margin-right: 10px;">
+                        <input type="text" class="form-control" id="new-custom-dept-name" placeholder="New department name" style="width: 250px;">
+                    </div>
+                    <button type="submit" class="btn btn-default">Add Custom Department</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Hidden form for AJAX save -->
+        <form id="save-mappings-form" method="POST" style="display: none;">
+            <input type="hidden" name="activeTab" value="settings">
+            <input type="hidden" name="action" value="save_mappings">
+            <input type="hidden" name="mappings_json" id="mappings-json-field">
+        </form>
+
+        <!-- Quick Add Mapping Modal -->
+        <div class="modal fade" id="quickAddMappingModal" tabindex="-1" role="dialog" aria-labelledby="quickAddMappingModalLabel">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                        <h4 class="modal-title" id="quickAddMappingModalLabel">Add Department Mapping</h4>
+                    </div>
+                    <div class="modal-body">
+                        <p>Assign a department for: <strong id="modal-email-display"></strong></p>
+                        <input type="hidden" id="modal-email-value">
+
+                        <div class="form-group">
+                            <label for="modal-dept-select">Select Existing Department:</label>
+                            <select class="form-control" id="modal-dept-select">
+                                <option value="">-- Choose a department --</option>
+                            </select>
+                        </div>
+
+                        <div style="text-align: center; margin: 15px 0; color: #999;">
+                            <span style="display: inline-block; padding: 0 15px; background: #fff; position: relative;">OR</span>
+                            <hr style="margin-top: -10px; border-color: #eee;">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="modal-new-dept">Create New Department:</label>
+                            <input type="text" class="form-control" id="modal-new-dept" placeholder="Enter new department name">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-primary" onclick="saveQuickMapping()">Save Mapping</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        // Current mappings data (loaded from server)
+        var currentMappings = {mappings_json};
+        var allDepartments = {depts_json};
+
+        function addMapping() {{
+            var email = document.getElementById('new-email').value.trim().toLowerCase();
+            var dept = document.getElementById('new-dept').value;
+            var customDept = document.getElementById('new-custom-dept').value.trim();
+
+            // Use custom department if provided
+            if (customDept) {{
+                dept = customDept;
+                // Add to custom departments if new
+                if (currentMappings.customDepartments.indexOf(dept) === -1) {{
+                    currentMappings.customDepartments.push(dept);
+                }}
+            }}
+
+            if (!email || !dept) {{
+                alert('Please enter both email and department.');
+                return false;
+            }}
+
+            // Add to mappings
+            currentMappings.emailMappings[email] = dept;
+
+            // Save and reload
+            saveMappings();
+            return false;
+        }}
+
+        function removeMapping(email) {{
+            if (confirm('Remove mapping for ' + email + '?')) {{
+                delete currentMappings.emailMappings[email];
+                saveMappings();
+            }}
+        }}
+
+        function quickAddMapping(email) {{
+            // Store the email being mapped
+            document.getElementById('modal-email-display').textContent = email;
+            document.getElementById('modal-email-value').value = email;
+
+            // Populate the department dropdown
+            var select = document.getElementById('modal-dept-select');
+            select.innerHTML = '<option value="">-- Choose a department --</option>';
+            for (var i = 0; i < allDepartments.length; i++) {{
+                var opt = document.createElement('option');
+                opt.value = allDepartments[i];
+                opt.textContent = allDepartments[i];
+                select.appendChild(opt);
+            }}
+
+            // Clear the new department input
+            document.getElementById('modal-new-dept').value = '';
+
+            // Show the modal
+            $('#quickAddMappingModal').modal('show');
+        }}
+
+        function saveQuickMapping() {{
+            var email = document.getElementById('modal-email-value').value.toLowerCase();
+            var selectedDept = document.getElementById('modal-dept-select').value;
+            var newDept = document.getElementById('modal-new-dept').value.trim();
+
+            // Determine which department to use (new takes precedence if filled)
+            var dept = newDept || selectedDept;
+
+            if (!dept) {{
+                alert('Please select a department or enter a new one.');
+                return;
+            }}
+
+            // Add to mappings
+            currentMappings.emailMappings[email] = dept;
+
+            // If it's a new department, add to custom departments
+            if (newDept && allDepartments.indexOf(newDept) === -1 && currentMappings.customDepartments.indexOf(newDept) === -1) {{
+                currentMappings.customDepartments.push(newDept);
+            }}
+
+            // Hide the modal and save
+            $('#quickAddMappingModal').modal('hide');
+            saveMappings();
+        }}
+
+        function addCustomDept() {{
+            var deptName = document.getElementById('new-custom-dept-name').value.trim();
+            if (!deptName) {{
+                alert('Please enter a department name.');
+                return false;
+            }}
+            if (currentMappings.customDepartments.indexOf(deptName) === -1) {{
+                currentMappings.customDepartments.push(deptName);
+                saveMappings();
+            }} else {{
+                alert('This department already exists.');
+            }}
+            return false;
+        }}
+
+        function removeCustomDept(deptName) {{
+            if (confirm('Remove custom department "' + deptName + '"?')) {{
+                var idx = currentMappings.customDepartments.indexOf(deptName);
+                if (idx > -1) {{
+                    currentMappings.customDepartments.splice(idx, 1);
+                }}
+                saveMappings();
+            }}
+        }}
+
+        function saveMappings() {{
+            document.getElementById('mappings-json-field').value = JSON.stringify(currentMappings);
+            // Use PyScriptForm for form submissions (not PyScript)
+            var form = document.getElementById('save-mappings-form');
+            var currentUrl = window.location.pathname;
+            var formUrl = currentUrl.replace('/PyScript/', '/PyScriptForm/');
+            form.action = formUrl;
+            form.submit();
+        }}
+        </script>
+        """.format(
+            dept_options=dept_options_html,
+            existing_mappings=existing_mappings_html,
+            unmapped_rows=unmapped_rows_html,
+            org_id=Config.DEPARTMENT_ORG_ID,
+            custom_depts_html=custom_depts_html if custom_depts_html else '<span class="text-muted">No custom departments defined.</span>',
+            mappings_json=str(current_mappings).replace("'", '"').replace("True", "true").replace("False", "false"),
+            depts_json=str(all_departments).replace("'", '"')
+        )
+
         return html
 
     @staticmethod
     def render_dashboard_resources():
         """Add required CSS and JavaScript resources"""
-        
+
         html = """
+        <!-- Auto-redirect to PyScriptForm (required for form submissions to work) -->
+        <script>
+        if (window.location.pathname.indexOf('/PyScript/') > -1) {
+            window.location.href = window.location.pathname.replace('/PyScript/', '/PyScriptForm/') + window.location.search;
+        }
+        </script>
+
         <!-- jQuery (required for Bootstrap and our AJAX) -->
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
         
@@ -3283,6 +5078,314 @@ class UIRenderer:
                 border: none;
             }
         }
+
+        /* ============================================= */
+        /* MODERN UI STYLES                              */
+        /* ============================================= */
+
+        /* Modern metric grid - auto-responsive */
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        /* Modern cards with color variants */
+        .metric-card {
+            padding: 24px;
+            border-radius: 12px;
+            background: #ffffff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            transition: all 0.2s ease;
+            border: 1px solid #e5e7eb;
+        }
+        .metric-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+        }
+        .metric-card.success { border-left: 4px solid #10b981; }
+        .metric-card.warning { border-left: 4px solid #f59e0b; }
+        .metric-card.danger { border-left: 4px solid #ef4444; }
+        .metric-card.info { border-left: 4px solid #3b82f6; }
+        .metric-card.primary { border-left: 4px solid #6366f1; }
+
+        /* Large metric display */
+        .metric-value { font-size: 32px; font-weight: 700; color: #1f2937; margin: 0; }
+        .metric-label { font-size: 14px; color: #6b7280; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .metric-trend { font-size: 12px; margin-top: 8px; }
+        .metric-trend.up { color: #10b981; }
+        .metric-trend.down { color: #ef4444; }
+        .metric-icon { font-size: 24px; margin-bottom: 12px; }
+
+        /* Modern tabs */
+        .nav-tabs-modern {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 0;
+            margin-bottom: 24px;
+            list-style: none;
+            padding-left: 0;
+        }
+        .nav-tabs-modern li {
+            margin: 0;
+        }
+        .nav-tabs-modern a {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            text-decoration: none;
+            color: #6b7280;
+            border-radius: 8px 8px 0 0;
+            transition: all 0.2s;
+            font-weight: 500;
+            border: 1px solid transparent;
+            border-bottom: none;
+            margin-bottom: -2px;
+        }
+        .nav-tabs-modern a:hover {
+            background: #f3f4f6;
+            color: #1f2937;
+        }
+        .nav-tabs-modern a.active,
+        .nav-tabs-modern li.active a {
+            background: #3b82f6;
+            color: white;
+            font-weight: 500;
+        }
+        .nav-tabs-modern .tab-icon {
+            font-size: 16px;
+        }
+
+        /* Modern progress bars */
+        .progress-modern {
+            height: 8px;
+            border-radius: 4px;
+            background: #e5e7eb;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-bar-modern {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+        .progress-bar-modern.success { background: linear-gradient(90deg, #10b981, #34d399); }
+        .progress-bar-modern.info { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+        .progress-bar-modern.warning { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        .progress-bar-modern.danger { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+        /* Modern tables */
+        .table-modern {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .table-modern th {
+            background: #f9fafb;
+            padding: 14px 16px;
+            text-align: left;
+            font-weight: 600;
+            color: #374151;
+            border-bottom: 2px solid #e5e7eb;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .table-modern td {
+            padding: 14px 16px;
+            border-bottom: 1px solid #f3f4f6;
+            color: #4b5563;
+        }
+        .table-modern tr:hover td {
+            background: #f9fafb;
+        }
+        .table-modern tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Modern panel/card header */
+        .section-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+        .section-card-header {
+            padding: 16px 24px;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .section-card-header h3, .section-card-header h4 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: #1f2937;
+        }
+        .section-card-body {
+            padding: 24px;
+        }
+
+        /* Status badges */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .status-badge.success { background: #d1fae5; color: #065f46; }
+        .status-badge.warning { background: #fef3c7; color: #92400e; }
+        .status-badge.danger { background: #fee2e2; color: #991b1b; }
+        .status-badge.info { background: #dbeafe; color: #1e40af; }
+
+        /* Department-specific styles */
+        .dept-card {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .dept-card-header {
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .dept-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-top: auto;
+        }
+        .dept-stat {
+            text-align: center;
+        }
+        .dept-stat-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+        .dept-stat-label {
+            font-size: 11px;
+            color: #9ca3af;
+            text-transform: uppercase;
+        }
+
+        /* Bar chart styles for department comparison */
+        .bar-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .bar-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .bar-label {
+            width: 120px;
+            font-size: 13px;
+            color: #374151;
+            flex-shrink: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .bar-track {
+            flex: 1;
+            height: 24px;
+            background: #f3f4f6;
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+        .bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 8px;
+            font-size: 12px;
+            font-weight: 500;
+            color: white;
+            transition: width 0.3s ease;
+        }
+        .bar-fill.blue { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+        .bar-fill.green { background: linear-gradient(90deg, #10b981, #34d399); }
+        .bar-fill.orange { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        .bar-fill.purple { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+        .bar-fill.pink { background: linear-gradient(90deg, #ec4899, #f472b6); }
+
+        /* Quick action buttons */
+        .btn-modern {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-modern.primary {
+            background: #3b82f6;
+            color: white;
+        }
+        .btn-modern.primary:hover {
+            background: #2563eb;
+            color: white;
+            text-decoration: none;
+        }
+        .btn-modern.secondary {
+            background: #f3f4f6;
+            color: #374151;
+        }
+        .btn-modern.secondary:hover {
+            background: #e5e7eb;
+            color: #1f2937;
+            text-decoration: none;
+        }
+
+        /* Responsive adjustments for modern styles */
+        @media (max-width: 768px) {
+            .metric-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .metric-card {
+                padding: 16px;
+            }
+            .metric-value {
+                font-size: 24px;
+            }
+            .nav-tabs-modern a {
+                padding: 10px 14px;
+                font-size: 13px;
+            }
+            .bar-label {
+                width: 80px;
+                font-size: 12px;
+            }
+        }
+        @media (max-width: 480px) {
+            .metric-grid {
+                grid-template-columns: 1fr;
+            }
+        }
         </style>
         
         <script>
@@ -3348,7 +5451,19 @@ def main():
             program_filter = model.Data.program
             failure_filter = model.Data.failclassification
             active_tab = model.Data.activeTab
-            
+
+            # Handle POST actions (like saving email mappings)
+            action = getattr(model.Data, 'action', None)
+            if action == 'save_mappings':
+                try:
+                    import json
+                    mappings_json = getattr(model.Data, 'mappings_json', '{}')
+                    new_mappings = json.loads(mappings_json)
+                    DataRetrieval.save_email_mappings(new_mappings)
+                    # Redirect back to settings tab (the form already includes activeTab=settings)
+                except Exception as save_error:
+                    print("<div class='alert alert-danger'>Error saving mappings: {0}</div>".format(str(save_error)))
+
             # Build dashboard content
             output = UIRenderer.render_dashboard_resources()
             output += '<div class="dashboard-container">'
@@ -3419,24 +5534,45 @@ def main():
                             output += UIRenderer.render_subscriber_growth_chart(growth_data)
                         except Exception as eg:
                             output += ErrorHandler.handle_error(eg, "subscriber growth chart")
-                        
+
+                        # Department breakdown (if department tracking enabled) - Show before campaigns
+                        if Config.DEPARTMENT_TRACKING_ENABLED:
+                            try:
+                                dept_email_stats = DataRetrieval.get_department_communication_stats(
+                                    sDate, eDate, Config.DEPARTMENT_ORG_ID
+                                )
+                                output += UIRenderer.render_department_breakdown_compact(
+                                    dept_email_stats, "Email Communications by Department", "email"
+                                )
+                            except Exception as e_dept:
+                                output += ErrorHandler.handle_error(e_dept, "department email breakdown")
+
+                            # Department email failure breakdown (expandable)
+                            try:
+                                dept_email_failures = DataRetrieval.get_department_email_failure_breakdown(
+                                    sDate, eDate, Config.DEPARTMENT_ORG_ID
+                                )
+                                output += UIRenderer.render_department_failure_breakdown(dept_email_failures, "email")
+                            except Exception as e_fail:
+                                output += ErrorHandler.handle_error(e_fail, "department email failure breakdown")
+
                         # Recent campaigns (full width for the enhanced table with metrics)
                         try:
                             # Check if we should exclude single-recipient emails
                             show_single_initial = getattr(model.Data, 'show_single_recipient', 'false') == 'true'
-                            
+
                             # Get campaigns with appropriate filtering (no pagination)
                             campaigns = DataRetrieval.get_recent_campaigns(sDate, eDate, program_filter, exclude_single_recipient=not show_single_initial)
                             output += UIRenderer.render_recent_campaigns(campaigns)
                         except Exception as e2:
                             output += ErrorHandler.handle_error(e2, "recent campaigns")
-                        
+
                         # Failure breakdown (full width below campaigns)
                         try:
                             output += UIRenderer.render_failure_breakdown(email_summary.get('failed_types', []))
                         except Exception as e1:
                             output += ErrorHandler.handle_error(e1, "failure breakdown")
-                        
+
                         # Failed recipients (full width)
                         try:
                             failed_recipients = DataRetrieval.get_failure_recipients(sDate, eDate, hide_success, program_filter, failure_filter)
@@ -3452,10 +5588,31 @@ def main():
                         # Get and display SMS summary data
                         sms_stats = DataRetrieval.get_sms_stats(sDate, eDate)
                         output += UIRenderer.render_sms_summary(sms_stats)
-                        
+
+                        # Department breakdown (if department tracking enabled) - Show first
+                        if Config.DEPARTMENT_TRACKING_ENABLED:
+                            try:
+                                dept_sms_stats = DataRetrieval.get_department_sms_stats(
+                                    sDate, eDate, Config.DEPARTMENT_ORG_ID
+                                )
+                                output += UIRenderer.render_department_breakdown_compact(
+                                    dept_sms_stats, "SMS Communications by Department", "sms"
+                                )
+                            except Exception as e_dept:
+                                output += ErrorHandler.handle_error(e_dept, "department SMS breakdown")
+
+                            # Department SMS failure breakdown (expandable)
+                            try:
+                                dept_sms_failures = DataRetrieval.get_department_sms_failure_breakdown(
+                                    sDate, eDate, Config.DEPARTMENT_ORG_ID
+                                )
+                                output += UIRenderer.render_department_failure_breakdown(dept_sms_failures, "sms")
+                            except Exception as e_fail:
+                                output += ErrorHandler.handle_error(e_fail, "department SMS failure breakdown")
+
                         # Layout in two columns for smaller sections
                         output += '<div class="row">'
-                        
+
                         # Left column - SMS failure breakdown
                         output += '<div class="col-md-6">'
                         try:
@@ -3465,7 +5622,7 @@ def main():
                         except Exception as e1:
                             output += ErrorHandler.handle_error(e1, "SMS failure breakdown")
                         output += '</div>'
-                        
+
                         # Right column - SMS top senders
                         output += '<div class="col-md-6">'
                         try:
@@ -3475,9 +5632,9 @@ def main():
                         except Exception as e2:
                             output += ErrorHandler.handle_error(e2, "SMS top senders")
                         output += '</div>'
-                        
+
                         output += '</div>'  # End row
-                        
+
                         # Get and display SMS campaigns
                         try:
                             sms_campaigns = DataRetrieval.get_sms_campaigns(sDate, eDate)
@@ -3511,11 +5668,56 @@ def main():
                         output += UIRenderer.render_program_stats(program_stats)
                     except Exception as e:
                         output += ErrorHandler.handle_error(e, "program statistics")
+
+                # Department Stats Tab (optional feature)
+                elif active_tab == 'departments' and Config.DEPARTMENT_TRACKING_ENABLED:
+                    try:
+                        # Get department EMAIL statistics
+                        dept_email_stats = DataRetrieval.get_department_communication_stats(
+                            sDate, eDate, Config.DEPARTMENT_ORG_ID
+                        )
+                        # Get department SMS statistics
+                        dept_sms_stats = DataRetrieval.get_department_sms_stats(
+                            sDate, eDate, Config.DEPARTMENT_ORG_ID
+                        )
+                        # Get top senders by department
+                        top_senders = DataRetrieval.get_top_senders_by_department(
+                            sDate, eDate, Config.DEPARTMENT_ORG_ID
+                        )
+                        # Get department list
+                        departments = DataRetrieval.get_departments(Config.DEPARTMENT_ORG_ID)
+
+                        output += UIRenderer.render_department_stats_combined(
+                            dept_email_stats, dept_sms_stats, top_senders, departments
+                        )
+                    except Exception as e:
+                        output += ErrorHandler.handle_error(e, "department statistics")
+
+                # Settings Tab (optional feature)
+                elif active_tab == 'settings' and Config.SETTINGS_TAB_ENABLED:
+                    try:
+                        # Get unmapped senders for display
+                        unmapped_senders = DataRetrieval.get_unmapped_senders(
+                            sDate, eDate, Config.DEPARTMENT_ORG_ID
+                        )
+                        # Get all available departments (subgroups + custom)
+                        all_departments = DataRetrieval.get_all_available_departments(
+                            Config.DEPARTMENT_ORG_ID
+                        )
+                        # Get current email mappings
+                        current_mappings = DataRetrieval.get_email_mappings()
+
+                        output += UIRenderer.render_settings_tab(
+                            unmapped_senders, all_departments, current_mappings
+                        )
+                    except Exception as e:
+                        output += ErrorHandler.handle_error(e, "settings")
+
             except Exception as tab_error:
                 # If a tab completely fails, show a user-friendly error
                 output += """
                 <div class="alert alert-danger">
-                    <h4><i class="glyphicon glyphicon-exclamation-sign"></i> Tab Error</h4>
+                    <h4>⚠️ Tab Error</h4>
                     <p>An error occurred while displaying this tab. Please try another tab or refresh the page.</p>
                     <p>Error details: {0}</p>
                 </div>
@@ -3533,24 +5735,28 @@ def main():
         # Last resort error handling if something goes wrong at the top level
         return """
         <div class="alert alert-danger">
-            <h4><i class="glyphicon glyphicon-exclamation-sign"></i> Critical Error</h4>
+            <h4>⚠️ Critical Error</h4>
             <p>A critical error occurred while rendering the dashboard. Please contact support.</p>
             <pre style="max-height: 200px; overflow-y: auto;">{0}</pre>
         </div>
         """.format(traceback.format_exc())
 
-# Run the main function and print the output
+# Run the main function and output for both PyScript (print) and PyScriptForm (model.Form)
 try:
-    print main()
+    output = main()
+    print output
+    model.Form = output
 except Exception as e:
     # Last resort error handling if something goes wrong at the top level
-    print """
+    error_html = """
     <div class="alert alert-danger">
-        <h4><i class="glyphicon glyphicon-exclamation-sign"></i> Critical Error</h4>
+        <h4>⚠️ Critical Error</h4>
         <p>A critical error occurred while rendering the dashboard. Please contact support.</p>
         <pre style="max-height: 200px; overflow-y: auto;">{0}</pre>
     </div>
     """.format(traceback.format_exc())
+    print error_html
+    model.Form = error_html
 # FormatHelper.format_number(total_sms),
 # FormatHelper.format_percent(sms_delivery_rate),
 # min(100, max(0, sms_delivery_rate)),
