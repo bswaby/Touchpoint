@@ -22,6 +22,9 @@ Centralized dashboard for viewing and analyzing email and SMS communications.  T
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Communication%20Dashboard/CD-SMSStats.png" width="700">
 </p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Communication%20Dashboard/CD-SMSStats2.png" width="700">
+</p>
 
 <summary><strong>Top Senders</strong></summary>
 <p>List of top email and SMS senders.</p>
@@ -33,4 +36,16 @@ Centralized dashboard for viewing and analyzing email and SMS communications.  T
 <p>Top Emails by Program</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Communication%20Dashboard/CD-ProgramStats.png" width="700">
+</p>
+
+<summary><strong>Department Communicaitons Grouping</strong></summary>
+<p>Top Emails by Program</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Communication%20Dashboard/CD-Departments.png" width="700">
+</p>
+
+<summary><strong>Custom Department Mapping</strong></summary>
+<p>Settings</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Communication%20Dashboard/CD-Settings.png" width="700">
 </p>
