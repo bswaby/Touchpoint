@@ -25,41 +25,21 @@ With this tool, our team can:
 
 Search for a source involvement, filter by program or division, and select which registration questions to display. Manage saved efforts to organize your work into named sessions.
 
-<!--
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Processor/InvolvementProcessor-1-Setup.png" width="700" alt="Setup Panel">
-</p>
--->
 
 ## Registrants Panel
 
 View all registrants from the selected involvement with their registration question responses. Filter by name, gender, age, subgroups, or question answers. Processed registrants are visually marked with a green indicator.
 
-<!--
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Processor/InvolvementProcessor-2-Registrants.png" width="700" alt="Registrants Panel">
-</p>
--->
 
 ## Selection Queue & Target Assignment
 
 Select registrants into a queue, then assign them in bulk to a target involvement and subgroups. The queue stays visible as you scroll through registrants.
 
-<!--
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Processor/InvolvementProcessor-3-Queue.png" width="700" alt="Selection Queue">
-</p>
--->
 
 ## Effort Management
 
 Save your work as named efforts that preserve your source involvement, selected people, target assignments, and processing state. Switch between efforts or pick up where you left off.
 
-<!--
-<p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Processor/InvolvementProcessor-4-Efforts.png" width="700" alt="Effort Management">
-</p>
--->
 
 ## Watchlist
 
@@ -67,6 +47,6 @@ Add people to a watchlist for tracking across involvements. Assign watchers and 
 
 <!--
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Processor/InvolvementProcessor-5-Watchlist.png" width="700" alt="Watchlist">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Processor/InvProc.png" width="700" alt="Watchlist">
 </p>
 -->
