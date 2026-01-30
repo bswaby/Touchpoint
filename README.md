@@ -66,6 +66,7 @@ Maintain system health, security, and efficiency
 - **[Account Security Monitor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Account%20Security%20Monitor)**: Advanced security analytics
 - **[Attachment Link Downloader](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator)**: Bulk document download
 - **[Email Technical Diagnostics Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Email%20Technical%20Diagnostics)**: Comprehensive email troubleshooting
+- **[Involvement Processor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Processor)**: Comprehensive involvement registrant processing 
 - **[Involvement Sync](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Sync)**: Synchronize involvement settings
 - **[Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator)**: Pre-authenticated link creation
 - **[Registration Data Manager](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Data%20Manager)**: Registration Data Manager
