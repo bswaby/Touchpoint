@@ -41,7 +41,7 @@ Select registrants into a queue, then assign them in bulk to a target involvemen
 Save your work as named efforts that preserve your source involvement, selected people, target assignments, and processing state. Switch between efforts or pick up where you left off.
 
 
-## Watchlist
+## Watchlist (Future Q1 2026)
 
 Add people to a watchlist for tracking across involvements. Assign watchers and manage requests for specific individuals.
 
