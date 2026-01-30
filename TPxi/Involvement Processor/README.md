@@ -45,8 +45,6 @@ Save your work as named efforts that preserve your source involvement, selected 
 
 Add people to a watchlist for tracking across involvements. Assign watchers and manage requests for specific individuals.
 
-<!--
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Processor/InvProc.png" width="700" alt="Watchlist">
 </p>
--->
