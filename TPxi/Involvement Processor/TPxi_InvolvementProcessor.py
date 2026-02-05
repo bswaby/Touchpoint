@@ -19,8 +19,22 @@ Features:
 
 Written By: Ben Swaby
 Email: bswaby@fbchtn.org
-Version: 1.0
+Version: 1.1
 Date: January 2025
+
+Updates:
+--------
+v1.1 (February 2025)
+- Added External Change Sync: Detects when people are removed from target
+  involvements or subgroups outside of Involvement Processor
+- Sync runs automatically when loading an effort, or manually via refresh button
+- Visual indicators: Red strikethrough for org removal, orange for subgroup removal
+- Sync modal shows: New changes detected, people still removed from involvement,
+  and people removed from subgroups
+- "Clear Removed Entries" button to clear external change flags:
+  - Org removals: Removes from processed list (appear as pending again)
+  - Subgroup removals: Clears strikethrough (stays processed)
+- Detects when removed people are added back (restoration)
 
 --Upload Instructions Start--
 To upload code to Touchpoint, use the following steps:
@@ -875,6 +889,183 @@ if model.HttpMethod == "post":
                 print json.dumps({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
+    # Sync Effort - Check for external changes to involvement/subgroup membership
+    # -------------------------------------------------------------------------
+    elif action == 'sync_effort':
+        org_id = getattr(Data, 'org_id', '')
+        effort_id = getattr(Data, 'effort_id', '')
+        auto_update = getattr(Data, 'auto_update', 'false') == 'true'
+
+        if not org_id or not effort_id:
+            print json.dumps({'success': False, 'message': 'Organization ID and effort ID required'})
+        else:
+            try:
+                org_id = int(org_id)
+                existing = model.ExtraValueTextOrg(org_id, "InvolvementProcessorEfforts")
+                data = json.loads(existing) if existing else {'efforts': []}
+                efforts = data.get('efforts', [])
+
+                effort = None
+                effort_idx = -1
+                for idx, e in enumerate(efforts):
+                    if e.get('id') == effort_id:
+                        effort = e
+                        effort_idx = idx
+                        break
+
+                if not effort:
+                    print json.dumps({'success': False, 'message': 'Effort not found'})
+                else:
+                    processed = effort.get('processed', [])
+                    changes = []
+                    updated_processed = []
+
+                    for p in processed:
+                        # Handle both old format (just peopleId) and new format (object)
+                        if isinstance(p, dict):
+                            people_id = p.get('peopleId')
+                            target_org_id = p.get('targetOrgId')
+                            tracked_subgroups = p.get('subgroups', [])
+                            was_marked_removed = p.get('externallyRemoved', False)
+                            previously_removed_subgroups = p.get('removedSubgroups', [])
+                        else:
+                            # Old format - just a people ID, skip sync
+                            updated_processed.append(p)
+                            continue
+
+                        if not people_id or not target_org_id:
+                            # No target info, keep as-is
+                            updated_processed.append(p)
+                            continue
+
+                        person = model.GetPerson(people_id)
+                        person_name = person.Name2 if person else 'Unknown (ID: {0})'.format(people_id)
+
+                        # Check CURRENT state in TouchPoint
+                        currently_in_org = model.InOrg(people_id, target_org_id) if person else False
+
+                        change_record = {
+                            'peopleId': people_id,
+                            'name': person_name,
+                            'targetOrgId': target_org_id,
+                            'changes': [],
+                            'debug': {
+                                'wasMarkedRemoved': was_marked_removed,
+                                'currentlyInOrg': currently_in_org,
+                                'trackedSubgroups': tracked_subgroups
+                            }
+                        }
+
+                        # Build updated processed entry
+                        updated_entry = dict(p)  # Copy original
+
+                        # Update org membership status based on CURRENT reality
+                        if currently_in_org:
+                            # Person IS in org now
+                            if was_marked_removed:
+                                # Was marked removed, but now back - report restoration
+                                change_record['changes'].append({
+                                    'type': 'restored_to_org',
+                                    'message': 'Restored to target involvement'
+                                })
+                            # Clear any removal flags since they're in the org
+                            if 'externallyRemoved' in updated_entry:
+                                del updated_entry['externallyRemoved']
+                            if 'removedAt' in updated_entry:
+                                del updated_entry['removedAt']
+                            if was_marked_removed:
+                                updated_entry['restoredAt'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                        else:
+                            # Person is NOT in org now
+                            if not was_marked_removed:
+                                # Newly detected as removed - report it
+                                change_record['changes'].append({
+                                    'type': 'removed_from_org',
+                                    'message': 'Removed from target involvement'
+                                })
+                            # Mark as externally removed
+                            updated_entry['externallyRemoved'] = True
+                            if not was_marked_removed:
+                                updated_entry['removedAt'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+                        # Check subgroups (only if currently in org)
+                        if currently_in_org:
+                            current_subgroups = []
+                            newly_removed_subgroups = []
+                            restored_subgroups = []
+
+                            # Check all tracked subgroups - are they still in them?
+                            for sg in tracked_subgroups:
+                                if model.InSubGroup(people_id, target_org_id, sg):
+                                    current_subgroups.append(sg)
+                                else:
+                                    newly_removed_subgroups.append(sg)
+                                    change_record['changes'].append({
+                                        'type': 'removed_from_subgroup',
+                                        'subgroup': sg,
+                                        'message': 'Removed from subgroup: {0}'.format(sg)
+                                    })
+
+                            # Check if previously removed subgroups were restored
+                            for sg in previously_removed_subgroups:
+                                if model.InSubGroup(people_id, target_org_id, sg):
+                                    restored_subgroups.append(sg)
+                                    if sg not in current_subgroups:
+                                        current_subgroups.append(sg)
+                                    change_record['changes'].append({
+                                        'type': 'restored_to_subgroup',
+                                        'subgroup': sg,
+                                        'message': 'Restored to subgroup: {0}'.format(sg)
+                                    })
+
+                            # Update subgroups in entry to reflect current reality
+                            updated_entry['subgroups'] = current_subgroups
+
+                            # Update removed subgroups list
+                            still_removed = [sg for sg in previously_removed_subgroups if sg not in restored_subgroups]
+                            still_removed.extend(newly_removed_subgroups)
+                            still_removed = list(set(still_removed))  # Remove duplicates
+
+                            if still_removed:
+                                updated_entry['removedSubgroups'] = still_removed
+                            elif 'removedSubgroups' in updated_entry:
+                                del updated_entry['removedSubgroups']
+
+                        # Always add debug info to changes list (even if no actual changes)
+                        # This helps troubleshoot sync issues
+                        changes.append(change_record)
+
+                        if change_record['changes']:
+                            updated_entry['lastSyncAt'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+                        updated_processed.append(updated_entry)
+
+                    # Always save the updated state (even if no "changes" to report,
+                    # the state should reflect current reality)
+                    if auto_update:
+                        effort['processed'] = updated_processed
+                        effort['lastSyncAt'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                        data['efforts'][effort_idx] = effort
+                        model.AddExtraValueTextOrg(org_id, "InvolvementProcessorEfforts", json.dumps(data))
+
+                    # Count only items with actual changes for changeCount
+                    actual_changes = [c for c in changes if c['changes']]
+
+                    print json.dumps({
+                        'success': True,
+                        'changes': actual_changes,
+                        'changeCount': len(actual_changes),
+                        'updated': auto_update,
+                        'updatedProcessed': updated_processed if auto_update else None,
+                        'debug': {
+                            'totalProcessed': len(processed),
+                            'allSyncResults': changes
+                        }
+                    })
+            except Exception as e:
+                print json.dumps({'success': False, 'message': str(e)})
+
+    # -------------------------------------------------------------------------
     # Mark person as processed
     # -------------------------------------------------------------------------
     elif action == 'mark_processed':
@@ -1060,6 +1251,32 @@ else:
 .ip-person-card .ip-assignment-info .text-info {
     color: #0277bd !important;
     font-weight: 500;
+}
+
+.ip-person-card .ip-assignment-info .text-warning {
+    color: #f57c00 !important;
+    font-weight: 500;
+}
+
+.ip-person-card .ip-assignment-info .text-danger {
+    color: #d32f2f !important;
+    font-weight: 500;
+}
+
+.ip-person-card .ip-assignment-info .text-decoration-line-through {
+    text-decoration: line-through;
+    opacity: 0.7;
+}
+
+/* External change warning background */
+.ip-person-card.ip-external-change .ip-assignment-info {
+    background: rgba(255, 152, 0, 0.15);
+    border-left: 3px solid #ff9800;
+}
+
+.ip-person-card.ip-external-removed .ip-assignment-info {
+    background: rgba(244, 67, 54, 0.1);
+    border-left: 3px solid #f44336;
 }
 
 .ip-person-card .ip-name {
@@ -1885,10 +2102,304 @@ function loadEffort(effortId) {
             updateEffortDisplay();
             renderRegistrantList();
             showToast('Loaded: ' + effort.name, 'success');
+
+            // Sync effort to check for external changes
+            syncEffort(effortId);
         } else {
             showToast('Failed to load effort', 'danger');
         }
     });
+}
+
+// Sync effort with actual TouchPoint state to detect external changes
+function syncEffort(effortId) {
+    if (!state.sourceOrgId || !effortId) return;
+
+    ajax('sync_effort', {
+        org_id: state.sourceOrgId,
+        effort_id: effortId,
+        auto_update: 'true'
+    }, function(response) {
+        if (response.success) {
+            // Always update local state with synced data
+            if (response.updatedProcessed) {
+                state.processed = response.updatedProcessed;
+                renderRegistrantList();
+                updateEffortDisplay();
+            }
+
+            // Count items with external changes (org removal OR subgroup removal)
+            var hasExternalChanges = state.processed.some(function(p) {
+                return typeof p === 'object' && (p.externallyRemoved || (p.removedSubgroups && p.removedSubgroups.length > 0));
+            });
+
+            // Show modal if there are new changes OR items with external changes
+            if (response.changeCount > 0 || hasExternalChanges) {
+                showSyncResultsModal(response.changes);
+            }
+        } else {
+            console.error('Sync failed:', response.message);
+        }
+    });
+}
+
+// Manual sync trigger (from UI button)
+function manualSyncEffort() {
+    console.log('manualSyncEffort called', {
+        currentEffort: state.currentEffort,
+        sourceOrgId: state.sourceOrgId
+    });
+
+    if (!state.currentEffort || !state.sourceOrgId) {
+        showToast('No effort loaded to sync', 'warning');
+        return;
+    }
+
+    showToast('Checking for external changes...', 'info');
+
+    ajax('sync_effort', {
+        org_id: state.sourceOrgId,
+        effort_id: state.currentEffort.id,
+        auto_update: 'true'
+    }, function(response) {
+        console.log('sync_effort response:', response);
+
+        // Log detailed debug info
+        if (response.debug) {
+            console.log('=== SYNC DEBUG INFO ===');
+            console.log('Total processed items:', response.debug.totalProcessed);
+            console.log('All sync results:');
+            if (response.debug.allSyncResults) {
+                response.debug.allSyncResults.forEach(function(item) {
+                    console.log('  ' + item.name + ' (PID:' + item.peopleId + ', TargetOrg:' + item.targetOrgId + ')');
+                    console.log('    wasMarkedRemoved:', item.debug.wasMarkedRemoved);
+                    console.log('    currentlyInOrg:', item.debug.currentlyInOrg);
+                    console.log('    changes:', item.changes.length > 0 ? item.changes : 'none');
+                });
+            }
+            console.log('=======================');
+        }
+
+        if (response.success) {
+            // Always update local state with synced data
+            if (response.updatedProcessed) {
+                console.log('Updating state.processed with', response.updatedProcessed.length, 'items');
+                state.processed = response.updatedProcessed;
+                renderRegistrantList();
+                updateEffortDisplay();
+            }
+
+            // Count items with external changes (org removal OR subgroup removal)
+            var hasExternalChanges = state.processed.some(function(p) {
+                return typeof p === 'object' && (p.externallyRemoved || (p.removedSubgroups && p.removedSubgroups.length > 0));
+            });
+
+            // Show modal if there are new changes OR items with external changes
+            if (response.changeCount > 0 || hasExternalChanges) {
+                console.log('Showing modal with', response.changeCount, 'changes, hasExternalChanges:', hasExternalChanges);
+                showSyncResultsModal(response.changes);
+            } else {
+                showToast('Sync complete - all processed items are current', 'success');
+            }
+        } else {
+            showToast('Sync failed: ' + response.message, 'danger');
+        }
+    });
+}
+
+// Show modal with sync results
+function showSyncResultsModal(changes) {
+    var html = '';
+
+    // Show new changes if any
+    if (changes && changes.length > 0) {
+        html += '<p class="fw-bold mb-2">New Changes Detected:</p>';
+        html += '<div class="list-group mb-3">';
+
+        changes.forEach(function(change) {
+            html += '<div class="list-group-item">';
+            html += '<div class="d-flex w-100 justify-content-between">';
+            html += '<h6 class="mb-1">' + change.name + '</h6>';
+            html += '<small class="text-muted">ID: ' + change.peopleId + '</small>';
+            html += '</div>';
+
+            change.changes.forEach(function(c) {
+                var iconClass = 'bi-question-circle text-secondary';
+                if (c.type === 'removed_from_org') {
+                    iconClass = 'bi-box-arrow-right text-danger';
+                } else if (c.type === 'removed_from_subgroup') {
+                    iconClass = 'bi-dash-circle text-warning';
+                } else if (c.type === 'restored_to_org') {
+                    iconClass = 'bi-box-arrow-in-right text-success';
+                } else if (c.type === 'restored_to_subgroup') {
+                    iconClass = 'bi-plus-circle text-success';
+                }
+                html += '<small class="d-block"><i class="bi ' + iconClass + ' me-1"></i>' + c.message + '</small>';
+            });
+
+            html += '</div>';
+        });
+
+        html += '</div>';
+    }
+
+    // Helper to look up name from registrants
+    function getPersonName(peopleId) {
+        if (state.registrants) {
+            var registrant = state.registrants.find(function(r) {
+                return r.peopleId === peopleId;
+            });
+            if (registrant) return registrant.name;
+        }
+        return 'Unknown';
+    }
+
+    // Show people removed from org entirely
+    var removedFromOrg = state.processed.filter(function(p) {
+        return typeof p === 'object' && p.externallyRemoved;
+    });
+
+    if (removedFromOrg.length > 0) {
+        html += '<p class="fw-bold mb-2 text-danger"><i class="bi bi-exclamation-triangle me-1"></i>Removed from Involvement (' + removedFromOrg.length + '):</p>';
+        html += '<div class="list-group mb-3">';
+
+        removedFromOrg.forEach(function(p) {
+            html += '<div class="list-group-item list-group-item-danger">';
+            html += '<div class="d-flex w-100 justify-content-between">';
+            html += '<span>' + getPersonName(p.peopleId) + '</span>';
+            html += '<small class="text-muted">ID: ' + p.peopleId + '</small>';
+            html += '</div>';
+            if (p.targetOrgName) {
+                html += '<small class="text-muted">Was assigned to: ' + p.targetOrgName + '</small>';
+            }
+            if (p.removedAt) {
+                html += '<small class="text-muted d-block">Removed: ' + p.removedAt + '</small>';
+            }
+            html += '</div>';
+        });
+
+        html += '</div>';
+    }
+
+    // Show people removed from subgroups only (still in org)
+    var removedFromSubgroups = state.processed.filter(function(p) {
+        return typeof p === 'object' && !p.externallyRemoved && p.removedSubgroups && p.removedSubgroups.length > 0;
+    });
+
+    if (removedFromSubgroups.length > 0) {
+        html += '<p class="fw-bold mb-2 text-warning"><i class="bi bi-tag me-1"></i>Removed from Subgroups (' + removedFromSubgroups.length + '):</p>';
+        html += '<div class="list-group mb-3">';
+
+        removedFromSubgroups.forEach(function(p) {
+            html += '<div class="list-group-item list-group-item-warning">';
+            html += '<div class="d-flex w-100 justify-content-between">';
+            html += '<span>' + getPersonName(p.peopleId) + '</span>';
+            html += '<small class="text-muted">ID: ' + p.peopleId + '</small>';
+            html += '</div>';
+            if (p.targetOrgName) {
+                html += '<small class="text-muted">Still in: ' + p.targetOrgName + '</small>';
+            }
+            html += '<small class="text-muted d-block">Removed from: ' + p.removedSubgroups.join(', ') + '</small>';
+            html += '</div>';
+        });
+
+        html += '</div>';
+    }
+
+    if (removedFromOrg.length > 0 || removedFromSubgroups.length > 0) {
+        html += '<p class="mt-2 mb-0 text-muted small">Click "Clear Removed Entries" to clear these flags and update the display.</p>';
+    }
+
+    if (!html) {
+        html = '<p class="text-muted">No changes detected.</p>';
+    } else {
+        html += '<p class="mt-3 mb-0 text-muted small"><i class="bi bi-info-circle me-1"></i>These changes were made outside of Involvement Processor.</p>';
+    }
+
+    $('#syncChangesContent').html(html);
+    var modal = new bootstrap.Modal(document.getElementById('syncChangesModal'));
+    modal.show();
+}
+
+// Clear all external change flags from processed list
+function clearExternallyRemoved() {
+    if (!state.currentEffort || !state.sourceOrgId) {
+        showToast('No effort loaded', 'warning');
+        return false;
+    }
+
+    var orgRemovedCount = 0;
+    var subgroupClearedCount = 0;
+
+    // Process each entry
+    state.processed = state.processed.filter(function(p) {
+        if (typeof p !== 'object') return true;
+
+        // If removed from org entirely, remove from processed list
+        if (p.externallyRemoved) {
+            orgRemovedCount++;
+            return false; // Remove from list
+        }
+
+        // If only removed from subgroups, clear the flag but keep in list
+        if (p.removedSubgroups && p.removedSubgroups.length > 0) {
+            delete p.removedSubgroups;
+            subgroupClearedCount++;
+        }
+
+        return true; // Keep in list
+    });
+
+    var totalCleared = orgRemovedCount + subgroupClearedCount;
+
+    if (totalCleared === 0) {
+        showToast('No external changes to clear', 'info');
+        return false;
+    }
+
+    // Save the updated effort
+    autoSaveEffort();
+    renderRegistrantList();
+    updateEffortDisplay();
+
+    var msg = 'Cleared: ';
+    var parts = [];
+    if (orgRemovedCount > 0) parts.push(orgRemovedCount + ' removed from involvement');
+    if (subgroupClearedCount > 0) parts.push(subgroupClearedCount + ' subgroup removals');
+    showToast(msg + parts.join(', '), 'success');
+    return true;
+}
+
+// Clear from modal button (closes modal after)
+function clearExternallyRemovedFromModal() {
+    var orgRemovedCount = state.processed.filter(function(p) {
+        return typeof p === 'object' && p.externallyRemoved;
+    }).length;
+
+    var subgroupRemovedCount = state.processed.filter(function(p) {
+        return typeof p === 'object' && !p.externallyRemoved && p.removedSubgroups && p.removedSubgroups.length > 0;
+    }).length;
+
+    var totalCount = orgRemovedCount + subgroupRemovedCount;
+
+    if (totalCount === 0) {
+        showToast('No external changes to clear', 'info');
+        return;
+    }
+
+    var confirmMsg = 'Clear ' + totalCount + ' external change(s)?';
+    if (orgRemovedCount > 0) confirmMsg += String.fromCharCode(10) + '- ' + orgRemovedCount + ' removed from involvement (will appear as pending)';
+    if (subgroupRemovedCount > 0) confirmMsg += String.fromCharCode(10) + '- ' + subgroupRemovedCount + ' removed from subgroups (will clear strikethrough)';
+
+    if (!confirm(confirmMsg)) {
+        return;
+    }
+
+    if (clearExternallyRemoved()) {
+        // Close the modal
+        var modal = bootstrap.Modal.getInstance(document.getElementById('syncChangesModal'));
+        if (modal) modal.hide();
+    }
 }
 
 function showEffortPicker() {
@@ -2298,6 +2809,9 @@ function renderRegistrantList() {
         var cardClass = 'ip-person-card';
         if (inQueue) cardClass += ' ip-selected';
         if (procFlag) cardClass += ' ip-processed';
+        // Add external change indicator classes
+        if (procInfo && procInfo.externallyRemoved) cardClass += ' ip-external-removed';
+        else if (procInfo && procInfo.removedSubgroups && procInfo.removedSubgroups.length > 0) cardClass += ' ip-external-change';
 
         html += '<div class="' + cardClass + '" data-pid="' + r.peopleId + '" onclick="toggleQueuePerson(' + r.peopleId + ')">';
         html += '<div class="ip-name">' + r.name;
@@ -2307,11 +2821,28 @@ function renderRegistrantList() {
         // Show assignment info for processed people
         if (procFlag && procInfo && procInfo.targetOrgName) {
             html += '<div class="ip-assignment-info">';
-            html += '<i class="bi bi-arrow-right-circle me-1"></i>';
-            html += '<span class="text-success">' + escapeHtml(procInfo.targetOrgName) + '</span>';
-            if (procInfo.subgroups && procInfo.subgroups.length > 0) {
-                html += ' <i class="bi bi-tag-fill ms-1 me-1"></i>';
-                html += '<span class="text-info">' + procInfo.subgroups.map(escapeHtml).join(', ') + '</span>';
+
+            // Check if externally removed from org
+            if (procInfo.externallyRemoved) {
+                html += '<i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>';
+                html += '<span class="text-danger text-decoration-line-through">' + escapeHtml(procInfo.targetOrgName) + '</span>';
+                html += '<small class="text-danger ms-1">(removed externally)</small>';
+            } else {
+                html += '<i class="bi bi-arrow-right-circle me-1"></i>';
+                html += '<span class="text-success">' + escapeHtml(procInfo.targetOrgName) + '</span>';
+
+                // Show current subgroups
+                if (procInfo.subgroups && procInfo.subgroups.length > 0) {
+                    html += ' <i class="bi bi-tag-fill ms-1 me-1"></i>';
+                    html += '<span class="text-info">' + procInfo.subgroups.map(escapeHtml).join(', ') + '</span>';
+                }
+
+                // Show removed subgroups with strikethrough
+                if (procInfo.removedSubgroups && procInfo.removedSubgroups.length > 0) {
+                    html += ' <i class="bi bi-tag ms-1 me-1 text-warning"></i>';
+                    html += '<span class="text-warning text-decoration-line-through">' + procInfo.removedSubgroups.map(escapeHtml).join(', ') + '</span>';
+                    html += '<small class="text-warning ms-1">(removed)</small>';
+                }
             }
             html += '</div>';
         }
@@ -3152,6 +3683,9 @@ function showHelp() {
                                                 <span id="effortDirtyIndicator" class="badge bg-warning text-dark ms-1" style="display: none;">unsaved</span>
                                             </div>
                                             <div class="btn-group btn-group-sm">
+                                                <button class="btn btn-outline-primary btn-sm" type="button" onclick="manualSyncEffort()" title="Check for external changes">
+                                                    <i class="bi bi-arrow-repeat"></i>
+                                                </button>
                                                 <button class="btn btn-outline-primary btn-sm" type="button" onclick="showEffortPicker()" title="Switch effort">
                                                     <i class="bi bi-list"></i>
                                                 </button>
@@ -3531,6 +4065,32 @@ function showHelp() {
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="createNewEffort()">
                     <i class="bi bi-plus-circle me-1"></i>Create Effort
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sync Changes Modal -->
+<div class="modal fade" id="syncChangesModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-warning bg-opacity-25">
+                <h5 class="modal-title"><i class="bi bi-arrow-repeat me-2"></i>External Changes Detected</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">The following changes were detected since this session was last saved:</p>
+                <div id="syncChangesContent">
+                    <!-- Content populated by JavaScript -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger" onclick="clearExternallyRemovedFromModal()">
+                    <i class="bi bi-trash me-1"></i>Clear Removed Entries
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-check me-1"></i>OK, Got It
                 </button>
             </div>
         </div>
