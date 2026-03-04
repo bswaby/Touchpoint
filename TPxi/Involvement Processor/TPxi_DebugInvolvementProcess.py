@@ -48,6 +48,29 @@ To upload code to Touchpoint, use the following steps:
 import json
 import datetime
 
+def safe_str(val):
+    """Safely convert a database value to a JSON-serializable string.
+    Handles Latin-1 encoded bytes (e.g. ñ = 0xf1) from SQL Server."""
+    if val is None:
+        return ''
+    try:
+        s = val
+        # If it's already unicode, return as-is
+        if isinstance(s, unicode):
+            return s
+        # Try to decode as utf-8 first, then latin-1 as fallback
+        s = str(s)
+        try:
+            return s.decode('utf-8')
+        except (UnicodeDecodeError, AttributeError):
+            try:
+                return s.decode('latin-1')
+            except (UnicodeDecodeError, AttributeError):
+                # Last resort: strip non-ASCII
+                return ''.join(c if ord(c) < 128 else '?' for c in s)
+    except:
+        return ''
+
 model.Header = 'Involvement Processor'
 
 # ============================================================================
@@ -100,9 +123,9 @@ if model.HttpMethod == "post":
             for r in results:
                 involvements.append({
                     'id': r.OrganizationId,
-                    'name': r.OrganizationName,
-                    'division': r.DivisionName or '',
-                    'program': r.ProgramName or '',
+                    'name': safe_str(r.OrganizationName),
+                    'division': safe_str(r.DivisionName),
+                    'program': safe_str(r.ProgramName),
                     'memberCount': r.MemberCount or 0
                 })
             print json.dumps({'success': True, 'involvements': involvements})
@@ -125,7 +148,7 @@ if model.HttpMethod == "post":
             """
             programs = []
             for r in q.QuerySql(prog_sql):
-                programs.append({'id': r.Id, 'name': r.Name})
+                programs.append({'id': r.Id, 'name': safe_str(r.Name)})
 
             # Get divisions
             div_sql = """
@@ -137,7 +160,7 @@ if model.HttpMethod == "post":
             """
             divisions = []
             for r in q.QuerySql(div_sql):
-                divisions.append({'id': r.Id, 'name': r.Name, 'programId': r.ProgId})
+                divisions.append({'id': r.Id, 'name': safe_str(r.Name), 'programId': r.ProgId})
 
             print json.dumps({'success': True, 'programs': programs, 'divisions': divisions})
         except Exception as e:
@@ -224,14 +247,14 @@ if model.HttpMethod == "post":
 
                     member = {
                         'peopleId': r.PeopleId,
-                        'name': r.Name,
-                        'email': r.EmailAddress or '',
-                        'phone': r.CellPhone or '',
+                        'name': safe_str(r.Name),
+                        'email': safe_str(r.EmailAddress),
+                        'phone': safe_str(r.CellPhone),
                         'age': r.Age,
                         'ageMonths': age_months,
                         'gender': 'M' if r.GenderId == 1 else 'F' if r.GenderId == 2 else '',
                         'enrollmentDate': str(r.EnrollmentDate)[:10] if r.EnrollmentDate else '',
-                        'memberType': r.MemberType or '',
+                        'memberType': safe_str(r.MemberType),
                         'answers': {},
                         'subgroups': []  # Will be populated below
                     }
@@ -245,16 +268,6 @@ if model.HttpMethod == "post":
                     'status': 'ok',
                     'detail': 'Loaded {0} members in {1}s'.format(len(members), members_elapsed)
                 })
-
-                # Check for potential data issues in member names
-                for m in members:
-                    name = m.get('name', '')
-                    if name and any(ord(c) > 127 for c in name):
-                        diagnostics.append({
-                            'phase': 'Data Check',
-                            'status': 'warning',
-                            'detail': 'Special characters in name: {0} (PeopleId: {1})'.format(repr(name), m['peopleId'])
-                        })
 
                 # Get registration questions and answers using RegQuestion/RegAnswer tables (newer registrations)
                 # This approach matches MissionsDashboard - gets questions through the answer relationships
@@ -285,18 +298,20 @@ if model.HttpMethod == "post":
                         if answers_result:
                             for r in answers_result:
                                 # Build questions list from actual answers found
-                                if r.Question and r.Question not in question_set:
+                                q_text = safe_str(r.Question)
+                                if q_text and q_text not in question_set:
                                     questions.append({
                                         'id': str(r.RegQuestionId) if r.RegQuestionId else 'q_' + str(len(questions)),
-                                        'text': r.Question
+                                        'text': q_text
                                     })
-                                    question_set.add(r.Question)
+                                    question_set.add(q_text)
 
                                 # Find the member and add their answer
-                                for m in members:
-                                    if m['peopleId'] == r.PeopleId:
-                                        m['answers'][r.Question] = r.Answer or ''
-                                        break
+                                if q_text:
+                                    for m in members:
+                                        if m['peopleId'] == r.PeopleId:
+                                            m['answers'][q_text] = safe_str(r.Answer)
+                                            break
                         questions_elapsed = round(time.time() - load_start, 2)
                         diagnostics.append({
                             'phase': 'Registration Questions',
@@ -409,7 +424,7 @@ if model.HttpMethod == "post":
                     if sg_result:
                         for r in sg_result:
                             subgroups.append({
-                                'name': r.Name,
+                                'name': safe_str(r.Name),
                                 'count': r.MemberCount or 0
                             })
                     sg_elapsed = round(time.time() - load_start, 2)
@@ -443,7 +458,7 @@ if model.HttpMethod == "post":
                         if msg_result:
                             for r in msg_result:
                                 if r.PeopleId in member_map:
-                                    member_map[r.PeopleId]['subgroups'].append(r.SubgroupName)
+                                    member_map[r.PeopleId]['subgroups'].append(safe_str(r.SubgroupName))
                         mssg_elapsed = round(time.time() - load_start, 2)
                         diagnostics.append({
                             'phase': 'Member Subgroups',
@@ -474,56 +489,25 @@ if model.HttpMethod == "post":
                     'diagnostics': diagnostics
                 }
 
-                # Check JSON serialization size for diagnostics
+                # Serialize and send response
                 try:
                     result_json = json.dumps(result_obj)
-                    result_size = len(result_json)
-                    # Add response size info (will be in next load, but useful for logging)
-                    if result_size > 1000000:  # > 1MB
-                        diagnostics.append({
-                            'phase': 'Response Size',
-                            'status': 'warning',
-                            'detail': 'Large response: {0} bytes ({1} MB). May be slow on poor connections.'.format(
-                                result_size, round(result_size / 1048576.0, 1))
-                        })
-                        # Re-serialize with the size warning included
-                        result_obj['diagnostics'] = diagnostics
-                        result_json = json.dumps(result_obj)
                     print result_json
                 except Exception as ej:
-                    # JSON serialization itself failed - likely special character issue
+                    # JSON serialization failed - return error with diagnostics
                     diagnostics.append({
                         'phase': 'JSON Serialization',
                         'status': 'error',
                         'detail': 'Failed to serialize response: {0}'.format(str(ej))
                     })
-                    # Try to return diagnostics even if members can't serialize
-                    try:
-                        # Attempt to find the problematic member
-                        for i, m in enumerate(members):
-                            try:
-                                json.dumps(m)
-                            except Exception as em:
-                                diagnostics.append({
-                                    'phase': 'JSON Serialization',
-                                    'status': 'error',
-                                    'detail': 'Problem with member #{0} (PeopleId: {1}, Name: {2}): {3}'.format(
-                                        i, m.get('peopleId', '?'), repr(m.get('name', '?')), str(em))
-                                })
-                        print json.dumps({
-                            'success': False,
-                            'message': 'Failed to serialize {0} members: {1}'.format(len(members), str(ej)),
-                            'diagnostics': diagnostics,
-                            'members': [],
-                            'questions': questions,
-                            'subgroups': subgroups
-                        })
-                    except:
-                        print json.dumps({
-                            'success': False,
-                            'message': 'Critical serialization failure: {0}'.format(str(ej)),
-                            'diagnostics': diagnostics
-                        })
+                    print json.dumps({
+                        'success': False,
+                        'message': 'Serialization error: {0}'.format(str(ej)),
+                        'diagnostics': diagnostics,
+                        'members': [],
+                        'questions': questions,
+                        'subgroups': subgroups
+                    })
             except Exception as e:
                 # Include any diagnostics collected before the error
                 try:
@@ -572,7 +556,7 @@ if model.HttpMethod == "post":
                 for r in q.QuerySql(sql):
                     results.append({
                         'peopleId': r.PeopleId,
-                        'name': r.Name,
+                        'name': safe_str(r.Name),
                         'age': r.Age,
                         'gender': 'M' if r.GenderId == 1 else 'F' if r.GenderId == 2 else ''
                     })
@@ -615,11 +599,11 @@ if model.HttpMethod == "post":
                 for r in q.QuerySql(sql):
                     results.append({
                         'peopleId': r.PeopleId,
-                        'name': r.Name,
-                        'email': r.EmailAddress or '',
+                        'name': safe_str(r.Name),
+                        'email': safe_str(r.EmailAddress),
                         'age': r.Age,
                         'gender': 'M' if r.GenderId == 1 else 'F' if r.GenderId == 2 else '',
-                        'status': r.MemberStatus or ''
+                        'status': safe_str(r.MemberStatus)
                     })
 
                 print json.dumps({'success': True, 'people': results})
@@ -678,13 +662,13 @@ if model.HttpMethod == "post":
                             for sg in sg_list:
                                 if sg and hasattr(sg, 'Name') and sg.Name:
                                     subgroups.append({
-                                        'name': sg.Name,
+                                        'name': safe_str(sg.Name),
                                         'count': sg.MemberCount or 0 if hasattr(sg, 'MemberCount') else 0
                                     })
 
                             results.append({
                                 'orgId': org.OrganizationId if hasattr(org, 'OrganizationId') and org.OrganizationId else org_id,
-                                'name': org.OrganizationName if hasattr(org, 'OrganizationName') and org.OrganizationName else 'Unknown',
+                                'name': safe_str(org.OrganizationName) if hasattr(org, 'OrganizationName') and org.OrganizationName else 'Unknown',
                                 'totalCount': org.MemberCount or 0 if hasattr(org, 'MemberCount') else 0,
                                 'subgroups': subgroups
                             })
@@ -736,7 +720,7 @@ if model.HttpMethod == "post":
 
                             processed.append({
                                 'peopleId': pid,
-                                'name': person.Name2
+                                'name': safe_str(person.Name2)
                             })
                         else:
                             errors.append({'peopleId': pid, 'error': 'Person not found'})
@@ -1073,7 +1057,7 @@ if model.HttpMethod == "post":
                             continue
 
                         person = model.GetPerson(people_id)
-                        person_name = person.Name2 if person else 'Unknown (ID: {0})'.format(people_id)
+                        person_name = safe_str(person.Name2) if person else 'Unknown (ID: {0})'.format(people_id)
 
                         # Check CURRENT state in TouchPoint
                         currently_in_org = model.InOrg(people_id, target_org_id) if person else False
