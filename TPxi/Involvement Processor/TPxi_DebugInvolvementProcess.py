@@ -48,48 +48,77 @@ To upload code to Touchpoint, use the following steps:
 import json
 import datetime
 
+def _to_ascii(s):
+    """Transliterate a unicode string to pure ASCII.
+    IronPython's json.dumps fails on non-ASCII unicode chars, so we must
+    convert them to ASCII equivalents (e.g. ñ->n, é->e) to preserve readability."""
+    result = []
+    for c in s:
+        o = ord(c)
+        if o < 128:
+            result.append(c)
+        else:
+            result.append(_LATIN_TO_ASCII.get(o, '?'))
+    return ''.join(result)
+
+# Common Latin-1/CP1252 character to ASCII mapping
+_LATIN_TO_ASCII = {
+    0xc0: 'A', 0xc1: 'A', 0xc2: 'A', 0xc3: 'A', 0xc4: 'A', 0xc5: 'A',
+    0xc6: 'AE', 0xc7: 'C', 0xc8: 'E', 0xc9: 'E', 0xca: 'E', 0xcb: 'E',
+    0xcc: 'I', 0xcd: 'I', 0xce: 'I', 0xcf: 'I', 0xd0: 'D', 0xd1: 'N',
+    0xd2: 'O', 0xd3: 'O', 0xd4: 'O', 0xd5: 'O', 0xd6: 'O', 0xd8: 'O',
+    0xd9: 'U', 0xda: 'U', 0xdb: 'U', 0xdc: 'U', 0xdd: 'Y', 0xdf: 'ss',
+    0xe0: 'a', 0xe1: 'a', 0xe2: 'a', 0xe3: 'a', 0xe4: 'a', 0xe5: 'a',
+    0xe6: 'ae', 0xe7: 'c', 0xe8: 'e', 0xe9: 'e', 0xea: 'e', 0xeb: 'e',
+    0xec: 'i', 0xed: 'i', 0xee: 'i', 0xef: 'i', 0xf0: 'd', 0xf1: 'n',
+    0xf2: 'o', 0xf3: 'o', 0xf4: 'o', 0xf5: 'o', 0xf6: 'o', 0xf8: 'o',
+    0xf9: 'u', 0xfa: 'u', 0xfb: 'u', 0xfc: 'u', 0xfd: 'y', 0xff: 'y',
+    0x2018: "'", 0x2019: "'", 0x201c: '"', 0x201d: '"',
+    0x2013: '-', 0x2014: '-', 0x2026: '...', 0xa0: ' ',
+}
+
 def safe_str(val):
-    """Safely convert any value to a JSON-serializable unicode string.
-    Handles .NET types and Latin-1 bytes (e.g. ñ = 0xf1) from SQL Server.
-    In IronPython, .NET SqlString/System.String types may not match
-    isinstance(x, str) or isinstance(x, unicode), so we use try/except."""
+    """Safely convert any value to a pure-ASCII JSON-serializable string.
+    IronPython's json.dumps crashes on non-ASCII unicode chars (even valid ones
+    like U+00F1 ñ), so all output must be ASCII. Latin characters are
+    transliterated (ñ->n, é->e) to keep names readable."""
     if val is None:
-        return u''
-    # 1. Already a Python unicode string - return as-is
+        return ''
+    # 1. Already a Python unicode string - transliterate to ASCII
     try:
         if isinstance(val, unicode):
-            return val
+            return _to_ascii(val)
     except NameError:
         pass
-    # 2. Try unicode() - handles most .NET System.String values
+    # 2. Try unicode() - handles .NET System.String values
     try:
-        return unicode(val)
+        return _to_ascii(unicode(val))
     except:
         pass
-    # 3. Try str() then decode
+    # 3. Try str() then decode to unicode, then to ASCII
     try:
         s = str(val)
         try:
-            return s.decode('utf-8')
+            return _to_ascii(s.decode('utf-8'))
         except:
             pass
         try:
-            return s.decode('latin-1')
+            return _to_ascii(s.decode('latin-1'))
         except:
             pass
         try:
-            return s.decode('cp1252')
+            return _to_ascii(s.decode('cp1252'))
         except:
             pass
         # Byte-by-byte ASCII fallback
-        return u''.join(unichr(ord(c)) if ord(c) < 128 else u'?' for c in s)
+        return ''.join(c if ord(c) < 128 else '?' for c in s)
     except:
         pass
-    # 4. Try repr() as absolute last resort
+    # 4. repr() as absolute last resort
     try:
-        return unicode(repr(val))
+        return repr(val)
     except:
-        return u''
+        return ''
 
 def sanitize_for_json(obj):
     """Recursively walk an object and ensure every value is safe for json.dumps.
@@ -549,7 +578,7 @@ if model.HttpMethod == "post":
                                         json.dumps({ak: av})
                                     except:
                                         bad_fields.append('Member #{0} (PeopleId={1}) answers[{2}] type={3} repr={4}'.format(
-                                            mi, m.get('peopleId', '?'), safe_str(ak), type(fv).__name__, safe_str(repr(av))))
+                                            mi, m.get('peopleId', '?'), safe_str(ak), type(av).__name__, safe_str(repr(av))))
                             elif fk == 'subgroups':
                                 for si, sv in enumerate(fv):
                                     try:
