@@ -71,6 +71,32 @@ def safe_str(val):
     except:
         return ''
 
+def sanitize_for_json(obj):
+    """Recursively walk an object and ensure every string is safe for json.dumps.
+    Catches any byte strings with non-ASCII chars that slipped past safe_str."""
+    if obj is None:
+        return obj
+    if isinstance(obj, dict):
+        return {sanitize_for_json(k): sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [sanitize_for_json(item) for item in obj]
+    if isinstance(obj, bool):
+        return obj
+    try:
+        if isinstance(obj, unicode):
+            return obj
+    except NameError:
+        pass
+    if isinstance(obj, str):
+        try:
+            return obj.decode('utf-8')
+        except (UnicodeDecodeError, AttributeError):
+            try:
+                return obj.decode('latin-1')
+            except (UnicodeDecodeError, AttributeError):
+                return ''.join(c if ord(c) < 128 else '?' for c in obj)
+    return obj
+
 model.Header = 'Involvement Processor'
 
 # ============================================================================
@@ -361,8 +387,8 @@ if model.HttpMethod == "post":
                                 # Extract ExtraQuestion elements
                                 extra_pattern = r'<ExtraQuestion[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</ExtraQuestion>'
                                 for match in re.finditer(extra_pattern, person_xml):
-                                    question = match.group(1)
-                                    answer = match.group(2)
+                                    question = safe_str(match.group(1))
+                                    answer = safe_str(match.group(2))
                                     if question and question not in m['answers']:
                                         m['answers'][question] = answer.strip() if answer else ''
                                         if question not in question_set:
@@ -372,8 +398,8 @@ if model.HttpMethod == "post":
                                 # Extract Text elements
                                 text_pattern = r'<Text[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</Text>'
                                 for match in re.finditer(text_pattern, person_xml):
-                                    question = match.group(1)
-                                    answer = match.group(2)
+                                    question = safe_str(match.group(1))
+                                    answer = safe_str(match.group(2))
                                     if question and question not in m['answers']:
                                         m['answers'][question] = answer.strip() if answer else ''
                                         if question not in question_set:
@@ -383,8 +409,8 @@ if model.HttpMethod == "post":
                                 # Extract YesNoQuestion elements (convert True/False to Yes/No)
                                 yn_pattern = r'<YesNoQuestion[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</YesNoQuestion>'
                                 for match in re.finditer(yn_pattern, person_xml):
-                                    question = match.group(1)
-                                    answer_val = match.group(2)
+                                    question = safe_str(match.group(1))
+                                    answer_val = safe_str(match.group(2))
                                     if question and question not in m['answers']:
                                         # Convert True/False to Yes/No for readability
                                         answer = 'Yes' if answer_val.strip() == 'True' else 'No' if answer_val.strip() == 'False' else answer_val.strip()
@@ -489,25 +515,25 @@ if model.HttpMethod == "post":
                     'diagnostics': diagnostics
                 }
 
-                # Serialize and send response
+                # Serialize and send response (sanitize all strings to prevent encoding errors)
                 try:
-                    result_json = json.dumps(result_obj)
+                    result_json = json.dumps(sanitize_for_json(result_obj))
                     print result_json
                 except Exception as ej:
                     # JSON serialization failed - return error with diagnostics
                     diagnostics.append({
                         'phase': 'JSON Serialization',
                         'status': 'error',
-                        'detail': 'Failed to serialize response: {0}'.format(str(ej))
+                        'detail': 'Failed to serialize response: {0}'.format(safe_str(str(ej)))
                     })
-                    print json.dumps({
+                    print json.dumps(sanitize_for_json({
                         'success': False,
-                        'message': 'Serialization error: {0}'.format(str(ej)),
+                        'message': 'Serialization error: {0}'.format(safe_str(str(ej))),
                         'diagnostics': diagnostics,
                         'members': [],
                         'questions': questions,
                         'subgroups': subgroups
-                    })
+                    }))
             except Exception as e:
                 # Include any diagnostics collected before the error
                 try:
