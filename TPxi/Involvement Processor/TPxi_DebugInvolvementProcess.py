@@ -49,53 +49,72 @@ import json
 import datetime
 
 def safe_str(val):
-    """Safely convert a database value to a JSON-serializable string.
-    Handles Latin-1 encoded bytes (e.g. ñ = 0xf1) from SQL Server."""
+    """Safely convert any value to a JSON-serializable unicode string.
+    Handles .NET types and Latin-1 bytes (e.g. ñ = 0xf1) from SQL Server.
+    In IronPython, .NET SqlString/System.String types may not match
+    isinstance(x, str) or isinstance(x, unicode), so we use try/except."""
     if val is None:
-        return ''
+        return u''
+    # 1. Already a Python unicode string - return as-is
     try:
-        s = val
-        # If it's already unicode, return as-is
-        if isinstance(s, unicode):
-            return s
-        # Try to decode as utf-8 first, then latin-1 as fallback
-        s = str(s)
+        if isinstance(val, unicode):
+            return val
+    except NameError:
+        pass
+    # 2. Try unicode() - handles most .NET System.String values
+    try:
+        return unicode(val)
+    except:
+        pass
+    # 3. Try str() then decode
+    try:
+        s = str(val)
         try:
             return s.decode('utf-8')
-        except (UnicodeDecodeError, AttributeError):
-            try:
-                return s.decode('latin-1')
-            except (UnicodeDecodeError, AttributeError):
-                # Last resort: strip non-ASCII
-                return ''.join(c if ord(c) < 128 else '?' for c in s)
+        except:
+            pass
+        try:
+            return s.decode('latin-1')
+        except:
+            pass
+        try:
+            return s.decode('cp1252')
+        except:
+            pass
+        # Byte-by-byte ASCII fallback
+        return u''.join(unichr(ord(c)) if ord(c) < 128 else u'?' for c in s)
     except:
-        return ''
+        pass
+    # 4. Try repr() as absolute last resort
+    try:
+        return unicode(repr(val))
+    except:
+        return u''
 
 def sanitize_for_json(obj):
-    """Recursively walk an object and ensure every string is safe for json.dumps.
-    Catches any byte strings with non-ASCII chars that slipped past safe_str."""
+    """Recursively walk an object and ensure every value is safe for json.dumps.
+    In IronPython, .NET types from SQL Server may not match isinstance checks
+    for str/unicode, so we treat EVERYTHING that isn't a known primitive as
+    a string candidate and force it through safe_str."""
     if obj is None:
-        return obj
-    if isinstance(obj, dict):
-        return {sanitize_for_json(k): sanitize_for_json(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [sanitize_for_json(item) for item in obj]
+        return None
     if isinstance(obj, bool):
         return obj
+    if isinstance(obj, (int, float)):
+        return obj
+    # Handle long type in Python 2
     try:
-        if isinstance(obj, unicode):
+        if isinstance(obj, long):
             return obj
     except NameError:
         pass
-    if isinstance(obj, str):
-        try:
-            return obj.decode('utf-8')
-        except (UnicodeDecodeError, AttributeError):
-            try:
-                return obj.decode('latin-1')
-            except (UnicodeDecodeError, AttributeError):
-                return ''.join(c if ord(c) < 128 else '?' for c in obj)
-    return obj
+    if isinstance(obj, dict):
+        return {sanitize_for_json(k): sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_for_json(item) for item in obj]
+    # EVERYTHING else gets forced through safe_str
+    # This catches str, unicode, .NET System.String, SqlString, etc.
+    return safe_str(obj)
 
 model.Header = 'Involvement Processor'
 
@@ -520,12 +539,65 @@ if model.HttpMethod == "post":
                     result_json = json.dumps(sanitize_for_json(result_obj))
                     print result_json
                 except Exception as ej:
-                    # JSON serialization failed - return error with diagnostics
+                    # JSON serialization failed - find the problem member/field
+                    bad_fields = []
+                    for mi, m in enumerate(members):
+                        for fk, fv in m.items():
+                            if fk == 'answers':
+                                for ak, av in fv.items():
+                                    try:
+                                        json.dumps({ak: av})
+                                    except:
+                                        bad_fields.append('Member #{0} (PeopleId={1}) answers[{2}] type={3} repr={4}'.format(
+                                            mi, m.get('peopleId', '?'), safe_str(ak), type(fv).__name__, safe_str(repr(av))))
+                            elif fk == 'subgroups':
+                                for si, sv in enumerate(fv):
+                                    try:
+                                        json.dumps(sv)
+                                    except:
+                                        bad_fields.append('Member #{0} (PeopleId={1}) subgroups[{2}] type={3} repr={4}'.format(
+                                            mi, m.get('peopleId', '?'), si, type(sv).__name__, safe_str(repr(sv))))
+                            else:
+                                try:
+                                    json.dumps({fk: fv})
+                                except:
+                                    bad_fields.append('Member #{0} (PeopleId={1}) .{2} type={3} repr={4}'.format(
+                                        mi, m.get('peopleId', '?'), fk, type(fv).__name__, safe_str(repr(fv))))
                     diagnostics.append({
                         'phase': 'JSON Serialization',
                         'status': 'error',
                         'detail': 'Failed to serialize response: {0}'.format(safe_str(str(ej)))
                     })
+                    if bad_fields:
+                        diagnostics.append({
+                            'phase': 'Bad Fields',
+                            'status': 'error',
+                            'detail': '; '.join(bad_fields[:10])
+                        })
+                    else:
+                        diagnostics.append({
+                            'phase': 'Field Scan',
+                            'status': 'warning',
+                            'detail': 'Individual field scan found no issues - problem may be in questions or subgroups list'
+                        })
+                        # Check questions and subgroups lists too
+                        bad_other = []
+                        for qi, qo in enumerate(questions):
+                            try:
+                                json.dumps(qo)
+                            except:
+                                bad_other.append('questions[{0}] type={1}'.format(qi, type(qo).__name__))
+                        for si, so in enumerate(subgroups):
+                            try:
+                                json.dumps(so)
+                            except:
+                                bad_other.append('subgroups[{0}] type={1}'.format(si, type(so).__name__))
+                        if bad_other:
+                            diagnostics.append({
+                                'phase': 'Bad List Items',
+                                'status': 'error',
+                                'detail': '; '.join(bad_other[:10])
+                            })
                     print json.dumps(sanitize_for_json({
                         'success': False,
                         'message': 'Serialization error: {0}'.format(safe_str(str(ej))),
@@ -543,9 +615,9 @@ if model.HttpMethod == "post":
                 diag.append({
                     'phase': 'Fatal Error',
                     'status': 'error',
-                    'detail': str(e)
+                    'detail': safe_str(str(e))
                 })
-                print json.dumps({'success': False, 'message': str(e), 'diagnostics': diag})
+                print json.dumps(sanitize_for_json({'success': False, 'message': safe_str(str(e)), 'diagnostics': diag}))
 
     # -------------------------------------------------------------------------
     # Search Members within involvement (for match finding)
