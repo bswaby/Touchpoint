@@ -13,7 +13,7 @@ A visual builder for creating polished, per-person registration reports. Staff c
 - **Live Preview:** Preview report output with a person selector before generating
 - **Print-Optimized:** Clean per-person page breaks with popup window printing (no TouchPoint CSS conflicts)
 - **Template Persistence:** Saves templates per-organization as extra values so they persist across sessions
-- **Blue Toolbar Support:** Run from a search results selection — script dynamically detects its own name for seamless redirects
+- **Blue Toolbar Support:** Run from a search results selection
 - **Dual Registration Format Support:** Handles both new (RegQuestion/RegAnswer) and legacy (RegistrationData XML) formats
 
 <hr>
