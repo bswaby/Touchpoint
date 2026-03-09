@@ -48,6 +48,103 @@ To upload code to Touchpoint, use the following steps:
 import json
 import datetime
 
+def _to_ascii(s):
+    """Transliterate a unicode string to pure ASCII.
+    IronPython's json.dumps fails on non-ASCII unicode chars, so we must
+    convert them to ASCII equivalents (e.g. ñ->n, é->e) to preserve readability."""
+    result = []
+    for c in s:
+        o = ord(c)
+        if o < 128:
+            result.append(c)
+        else:
+            result.append(_LATIN_TO_ASCII.get(o, '?'))
+    return ''.join(result)
+
+# Common Latin-1/CP1252 character to ASCII mapping
+_LATIN_TO_ASCII = {
+    0xc0: 'A', 0xc1: 'A', 0xc2: 'A', 0xc3: 'A', 0xc4: 'A', 0xc5: 'A',
+    0xc6: 'AE', 0xc7: 'C', 0xc8: 'E', 0xc9: 'E', 0xca: 'E', 0xcb: 'E',
+    0xcc: 'I', 0xcd: 'I', 0xce: 'I', 0xcf: 'I', 0xd0: 'D', 0xd1: 'N',
+    0xd2: 'O', 0xd3: 'O', 0xd4: 'O', 0xd5: 'O', 0xd6: 'O', 0xd8: 'O',
+    0xd9: 'U', 0xda: 'U', 0xdb: 'U', 0xdc: 'U', 0xdd: 'Y', 0xdf: 'ss',
+    0xe0: 'a', 0xe1: 'a', 0xe2: 'a', 0xe3: 'a', 0xe4: 'a', 0xe5: 'a',
+    0xe6: 'ae', 0xe7: 'c', 0xe8: 'e', 0xe9: 'e', 0xea: 'e', 0xeb: 'e',
+    0xec: 'i', 0xed: 'i', 0xee: 'i', 0xef: 'i', 0xf0: 'd', 0xf1: 'n',
+    0xf2: 'o', 0xf3: 'o', 0xf4: 'o', 0xf5: 'o', 0xf6: 'o', 0xf8: 'o',
+    0xf9: 'u', 0xfa: 'u', 0xfb: 'u', 0xfc: 'u', 0xfd: 'y', 0xff: 'y',
+    0x2018: "'", 0x2019: "'", 0x201c: '"', 0x201d: '"',
+    0x2013: '-', 0x2014: '-', 0x2026: '...', 0xa0: ' ',
+}
+
+def safe_str(val):
+    """Safely convert any value to a pure-ASCII JSON-serializable string.
+    IronPython's json.dumps crashes on non-ASCII unicode chars (even valid ones
+    like U+00F1 ñ), so all output must be ASCII. Latin characters are
+    transliterated (ñ->n, é->e) to keep names readable."""
+    if val is None:
+        return ''
+    # 1. Already a Python unicode string - transliterate to ASCII
+    try:
+        if isinstance(val, unicode):
+            return _to_ascii(val)
+    except NameError:
+        pass
+    # 2. Try unicode() - handles .NET System.String values
+    try:
+        return _to_ascii(unicode(val))
+    except:
+        pass
+    # 3. Try str() then decode to unicode, then to ASCII
+    try:
+        s = str(val)
+        try:
+            return _to_ascii(s.decode('utf-8'))
+        except:
+            pass
+        try:
+            return _to_ascii(s.decode('latin-1'))
+        except:
+            pass
+        try:
+            return _to_ascii(s.decode('cp1252'))
+        except:
+            pass
+        # Byte-by-byte ASCII fallback
+        return ''.join(c if ord(c) < 128 else '?' for c in s)
+    except:
+        pass
+    # 4. repr() as absolute last resort
+    try:
+        return repr(val)
+    except:
+        return ''
+
+def sanitize_for_json(obj):
+    """Recursively walk an object and ensure every value is safe for json.dumps.
+    In IronPython, .NET types from SQL Server may not match isinstance checks
+    for str/unicode, so we treat EVERYTHING that isn't a known primitive as
+    a string candidate and force it through safe_str."""
+    if obj is None:
+        return None
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, (int, float)):
+        return obj
+    # Handle long type in Python 2
+    try:
+        if isinstance(obj, long):
+            return obj
+    except NameError:
+        pass
+    if isinstance(obj, dict):
+        return {sanitize_for_json(k): sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_for_json(item) for item in obj]
+    # EVERYTHING else gets forced through safe_str
+    # This catches str, unicode, .NET System.String, SqlString, etc.
+    return safe_str(obj)
+
 model.Header = 'Involvement Processor'
 
 # ============================================================================
@@ -100,9 +197,9 @@ if model.HttpMethod == "post":
             for r in results:
                 involvements.append({
                     'id': r.OrganizationId,
-                    'name': r.OrganizationName,
-                    'division': r.DivisionName or '',
-                    'program': r.ProgramName or '',
+                    'name': safe_str(r.OrganizationName),
+                    'division': safe_str(r.DivisionName),
+                    'program': safe_str(r.ProgramName),
                     'memberCount': r.MemberCount or 0
                 })
             print json.dumps({'success': True, 'involvements': involvements})
@@ -125,7 +222,7 @@ if model.HttpMethod == "post":
             """
             programs = []
             for r in q.QuerySql(prog_sql):
-                programs.append({'id': r.Id, 'name': r.Name})
+                programs.append({'id': r.Id, 'name': safe_str(r.Name)})
 
             # Get divisions
             div_sql = """
@@ -137,7 +234,7 @@ if model.HttpMethod == "post":
             """
             divisions = []
             for r in q.QuerySql(div_sql):
-                divisions.append({'id': r.Id, 'name': r.Name, 'programId': r.ProgId})
+                divisions.append({'id': r.Id, 'name': safe_str(r.Name), 'programId': r.ProgId})
 
             print json.dumps({'success': True, 'programs': programs, 'divisions': divisions})
         except Exception as e:
@@ -149,6 +246,7 @@ if model.HttpMethod == "post":
     # -------------------------------------------------------------------------
     elif action == 'load_registrants':
         import re
+        import time
         org_id = getattr(Data, 'org_id', '')
 
         if not org_id:
@@ -156,6 +254,8 @@ if model.HttpMethod == "post":
         else:
             try:
                 org_id = int(org_id)
+                diagnostics = []  # Collect diagnostic info for client display
+                load_start = time.time()
 
                 # Get organization members with birthdate for age-in-months calculation
                 members_sql = """
@@ -221,20 +321,27 @@ if model.HttpMethod == "post":
 
                     member = {
                         'peopleId': r.PeopleId,
-                        'name': r.Name,
-                        'email': r.EmailAddress or '',
-                        'phone': r.CellPhone or '',
+                        'name': safe_str(r.Name),
+                        'email': safe_str(r.EmailAddress),
+                        'phone': safe_str(r.CellPhone),
                         'age': r.Age,
                         'ageMonths': age_months,
                         'gender': 'M' if r.GenderId == 1 else 'F' if r.GenderId == 2 else '',
                         'enrollmentDate': str(r.EnrollmentDate)[:10] if r.EnrollmentDate else '',
-                        'memberType': r.MemberType or '',
+                        'memberType': safe_str(r.MemberType),
                         'answers': {},
                         'subgroups': []  # Will be populated below
                     }
                     members.append(member)
                     member_ids.append(r.PeopleId)
                     member_map[r.PeopleId] = member
+
+                members_elapsed = round(time.time() - load_start, 2)
+                diagnostics.append({
+                    'phase': 'Load Members',
+                    'status': 'ok',
+                    'detail': 'Loaded {0} members in {1}s'.format(len(members), members_elapsed)
+                })
 
                 # Get registration questions and answers using RegQuestion/RegAnswer tables (newer registrations)
                 # This approach matches MissionsDashboard - gets questions through the answer relationships
@@ -265,20 +372,33 @@ if model.HttpMethod == "post":
                         if answers_result:
                             for r in answers_result:
                                 # Build questions list from actual answers found
-                                if r.Question and r.Question not in question_set:
+                                q_text = safe_str(r.Question)
+                                if q_text and q_text not in question_set:
                                     questions.append({
                                         'id': str(r.RegQuestionId) if r.RegQuestionId else 'q_' + str(len(questions)),
-                                        'text': r.Question
+                                        'text': q_text
                                     })
-                                    question_set.add(r.Question)
+                                    question_set.add(q_text)
 
                                 # Find the member and add their answer
-                                for m in members:
-                                    if m['peopleId'] == r.PeopleId:
-                                        m['answers'][r.Question] = r.Answer or ''
-                                        break
-                    except:
-                        pass
+                                if q_text:
+                                    for m in members:
+                                        if m['peopleId'] == r.PeopleId:
+                                            m['answers'][q_text] = safe_str(r.Answer)
+                                            break
+                        questions_elapsed = round(time.time() - load_start, 2)
+                        diagnostics.append({
+                            'phase': 'Registration Questions',
+                            'status': 'ok',
+                            'detail': 'Found {0} questions via RegQuestion tables ({1}s)'.format(len(questions), questions_elapsed)
+                        })
+                    except Exception as eq:
+                        questions_elapsed = round(time.time() - load_start, 2)
+                        diagnostics.append({
+                            'phase': 'Registration Questions',
+                            'status': 'warning',
+                            'detail': 'RegQuestion query failed ({0}s): {1}'.format(questions_elapsed, str(eq))
+                        })
 
                 # Also try RegistrationData table for older registrations (XML format)
                 rd_sql = """
@@ -315,8 +435,8 @@ if model.HttpMethod == "post":
                                 # Extract ExtraQuestion elements
                                 extra_pattern = r'<ExtraQuestion[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</ExtraQuestion>'
                                 for match in re.finditer(extra_pattern, person_xml):
-                                    question = match.group(1)
-                                    answer = match.group(2)
+                                    question = safe_str(match.group(1))
+                                    answer = safe_str(match.group(2))
                                     if question and question not in m['answers']:
                                         m['answers'][question] = answer.strip() if answer else ''
                                         if question not in question_set:
@@ -326,8 +446,8 @@ if model.HttpMethod == "post":
                                 # Extract Text elements
                                 text_pattern = r'<Text[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</Text>'
                                 for match in re.finditer(text_pattern, person_xml):
-                                    question = match.group(1)
-                                    answer = match.group(2)
+                                    question = safe_str(match.group(1))
+                                    answer = safe_str(match.group(2))
                                     if question and question not in m['answers']:
                                         m['answers'][question] = answer.strip() if answer else ''
                                         if question not in question_set:
@@ -337,8 +457,8 @@ if model.HttpMethod == "post":
                                 # Extract YesNoQuestion elements (convert True/False to Yes/No)
                                 yn_pattern = r'<YesNoQuestion[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</YesNoQuestion>'
                                 for match in re.finditer(yn_pattern, person_xml):
-                                    question = match.group(1)
-                                    answer_val = match.group(2)
+                                    question = safe_str(match.group(1))
+                                    answer_val = safe_str(match.group(2))
                                     if question and question not in m['answers']:
                                         # Convert True/False to Yes/No for readability
                                         answer = 'Yes' if answer_val.strip() == 'True' else 'No' if answer_val.strip() == 'False' else answer_val.strip()
@@ -346,8 +466,19 @@ if model.HttpMethod == "post":
                                         if question not in question_set:
                                             questions.append({'id': 'xml_' + question[:20], 'text': question})
                                             question_set.add(question)
-                except:
-                    pass
+                    xml_elapsed = round(time.time() - load_start, 2)
+                    diagnostics.append({
+                        'phase': 'XML Registration Data',
+                        'status': 'ok',
+                        'detail': 'Parsed RegistrationData XML ({0}s total)'.format(xml_elapsed)
+                    })
+                except Exception as ex:
+                    xml_elapsed = round(time.time() - load_start, 2)
+                    diagnostics.append({
+                        'phase': 'XML Registration Data',
+                        'status': 'warning',
+                        'detail': 'XML parse failed ({0}s): {1}'.format(xml_elapsed, str(ex))
+                    })
 
                 # Get subgroups for this org
                 subgroups_sql = """
@@ -367,11 +498,22 @@ if model.HttpMethod == "post":
                     if sg_result:
                         for r in sg_result:
                             subgroups.append({
-                                'name': r.Name,
+                                'name': safe_str(r.Name),
                                 'count': r.MemberCount or 0
                             })
-                except:
-                    pass
+                    sg_elapsed = round(time.time() - load_start, 2)
+                    diagnostics.append({
+                        'phase': 'Subgroups',
+                        'status': 'ok',
+                        'detail': 'Found {0} subgroups ({1}s)'.format(len(subgroups), sg_elapsed)
+                    })
+                except Exception as esg:
+                    sg_elapsed = round(time.time() - load_start, 2)
+                    diagnostics.append({
+                        'phase': 'Subgroups',
+                        'status': 'warning',
+                        'detail': 'Subgroup query failed ({0}s): {1}'.format(sg_elapsed, str(esg))
+                    })
 
                 # Get subgroup membership for each member
                 if member_ids:
@@ -390,18 +532,121 @@ if model.HttpMethod == "post":
                         if msg_result:
                             for r in msg_result:
                                 if r.PeopleId in member_map:
-                                    member_map[r.PeopleId]['subgroups'].append(r.SubgroupName)
-                    except:
-                        pass
+                                    member_map[r.PeopleId]['subgroups'].append(safe_str(r.SubgroupName))
+                        mssg_elapsed = round(time.time() - load_start, 2)
+                        diagnostics.append({
+                            'phase': 'Member Subgroups',
+                            'status': 'ok',
+                            'detail': 'Loaded member subgroup assignments ({0}s)'.format(mssg_elapsed)
+                        })
+                    except Exception as ems:
+                        mssg_elapsed = round(time.time() - load_start, 2)
+                        diagnostics.append({
+                            'phase': 'Member Subgroups',
+                            'status': 'warning',
+                            'detail': 'Member subgroup query failed ({0}s): {1}'.format(mssg_elapsed, str(ems))
+                        })
 
-                print json.dumps({
+                total_elapsed = round(time.time() - load_start, 2)
+                diagnostics.append({
+                    'phase': 'Complete',
+                    'status': 'ok',
+                    'detail': 'Total load time: {0}s | {1} members, {2} questions, {3} subgroups'.format(
+                        total_elapsed, len(members), len(questions), len(subgroups))
+                })
+
+                result_obj = {
                     'success': True,
                     'members': members,
                     'questions': questions,
-                    'subgroups': subgroups
-                })
+                    'subgroups': subgroups,
+                    'diagnostics': diagnostics
+                }
+
+                # Serialize and send response (sanitize all strings to prevent encoding errors)
+                try:
+                    result_json = json.dumps(sanitize_for_json(result_obj))
+                    print result_json
+                except Exception as ej:
+                    # JSON serialization failed - find the problem member/field
+                    bad_fields = []
+                    for mi, m in enumerate(members):
+                        for fk, fv in m.items():
+                            if fk == 'answers':
+                                for ak, av in fv.items():
+                                    try:
+                                        json.dumps({ak: av})
+                                    except:
+                                        bad_fields.append('Member #{0} (PeopleId={1}) answers[{2}] type={3} repr={4}'.format(
+                                            mi, m.get('peopleId', '?'), safe_str(ak), type(av).__name__, safe_str(repr(av))))
+                            elif fk == 'subgroups':
+                                for si, sv in enumerate(fv):
+                                    try:
+                                        json.dumps(sv)
+                                    except:
+                                        bad_fields.append('Member #{0} (PeopleId={1}) subgroups[{2}] type={3} repr={4}'.format(
+                                            mi, m.get('peopleId', '?'), si, type(sv).__name__, safe_str(repr(sv))))
+                            else:
+                                try:
+                                    json.dumps({fk: fv})
+                                except:
+                                    bad_fields.append('Member #{0} (PeopleId={1}) .{2} type={3} repr={4}'.format(
+                                        mi, m.get('peopleId', '?'), fk, type(fv).__name__, safe_str(repr(fv))))
+                    diagnostics.append({
+                        'phase': 'JSON Serialization',
+                        'status': 'error',
+                        'detail': 'Failed to serialize response: {0}'.format(safe_str(str(ej)))
+                    })
+                    if bad_fields:
+                        diagnostics.append({
+                            'phase': 'Bad Fields',
+                            'status': 'error',
+                            'detail': '; '.join(bad_fields[:10])
+                        })
+                    else:
+                        diagnostics.append({
+                            'phase': 'Field Scan',
+                            'status': 'warning',
+                            'detail': 'Individual field scan found no issues - problem may be in questions or subgroups list'
+                        })
+                        # Check questions and subgroups lists too
+                        bad_other = []
+                        for qi, qo in enumerate(questions):
+                            try:
+                                json.dumps(qo)
+                            except:
+                                bad_other.append('questions[{0}] type={1}'.format(qi, type(qo).__name__))
+                        for si, so in enumerate(subgroups):
+                            try:
+                                json.dumps(so)
+                            except:
+                                bad_other.append('subgroups[{0}] type={1}'.format(si, type(so).__name__))
+                        if bad_other:
+                            diagnostics.append({
+                                'phase': 'Bad List Items',
+                                'status': 'error',
+                                'detail': '; '.join(bad_other[:10])
+                            })
+                    print json.dumps(sanitize_for_json({
+                        'success': False,
+                        'message': 'Serialization error: {0}'.format(safe_str(str(ej))),
+                        'diagnostics': diagnostics,
+                        'members': [],
+                        'questions': questions,
+                        'subgroups': subgroups
+                    }))
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                # Include any diagnostics collected before the error
+                try:
+                    diag = diagnostics
+                except:
+                    diag = []
+                diag.append({
+                    'phase': 'Fatal Error',
+                    'status': 'error',
+                    'detail': safe_str(str(e))
+                })
+                print json.dumps(sanitize_for_json({'success': False, 'message': safe_str(str(e)), 'diagnostics': diag}))
 
     # -------------------------------------------------------------------------
     # Search Members within involvement (for match finding)
@@ -438,7 +683,7 @@ if model.HttpMethod == "post":
                 for r in q.QuerySql(sql):
                     results.append({
                         'peopleId': r.PeopleId,
-                        'name': r.Name,
+                        'name': safe_str(r.Name),
                         'age': r.Age,
                         'gender': 'M' if r.GenderId == 1 else 'F' if r.GenderId == 2 else ''
                     })
@@ -481,11 +726,11 @@ if model.HttpMethod == "post":
                 for r in q.QuerySql(sql):
                     results.append({
                         'peopleId': r.PeopleId,
-                        'name': r.Name,
-                        'email': r.EmailAddress or '',
+                        'name': safe_str(r.Name),
+                        'email': safe_str(r.EmailAddress),
                         'age': r.Age,
                         'gender': 'M' if r.GenderId == 1 else 'F' if r.GenderId == 2 else '',
-                        'status': r.MemberStatus or ''
+                        'status': safe_str(r.MemberStatus)
                     })
 
                 print json.dumps({'success': True, 'people': results})
@@ -544,13 +789,13 @@ if model.HttpMethod == "post":
                             for sg in sg_list:
                                 if sg and hasattr(sg, 'Name') and sg.Name:
                                     subgroups.append({
-                                        'name': sg.Name,
+                                        'name': safe_str(sg.Name),
                                         'count': sg.MemberCount or 0 if hasattr(sg, 'MemberCount') else 0
                                     })
 
                             results.append({
                                 'orgId': org.OrganizationId if hasattr(org, 'OrganizationId') and org.OrganizationId else org_id,
-                                'name': org.OrganizationName if hasattr(org, 'OrganizationName') and org.OrganizationName else 'Unknown',
+                                'name': safe_str(org.OrganizationName) if hasattr(org, 'OrganizationName') and org.OrganizationName else 'Unknown',
                                 'totalCount': org.MemberCount or 0 if hasattr(org, 'MemberCount') else 0,
                                 'subgroups': subgroups
                             })
@@ -602,7 +847,7 @@ if model.HttpMethod == "post":
 
                             processed.append({
                                 'peopleId': pid,
-                                'name': person.Name2
+                                'name': safe_str(person.Name2)
                             })
                         else:
                             errors.append({'peopleId': pid, 'error': 'Person not found'})
@@ -939,7 +1184,7 @@ if model.HttpMethod == "post":
                             continue
 
                         person = model.GetPerson(people_id)
-                        person_name = person.Name2 if person else 'Unknown (ID: {0})'.format(people_id)
+                        person_name = safe_str(person.Name2) if person else 'Unknown (ID: {0})'.format(people_id)
 
                         # Check CURRENT state in TouchPoint
                         currently_in_org = model.InOrg(people_id, target_org_id) if person else False
@@ -1785,11 +2030,15 @@ console.log('jQuery version:', typeof $ !== 'undefined' ? $.fn.jquery : 'NOT LOA
 // ============================================================================
 // AJAX Helper
 // ============================================================================
-function ajax(action, params, callback) {
+function ajax(action, params, callback, options) {
+    var startTime = performance.now();
     console.log('ajax() called with action:', action);
     params = params || {};
+    options = options || {};
     params.ajax = 'true';
     params.action = action;
+
+    var timeoutMs = options.timeout || 120000; // 2 min default, configurable
 
     console.log('AJAX URL:', scriptUrl);
     console.log('AJAX params:', params);
@@ -1798,23 +2047,55 @@ function ajax(action, params, callback) {
         url: scriptUrl,
         type: 'POST',
         data: params,
+        timeout: timeoutMs,
         success: function(response) {
-            console.log('AJAX success - raw response:', response);
-            console.log('Response length:', response ? response.length : 0);
+            var elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+            var respLen = response ? response.length : 0;
+            console.log('AJAX success [' + action + '] - ' + elapsed + 's, ' + respLen + ' bytes');
+
+            if (respLen === 0) {
+                console.error('AJAX [' + action + '] returned EMPTY response (0 bytes). Possible causes: ASP.NET blocked parameter name, server timeout, or script error.');
+                showToast('Empty response from server for "' + action + '". This may indicate a server error.', 'danger');
+                if (callback) callback({ success: false, message: 'Empty response from server (0 bytes). The server may have timed out or encountered an error.', diagnostics: [{ phase: 'Network', status: 'error', detail: 'Empty response (0 bytes) after ' + elapsed + 's' }] });
+                return;
+            }
+
             try {
                 var data = JSON.parse(response);
-                console.log('Parsed response data:', data);
+                data._clientTiming = { elapsed: elapsed, responseBytes: respLen };
+                console.log('Parsed response [' + action + ']:', data);
                 if (callback) callback(data);
             } catch(e) {
-                console.error('Parse error:', e, response);
-                showToast('Error processing response', 'danger');
+                console.error('Parse error [' + action + ']:', e);
+                console.error('Raw response (first 500 chars):', response.substring(0, 500));
+                showToast('Error parsing response for "' + action + '": ' + e.message, 'danger');
+                if (callback) callback({ success: false, message: 'JSON parse error: ' + e.message, diagnostics: [{ phase: 'JSON Parse', status: 'error', detail: 'Failed to parse ' + respLen + ' byte response after ' + elapsed + 's: ' + e.message }] });
             }
         },
         error: function(xhr, status, error) {
-            console.error('AJAX error:', error);
-            console.error('XHR status:', status);
-            console.error('XHR responseText:', xhr.responseText);
-            showToast('Network error: ' + error, 'danger');
+            var elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+            console.error('AJAX error [' + action + '] after ' + elapsed + 's:', status, error);
+            console.error('XHR status:', xhr.status, 'statusText:', xhr.statusText);
+            console.error('XHR responseText (first 500):', xhr.responseText ? xhr.responseText.substring(0, 500) : '(empty)');
+
+            var userMsg = 'Network error';
+            var diagDetail = '';
+            if (status === 'timeout') {
+                userMsg = 'Request timed out after ' + (timeoutMs/1000) + ' seconds. The involvement may have too many members to load at once.';
+                diagDetail = 'Request timed out after ' + elapsed + 's (limit: ' + (timeoutMs/1000) + 's)';
+            } else if (xhr.status === 0) {
+                userMsg = 'Connection lost. Please check your internet connection and try again.';
+                diagDetail = 'Connection failed (status 0) after ' + elapsed + 's';
+            } else if (xhr.status >= 500) {
+                userMsg = 'Server error (' + xhr.status + '). The server may be overloaded or the data may contain problematic characters.';
+                diagDetail = 'Server error ' + xhr.status + ' after ' + elapsed + 's';
+            } else {
+                userMsg = 'Request failed: ' + (error || status) + ' (HTTP ' + xhr.status + ')';
+                diagDetail = 'HTTP ' + xhr.status + ' ' + (error || status) + ' after ' + elapsed + 's';
+            }
+
+            showToast(userMsg, 'danger');
+            if (callback) callback({ success: false, message: userMsg, diagnostics: [{ phase: 'Network', status: 'error', detail: diagDetail }] });
         }
     });
 }
@@ -2674,10 +2955,16 @@ function clearSourceSelection() {
 // ============================================================================
 function loadRegistrants(orgId) {
     $('#registrantLoading').show();
+    $('#loadDiagnostics').hide().html('');
+    updateLoadingStatus('Loading members from server...');
 
     ajax('load_registrants', { org_id: orgId }, function(response) {
         $('#registrantLoading').hide();
+        updateLoadingStatus('');
         console.log('load_registrants response:', response);
+
+        // Always render diagnostics if available
+        renderDiagnostics(response);
 
         if (response.success) {
             // Ensure arrays are always initialized (defensive coding)
@@ -2700,8 +2987,83 @@ function loadRegistrants(orgId) {
             $('#registrantCount').text(memberCount + ' people');
         } else {
             showToast(response.message || 'Error loading registrants', 'danger');
+            $('#registrantList').html(
+                '<div class="ip-empty-state">' +
+                '<i class="bi bi-exclamation-triangle d-block" style="color: #dc3545;"></i>' +
+                '<span style="color: #dc3545;">' + escapeHtml(response.message || 'Error loading registrants') + '</span>' +
+                '</div>'
+            );
         }
+    }, { timeout: 180000 }); // 3 min timeout for large involvements
+}
+
+function updateLoadingStatus(msg) {
+    var el = document.getElementById('loadingStatusText');
+    if (el) {
+        el.textContent = msg;
+        el.style.display = msg ? 'block' : 'none';
+    }
+}
+
+function renderDiagnostics(response) {
+    var container = $('#loadDiagnostics');
+    if (!container.length) return;
+
+    var diags = response.diagnostics || [];
+    var clientTiming = response._clientTiming || {};
+    if (diags.length === 0 && !clientTiming.elapsed) {
+        container.hide();
+        return;
+    }
+
+    var hasWarnings = false;
+    var hasErrors = false;
+    var html = '';
+
+    // Status icons
+    var icons = { ok: '&#9679;', warning: '&#9888;', error: '&#10060;' };
+    var colors = { ok: '#28a745', warning: '#ffc107', error: '#dc3545' };
+
+    diags.forEach(function(d) {
+        if (d.status === 'warning') hasWarnings = true;
+        if (d.status === 'error') hasErrors = true;
+        var icon = icons[d.status] || icons.ok;
+        var color = colors[d.status] || colors.ok;
+        html += '<div style="font-size: 12px; padding: 2px 0; color: #555;">';
+        html += '<span style="color:' + color + ';">' + icon + '</span> ';
+        html += '<strong>' + escapeHtml(d.phase) + ':</strong> ' + escapeHtml(d.detail);
+        html += '</div>';
     });
+
+    // Add client-side timing
+    if (clientTiming.elapsed) {
+        html += '<div style="font-size: 12px; padding: 2px 0; color: #555;">';
+        html += '<span style="color:#28a745;">&#9679;</span> ';
+        html += '<strong>Network:</strong> Round-trip ' + clientTiming.elapsed + 's, ' +
+                formatBytes(clientTiming.responseBytes) + ' transferred';
+        html += '</div>';
+    }
+
+    // Determine header color
+    var headerColor = hasErrors ? '#dc3545' : hasWarnings ? '#ffc107' : '#28a745';
+    var headerText = hasErrors ? 'Issues Detected' : hasWarnings ? 'Loaded with Warnings' : 'Loaded Successfully';
+
+    var wrapper = '<div style="margin-top: 8px; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden;">';
+    wrapper += '<div style="background: ' + headerColor + '; color: white; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer;" onclick="$(this).next().toggle();">';
+    wrapper += '<i class="bi bi-info-circle me-1"></i>' + headerText + ' <span style="float:right; font-weight: normal; opacity: 0.8;">(click to ' + (hasErrors || hasWarnings ? 'view' : 'toggle') + ' details)</span>';
+    wrapper += '</div>';
+    wrapper += '<div style="padding: 8px 10px; background: #f8f9fa;' + (hasErrors || hasWarnings ? '' : ' display: none;') + '">' + html + '</div>';
+    wrapper += '</div>';
+
+    container.html(wrapper).show();
+}
+
+function formatBytes(bytes) {
+    if (!bytes) return '0 B';
+    bytes = parseInt(bytes);
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
 }
 
 function renderQuestionToggles() {
@@ -3808,10 +4170,14 @@ function showHelp() {
                         </div>
                     </div>
                     <div id="registrantLoading" class="ip-loading-overlay" style="display: none;">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
+                        <div style="text-align: center;">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <div id="loadingStatusText" style="display: none; margin-top: 8px; font-size: 13px; color: #666;"></div>
                         </div>
                     </div>
+                    <div id="loadDiagnostics" style="display: none;"></div>
                 </div>
             </div>
         </div>
