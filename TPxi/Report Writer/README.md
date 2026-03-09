@@ -16,15 +16,16 @@ A visual builder for creating polished, per-person registration reports. Staff c
 - **Blue Toolbar Support:** Run from a search results selection — script dynamically detects its own name for seamless redirects
 - **Dual Registration Format Support:** Handles both new (RegQuestion/RegAnswer) and legacy (RegistrationData XML) formats
 
+<hr>
 <summary><strong>Configure Report</strong></summary>                                                                       
-<p>Make reports look easy</p>                                                                                                                 
+<p>Making Reports Like a Boss</p>                                                                                                                 
 <p align="center">                                                                                                        
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Report%20Writer/RW-Configure.png"  
 width="700">                                                                                                              
 </p>   
 
-<summary><strong>Make Report</strong></summary>                                                                       
-<p>Make nice looking reports</p>                                                                                                                 
+<summary><strong>Create Report</strong></summary>                                                                       
+<p>Go From Zero to Hero</p>                                                                                                                 
 <p align="center">                                                                                                        
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Report%20Writer/RW-Report.png"  
 width="700">                                                                                                              
