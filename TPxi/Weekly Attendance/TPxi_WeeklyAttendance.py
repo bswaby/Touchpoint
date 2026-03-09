@@ -138,7 +138,7 @@ EMAIL_FROM_ADDRESS = "attendance@church.org"
 EMAIL_SUBJECT = "Weekly Attendance Report"
 # Default email recipient: "self" to send to current user, or email address/PeopleId
 # Can also use "attendance_group" to send to a specific group (configure in TouchPoint)
-EMAIL_TO = "SwabyTest"  # Options: "self", email address, or PeopleId
+EMAIL_TO = "ConnectAttendanceEmail"  # Options: "self", email address, or PeopleId
 
 # Enable or disable performance debugging (set to True to show timing information)
 DEBUG_PERFORMANCE = False
@@ -5745,33 +5745,28 @@ class AttendanceReport:
         """Send the report via email."""
         try:
             # Resolve email recipient based on EMAIL_TO configuration
+            # model.Email() first param accepts: saved search name, PeopleId int, or "self"
             if not email_to or email_to == "self":
-                email_id = model.UserPeopleId
+                email_query = model.UserPeopleId
                 email_display = "yourself"
             else:
                 # Try to parse as PeopleId first
                 try:
-                    email_id = int(email_to)
-                    # Get person name for display
+                    people_id = int(email_to)
+                    email_query = people_id
                     try:
-                        person = model.GetPerson(email_id)
-                        email_display = person.Name if person else "PeopleId: {}".format(email_id)
+                        person = model.GetPerson(people_id)
+                        email_display = person.Name if person else "PeopleId: {}".format(people_id)
                     except:
-                        email_display = "PeopleId: {}".format(email_id)
+                        email_display = "PeopleId: {}".format(people_id)
                 except ValueError:
-                    # Try to find by email address
+                    # Not a number - treat as saved search name
+                    email_query = email_to
                     try:
-                        email_id = model.FindPersonId(email_to)
-                        if not email_id:
-                            # Fallback to current user
-                            email_id = model.UserPeopleId
-                            email_display = "yourself (email lookup failed)"
-                        else:
-                            email_display = email_to
+                        recipient_count = q.QueryCount(email_to)
+                        email_display = "saved search {} ({} recipients)".format(email_to, recipient_count)
                     except:
-                        # Final fallback
-                        email_id = model.UserPeopleId
-                        email_display = "yourself (lookup failed)"
+                        email_display = "saved search {}".format(email_to)
 
             # Add indication that email is being sent
             email_status = """
@@ -5801,8 +5796,8 @@ class AttendanceReport:
             report_date_str = self.report_date.strftime('%m/%d/%Y')
             email_subject = "{} - {}".format(EMAIL_SUBJECT, report_date_str)
 
-            # Send the email
-            model.Email(email_id, QueuedBy, EMAIL_FROM_ADDRESS, EMAIL_FROM_NAME, email_subject, email_content)
+            # Send the email - first param is saved search name or PeopleId
+            model.Email(email_query, QueuedBy, EMAIL_FROM_ADDRESS, EMAIL_FROM_NAME, email_subject, email_content)
             
             # Update status to success
             success_message = """
