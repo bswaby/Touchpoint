@@ -46,7 +46,7 @@ To upload code to Touchpoint, use the following steps:
 import json
 import re
 
-model.Header = 'Registration Report Builder'
+model.Header = 'Report Writer'
 
 # ============================================================================
 # HELPER FUNCTIONS
