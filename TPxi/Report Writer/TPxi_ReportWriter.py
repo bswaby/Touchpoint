@@ -21,8 +21,18 @@ Features:
 
 Written By: Ben Swaby
 Email: bswaby@fbchtn.org
-Version: 1.0
-Date: February 2026
+Version: 1.1
+Date: March 2026
+
+Change Log:
+v1.1 - March 2026
+  - Fixed: Allergies field showing "True" instead of actual allergy text (MedAllergy is boolean; now displays MedicalDescription)
+  - Fixed: Blue Toolbar script reference is now dynamic instead of hardcoded
+  - Added: Authorized Checkout field (from PeopleAuthorizedCheckOut table)
+  - Added: Approved Medications field (new PersonMedication + lookup.Medication with legacy RecReg boolean fallback)
+  - Removed: Medical Conditions field (duplicate of Allergies - both sourced from MedicalDescription)
+v1.0 - February 2026
+  - Initial release
 
 --Upload Instructions Start--
 To upload code to Touchpoint, use the following steps:
@@ -208,7 +218,8 @@ DETAILED_TEMPLATE = {
             "visible": True,
             "fields": [
                 {"fieldId": "fld_16", "fieldType": "medical", "sourceField": "MedAllergy", "label": "Allergies", "displayFormat": "block", "order": 1, "visible": True, "colSpan": 1},
-                {"fieldId": "fld_17", "fieldType": "medical", "sourceField": "MedicalDescription", "label": "Medical Conditions", "displayFormat": "block", "order": 2, "visible": True, "colSpan": 1}
+                {"fieldId": "fld_18", "fieldType": "medical", "sourceField": "AuthorizedCheckout", "label": "Authorized Checkout", "displayFormat": "block", "order": 2, "visible": True, "colSpan": 1},
+                {"fieldId": "fld_19", "fieldType": "medical", "sourceField": "Medications", "label": "Approved Medications", "displayFormat": "block", "order": 3, "visible": True, "colSpan": 1}
             ]
         },
         {
@@ -273,6 +284,8 @@ def get_registrant_data(org_id, filter_people_ids=None):
             p.FamilyId,
             rr.MedicalDescription, rr.MedAllergy, rr.emcontact, rr.emphone,
             rr.doctor, rr.docphone, rr.insurance, rr.policy,
+            ISNULL(rr.Tylenol, 0) as Tylenol, ISNULL(rr.Advil, 0) as Advil,
+            ISNULL(rr.Maalox, 0) as Maalox, ISNULL(rr.Robitussin, 0) as Robitussin,
             pic.SmallUrl as PhotoUrl
         FROM OrganizationMembers om
         JOIN People p ON om.PeopleId = p.PeopleId
@@ -316,7 +329,11 @@ def get_registrant_data(org_id, filter_people_ids=None):
                 'insurance': r.insurance or '',
                 'policy': r.policy or '',
                 'PhotoUrl': r.PhotoUrl or '',
-                'answers': {}
+                'answers': {},
+                '_Tylenol': r.Tylenol,
+                '_Advil': r.Advil,
+                '_Maalox': r.Maalox,
+                '_Robitussin': r.Robitussin
             }
             # Build full address
             addr_parts = []
@@ -458,7 +475,44 @@ def get_registrant_data(org_id, filter_people_ids=None):
         except:
             pass
 
-    # Attach parent data to each person
+    # Query 4: Authorized checkout people
+    checkout_map = {}
+    try:
+        checkout_sql = """
+            SELECT ac.PeopleId, p.Name2
+            FROM PeopleAuthorizedCheckOut ac
+            JOIN People p ON p.PeopleId = ac.AuthorizedPeopleId
+            WHERE ac.PeopleId IN ({0})
+            ORDER BY ac.PeopleId, p.Name2
+        """.format(','.join(str(pid) for pid in people_ids))
+        for r in q.QuerySql(checkout_sql):
+            pid = r.PeopleId
+            if pid not in checkout_map:
+                checkout_map[pid] = []
+            checkout_map[pid].append(r.Name2 or '')
+    except:
+        pass
+
+    # Query 5: Approved medications (new PersonMedication table + lookup.Medication)
+    meds_map = {}
+    try:
+        meds_sql = """
+            SELECT pm.PeopleId, md.Description AS Medication
+            FROM dbo.PersonMedication pm
+            JOIN lookup.Medication md ON md.Id = pm.MedicationId
+            WHERE pm.PeopleId IN ({0})
+            ORDER BY pm.PeopleId, md.Description
+        """.format(','.join(str(pid) for pid in people_ids))
+        for r in q.QuerySql(meds_sql):
+            pid = int(r.PeopleId)
+            if pid not in meds_map:
+                meds_map[pid] = []
+            if r.Medication and r.Medication not in meds_map[pid]:
+                meds_map[pid].append(r.Medication)
+    except:
+        pass
+
+    # Attach parent data, authorized checkout, and medications to each person
     for p in people_list:
         fid = p.get('FamilyId')
         if fid and fid in family_data:
@@ -481,6 +535,22 @@ def get_registrant_data(org_id, filter_people_ids=None):
             p['Parents'] = ''
             p['ParentPhones'] = ''
             p['ParentEmails'] = ''
+
+        # Authorized checkout
+        co_names = checkout_map.get(p['PeopleId'], [])
+        p['AuthorizedCheckout'] = ', '.join(co_names) if co_names else ''
+
+        # Approved medications - new system first, fall back to legacy RecReg booleans
+        pid_key = int(p['PeopleId'])
+        med_names = meds_map.get(pid_key, [])
+        if not med_names:
+            legacy_meds = []
+            if p.get('_Tylenol'): legacy_meds.append('Tylenol')
+            if p.get('_Advil'): legacy_meds.append('Advil/Ibuprofen')
+            if p.get('_Maalox'): legacy_meds.append('Maalox')
+            if p.get('_Robitussin'): legacy_meds.append('Robitussin')
+            med_names = legacy_meds
+        p['Medications'] = ', '.join(med_names) if med_names else ''
 
     result['people'] = people_list
     result['questions'] = questions
@@ -505,6 +575,8 @@ def get_people_data_direct(people_ids):
             p.FamilyId,
             rr.MedicalDescription, rr.MedAllergy, rr.emcontact, rr.emphone,
             rr.doctor, rr.docphone, rr.insurance, rr.policy,
+            ISNULL(rr.Tylenol, 0) as Tylenol, ISNULL(rr.Advil, 0) as Advil,
+            ISNULL(rr.Maalox, 0) as Maalox, ISNULL(rr.Robitussin, 0) as Robitussin,
             pic.SmallUrl as PhotoUrl
         FROM People p
         LEFT JOIN RecReg rr ON rr.PeopleId = p.PeopleId
@@ -545,7 +617,11 @@ def get_people_data_direct(people_ids):
                 'insurance': r.insurance or '',
                 'policy': r.policy or '',
                 'PhotoUrl': r.PhotoUrl or '',
-                'answers': {}
+                'answers': {},
+                '_Tylenol': r.Tylenol,
+                '_Advil': r.Advil,
+                '_Maalox': r.Maalox,
+                '_Robitussin': r.Robitussin
             }
             addr_parts = []
             if r.PrimaryAddress:
@@ -592,6 +668,44 @@ def get_people_data_direct(people_ids):
         except:
             pass
 
+    # Authorized checkout people
+    checkout_map = {}
+    try:
+        checkout_sql = """
+            SELECT ac.PeopleId, p.Name2
+            FROM PeopleAuthorizedCheckOut ac
+            JOIN People p ON p.PeopleId = ac.AuthorizedPeopleId
+            WHERE ac.PeopleId IN ({0})
+            ORDER BY ac.PeopleId, p.Name2
+        """.format(pid_list)
+        for r in q.QuerySql(checkout_sql):
+            pid = r.PeopleId
+            if pid not in checkout_map:
+                checkout_map[pid] = []
+            checkout_map[pid].append(r.Name2 or '')
+    except:
+        pass
+
+    # Approved medications (new PersonMedication table + lookup.Medication)
+    meds_map = {}
+    _meds_error = ''
+    try:
+        meds_sql = """
+            SELECT pm.PeopleId, md.Description AS Medication
+            FROM dbo.PersonMedication pm
+            JOIN lookup.Medication md ON md.Id = pm.MedicationId
+            WHERE pm.PeopleId IN ({0})
+            ORDER BY pm.PeopleId, md.Description
+        """.format(pid_list)
+        for r in q.QuerySql(meds_sql):
+            pid = int(r.PeopleId)
+            if pid not in meds_map:
+                meds_map[pid] = []
+            if r.Medication and r.Medication not in meds_map[pid]:
+                meds_map[pid].append(r.Medication)
+    except:
+        pass
+
     for p in people_list:
         fid = p.get('FamilyId')
         if fid and fid in family_data:
@@ -614,6 +728,22 @@ def get_people_data_direct(people_ids):
             p['Parents'] = ''
             p['ParentPhones'] = ''
             p['ParentEmails'] = ''
+
+        # Authorized checkout
+        co_names = checkout_map.get(p['PeopleId'], [])
+        p['AuthorizedCheckout'] = ', '.join(co_names) if co_names else ''
+
+        # Approved medications - new system first, fall back to legacy RecReg booleans
+        pid_key = int(p['PeopleId'])
+        med_names = meds_map.get(pid_key, [])
+        if not med_names:
+            legacy_meds = []
+            if p.get('_Tylenol'): legacy_meds.append('Tylenol')
+            if p.get('_Advil'): legacy_meds.append('Advil/Ibuprofen')
+            if p.get('_Maalox'): legacy_meds.append('Maalox')
+            if p.get('_Robitussin'): legacy_meds.append('Robitussin')
+            med_names = legacy_meds
+        p['Medications'] = ', '.join(med_names) if med_names else ''
 
     result['people'] = people_list
     result['familyData'] = family_data
@@ -642,7 +772,17 @@ def get_field_value(person, field):
         return html_escape(person.get(src, ''))
 
     elif ft == 'medical':
-        return html_escape(person.get(src, ''))
+        val = person.get(src, '')
+        if src == 'MedAllergy':
+            # MedAllergy is a boolean in RecReg - show MedicalDescription text instead
+            if str(val).lower().strip() in ['true', '1']:
+                desc = person.get('MedicalDescription', '')
+                return html_escape(desc) if desc else ''
+            if str(val).lower().strip() in ['false', '0']:
+                return ''
+        if str(val).lower().strip() in ['false', '0']:
+            return ''
+        return html_escape(val)
 
     elif ft == 'regquestion':
         return html_escape(person.get('answers', {}).get(src, ''))
@@ -941,7 +1081,8 @@ if model.HttpMethod == "post":
                         {'sourceField': 'insurance', 'label': 'Insurance', 'fieldType': 'medical'},
                         {'sourceField': 'policy', 'label': 'Policy #', 'fieldType': 'medical'},
                         {'sourceField': 'MedAllergy', 'label': 'Allergies', 'fieldType': 'medical'},
-                        {'sourceField': 'MedicalDescription', 'label': 'Medical Conditions', 'fieldType': 'medical'}
+                        {'sourceField': 'AuthorizedCheckout', 'label': 'Authorized Checkout', 'fieldType': 'medical'},
+                        {'sourceField': 'Medications', 'label': 'Approved Medications', 'fieldType': 'medical'}
                     ]
 
                     question_fields = []
@@ -1013,7 +1154,8 @@ if model.HttpMethod == "post":
                         {'sourceField': 'insurance', 'label': 'Insurance', 'fieldType': 'medical'},
                         {'sourceField': 'policy', 'label': 'Policy #', 'fieldType': 'medical'},
                         {'sourceField': 'MedAllergy', 'label': 'Allergies', 'fieldType': 'medical'},
-                        {'sourceField': 'MedicalDescription', 'label': 'Medical Conditions', 'fieldType': 'medical'}
+                        {'sourceField': 'AuthorizedCheckout', 'label': 'Authorized Checkout', 'fieldType': 'medical'},
+                        {'sourceField': 'Medications', 'label': 'Approved Medications', 'fieldType': 'medical'}
                     ]
                     print json.dumps({
                         'success': True,
