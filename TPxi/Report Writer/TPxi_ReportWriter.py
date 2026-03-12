@@ -21,10 +21,14 @@ Features:
 
 Written By: Ben Swaby
 Email: bswaby@fbchtn.org
-Version: 1.1
-Date: March 2026
+Version: 1.2
+Date: February 2026
 
 Change Log:
+v1.2 - March 2026
+  - Fixed: Unicode encoding crash on special characters (e.g. senor, cafe) via safe_str() transliteration
+  - Added: Custody Issue field (boolean from People.CustodyIssue) in Medical/Emergency fields
+  - Added: Extra Value field support - type in any Person Extra Value name with optional friendly label
 v1.1 - March 2026
   - Fixed: Allergies field showing "True" instead of actual allergy text (MedAllergy is boolean; now displays MedicalDescription)
   - Fixed: Blue Toolbar script reference is now dynamic instead of hardcoded
@@ -46,7 +50,102 @@ To upload code to Touchpoint, use the following steps:
 import json
 import re
 
-model.Header = 'Report Writer'
+model.Header = 'Registration Report Builder'
+
+# ============================================================================
+# UNICODE / ENCODING HELPERS  (IronPython 2.7 safe)
+# ============================================================================
+
+def _to_ascii(s):
+    """Transliterate a unicode string to pure ASCII.
+    IronPython's json.dumps fails on non-ASCII unicode chars, so we must
+    convert them to ASCII equivalents (e.g. n->n, e->e) to preserve readability."""
+    result = []
+    for c in s:
+        o = ord(c)
+        if o < 128:
+            result.append(c)
+        else:
+            result.append(_LATIN_TO_ASCII.get(o, '?'))
+    return ''.join(result)
+
+# Common Latin-1/CP1252 character to ASCII mapping
+_LATIN_TO_ASCII = {
+    0xc0: 'A', 0xc1: 'A', 0xc2: 'A', 0xc3: 'A', 0xc4: 'A', 0xc5: 'A',
+    0xc6: 'AE', 0xc7: 'C', 0xc8: 'E', 0xc9: 'E', 0xca: 'E', 0xcb: 'E',
+    0xcc: 'I', 0xcd: 'I', 0xce: 'I', 0xcf: 'I', 0xd0: 'D', 0xd1: 'N',
+    0xd2: 'O', 0xd3: 'O', 0xd4: 'O', 0xd5: 'O', 0xd6: 'O', 0xd8: 'O',
+    0xd9: 'U', 0xda: 'U', 0xdb: 'U', 0xdc: 'U', 0xdd: 'Y', 0xdf: 'ss',
+    0xe0: 'a', 0xe1: 'a', 0xe2: 'a', 0xe3: 'a', 0xe4: 'a', 0xe5: 'a',
+    0xe6: 'ae', 0xe7: 'c', 0xe8: 'e', 0xe9: 'e', 0xea: 'e', 0xeb: 'e',
+    0xec: 'i', 0xed: 'i', 0xee: 'i', 0xef: 'i', 0xf0: 'd', 0xf1: 'n',
+    0xf2: 'o', 0xf3: 'o', 0xf4: 'o', 0xf5: 'o', 0xf6: 'o', 0xf8: 'o',
+    0xf9: 'u', 0xfa: 'u', 0xfb: 'u', 0xfc: 'u', 0xfd: 'y', 0xff: 'y',
+    0x2018: "'", 0x2019: "'", 0x201c: '"', 0x201d: '"',
+    0x2013: '-', 0x2014: '-', 0x2026: '...', 0xa0: ' ',
+}
+
+def safe_str(val):
+    """Safely convert any value to a pure-ASCII JSON-serializable string.
+    IronPython's json.dumps crashes on non-ASCII unicode chars (even valid ones
+    like U+00F1 n), so all output must be ASCII. Latin characters are
+    transliterated (n->n, e->e) to keep names readable."""
+    if val is None:
+        return ''
+    # 1. Already a Python unicode string - transliterate to ASCII
+    try:
+        if isinstance(val, unicode):
+            return _to_ascii(val)
+    except NameError:
+        pass
+    # 2. Try unicode() - handles .NET System.String values
+    try:
+        return _to_ascii(unicode(val))
+    except:
+        pass
+    # 3. Try str() then decode to unicode, then to ASCII
+    try:
+        s = str(val)
+        try:
+            return _to_ascii(s.decode('utf-8'))
+        except:
+            pass
+        try:
+            return _to_ascii(s.decode('latin-1'))
+        except:
+            pass
+        try:
+            return _to_ascii(s.decode('cp1252'))
+        except:
+            pass
+        # Byte-by-byte ASCII fallback
+        return ''.join(c if ord(c) < 128 else '?' for c in s)
+    except:
+        pass
+    # 4. repr() as absolute last resort
+    try:
+        return repr(val)
+    except:
+        return ''
+
+def sanitize_for_json(obj):
+    """Recursively walk an object and ensure every value is safe for json.dumps."""
+    if obj is None:
+        return None
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, (int, float)):
+        return obj
+    try:
+        if isinstance(obj, long):
+            return obj
+    except NameError:
+        pass
+    if isinstance(obj, dict):
+        return {sanitize_for_json(k): sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_for_json(item) for item in obj]
+    return safe_str(obj)
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -56,7 +155,7 @@ def html_escape(text):
     """Escape HTML special characters"""
     if not text:
         return ''
-    s = str(text)
+    s = safe_str(text)
     s = s.replace('&', '&amp;')
     s = s.replace('<', '&lt;')
     s = s.replace('>', '&gt;')
@@ -281,7 +380,7 @@ def get_registrant_data(org_id, filter_people_ids=None):
             p.PeopleId, p.Name2, p.FirstName, p.LastName, p.NickName,
             p.BDate, p.Age, p.GenderId, p.EmailAddress, p.CellPhone, p.HomePhone,
             p.PrimaryAddress, p.PrimaryCity, p.PrimaryState, p.PrimaryZip,
-            p.FamilyId,
+            p.FamilyId, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
             rr.MedicalDescription, rr.MedAllergy, rr.emcontact, rr.emphone,
             rr.doctor, rr.docphone, rr.insurance, rr.policy,
             ISNULL(rr.Tylenol, 0) as Tylenol, ISNULL(rr.Advil, 0) as Advil,
@@ -304,31 +403,32 @@ def get_registrant_data(org_id, filter_people_ids=None):
         for r in q.QuerySql(people_sql):
             person = {
                 'PeopleId': r.PeopleId,
-                'Name': r.Name2 or '',
-                'FirstName': r.FirstName or '',
-                'LastName': r.LastName or '',
-                'NickName': r.NickName or '',
+                'Name': safe_str(r.Name2),
+                'FirstName': safe_str(r.FirstName),
+                'LastName': safe_str(r.LastName),
+                'NickName': safe_str(r.NickName),
                 'BDate': fmt_date(r.BDate),
                 'Age': str(r.Age) if r.Age else '',
                 'Gender': 'Male' if r.GenderId == 1 else 'Female' if r.GenderId == 2 else '',
-                'EmailAddress': r.EmailAddress or '',
+                'EmailAddress': safe_str(r.EmailAddress),
                 'CellPhone': fmt_phone(r.CellPhone),
                 'HomePhone': fmt_phone(r.HomePhone),
-                'PrimaryAddress': r.PrimaryAddress or '',
-                'PrimaryCity': r.PrimaryCity or '',
-                'PrimaryState': r.PrimaryState or '',
-                'PrimaryZip': r.PrimaryZip or '',
+                'PrimaryAddress': safe_str(r.PrimaryAddress),
+                'PrimaryCity': safe_str(r.PrimaryCity),
+                'PrimaryState': safe_str(r.PrimaryState),
+                'PrimaryZip': safe_str(r.PrimaryZip),
                 'FullAddress': '',
                 'FamilyId': r.FamilyId,
-                'MedicalDescription': r.MedicalDescription or '',
-                'MedAllergy': r.MedAllergy or '',
-                'emcontact': r.emcontact or '',
+                'MedicalDescription': safe_str(r.MedicalDescription),
+                'MedAllergy': safe_str(r.MedAllergy),
+                'emcontact': safe_str(r.emcontact),
                 'emphone': fmt_phone(r.emphone),
-                'doctor': r.doctor or '',
+                'doctor': safe_str(r.doctor),
                 'docphone': fmt_phone(r.docphone),
-                'insurance': r.insurance or '',
-                'policy': r.policy or '',
-                'PhotoUrl': r.PhotoUrl or '',
+                'insurance': safe_str(r.insurance),
+                'policy': safe_str(r.policy),
+                'PhotoUrl': safe_str(r.PhotoUrl),
+                'CustodyIssue': r.CustodyIssue,
                 'answers': {},
                 '_Tylenol': r.Tylenol,
                 '_Advil': r.Advil,
@@ -338,16 +438,16 @@ def get_registrant_data(org_id, filter_people_ids=None):
             # Build full address
             addr_parts = []
             if r.PrimaryAddress:
-                addr_parts.append(r.PrimaryAddress)
+                addr_parts.append(safe_str(r.PrimaryAddress))
             city_state = []
             if r.PrimaryCity:
-                city_state.append(r.PrimaryCity)
+                city_state.append(safe_str(r.PrimaryCity))
             if r.PrimaryState:
-                city_state.append(r.PrimaryState)
+                city_state.append(safe_str(r.PrimaryState))
             if city_state:
                 addr_parts.append(', '.join(city_state))
             if r.PrimaryZip:
-                addr_parts.append(r.PrimaryZip)
+                addr_parts.append(safe_str(r.PrimaryZip))
             person['FullAddress'] = ', '.join(addr_parts) if addr_parts else ''
 
             people_list.append(person)
@@ -355,7 +455,7 @@ def get_registrant_data(org_id, filter_people_ids=None):
             if r.FamilyId:
                 family_ids.add(r.FamilyId)
     except Exception as e:
-        result['error'] = 'Error loading people: ' + str(e)
+        result['error'] = 'Error loading people: ' + safe_str(e)
         return result
 
     if not people_ids:
@@ -389,11 +489,12 @@ def get_registrant_data(org_id, filter_people_ids=None):
 
     try:
         for r in q.QuerySql(answers_sql):
-            if r.Question and r.Question not in question_set:
-                questions.append(r.Question)
-                question_set.add(r.Question)
-            if r.PeopleId in people_map and r.Question:
-                people_map[r.PeopleId]['answers'][r.Question] = r.Answer or ''
+            q_text = safe_str(r.Question)
+            if q_text and q_text not in question_set:
+                questions.append(q_text)
+                question_set.add(q_text)
+            if r.PeopleId in people_map and q_text:
+                people_map[r.PeopleId]['answers'][q_text] = safe_str(r.Answer)
     except:
         pass
 
@@ -468,9 +569,9 @@ def get_registrant_data(org_id, filter_people_ids=None):
                 if fid not in family_data:
                     family_data[fid] = []
                 family_data[fid].append({
-                    'name': (r.FirstName or '') + ' ' + (r.LastName or ''),
+                    'name': safe_str(r.FirstName) + ' ' + safe_str(r.LastName),
                     'phone': fmt_phone(r.CellPhone),
-                    'email': r.EmailAddress or ''
+                    'email': safe_str(r.EmailAddress)
                 })
         except:
             pass
@@ -489,7 +590,7 @@ def get_registrant_data(org_id, filter_people_ids=None):
             pid = r.PeopleId
             if pid not in checkout_map:
                 checkout_map[pid] = []
-            checkout_map[pid].append(r.Name2 or '')
+            checkout_map[pid].append(safe_str(r.Name2))
     except:
         pass
 
@@ -507,8 +608,9 @@ def get_registrant_data(org_id, filter_people_ids=None):
             pid = int(r.PeopleId)
             if pid not in meds_map:
                 meds_map[pid] = []
-            if r.Medication and r.Medication not in meds_map[pid]:
-                meds_map[pid].append(r.Medication)
+            med_name = safe_str(r.Medication)
+            if med_name and med_name not in meds_map[pid]:
+                meds_map[pid].append(med_name)
     except:
         pass
 
@@ -572,7 +674,7 @@ def get_people_data_direct(people_ids):
             p.PeopleId, p.Name2, p.FirstName, p.LastName, p.NickName,
             p.BDate, p.Age, p.GenderId, p.EmailAddress, p.CellPhone, p.HomePhone,
             p.PrimaryAddress, p.PrimaryCity, p.PrimaryState, p.PrimaryZip,
-            p.FamilyId,
+            p.FamilyId, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
             rr.MedicalDescription, rr.MedAllergy, rr.emcontact, rr.emphone,
             rr.doctor, rr.docphone, rr.insurance, rr.policy,
             ISNULL(rr.Tylenol, 0) as Tylenol, ISNULL(rr.Advil, 0) as Advil,
@@ -592,31 +694,32 @@ def get_people_data_direct(people_ids):
         for r in q.QuerySql(people_sql):
             person = {
                 'PeopleId': r.PeopleId,
-                'Name': r.Name2 or '',
-                'FirstName': r.FirstName or '',
-                'LastName': r.LastName or '',
-                'NickName': r.NickName or '',
+                'Name': safe_str(r.Name2),
+                'FirstName': safe_str(r.FirstName),
+                'LastName': safe_str(r.LastName),
+                'NickName': safe_str(r.NickName),
                 'BDate': fmt_date(r.BDate),
                 'Age': str(r.Age) if r.Age else '',
                 'Gender': 'Male' if r.GenderId == 1 else 'Female' if r.GenderId == 2 else '',
-                'EmailAddress': r.EmailAddress or '',
+                'EmailAddress': safe_str(r.EmailAddress),
                 'CellPhone': fmt_phone(r.CellPhone),
                 'HomePhone': fmt_phone(r.HomePhone),
-                'PrimaryAddress': r.PrimaryAddress or '',
-                'PrimaryCity': r.PrimaryCity or '',
-                'PrimaryState': r.PrimaryState or '',
-                'PrimaryZip': r.PrimaryZip or '',
+                'PrimaryAddress': safe_str(r.PrimaryAddress),
+                'PrimaryCity': safe_str(r.PrimaryCity),
+                'PrimaryState': safe_str(r.PrimaryState),
+                'PrimaryZip': safe_str(r.PrimaryZip),
                 'FullAddress': '',
                 'FamilyId': r.FamilyId,
-                'MedicalDescription': r.MedicalDescription or '',
-                'MedAllergy': r.MedAllergy or '',
-                'emcontact': r.emcontact or '',
+                'MedicalDescription': safe_str(r.MedicalDescription),
+                'MedAllergy': safe_str(r.MedAllergy),
+                'emcontact': safe_str(r.emcontact),
                 'emphone': fmt_phone(r.emphone),
-                'doctor': r.doctor or '',
+                'doctor': safe_str(r.doctor),
                 'docphone': fmt_phone(r.docphone),
-                'insurance': r.insurance or '',
-                'policy': r.policy or '',
-                'PhotoUrl': r.PhotoUrl or '',
+                'insurance': safe_str(r.insurance),
+                'policy': safe_str(r.policy),
+                'PhotoUrl': safe_str(r.PhotoUrl),
+                'CustodyIssue': r.CustodyIssue,
                 'answers': {},
                 '_Tylenol': r.Tylenol,
                 '_Advil': r.Advil,
@@ -625,23 +728,23 @@ def get_people_data_direct(people_ids):
             }
             addr_parts = []
             if r.PrimaryAddress:
-                addr_parts.append(r.PrimaryAddress)
+                addr_parts.append(safe_str(r.PrimaryAddress))
             city_state = []
             if r.PrimaryCity:
-                city_state.append(r.PrimaryCity)
+                city_state.append(safe_str(r.PrimaryCity))
             if r.PrimaryState:
-                city_state.append(r.PrimaryState)
+                city_state.append(safe_str(r.PrimaryState))
             if city_state:
                 addr_parts.append(', '.join(city_state))
             if r.PrimaryZip:
-                addr_parts.append(r.PrimaryZip)
+                addr_parts.append(safe_str(r.PrimaryZip))
             person['FullAddress'] = ', '.join(addr_parts) if addr_parts else ''
 
             people_list.append(person)
             if r.FamilyId:
                 family_ids.add(r.FamilyId)
     except Exception as e:
-        result['error'] = 'Error loading people: ' + str(e)
+        result['error'] = 'Error loading people: ' + safe_str(e)
         return result
 
     # Family/parent data
@@ -661,9 +764,9 @@ def get_people_data_direct(people_ids):
                 if fid not in family_data:
                     family_data[fid] = []
                 family_data[fid].append({
-                    'name': (r.FirstName or '') + ' ' + (r.LastName or ''),
+                    'name': safe_str(r.FirstName) + ' ' + safe_str(r.LastName),
                     'phone': fmt_phone(r.CellPhone),
-                    'email': r.EmailAddress or ''
+                    'email': safe_str(r.EmailAddress)
                 })
         except:
             pass
@@ -682,7 +785,7 @@ def get_people_data_direct(people_ids):
             pid = r.PeopleId
             if pid not in checkout_map:
                 checkout_map[pid] = []
-            checkout_map[pid].append(r.Name2 or '')
+            checkout_map[pid].append(safe_str(r.Name2))
     except:
         pass
 
@@ -701,8 +804,9 @@ def get_people_data_direct(people_ids):
             pid = int(r.PeopleId)
             if pid not in meds_map:
                 meds_map[pid] = []
-            if r.Medication and r.Medication not in meds_map[pid]:
-                meds_map[pid].append(r.Medication)
+            med_name = safe_str(r.Medication)
+            if med_name and med_name not in meds_map[pid]:
+                meds_map[pid].append(med_name)
     except:
         pass
 
@@ -780,6 +884,10 @@ def get_field_value(person, field):
                 return html_escape(desc) if desc else ''
             if str(val).lower().strip() in ['false', '0']:
                 return ''
+        if src == 'CustodyIssue':
+            if str(val).lower().strip() in ['true', '1']:
+                return 'Yes'
+            return ''
         if str(val).lower().strip() in ['false', '0']:
             return ''
         return html_escape(val)
@@ -787,7 +895,73 @@ def get_field_value(person, field):
     elif ft == 'regquestion':
         return html_escape(person.get('answers', {}).get(src, ''))
 
+    elif ft == 'extravalue':
+        return html_escape(person.get('_ev_' + src, ''))
+
     return ''
+
+def extract_ev_names_from_template(template):
+    """Scan template sections for extravalue fields and return a set of EV names."""
+    ev_names = set()
+    for sec in template.get('sections', []):
+        for f in sec.get('fields', []):
+            if f.get('fieldType') == 'extravalue' and f.get('sourceField'):
+                ev_names.add(f['sourceField'])
+    return ev_names
+
+def fetch_extra_values(people_list, ev_names):
+    """Query PeopleExtra for the given field names and attach to each person dict.
+    Values are stored as person['_ev_FieldName'] keyed by the template name (preserving case)."""
+    if not people_list or not ev_names:
+        return
+    pids = [p['PeopleId'] for p in people_list]
+    pid_map = {}
+    for p in people_list:
+        pid_map[p['PeopleId']] = p
+        for ev in ev_names:
+            p['_ev_' + ev] = ''
+
+    # Build a case-insensitive lookup: lowercase DB field -> template field name
+    ev_lower_map = {}
+    for ev in ev_names:
+        ev_lower_map[ev.lower()] = ev
+
+    safe_names = ["'" + n.replace("'", "''") + "'" for n in ev_names]
+    ev_sql = """
+        SELECT PeopleId, Field, StrValue, Data,
+               CAST(DateValue AS NVARCHAR(50)) as DateVal,
+               IntValue, BitValue
+        FROM PeopleExtra
+        WHERE PeopleId IN ({0})
+          AND (Field IN ({1}) OR LOWER(Field) IN ({2}))
+    """.format(
+        ','.join(str(pid) for pid in pids),
+        ','.join(safe_names),
+        ','.join(["'" + n.replace("'", "''").lower() + "'" for n in ev_names])
+    )
+    try:
+        for r in q.QuerySql(ev_sql):
+            if r.PeopleId not in pid_map:
+                continue
+            # Determine value from whichever column has data
+            val = None
+            if r.StrValue is not None and str(r.StrValue).strip():
+                val = safe_str(r.StrValue)
+            elif r.Data is not None and str(r.Data).strip():
+                val = safe_str(r.Data)
+            elif r.DateVal is not None and str(r.DateVal).strip():
+                val = safe_str(r.DateVal)
+            elif r.IntValue is not None:
+                val = str(r.IntValue)
+            elif r.BitValue is not None:
+                val = 'Yes' if r.BitValue else 'No'
+            if val:
+                # Match back to template field name via case-insensitive lookup
+                field_name = safe_str(r.Field)
+                template_key = ev_lower_map.get(field_name.lower(), field_name)
+                pid_map[r.PeopleId]['_ev_' + template_key] = val
+    except:
+        pass
 
 def render_report_html(people, template, org_name, questions, single_person_id=None):
     """Render the full report HTML from template + data"""
@@ -986,15 +1160,15 @@ if model.HttpMethod == "post":
             for r in results:
                 orgs.append({
                     'id': r.OrganizationId,
-                    'name': r.OrganizationName,
-                    'division': r.DivisionName or '',
-                    'program': r.ProgramName or '',
+                    'name': safe_str(r.OrganizationName),
+                    'division': safe_str(r.DivisionName),
+                    'program': safe_str(r.ProgramName),
                     'memberCount': r.MemberCount or 0,
                     'questionCount': r.QuestionCount or 0
                 })
             print json.dumps({'success': True, 'orgs': orgs})
         except Exception as e:
-            print json.dumps({'success': False, 'message': str(e)})
+            print json.dumps({'success': False, 'message': safe_str(e)})
 
     # -------------------------------------------------------------------------
     # Get Filter Dropdowns (Programs/Divisions)
@@ -1011,7 +1185,7 @@ if model.HttpMethod == "post":
             """
             programs = []
             for r in q.QuerySql(prog_sql):
-                programs.append({'id': r.Id, 'name': r.Name})
+                programs.append({'id': r.Id, 'name': safe_str(r.Name)})
 
             div_sql = """
                 SELECT DISTINCT d.Id, d.Name, d.ProgId
@@ -1022,11 +1196,11 @@ if model.HttpMethod == "post":
             """
             divisions = []
             for r in q.QuerySql(div_sql):
-                divisions.append({'id': r.Id, 'name': r.Name, 'programId': r.ProgId})
+                divisions.append({'id': r.Id, 'name': safe_str(r.Name), 'programId': r.ProgId})
 
             print json.dumps({'success': True, 'programs': programs, 'divisions': divisions})
         except Exception as e:
-            print json.dumps({'success': False, 'message': str(e)})
+            print json.dumps({'success': False, 'message': safe_str(e)})
 
     # -------------------------------------------------------------------------
     # Load Org Data (questions + people + person field list)
@@ -1040,7 +1214,7 @@ if model.HttpMethod == "post":
             try:
                 org_id = int(org_id)
                 org_info = q.QuerySqlTop1("SELECT OrganizationName FROM Organizations WHERE OrganizationId = {0}".format(org_id))
-                org_name = org_info.OrganizationName if org_info else 'Unknown'
+                org_name = safe_str(org_info.OrganizationName) if org_info else 'Unknown'
 
                 data = get_registrant_data(org_id, filter_ids)
                 if 'error' in data:
@@ -1081,6 +1255,7 @@ if model.HttpMethod == "post":
                         {'sourceField': 'insurance', 'label': 'Insurance', 'fieldType': 'medical'},
                         {'sourceField': 'policy', 'label': 'Policy #', 'fieldType': 'medical'},
                         {'sourceField': 'MedAllergy', 'label': 'Allergies', 'fieldType': 'medical'},
+                        {'sourceField': 'CustodyIssue', 'label': 'Custody Issue', 'fieldType': 'medical'},
                         {'sourceField': 'AuthorizedCheckout', 'label': 'Authorized Checkout', 'fieldType': 'medical'},
                         {'sourceField': 'Medications', 'label': 'Approved Medications', 'fieldType': 'medical'}
                     ]
@@ -1108,7 +1283,7 @@ if model.HttpMethod == "post":
                         }
                     })
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print json.dumps({'success': False, 'message': safe_str(e)})
 
     # -------------------------------------------------------------------------
     # Load BT People Data (no org - direct people IDs from Blue Toolbar)
@@ -1154,6 +1329,7 @@ if model.HttpMethod == "post":
                         {'sourceField': 'insurance', 'label': 'Insurance', 'fieldType': 'medical'},
                         {'sourceField': 'policy', 'label': 'Policy #', 'fieldType': 'medical'},
                         {'sourceField': 'MedAllergy', 'label': 'Allergies', 'fieldType': 'medical'},
+                        {'sourceField': 'CustodyIssue', 'label': 'Custody Issue', 'fieldType': 'medical'},
                         {'sourceField': 'AuthorizedCheckout', 'label': 'Authorized Checkout', 'fieldType': 'medical'},
                         {'sourceField': 'Medications', 'label': 'Approved Medications', 'fieldType': 'medical'}
                     ]
@@ -1172,7 +1348,7 @@ if model.HttpMethod == "post":
                         }
                     })
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print json.dumps({'success': False, 'message': safe_str(e)})
 
     # -------------------------------------------------------------------------
     # Load Saved Template
@@ -1191,7 +1367,7 @@ if model.HttpMethod == "post":
                 else:
                     print json.dumps({'success': True, 'template': None, 'hasSaved': False})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print json.dumps({'success': False, 'message': safe_str(e)})
 
     # -------------------------------------------------------------------------
     # Save Template
@@ -1208,7 +1384,7 @@ if model.HttpMethod == "post":
                 model.AddExtraValueTextOrg(org_id, 'RegReportTemplate', template_json)
                 print json.dumps({'success': True, 'message': 'Template saved successfully'})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print json.dumps({'success': False, 'message': safe_str(e)})
 
     # -------------------------------------------------------------------------
     # Preview Report (single person)
@@ -1230,12 +1406,15 @@ if model.HttpMethod == "post":
                 else:
                     org_id = int(org_id)
                     org_info = q.QuerySqlTop1("SELECT OrganizationName FROM Organizations WHERE OrganizationId = {0}".format(org_id))
-                    org_name = org_info.OrganizationName if org_info else ''
+                    org_name = safe_str(org_info.OrganizationName) if org_info else ''
                     data = get_registrant_data(org_id, filter_ids)
+                ev_names = extract_ev_names_from_template(template)
+                if ev_names:
+                    fetch_extra_values(data['people'], ev_names)
                 html_out = render_report_html(data['people'], template, org_name, data.get('questions', []), people_id)
                 print json.dumps({'success': True, 'html': html_out})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print json.dumps({'success': False, 'message': safe_str(e)})
 
     # -------------------------------------------------------------------------
     # Generate Full Report (all registrants)
@@ -1256,12 +1435,15 @@ if model.HttpMethod == "post":
                 else:
                     org_id = int(org_id)
                     org_info = q.QuerySqlTop1("SELECT OrganizationName FROM Organizations WHERE OrganizationId = {0}".format(org_id))
-                    org_name = org_info.OrganizationName if org_info else ''
+                    org_name = safe_str(org_info.OrganizationName) if org_info else ''
                     data = get_registrant_data(org_id, filter_ids)
+                ev_names = extract_ev_names_from_template(template)
+                if ev_names:
+                    fetch_extra_values(data['people'], ev_names)
                 html_out = render_report_html(data['people'], template, org_name, data.get('questions', []))
                 print json.dumps({'success': True, 'html': html_out, 'personCount': len(data['people'])})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print json.dumps({'success': False, 'message': safe_str(e)})
 
     # -------------------------------------------------------------------------
     # Get Person List (for selector dropdown)
@@ -1287,10 +1469,10 @@ if model.HttpMethod == "post":
                 """.format(org_id, plist_filter)
                 persons = []
                 for r in q.QuerySql(sql):
-                    persons.append({'id': r.PeopleId, 'name': r.Name2})
+                    persons.append({'id': r.PeopleId, 'name': safe_str(r.Name2)})
                 print json.dumps({'success': True, 'persons': persons})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print json.dumps({'success': False, 'message': safe_str(e)})
 
     else:
         print json.dumps({'success': False, 'message': 'Unknown action: ' + action})
@@ -2102,11 +2284,21 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                 }
             }
             html += '<div class="rr-add-field-row">';
-            html += '<select id="rrAddField_' + si + '"><option value="">+ Add a field...</option>';
+            html += '<select id="rrAddField_' + si + '" onchange="onFieldSelectChange(' + si + ')">';
+            html += '<option value="">+ Add a field...</option>';
             html += buildFieldOptions();
             html += '</select>';
             html += '<button class="rr-btn rr-btn-primary rr-btn-sm" onclick="addFieldToSection(' + si + ')">Add</button>';
-            html += '</div></div></div>';
+            html += '</div>';
+            html += '<div id="rrEvInputs_' + si + '" style="display:none;padding:6px 8px;background:#f0f4ff;border:1px solid #cbd5e0;border-radius:4px;margin-top:4px;">';
+            html += '<div style="font-size:12px;font-weight:600;margin-bottom:4px;color:#2c5282;">Add Extra Value Field</div>';
+            html += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">';
+            html += '<input type="text" id="rrEvName_' + si + '" placeholder="Extra Value name (exact)" style="flex:1;min-width:140px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:3px;font-size:12px;">';
+            html += '<input type="text" id="rrEvLabel_' + si + '" placeholder="Display label (optional)" style="flex:1;min-width:140px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:3px;font-size:12px;">';
+            html += '<button class="rr-btn rr-btn-primary rr-btn-sm" onclick="addEvField(' + si + ')">Add</button>';
+            html += '<button class="rr-btn rr-btn-sm" onclick="hideEvInputs(' + si + ')" style="padding:2px 8px;">Cancel</button>';
+            html += '</div></div>';
+            html += '</div></div>';
         }
         container.innerHTML = html;
     }
@@ -2122,7 +2314,7 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         if (af.medical) { for (var i = 0; i < af.medical.length; i++) { html += '<option value="medical|' + escAttr(af.medical[i].sourceField) + '|' + escAttr(af.medical[i].label) + '">' + escHtml(af.medical[i].label) + '</option>'; } }
         html += '</optgroup><optgroup label="Registration Questions">';
         if (af.regquestion) { for (var i = 0; i < af.regquestion.length; i++) { var l = af.regquestion[i].label; var sl = l.length > 50 ? l.substring(0,47) + '...' : l; html += '<option value="regquestion|' + escAttr(af.regquestion[i].sourceField) + '|' + escAttr(l) + '">' + escHtml(sl) + '</option>'; } }
-        html += '</optgroup><optgroup label="Other"><option value="static|text|">Custom Text / Note</option><option value="static|separator|---">Separator Line</option></optgroup>';
+        html += '</optgroup><optgroup label="Other"><option value="extravalue|_prompt_|">Extra Value Field...</option><option value="static|text|">Custom Text / Note</option><option value="static|separator|---">Separator Line</option></optgroup>';
         return html;
     }
 
@@ -2171,12 +2363,54 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         for (var i = 0; i < state.template.sections.length; i++) state.template.sections[i].order = i + 1;
         renderSections();
     };
+    window.onFieldSelectChange = function(si) {
+        var sel = document.getElementById('rrAddField_' + si);
+        var evPanel = document.getElementById('rrEvInputs_' + si);
+        if (!sel || !evPanel) return;
+        var parts = sel.value.split('|');
+        if (parts[0] === 'extravalue' && parts[1] === '_prompt_') {
+            evPanel.style.display = 'block';
+            sel.value = '';
+            var nameInput = document.getElementById('rrEvName_' + si);
+            if (nameInput) nameInput.focus();
+        } else {
+            evPanel.style.display = 'none';
+        }
+    };
+    window.hideEvInputs = function(si) {
+        var evPanel = document.getElementById('rrEvInputs_' + si);
+        if (evPanel) evPanel.style.display = 'none';
+        var nameInput = document.getElementById('rrEvName_' + si);
+        var labelInput = document.getElementById('rrEvLabel_' + si);
+        if (nameInput) nameInput.value = '';
+        if (labelInput) labelInput.value = '';
+    };
+    window.addEvField = function(si) {
+        if (!state.template || !state.template.sections[si]) return;
+        var nameInput = document.getElementById('rrEvName_' + si);
+        var labelInput = document.getElementById('rrEvLabel_' + si);
+        var evName = nameInput ? nameInput.value.trim() : '';
+        if (!evName) { if (nameInput) nameInput.focus(); return; }
+        var friendlyLabel = labelInput ? labelInput.value.trim() : '';
+        if (!friendlyLabel) friendlyLabel = evName;
+        fieldIdCounter++;
+        var fields = state.template.sections[si].fields || [];
+        fields.push({ fieldId: 'fld_' + fieldIdCounter, fieldType: 'extravalue', sourceField: evName, label: friendlyLabel, displayFormat: 'single-line', order: fields.length + 1, visible: true, colSpan: 1 });
+        state.template.sections[si].fields = fields;
+        openSections[si] = true;
+        hideEvInputs(si);
+        renderSections();
+    };
     window.addFieldToSection = function(si) {
         if (!state.template || !state.template.sections[si]) return;
         var sel = document.getElementById('rrAddField_' + si);
         if (!sel || !sel.value) return;
         var parts = sel.value.split('|');
         if (parts.length < 2) return;
+
+        // Extra Value is handled by the inline panel, skip here
+        if (parts[0] === 'extravalue') return;
+
         fieldIdCounter++;
         var fields = state.template.sections[si].fields || [];
         var newField = { fieldId: 'fld_' + fieldIdCounter, fieldType: parts[0], sourceField: parts[1], label: parts[2] || '', displayFormat: (parts[0] === 'regquestion' || parts[0] === 'static') ? 'block' : 'single-line', order: fields.length + 1, visible: true, colSpan: 1 };
@@ -2187,6 +2421,7 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         fields.push(newField);
         state.template.sections[si].fields = fields;
         openSections[si] = true;
+        sel.value = '';
         renderSections();
     };
     window.removeField = function(si, fi) {
