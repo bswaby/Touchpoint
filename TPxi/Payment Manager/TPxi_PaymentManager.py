@@ -1,4 +1,15 @@
 # -*- coding: utf-8 -*-
+
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub:  https://github.com/bswaby/Touchpoint
+# ---------------------------------------------------------------
+# Support: These tools are free because they should be. If they've
+#          saved you time, consider DisplayCache — church digital
+#          signage that integrates with TouchPoint.
+#          https://displaycache.com
+# ---------------------------------------------------------------
+
 """
 --Upload Instructions Start--
 To upload code to Touchpoint, use the following steps:
@@ -18,8 +29,6 @@ A complete, responsive payment management system with:
 - AJAX-based user experience
 - TouchPoint-compatible design
 
-Written By: Ben Swaby
-Email: bswaby@fbchtn.org
 Version: 2.0
 Date: May 2025
 """
