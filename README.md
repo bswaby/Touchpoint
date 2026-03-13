@@ -1,10 +1,18 @@
 # 🚀 TouchPoint Integrated Tools (TPxi)
 
-## 📋 Overview
+## ☕ Support This Work
 
-As a husband, father of two beautiful daughters, and dad to a special needs child, I've seen firsthand the importance of tools that truly serve people well. With experience in church leadership and a passion for development, I've built practical solutions to help ministries overcome everyday challenges.
+All 30+ of these tools are free to the community because I believe Kingdom tools should be accessible 
+to every church, regardless of budget. If they've saved your team time, I'd love your support in return.
 
-I believe God calls us to build His Kingdom in every way we can—including through technology. These tools are designed to help your team work smarter, uncover meaningful insights, and focus more on what matters most: loving people and growing the Kingdom.
+I'm the creator of **[DisplayCache](https://displaycache.com)** — a church digital signage platform 
+built with the same heart behind these tools: simple, powerful, and ministry-focused. DisplayCache 
+integrates directly with TouchPoint, pulling your real people and ministry data into your screens — 
+no double entry, no stale slides. A subscription helps me keep building and maintaining everything 
+you see here.
+
+👉 **[Check out DisplayCache](https://displaycache.com)** — and if it's a fit for your church, your 
+subscription directly fuels my work and continued effort to build these tools that are helping churches grow the Kingdom.
 
 ## 🎨 Next Generation Mocks
 Concept designs and ideas for what the next generation of Touchpoint could become.  
