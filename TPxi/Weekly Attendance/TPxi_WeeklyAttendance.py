@@ -3,6 +3,15 @@
 #####################################################################
 # Weekly Attendance Dashboard
 #####################################################################
+# written by: Ben Swaby
+# email: bswaby@fbchtn.org
+# GitHub:  https://github.com/bswaby/Touchpoint
+# ---------------------------------------------------------------
+# Support: These tools are free because they should be. If they've
+#          saved you time, consider DisplayCache — church digital
+#          signage that integrates with TouchPoint.
+#          https://displaycache.com
+
 #  Key Features
 
 #  - Real-time attendance tracking across multiple programs/divisions
@@ -28,8 +37,8 @@
 #  - Campus assignments
 #  - Historical attendance patterns
 
-#written by: Ben Swaby
-#email: bswaby@fbchtn.org
+
+# ---------------------------------------------------------------
 
 # Update Notes 01/07/2026:
 # - Added a brief mode for executives only folks 
