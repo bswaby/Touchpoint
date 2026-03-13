@@ -30,6 +30,7 @@ Understand, track, and enhance member participation and growth
 - **[Communication Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Communication%20Dashboard)**: Analyze communication patterns and effectiveness
 - **[New Member Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/New%20Member%20Report)**: Comprehensive tracking of new member onboarding
 - **[Emergency List](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Emergency%20List)**: Critical contact and medical information management
+- **[Volunteer Scheduler Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Scheduler%20Report)**: Volunteer Scheduler Report
 
 ### 🔍 Discovery & Insights
 Uncover hidden patterns and proactively engage with your community
