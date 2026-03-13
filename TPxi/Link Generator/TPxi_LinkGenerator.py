@@ -1,4 +1,15 @@
 # Role=Admin
+
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub:  https://github.com/bswaby/Touchpoint
+# ---------------------------------------------------------------
+# Support: These tools are free because they should be. If they've
+#          saved you time, consider DisplayCache — church digital
+#          signage that integrates with TouchPoint.
+#          https://displaycache.com
+# ---------------------------------------------------------------
+
 ###############################################################
 # TouchPoint Authenticated Link Generator with Live Search
 ###############################################################
@@ -15,8 +26,6 @@
 # 3. Name the script with your desired name and paste this code
 # 4. Test and add to menu
 
-# Written by: Ben Swaby
-# Email: bswaby@fbchtn.org
 # Last updated: 05/12/2025
 
 import sys
