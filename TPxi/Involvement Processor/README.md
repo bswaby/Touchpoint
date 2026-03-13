@@ -48,3 +48,7 @@ Add people to a watchlist for tracking across involvements. Assign watchers and 
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Processor/InvProc.png" width="700" alt="Watchlist">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
