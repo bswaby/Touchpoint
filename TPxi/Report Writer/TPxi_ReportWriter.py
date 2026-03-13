@@ -1,5 +1,15 @@
 #roles=Edit
 
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub:  https://github.com/bswaby/Touchpoint
+# ---------------------------------------------------------------
+# Support: These tools are free because they should be. If they've
+#          saved you time, consider DisplayCache — church digital
+#          signage that integrates with TouchPoint.
+#          https://displaycache.com
+# ---------------------------------------------------------------
+
 """
 TPxi Report Writer
 ==================================
@@ -19,8 +29,6 @@ Features:
 - Saves template to org extra value for reuse
 - Handles both new (RegQuestion/RegAnswer) and old (RegistrationData XML) formats
 
-Written By: Ben Swaby
-Email: bswaby@fbchtn.org
 Version: 1.2
 Date: February 2026
 
