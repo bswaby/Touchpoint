@@ -1,3 +1,13 @@
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub:  https://github.com/bswaby/Touchpoint
+# ---------------------------------------------------------------
+# Support: These tools are free because they should be. If they've
+#          saved you time, consider DisplayCache — church digital
+#          signage that integrates with TouchPoint.
+#          https://displaycache.com
+# ---------------------------------------------------------------
+
 # ::START:: Program to Connect Group Analytics Dashboard - Working Version
 # 
 # Purpose: Analyze how effectively church programs drive attendance to Connect Groups
@@ -15,8 +25,6 @@
 # 4. Test and optionally add to menu
 #
 
-# written by: Ben Swaby
-# email: bswaby@fbchtn.org
 
 # ::START:: Configuration and Imports
 import traceback
