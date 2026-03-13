@@ -17,3 +17,7 @@ Comprehensive deposit tracking and reconciliation tool for ministry finances. Th
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Deposit%20Report/DepositDetails.png" width="700">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
