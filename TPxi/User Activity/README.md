@@ -35,3 +35,6 @@ This is to help get an idea of user activity levels based on the activity log ta
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/User%20Activity/UA-PasswordResets.png" width="700">
 </p>
 
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
