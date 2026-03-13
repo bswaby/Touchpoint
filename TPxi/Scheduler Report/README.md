@@ -56,3 +56,7 @@ if today.weekday() == 4:  # Friday
 | `Subject` | Org name | `SchedulerReportSubject` (string) |
 | `UseMultiColumn` | `True` | — |
 | `ColumnsPerRow` | `2` | — |
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
