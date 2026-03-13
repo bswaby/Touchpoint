@@ -45,3 +45,6 @@ Note: This will <b>not</b> print badges, as those modules from TP are not expose
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/FastLaneCheckIn/FLC-CheckOut.png" width="700">
 </p>
 
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
