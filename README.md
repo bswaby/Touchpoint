@@ -79,7 +79,7 @@ Maintain system health, security, and efficiency
 - **[Involvement Sync](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Sync)**: Synchronize involvement settings
 - **[Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator)**: Pre-authenticated link creation
 - **[Registration Data Manager](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Data%20Manager)**: Registration Data Manager
-- **[Report Writer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Report%20Writer%20)**: Inv. and User Report Writer
+- **[Report Writer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Report%20Writer)**: Inv. and User Report Writer
 - **[SQL Query Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/SQL%20Query%20Explorer)**: SQL Query Explorer
 - **[TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus)**: System status and performance monitoring
 
