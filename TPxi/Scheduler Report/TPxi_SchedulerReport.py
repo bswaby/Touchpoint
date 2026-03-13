@@ -1,3 +1,13 @@
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub:  https://github.com/bswaby/Touchpoint
+# ---------------------------------------------------------------
+# Support: These tools are free because they should be. If they've
+#          saved you time, consider DisplayCache — church digital
+#          signage that integrates with TouchPoint.
+#          https://displaycache.com
+# ---------------------------------------------------------------
+
 ########################################################
 ### Enhanced Scheduler Report v2.2
 ### Original: SimpleSchedulerReport
@@ -9,8 +19,6 @@
 # so team members can easily see a full calendar.  It's built to be seen from the web,
 # printed, and emailed out.
 
-# Created By: Ben Swaby
-# Email: bswaby@fbchtn.org
 #
 # Enhanced By: Heath Kouns (8/9/25)
 # - Semi-colon separator for names
