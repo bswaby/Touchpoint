@@ -21,3 +21,7 @@ Key Capabilities:
 </p>
 </br>
 The key differentiator here is that this isn't just "who missed church recently" - it's "who is behaving differently than their established pattern," which is much more actionable for pastoral care!
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
