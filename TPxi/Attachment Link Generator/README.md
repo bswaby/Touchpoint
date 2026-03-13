@@ -9,3 +9,7 @@ Simple download tool allows you to download all documents from an involvement re
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Attachment%20Link%20Generator/ALG-Download.png" width="700">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
