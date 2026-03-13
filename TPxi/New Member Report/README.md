@@ -29,3 +29,7 @@ Key Features:
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/New%20Member%20Report/NM-Person.png" width="700">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
