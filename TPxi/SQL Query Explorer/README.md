@@ -31,3 +31,7 @@ SQL editor for TouchPoint with IntelliSense-style autocomplete, multi-tab suppor
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/SQL%20Query%20Explorer/SQL-5.png" width="900">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
