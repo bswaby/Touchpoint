@@ -1,22 +1,22 @@
 ########################################################
-### Enhanced Scheduler Report v2.1.2
+### Enhanced Scheduler Report v2.2
 ### Original: SimpleSchedulerReport
 ### Updates: Multi-column layout, family filtering, proper functions
 ########################################################
 
 ### Info
-# The built-in calendar view is complicated and this attempt to crate a simple view
+# The built-in calendar view is complicated and this attempt to create a simple view
 # so team members can easily see a full calendar.  It's built to be seen from the web,
-# printed, and emailed out. 
+# printed, and emailed out.
 
 # Created By: Ben Swaby
 # Email: bswaby@fbchtn.org
-# 
+#
 # Enhanced By: Heath Kouns (8/9/25)
 # - Semi-colon separator for names
 # - New tab for registration links
 # - Family schedule management buttons
-# 
+#
 # Version 2.1 Updates: Ben Swaby (8/9/25)
 # - Got multi-column layout option working
 # - Enhanced filter family buttons to show all family or only family members who are involved
@@ -27,51 +27,94 @@
 # - Added MinVolunteer Age
 # - Added a Configurable Title
 # - Added an option to have Org Specific over-writing of the default settings for the following variables:
-#   ShowEmptySlots, ShowFamilyButtons, MinVolunteerAge, Title, FromAddress, Subject 
+#   ShowEmptySlots, ShowFamilyButtons, MinVolunteerAge, Title, FromAddress, Subject
 #   AdHoc ExtraValues are in the form 'SchedulerReport' + variable name  (e.g. SchedulerReportShowEmptySlots)
 #
-# Enhanced By: Heath Kouns (8/14/25)
-# - Added Case Statement to use Team Needed Qty if Subgroups are not used
+# Version 2.2 Updates: Ben Swaby (3/12/26)
+# - Added subgroupFilter to show only specific subgroup(s) instead of excluding EMS/LEO
+# - Added reportTo='PeopleId' with reportToPeopleId to send to specific person(s)
+# - reportToPeopleId supports comma-separated list (e.g., '3134,4521')
+# - Added scheduleDays override from morning batch Data
+# - Added ShowManageCommitments config option
+# - showManageCommitments and showFamilyButtons can be overridden from morning batch Data
 #
-# Enhanced By: Heath Kouns (8/20/25)
-# - Bug Fix to show "sign-up" link for Partial Filled
-# - Bug Fix to pull "Required" from correct table
 #
-#To add this to the Bluetoolbar, navigate to open CustomReport under special content 
-# / text and add in the following line.  Make sure to adjust report name to what
-# you called the Python report
+########################################################
+### BLUE TOOLBAR SETUP
+########################################################
+# Navigate to Special Content / Text / CustomReports and add:
 #
-#  <Report name="ScheduleList" type="PyScript" role="Access" />
+#   <Report name="ScheduleList" type="PyScript" role="Access" />
 #
-# note: CustomReport changes can take 24 hrs to show on the site due to how the cache 
-# has been implemented on the TP servers
-
-# Add to the morning batch to automatically email
+# Note: CustomReport changes can take 24 hrs to show due to cache
+#
+########################################################
+### MORNING BATCH SETUP
+########################################################
+# 1. Create a new Python script (e.g., "SchedulerBatch")
+# 2. Set it to run in Morning Batch
+# 3. Use one of the examples below
+#
+# REQUIRED parameters for ALL batch calls:
+#   model.Data.sendReport = 'y'              # Triggers email send
+#   model.Data.CurrentOrgId = '2832'         # Organization ID
+#   model.Data.reportTo = '...'              # Delivery mode (see options below)
+#
+# reportTo options:
+#   'Involvement'  - Emails all members of the organization
+#   'Self'         - Emails the current user (less useful in batch)
+#   'PeopleId'     - Emails specific person(s), requires reportToPeopleId
+#
+# OPTIONAL parameters:
+#   model.Data.reportToPeopleId = '3134'     # PeopleId(s) - comma-separated for multiple
+#   model.Data.subgroupFilter = 'LEO - Pastor'  # Only include these subgroup(s) - comma-separated
+#   model.Data.scheduleDays = '7'            # Override default 365-day window
+#   model.Data.showManageCommitments = 'false'  # Hide "Manage My Commitments" button
+#   model.Data.showFamilyButtons = '0'       # Hide family schedule buttons (0=off, 1=all, 2=involved only)
+#
 ########################################################
 ### MORNING BATCH EXAMPLES
 ########################################################
 '''
-MORNING BATCH SETUP:
+from datetime import datetime
+today = datetime.now()
 
-1. Create a new Python script called "SchedulerBatch"
-2. Set it to run in Morning Batch
-3. Use one of these examples:
-
-# Send on specific days of month
-if model.DateTime.Today.Day in [1, 15]:
+# ----- Example 1: Send full report to involvement on 1st and 15th -----
+if today.day in [1, 15]:
     model.Data.sendReport = 'y'
     model.Data.reportTo = 'Involvement'
     model.Data.CurrentOrgId = '2832'
-    print(model.CallScript("YourSchedulerScriptName"))
+    print(model.CallScript("TPxi_ScheduleList"))
 
-# Send weekly on specific days
-if model.DateTime.Today.DayOfWeek in [1, 4]:  # Monday, Thursday
+# ----- Example 2: Send full report weekly on Monday and Thursday -----
+# Note: Python weekday(): Monday=0, Tuesday=1, ... Friday=4, Sunday=6
+if today.weekday() in [0, 3]:  # Monday, Thursday
     model.Data.sendReport = 'y'
     model.Data.reportTo = 'Involvement'
     model.Data.CurrentOrgId = '2832'
-    print(model.CallScript("YourSchedulerScriptName"))
+    print(model.CallScript("TPxi_ScheduleList"))
+
+# ----- Example 3: Send filtered subgroup report to pastor on Fridays -----
+if today.weekday() == 4:  # Friday
+    model.Data.sendReport = 'y'
+    model.Data.reportTo = 'PeopleId'
+    model.Data.reportToPeopleId = '3134'             # Pastor's PeopleId
+    model.Data.subgroupFilter = 'LEO - Pastor'       # Only this subgroup
+    model.Data.scheduleDays = '7'                    # Next 7 days only
+    model.Data.showManageCommitments = 'false'       # Clean email - no buttons
+    model.Data.showFamilyButtons = '0'               # Clean email - no family links
+    model.Data.CurrentOrgId = '2832'
+    print(model.CallScript("TPxi_ScheduleList"))
+
+# ----- Example 4: Send to multiple people -----
+if today.weekday() == 4:  # Friday
+    model.Data.sendReport = 'y'
+    model.Data.reportTo = 'PeopleId'
+    model.Data.reportToPeopleId = '3134,4521,6789'   # Multiple PeopleIds
+    model.Data.CurrentOrgId = '2832'
+    print(model.CallScript("TPxi_ScheduleList"))
 '''
-global ShowEmptySlots, ShowFamilyButtons, MinVolunteerAge, Title, FromAddress, Subject
+global ShowEmptySlots, ShowFamilyButtons, ShowManageCommitments, MinVolunteerAge, Title, FromAddress, Subject
 
 ########################################################
 ### User Config Area
@@ -86,6 +129,7 @@ ShowFamilyButtons = 1               # 0=No buttons, 1=All family, 2=Only family 
 MinVolunteerAge = 12                # Minimum Age of Family Members to show buttons for | Org ExtraValue (int): SchedulerReportMinVolunteerAge (min: 1)
 UseMultiColumn = True               # Use multi-column layout
 ColumnsPerRow = 2                   # Number of columns (2 or 3 recommended)
+ShowManageCommitments = True        # Show "Manage My Commitments" button
 Title = ''                          # Uses '{org name} + Schedule' if empty | or can be overwritten with Org ExtraValue (string): SchedulerReportTitle
 
 # Email Variables
@@ -100,13 +144,15 @@ Subject = ''                  # Uses org name if empty | Org ExtraValue (string)
 def initialize_variables():
     """Initialize all global variables with error handling"""
     global sendReport, reportTo, OrgId, scriptPath, showSendToInvolvement
-    
+    global subgroupFilter, reportToPeopleId, ScheduleDays
+    global ShowManageCommitments, ShowFamilyButtons
+
     # Get script path
     try:
         scriptPath = model.ScriptName if hasattr(model, 'ScriptName') else 'SchedulerReport'
     except:
         scriptPath = 'SchedulerReport'
-    
+
     # Initialize variables
     try:
         sendReport = model.Data.sendReport if hasattr(model.Data, 'sendReport') else 'n'
@@ -116,7 +162,35 @@ def initialize_variables():
         sendReport = 'n'
         reportTo = ''
         OrgId = None
-    
+
+    # Subgroup filter: when set, only include matching subgroups instead of excluding EMS/LEO
+    try:
+        subgroupFilter = str(model.Data.subgroupFilter) if hasattr(model.Data, 'subgroupFilter') and model.Data.subgroupFilter else ''
+    except:
+        subgroupFilter = ''
+
+    # PeopleId to send report to (used when reportTo = 'PeopleId')
+    try:
+        reportToPeopleId = str(model.Data.reportToPeopleId) if hasattr(model.Data, 'reportToPeopleId') and model.Data.reportToPeopleId else ''
+    except:
+        reportToPeopleId = ''
+
+    # Allow overriding ScheduleDays from Data (e.g., 7 for upcoming week only)
+    try:
+        if hasattr(model.Data, 'scheduleDays') and model.Data.scheduleDays:
+            ScheduleDays = str(model.Data.scheduleDays)
+    except:
+        pass
+
+    # Allow overriding ShowManageCommitments and ShowFamilyButtons from Data
+    try:
+        if hasattr(model.Data, 'showManageCommitments') and model.Data.showManageCommitments is not None:
+            ShowManageCommitments = str(model.Data.showManageCommitments).lower() in ('true', '1', 'y')
+        if hasattr(model.Data, 'showFamilyButtons') and model.Data.showFamilyButtons is not None:
+            ShowFamilyButtons = int(model.Data.showFamilyButtons)
+    except:
+        pass
+
     # Check permissions
     showSendToInvolvement = 'n'
     try:
@@ -126,7 +200,7 @@ def initialize_variables():
                 break
     except:
         pass
-    
+
     return sendReport, reportTo, OrgId, scriptPath, showSendToInvolvement
 
 def validate_organization():
@@ -218,8 +292,9 @@ SELECT
     FORMAT(tsm.MeetingDateTime, 'M/d/yy h:mm tt') as ServiceDateTime,
     FORMAT(tsm.MeetingDateTime, 'dddd, MMMM dd, yyyy') AS DateOnly,
     DATEPART(WEEKDAY, tsm.MeetingDateTime) as DayOfWeek,
+    --tssg.NumberVolunteersNeeded as Needed,
     CASE WHEN (tsmt.UseSubGroup = 'False') THEN tst.NumberVolunteersNeeded ELSE tssg.NumberVolunteersNeeded END AS Needed,
-    tssg.Require as [Required],
+    tstSG.Require as [Required],
     tsmt.TimeSlotMeetingTeamId,
     tsgrpvol.TimeSlotMeetingTeamSubGroupId,
     tssg.NumberVolunteersNeeded as SubGroupsNeeded,
@@ -296,7 +371,7 @@ SELECT
         ELSE 'Empty'
     END as Status
 FROM ServiceSummary
-WHERE SubGroupTeam NOT IN ('EMS', 'LEO')
+{2}
 ORDER BY ServiceDate, ServiceTime, SubGroupTeam
 '''
 
@@ -840,13 +915,8 @@ def build_date_section_grid(date_header, times_dict):
             
             # Build compact single line with time inline
             if slot.Names:
-                if status_class == 'status-full':
-                    line_content = '<strong>{}</strong> - {} <span class="{}">({})</span> - {}'.format(
-                        time, slot.SubGroupTeam, status_class, status_text, slot.Names)
-                else:
-                    
-                    line_content = '<strong>{}</strong> - {} <span class="{}">({})</span> - {} - <a href="{}/OnlineReg/{}" class="signup-link" target="_blank">Sign up</a>'.format(
-                        time, slot.SubGroupTeam, status_class, status_text, slot.Names, model.CmsHost, OrgId)
+                line_content = '<strong>{}</strong> - {} <span class="{}">({})</span> - {}'.format(
+                    time, slot.SubGroupTeam, status_class, status_text, slot.Names)
             else:
                 line_content = '<strong>{}</strong> - {} <span class="{}">({})</span> - <a href="{}/OnlineReg/{}" class="signup-link" target="_blank">Sign up</a>'.format(
                     time, slot.SubGroupTeam, status_class, status_text, model.CmsHost, OrgId)
@@ -898,22 +968,38 @@ def get_status_info(row):
     else:
         return 'status-empty', '0/{}'.format(row.Needed if row.Needed else '?')
 
-def send_email(to_involvement=False):
+def send_email(to_involvement=False, to_people_id=None):
     """Handle email sending"""
     global NMReport, UseMultiColumn
-    
+
     # Force single column for email
     original_use_multi_column = UseMultiColumn
     UseMultiColumn = False
-    
+
     try:
         # Add tracking
         NMReport += '{track}{tracklinks}<br />'
-        
+
         # Set subject
         email_subject = Subject if Subject else "Schedule: {}".format(orgName)
-        
-        if to_involvement:
+        # Append subgroup info to subject if filtered
+        if subgroupFilter:
+            email_subject += " - {}".format(subgroupFilter)
+
+        if to_people_id:
+            # Send to one or more people by PeopleId (comma-separated)
+            people_ids = [pid.strip() for pid in to_people_id.split(',') if pid.strip()]
+            sent_count = 0
+            for pid in people_ids:
+                try:
+                    QueuedBy = model.UserPeopleId if not model.FromMorningBatch else int(pid)
+                    model.Email(int(pid), QueuedBy, FromAddress, FromName, email_subject, NMReport)
+                    sent_count += 1
+                except Exception as e:
+                    print('<div class="alert alert-danger">Error sending to PeopleId {}: {}</div>'.format(pid, e))
+            print('<div class="alert alert-info">Report sent to {} recipient(s).</div>'.format(sent_count))
+
+        elif to_involvement:
             # Send to involvement
             QueuedBy = model.UserPeopleId
             
@@ -976,18 +1062,25 @@ def main():
     <div class="print-header">{} </div>
     <h1>{} </h1>
     
-    <div class="action-buttons no-print">
-        <a href="{}/OnlineReg/{}" class="btn" target="_blank" rel="noopener noreferrer">
-            Manage My Commitments
-        </a>
-    </div>
     {}
-'''.format(styles, Title, Title, model.CmsHost, OrgId, build_family_buttons())
+    {}
+'''.format(styles, Title, Title,
+        '<div class="action-buttons no-print"><a href="{}/OnlineReg/{}" class="btn" target="_blank" rel="noopener noreferrer">Manage My Commitments</a></div>'.format(model.CmsHost, OrgId) if ShowManageCommitments else '',
+        build_family_buttons() if ShowFamilyButtons > 0 else '')
     
     # Execute query
     try:
         sql = get_schedule_sql()
-        results = q.QuerySql(sql.format(OrgId, ScheduleDays))
+        # Build subgroup filter clause
+        if subgroupFilter:
+            # Include only the specified subgroup(s)
+            filter_list = [s.strip() for s in subgroupFilter.split(',')]
+            quoted = ','.join(["'{}'".format(s.replace("'", "''")) for s in filter_list])
+            subgroup_clause = "WHERE SubGroupTeam IN ({})".format(quoted)
+        else:
+            # Default: exclude EMS and LEO
+            subgroup_clause = "WHERE SubGroupTeam NOT IN ('EMS', 'LEO')"
+        results = q.QuerySql(sql.format(OrgId, ScheduleDays, subgroup_clause))
         
         if not results:
             template += '''
@@ -1021,7 +1114,9 @@ def main():
     NMReport = model.RenderTemplate(template)
     
     # Handle report sending
-    if sendReport == 'y' and reportTo == 'Self':
+    if sendReport == 'y' and reportTo == 'PeopleId' and reportToPeopleId:
+        send_email(to_people_id=reportToPeopleId)
+    elif sendReport == 'y' and reportTo == 'Self':
         send_email(to_involvement=False)
     elif sendReport == 'y' and reportTo == 'Involvement':
         if showSendToInvolvement != 'y':
