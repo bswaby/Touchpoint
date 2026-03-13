@@ -1,9 +1,17 @@
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub:  https://github.com/bswaby/Touchpoint
+# ---------------------------------------------------------------
+# Support: These tools are free because they should be. If they've
+#          saved you time, consider DisplayCache — church digital
+#          signage that integrates with TouchPoint.
+#          https://displaycache.com
+# ---------------------------------------------------------------
+
 # TPxi Statement Audit Dashboard
 # Analyzes electronic vs printed statement preferences with email/address validation
 # Allows drill-down into people with missing contact info
 
-# Created by: Ben Swaby
-# Email: bswaby@fbchtn.org
 # Created on: 2025-12-11
 # Updated on: 2025-12-11
 
