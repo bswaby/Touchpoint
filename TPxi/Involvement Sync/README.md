@@ -9,3 +9,7 @@ This provides an easy method to sync a primary involvement to a secondary. It ca
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Sync/InvolvementSync.png" width="700">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
