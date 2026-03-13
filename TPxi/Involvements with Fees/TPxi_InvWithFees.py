@@ -1,3 +1,13 @@
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub:  https://github.com/bswaby/Touchpoint
+# ---------------------------------------------------------------
+# Support: These tools are free because they should be. If they've
+#          saved you time, consider DisplayCache — church digital
+#          signage that integrates with TouchPoint.
+#          https://displaycache.com
+# ---------------------------------------------------------------
+
 '''
 Purpose: Finance tool to report on involvements (organizations) with fees
 Shows creation date, creator, fee counts and amounts from both old XML and new JSON formats
@@ -10,8 +20,6 @@ To upload code to Touchpoint, use the following steps:
 4. Test and optionally add to menu
 --Upload Instructions End--
 
-Written By: Ben Swaby
-Email: bswaby@fbchtn.org
 '''
 #roles=Finance,Admin
 
