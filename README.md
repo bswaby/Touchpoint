@@ -1,5 +1,8 @@
 # 🚀 TouchPoint Integrated Tools (TPxi)
 
+## 💡 Guiding Philosophy
+These tools were created with a simple mission: to help ministries leverage technology in service of their core purpose—loving people and growing God's Kingdom.
+
 ## ☕ Support This Work
 
 All 30+ of these tools are free to the community because I believe Kingdom tools should be accessible 
@@ -19,6 +22,24 @@ Concept designs and ideas for what the next generation of Touchpoint could becom
 These mocks explore how both **members** and **leaders** could have simpler, more guided, and more actionable experiences within the system.
 - **[NextGen TP Mocks](https://github.com/bswaby/Touchpoint/tree/main/NextGen%20TP%20Mocks)**: Visualize and Dream How the NextGen TP Could Function
 
+
+## ⭐ Community Favorites
+These are the tools churches ask about most and install first:
+
+### ⭐ Church Favorites
+| Tool | Why Churches Love It |
+|------|----------------------|
+| 🏆 Ministry Structure | The clearest way to visualize your entire involvement hierarchy at a glance |
+| 🏆 Weekly Attendance | Redefines how groups track and own their attendance |
+| 🏆 Live Search | Game-changer for adding a quick note, task, or seeing someone's full journey instantly |
+| 🏆 Ministry Deposit Tool | Has become the standard for financial processing and reconciliation |
+| 🏆 Communication Dashboard | A must-have for ministry teams serious about tracking outreach |
+| 🏆 API Explorer | The fastest way for developers to explore and test TouchPoint queries |
+
+### 🆕 Recently Added
+Fresh tools hot off the workbench:
+- ✨ **[Involvement Processor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Processor)**: Comprehensive involvement registrant processing
+- ✨ **[Report Writer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Report%20Writer)**: Inv. and User Report Writer
 
 ## 🌟 Tool Categories
 
@@ -105,14 +126,12 @@ Contributions are welcome! Help make these tools even better:
 2. Create a new branch for your feature
 3. Submit a pull request with a clear description of your changes
 
-## 📞 Support
+## 📞 Technical Support
 Need help implementing these tools?
 - Open an issue in this repository
-- Reach out for direct support (contact information)
+- Reach out for direct support
 
 ## 🙏 Acknowledgments
 - Thanks to the TouchPoint team for creating an extensible platform
-- Special gratitude to churches who have tested and provided feedback
+- Special gratitude to churches that have tested and provided feedback
 
-## 💡 Guiding Philosophy
-These tools were created with a simple mission: to help ministries leverage technology in service of their core purpose—loving people and growing God's Kingdom.
