@@ -10,3 +10,7 @@ Provides a quick method to see owners of involvements to help with auditing or a
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Involvement%20Notification%20Audit%20Tool/InvAuditTool.png" width="700">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
