@@ -28,3 +28,6 @@ Advantages
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Geographic%20Distribution%20Map/GDM-PopUp.png" width="700">
 </p>
 
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
