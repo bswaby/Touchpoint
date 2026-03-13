@@ -62,3 +62,7 @@ Opportunities for first-time givers to those who have lapsed.
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Giving%20Dashboard/GivingDashboard-8-LapsedGivers.png" width="700" alt="Lapsed Givers">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
