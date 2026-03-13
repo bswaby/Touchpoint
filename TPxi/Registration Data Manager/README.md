@@ -23,3 +23,7 @@ This tool provides an interactive interface for managing registration data witho
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Registration%20Data%20Manager/RDM03.png" width="700">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
