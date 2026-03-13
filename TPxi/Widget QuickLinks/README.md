@@ -12,3 +12,7 @@ This provides quick-access links for users to get to things quickly.  The links 
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Widget%20QuickLinks/WidgetQuickLink1.png" width="450">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
