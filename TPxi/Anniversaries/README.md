@@ -16,3 +16,7 @@ It is designed as a widget on your dashboard that tracks member anniversaries, s
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Anniversaries/Anniversaries%20Pop-Up.png" width="700">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
