@@ -33,3 +33,7 @@ This report is still being built, but it is Week at a Glance (WAAG) 2.0 for at l
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Weekly%20Attendance/WCExceptions.png" width="700">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
