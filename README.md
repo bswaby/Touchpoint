@@ -5,9 +5,9 @@
 All 30+ of these tools are free to the community because I believe Kingdom tools should be accessible 
 to every church, regardless of budget. If they've saved your team time, I'd love your support in return.
 
-I'm the creator of **[DisplayCache](https://displaycache.com)** — a church digital signage platform 
+I'm the creator of **[DisplayCache](https://displaycache.com)**, a church digital signage platform 
 built with the same heart behind these tools: simple, powerful, and ministry-focused. DisplayCache 
-integrates directly with TouchPoint, pulling your real people and ministry data into your screens — 
+integrates directly with TouchPoint, pulling your real people and ministry data into your screens... 
 no double entry, no stale slides. A subscription helps me keep building and maintaining everything 
 you see here.
 
