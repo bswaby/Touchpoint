@@ -1,7 +1,7 @@
 # 🚀 TouchPoint Integrated Tools (TPxi)
 
 ## 💡 Guiding Philosophy
-These tools were created with a simple mission: to help ministries leverage technology in service of their core purpose—loving people and growing God's Kingdom.
+These tools were created with a simple mission: to help ministries leverage technology in service of their core purpose...loving people and growing God's Kingdom.
 
 ## ☕ Support This Work
 
