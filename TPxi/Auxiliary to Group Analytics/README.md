@@ -9,3 +9,7 @@ The Auxiliary to Group Analytics dashboard helps churches analyze how effectivel
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Auxiliary%20to%20Group%20Analytics/A2G-Dashboard.png" width="700">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
