@@ -1,3 +1,13 @@
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub:  https://github.com/bswaby/Touchpoint
+# ---------------------------------------------------------------
+# Support: These tools are free because they should be. If they've
+#          saved you time, consider DisplayCache — church digital
+#          signage that integrates with TouchPoint.
+#          https://displaycache.com
+# ---------------------------------------------------------------
+
 # ---------------------------------------------------------------
 # TaskNote Activity Dashboard
 # ---------------------------------------------------------------
@@ -20,9 +30,6 @@
 # 3. Name the Python and paste all this code
 # 4. Test and optionally add to menu
 # --Upload Instructions End--
-
-# written by: Ben Swaby
-# email: bswaby@fbchtn.org
 
 # Set script header and roles
 model.Header = "TaskNote Activity Dashboard"
