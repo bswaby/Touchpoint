@@ -27,3 +27,7 @@ A comprehensive email troubleshooting tool that provides deep insights into emai
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Email%20Technical%20Diagnostics/ED-7.png" width="900" alt="Email Diagnostics Dashboard Overview">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
