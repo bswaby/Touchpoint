@@ -1,3 +1,13 @@
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub:  https://github.com/bswaby/Touchpoint
+# ---------------------------------------------------------------
+# Support: These tools are free because they should be. If they've
+#          saved you time, consider DisplayCache — church digital
+#          signage that integrates with TouchPoint.
+#          https://displaycache.com
+# ---------------------------------------------------------------
+
 # TouchPoint Unified Security Monitoring System - All-in-One Dashboard
 # 
 # Purpose: Single script that provides KPI overview and access to multiple security dashboards
@@ -11,8 +21,7 @@
 # 4. Test and optionally add to menu
 # --Upload Instructions End--
 #
-#written by: Ben Swaby
-#email: bswaby@fbchtn.org
+
 
 import traceback
 from datetime import datetime, timedelta
