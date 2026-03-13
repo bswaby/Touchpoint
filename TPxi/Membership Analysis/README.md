@@ -33,3 +33,7 @@ Key Features:
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/blob/main/TPxi/Membership%20Analysis/Membership5.png" width="700">
 </p>
+
+---
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+helps fund continued development of tools like this one.*
