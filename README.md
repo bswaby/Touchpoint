@@ -11,7 +11,7 @@ integrates directly with TouchPoint, pulling your real people and ministry data 
 no double entry, no stale slides. A subscription helps me keep building and maintaining everything 
 you see here.
 
-👉 **[Check out DisplayCache](https://displaycache.com)** — and if it's a fit for your church, your 
+👉 **[Check out DisplayCache](https://displaycache.com)** and if it's a fit for your church, your 
 subscription directly fuels my work and continued effort to build these tools that are helping churches grow the Kingdom.
 
 ## 🎨 Next Generation Mocks
