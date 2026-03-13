@@ -32,8 +32,6 @@ To upload code to Touchpoint, use the following steps:
 4. Test and optionally add to menu
 --Upload Instructions End--
 
-Written By: Ben Swaby
-Email: bswaby@fbchtn.org
 """
 
 import datetime
