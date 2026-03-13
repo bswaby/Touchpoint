@@ -1,3 +1,13 @@
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub:  https://github.com/bswaby/Touchpoint
+# ---------------------------------------------------------------
+# Support: These tools are free because they should be. If they've
+#          saved you time, consider DisplayCache — church digital
+#          signage that integrates with TouchPoint.
+#          https://displaycache.com
+# ---------------------------------------------------------------
+
 """
 Geographic Distribution Map with Census Data Overlays
 ---------------------------
@@ -152,8 +162,6 @@ c. add this:  <Report name="GeographicDistributionMap" type="PyScript" role="Acc
 note: CustomReport changes can take 24 hrs to show due to how it's implemented on the TP servers
 --End Upload Instructions--
 
-Written By: Ben Swaby
-Email: bswaby@fbchtn.org
 """
 
 # ========= CONFIGURATION SETTINGS (EDIT THESE) =========
