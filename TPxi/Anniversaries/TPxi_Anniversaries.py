@@ -1,3 +1,13 @@
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub:  https://github.com/bswaby/Touchpoint
+# ---------------------------------------------------------------
+# Support: These tools are free because they should be. If they've
+#          saved you time, consider DisplayCache — church digital
+#          signage that integrates with TouchPoint.
+#          https://displaycache.com
+# ---------------------------------------------------------------
+
 # ::START:: Staff Anniversaries Widget with Email Support
 # This widget displays upcoming staff birthdays, anniversaries, and work anniversaries 
 # with navigation and email functionality. Designed to work as a homepage widget.
@@ -13,9 +23,7 @@
 # 7. Test the script standalone first: /PyScript/YourScriptName
 # 8. Add as homepage widget: Admin ~ Advanced ~ Homepage Widget
 # --Upload Instructions End--
-#
-# Written by: Ben Swaby (modified for improved widget compatibility)
-# Email: bswaby@fbchtn.org
+
 
 import hashlib
 import time
