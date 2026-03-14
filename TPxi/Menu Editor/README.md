@@ -1,6 +1,6 @@
 # Menu Editor
 
-A visual UI for managing TouchPoint's XML menu configurations stored in Special Content (Text Content). Easily add, edit, reorder, and delete menu items across all report menus and the Blue Toolbar — without touching raw XML.
+A visual UI for managing TouchPoint's XML menu configurations stored in Special Content (Text Content). Easily add, edit, reorder, and delete menu items across all report menus and the Blue Toolbar **without** touching raw XML.
 
 With this tool, admins can:
 
@@ -30,7 +30,7 @@ Manage the 4-column layout for Admin, Finance, Involvements, and People report m
 
 ## Blue Toolbar Editor
 
-Manage CustomReports entries grouped by type — SQL Reports, Python Scripts, Other Reports, and Custom Reports with column definitions. Duplicate report names are automatically detected and highlighted with a warning banner.
+Manage CustomReports entries grouped by type (SQL Reports, Python Scripts, Other Reports, and Custom Reports) with column definitions. Duplicate report names are automatically detected and highlighted with a warning banner.
 
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Menu%20Editor/ME-2.png" width="700" alt="Blue Toolbar Editor with Duplicate Detection">
