@@ -40,7 +40,7 @@ To upload code to Touchpoint, use the following steps:
 3. Name the Python "TPxi_MenuEditor" and paste all this code
 4. Add to CustomReports:
    <Report name="TPxi_MenuEditor" type="PyScript" role="Admin" />
-   
+
    or
 
    Use this tool to add it
@@ -1222,7 +1222,72 @@ else:
             </div>
             <div class="me-field" id="colFieldName">
                 <label>Column Name</label>
-                <input type="text" id="modalColName" placeholder="First, Last, Age, AmountDue, etc." />
+                <select id="modalColNameSelect" onchange="onColNameSelect()" style="margin-bottom:4px;">
+                    <optgroup label="Personal">
+                        <option value="PeopleId">PeopleId</option>
+                        <option value="First">First</option>
+                        <option value="Last">Last</option>
+                        <option value="GoesBy">GoesBy (Preferred Name)</option>
+                        <option value="Title">Title</option>
+                        <option value="Suffix">Suffix</option>
+                        <option value="Age">Age</option>
+                        <option value="DOB">DOB (Birth Date)</option>
+                        <option value="BirthYear">BirthYear</option>
+                        <option value="BirthMonth">BirthMonth</option>
+                        <option value="BirthDay">BirthDay</option>
+                        <option value="Gender">Gender</option>
+                        <option value="Grade">Grade</option>
+                        <option value="MaritalStatus">MaritalStatus</option>
+                        <option value="School">School</option>
+                        <option value="Employer">Employer</option>
+                    </optgroup>
+                    <optgroup label="Contact">
+                        <option value="Email">Email</option>
+                        <option value="Email2">Email2</option>
+                        <option value="SendEmailAddress1">SendEmailAddress1</option>
+                        <option value="SendEmailAddress2">SendEmailAddress2</option>
+                        <option value="CellPhone">CellPhone</option>
+                        <option value="HomePhone">HomePhone</option>
+                        <option value="WorkPhone">WorkPhone</option>
+                    </optgroup>
+                    <optgroup label="Address">
+                        <option value="Address">Address</option>
+                        <option value="Address2">Address2</option>
+                        <option value="City">City</option>
+                        <option value="State">State</option>
+                        <option value="Zip">Zip</option>
+                    </optgroup>
+                    <optgroup label="Church Membership">
+                        <option value="MemberStatus">MemberStatus</option>
+                        <option value="JoinDate">JoinDate</option>
+                        <option value="Campus">Campus</option>
+                        <option value="DecisionType">DecisionType</option>
+                        <option value="DecisionDate">DecisionDate</option>
+                        <option value="BaptismStatus">BaptismStatus</option>
+                        <option value="FamilyId">FamilyId</option>
+                    </optgroup>
+                    <optgroup label="Involvement / Org">
+                        <option value="MemberType">MemberType</option>
+                        <option value="EnrollDate">EnrollDate</option>
+                        <option value="InactiveDate">InactiveDate</option>
+                        <option value="AttendPct">AttendPct</option>
+                        <option value="AttendStr">AttendStr</option>
+                        <option value="LastAttend">LastAttend</option>
+                        <option value="Groups">Groups (Sub-Groups)</option>
+                        <option value="AmountDue">AmountDue</option>
+                        <option value="AmountPaid">AmountPaid</option>
+                        <option value="Balance">Balance</option>
+                        <option value="HasBalance">HasBalance</option>
+                        <option value="NumTickets">NumTickets</option>
+                        <option value="Request">Request</option>
+                        <option value="ShirtSize">ShirtSize</option>
+                        <option value="Medical">Medical</option>
+                        <option value="MemberInfo">MemberInfo</option>
+                    </optgroup>
+                    <option value="__custom__">-- Custom (type your own) --</option>
+                </select>
+                <input type="text" id="modalColName" placeholder="Type custom column name" style="display:none;" />
+                <div class="me-help" id="colNameHint">Select a documented TouchPoint column, or choose Custom to enter your own.</div>
             </div>
             <div class="me-field" id="colFieldField" style="display:none;">
                 <label>Field Name</label>
@@ -2260,6 +2325,8 @@ function addColumn(reportIdx) {
     document.getElementById('modalColIdx').value = '-1';
     document.getElementById('modalColType').value = 'simple';
     document.getElementById('modalColName').value = '';
+    document.getElementById('modalColNameSelect').selectedIndex = 0;
+    document.getElementById('modalColName').style.display = 'none';
     document.getElementById('modalColField').value = '';
     document.getElementById('modalColSmallgroup').value = '';
     document.getElementById('modalColDescription').value = '';
@@ -2312,6 +2379,49 @@ function updateColFields() {
     var autoNames = ['SmallGroup', 'StatusFlag', 'ExtraValueText', 'FamilyExtraValueText'];
     if (autoNames.indexOf(t) > -1) nf.value = t;
     else if (t === 'simple' && autoNames.indexOf(nf.value) > -1) nf.value = '';
+
+    // Sync the select dropdown when showing colFieldName
+    if (t === 'simple' || t === 'OrgField') {
+        syncColNameSelect(nf.value);
+    }
+}
+
+function onColNameSelect() {
+    var sel = document.getElementById('modalColNameSelect');
+    var inp = document.getElementById('modalColName');
+    if (sel.value === '__custom__') {
+        inp.style.display = 'block';
+        inp.value = '';
+        inp.focus();
+    } else {
+        inp.style.display = 'none';
+        inp.value = sel.value;
+    }
+}
+
+function syncColNameSelect(val) {
+    var sel = document.getElementById('modalColNameSelect');
+    var inp = document.getElementById('modalColName');
+    // Try to match the value in the select options
+    var found = false;
+    for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === val && val !== '__custom__') {
+            sel.value = val;
+            inp.style.display = 'none';
+            found = true;
+            break;
+        }
+    }
+    if (!found && val) {
+        // Custom value not in list - show custom input
+        sel.value = '__custom__';
+        inp.style.display = 'block';
+        inp.value = val;
+    } else if (!val) {
+        sel.selectedIndex = 0;
+        inp.style.display = 'none';
+        inp.value = sel.value;
+    }
 }
 
 function saveColumnModal() {
@@ -2321,7 +2431,8 @@ function saveColumnModal() {
     var col = {};
 
     if (ct === 'simple') {
-        var n = document.getElementById('modalColName').value.trim();
+        var sel = document.getElementById('modalColNameSelect');
+        var n = (sel.value === '__custom__') ? document.getElementById('modalColName').value.trim() : sel.value;
         if (!n) { alert('Column name is required'); return; }
         col.name = n;
     } else if (ct === 'ExtraValueText' || ct === 'FamilyExtraValueText') {
@@ -2345,7 +2456,8 @@ function saveColumnModal() {
         col.flag = fl;
         col.name = 'StatusFlag';
     } else if (ct === 'OrgField') {
-        var n2 = document.getElementById('modalColName').value.trim();
+        var sel2 = document.getElementById('modalColNameSelect');
+        var n2 = (sel2.value === '__custom__') ? document.getElementById('modalColName').value.trim() : sel2.value;
         if (!n2) { alert('Column name is required'); return; }
         col.name = n2;
         var oid2 = document.getElementById('modalColOrgId').value.trim();
