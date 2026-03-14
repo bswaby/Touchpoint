@@ -17,6 +17,9 @@ you see here.
 👉 **[Check out DisplayCache](https://displaycache.com)** and if it's a fit for your church, your 
 subscription directly fuels my work and continued effort to build these tools that are helping churches grow the Kingdom.
 
+## 🎨 Documentation
+- **[SQL Documentation](https://bswaby.github.io/Touchpoint/DOC_SQLDocumentation.html)**: Touchpoint SQL Reference
+
 ## 🎨 Next Generation Mocks
 Concept designs and ideas for what the next generation of Touchpoint could become.  
 These mocks explore how both **members** and **leaders** could have simpler, more guided, and more actionable experiences within the system.
