@@ -42,7 +42,7 @@ These are the tools churches ask about most and install first:
 ### 🆕 Recently Added
 Fresh tools hot off the workbench:
 - ✨ **[Involvement Processor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Processor)**: Comprehensive involvement registrant processing
-- - **[Menu Editor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Menu%20Editor)**: Visual editor to People, Involvement, Finance, Admin, and Blue Toolbar menus
+- ✨ **[Menu Editor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Menu%20Editor)**: Visual editor to People, Involvement, Finance, Admin, and Blue Toolbar menus
 - ✨ **[Report Writer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Report%20Writer)**: Inv. and User Report Writer
 
 ## 🌟 Tool Categories
