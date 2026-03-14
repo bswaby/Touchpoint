@@ -49,6 +49,7 @@ Gain a comprehensive understanding of your ministry's structure and dynamics
 - **[Ministry Structure](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure)**: Visualize your ministry's organizational hierarchy
 - **[Involvement Activity Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Activity%20Dashboard)**: Track and analyze involvement engagement
 - **[Membership Analysis](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Membership%20Analysis)**: Deep insights into membership trends and demographics
+- **[Menu Editors](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Menu%20Editor)**: Visual editor to People, Involvement, Finance, Admin, and Blue Toolbar menus
 
 ### 👥 People & Engagement
 Understand, track, and enhance member participation and growth
@@ -99,6 +100,7 @@ Maintain system health, security, and efficiency
 - **[Involvement Processor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Processor)**: Comprehensive involvement registrant processing 
 - **[Involvement Sync](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Sync)**: Synchronize involvement settings
 - **[Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator)**: Pre-authenticated link creation
+- **[Menu Editors](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Menu%20Editor)**: Visual editor to People, Involvement, Finance, Admin, and Blue Toolbar menus
 - **[Registration Data Manager](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Data%20Manager)**: Registration Data Manager
 - **[Report Writer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Report%20Writer)**: Inv. and User Report Writer
 - **[SQL Query Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/SQL%20Query%20Explorer)**: SQL Query Explorer
