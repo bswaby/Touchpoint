@@ -16,21 +16,29 @@ A visual builder for creating polished, per-person registration reports. Staff c
 - **Blue Toolbar Support:** Run from a search results selection
 - **Dual Registration Format Support:** Handles both new (RegQuestion/RegAnswer) and legacy (RegistrationData XML) formats
 
-<hr>
-<summary><strong>Configure Report</strong></summary>                                                                       
-<p>Making Reports Like a Boss</p>                                                                                                                 
-<p align="center">                                                                                                        
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Report%20Writer/RW-Configure.png"  
-width="700">                                                                                                              
-</p>   
+<summary><strong>Supplemental Pages (v1.3)</strong></summary>
 
-<summary><strong>Create Report</strong></summary>                                                                       
-<p>Go From Zero to Hero</p>                                                                                                                 
-<p align="center">                                                                                                        
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Report%20Writer/RW-Report.png"  
-width="700">                                                                                                              
-</p>   
+Toggle on optional pages that prepend to your report — configure exactly what to include using the item picker.
+
+- **Cover Page:** Summary sheet with total registrants, gender breakdown, allergy/medical counts, and generation timestamp
+- **Missing Information Page:** Pick any combination of profile, medical, family, or registration question fields — anyone missing those fields gets listed in a flagged table
+- **Medical Summary Page:** Pick medical fields, specific registration questions, or add keyword searches that scan all answers — consolidated into a single quick-reference table for trip leaders and event coordinators
+
+<hr>
+<summary><strong>Configure Report</strong></summary>
+<p>Making Reports Like a Boss</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Report%20Writer/RW-Configure.png"
+width="700">
+</p>
+
+<summary><strong>Create Report</strong></summary>
+<p>Go From Zero to Hero</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Report%20Writer/RW-Report.png"
+width="700">
+</p>
 
 ---
-*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and 
+*Like this tool? [DisplayCache](https://displaycache.com) integrates directly with TouchPoint and
 helps fund continued development of tools like this one.*
