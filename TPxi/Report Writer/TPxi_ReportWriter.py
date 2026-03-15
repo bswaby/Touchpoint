@@ -1,5 +1,4 @@
 #roles=Edit
-
 # Written By: Ben Swaby
 # Email: bswaby@fbchtn.org
 # GitHub:  https://github.com/bswaby/Touchpoint
@@ -29,10 +28,17 @@ Features:
 - Saves template to org extra value for reuse
 - Handles both new (RegQuestion/RegAnswer) and old (RegistrationData XML) formats
 
-Version: 1.2
-Date: February 2026
+Written By: Ben Swaby
+Email: bswaby@fbchtn.org
+Version: 1.3
+Date: March 2026
 
 Change Log:
+v1.3 - March 2026
+  - Added: Cover Page option with summary statistics (total registrants, gender breakdown, org info)
+  - Added: Missing Information page with configurable field picker (profile, medical, family, reg questions)
+  - Added: Medical summary page with configurable item picker (medical fields, reg questions, keyword search)
+  - All supplemental pages use tag-based item pickers instead of hardcoded checkboxes
 v1.2 - March 2026
   - Fixed: Unicode encoding crash on special characters (e.g. senor, cafe) via safe_str() transliteration
   - Added: Custody Issue field (boolean from People.CustodyIssue) in Medical/Emergency fields
@@ -1119,6 +1125,263 @@ def render_report_html(people, template, org_name, questions, single_person_id=N
 
 
 # ============================================================================
+# SUPPLEMENTAL PAGE RENDERERS (Cover, Missing Info, Medical Concerns)
+# ============================================================================
+
+# Exclude list for medical values (common non-answers)
+_EXCLUDE_MEDICAL = [
+    'ma', 'mon', 'mone', 'no ', 'non', 'non ', 'nine',
+    'none', 'none.', 'none ', 'none. ', 'none know', 'none know ', 'no allergies', 'no alleriges',
+    'no concerns', 'none known', 'none known ', 'none \\nnone', 'nonr', 'nome',
+    'no food allergies ', 'null', 'n/a', 'n/', 'n_a',
+    'nkda', 'kna', 'na', 'na ', 'nka', 'n-a', 'ns', 'n/s', 'no',
+    'no food allergies', '5', ''
+]
+
+def _is_meaningful_medical(val):
+    """Check if a medical value is meaningful (not a common non-answer)."""
+    if not val:
+        return False
+    return val.strip().lower() not in _EXCLUDE_MEDICAL
+
+def render_cover_page(people, org_name, template):
+    """Render a cover page with summary statistics."""
+    opts = template.get('globalOptions', {})
+    heading_color = opts.get('headingColor', '#2c5282')
+
+    male_count = 0
+    female_count = 0
+    unknown_count = 0
+    for p in people:
+        g = p.get('Gender', '')
+        if g == 'Male':
+            male_count += 1
+        elif g == 'Female':
+            female_count += 1
+        else:
+            unknown_count += 1
+
+    total = len(people)
+
+    # Count people with medical info
+    medical_count = 0
+    allergy_count = 0
+    for p in people:
+        has_med = False
+        desc = p.get('MedicalDescription', '')
+        if _is_meaningful_medical(desc):
+            allergy_count += 1
+            has_med = True
+        if p.get('Medications', ''):
+            has_med = True
+        if has_med:
+            medical_count += 1
+
+    import datetime
+    now_str = datetime.datetime.now().strftime('%B %d, %Y at %I:%M %p')
+
+    parts = []
+    parts.append('<div class="rr-cover-page" style="page-break-after:always;padding:50px 30px;text-align:center;">')
+    parts.append('<div style="position:absolute;top:20px;right:20px;color:#c53030;font-weight:bold;font-size:14px;border:2px solid #c53030;padding:4px 12px;background:#fed7d7;">CONFIDENTIAL</div>')
+    parts.append('<h1 style="font-size:32px;color:{0};margin-bottom:8px;">Registration Report</h1>'.format(heading_color))
+    if org_name:
+        parts.append('<h2 style="font-size:22px;color:#4a5568;margin-bottom:30px;">{0}</h2>'.format(html_escape(org_name)))
+
+    parts.append('<div style="margin:30px auto;padding:24px;background:#f7fafc;border-radius:10px;max-width:500px;text-align:left;">')
+    parts.append('<h3 style="color:#4a5568;margin:0 0 16px 0;text-align:center;border-bottom:2px solid #e2e8f0;padding-bottom:8px;">Report Summary</h3>')
+    parts.append('<div style="font-size:16px;line-height:2;">')
+    parts.append('<div><strong>Total Registrants:</strong> {0}</div>'.format(total))
+    parts.append('<div><strong>Male:</strong> {0}</div>'.format(male_count))
+    parts.append('<div><strong>Female:</strong> {0}</div>'.format(female_count))
+    if unknown_count > 0:
+        parts.append('<div><strong>Gender Not Specified:</strong> {0}</div>'.format(unknown_count))
+    if allergy_count > 0:
+        parts.append('<div style="color:#c53030;"><strong>With Allergies:</strong> {0}</div>'.format(allergy_count))
+    if medical_count > 0:
+        parts.append('<div><strong>With Medical Info:</strong> {0}</div>'.format(medical_count))
+    parts.append('<div style="margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f0;">')
+    parts.append('<strong>Report Generated:</strong><br>{0}'.format(now_str))
+    parts.append('</div>')
+    parts.append('</div></div>')
+    parts.append('</div>')
+    return ''.join(parts)
+
+
+def _get_item_value(person, item_cfg):
+    """Get the value of a configured item from person data.
+    item_cfg = {itemType, field, label}
+    Returns the string value (may be empty)."""
+    it = item_cfg.get('itemType', '')
+    field = item_cfg.get('field', '')
+
+    if it == 'regquestion':
+        return person.get('answers', {}).get(field, '')
+
+    # person, family, medical all stored flat on the person dict
+    val = person.get(field, '')
+
+    # Special handling for boolean-style fields
+    if field == 'MedAllergy':
+        raw = str(val).lower().strip()
+        if raw in ['true', '1']:
+            return person.get('MedicalDescription', '')
+        return ''
+    if field == 'CustodyIssue':
+        if str(val).lower().strip() in ['true', '1']:
+            return 'Yes'
+        return ''
+
+    return str(val).strip() if val else ''
+
+
+def render_missing_info_page(people, template):
+    """Render a page highlighting people with missing information.
+    Uses printSettings.missingInfoItems[] to decide which fields to check."""
+    ps = template.get('printSettings', {})
+    items_config = ps.get('missingInfoItems', [])
+
+    # Default items if none configured
+    if not items_config:
+        items_config = [
+            {'itemType': 'medical', 'field': 'emcontact', 'label': 'Emergency Contact'},
+            {'itemType': 'medical', 'field': 'insurance', 'label': 'Insurance'},
+            {'itemType': 'person', 'field': 'PhotoUrl', 'label': 'Profile Photo'},
+            {'itemType': 'person', 'field': 'Age', 'label': 'Age/Birthdate'},
+        ]
+
+    missing_items = []
+    for p in people:
+        missing_fields = []
+        for item_cfg in items_config:
+            label = item_cfg.get('label', item_cfg.get('field', ''))
+            val = _get_item_value(p, item_cfg)
+            if not val:
+                missing_fields.append(label)
+
+        if missing_fields:
+            missing_items.append({
+                'name': p.get('Name', ''),
+                'age': p.get('Age', '') or 'N/A',
+                'missing': ', '.join(missing_fields)
+            })
+
+    parts = []
+    parts.append('<div class="rr-missing-page" style="page-break-after:always;padding:20px;">')
+    parts.append('<div style="position:absolute;top:10px;right:20px;color:#c53030;font-weight:bold;font-size:14px;border:1px solid #c53030;padding:3px 10px;background:#fed7d7;">CONFIDENTIAL</div>')
+
+    if missing_items:
+        parts.append('<h2 style="color:#f59e0b;border-bottom:3px solid #f59e0b;padding-bottom:10px;margin-top:0;">Missing Information - Action Required</h2>')
+        parts.append('<p style="color:#92400e;font-weight:bold;margin-bottom:16px;">The following {0} people have incomplete information:</p>'.format(len(missing_items)))
+        parts.append('<table style="width:100%;border-collapse:collapse;">')
+        parts.append('<thead><tr style="background:#fef3c7;">')
+        parts.append('<th style="padding:8px;text-align:left;border:1px solid #f59e0b;">Name</th>')
+        parts.append('<th style="padding:8px;text-align:center;border:1px solid #f59e0b;width:80px;">Age</th>')
+        parts.append('<th style="padding:8px;text-align:left;border:1px solid #f59e0b;">Missing Information</th>')
+        parts.append('</tr></thead><tbody>')
+
+        for item in sorted(missing_items, key=lambda x: x['name']):
+            parts.append('<tr>')
+            parts.append('<td style="padding:6px;border:1px solid #e2e8f0;font-weight:bold;">{0}</td>'.format(html_escape(item['name'])))
+            parts.append('<td style="padding:6px;border:1px solid #e2e8f0;text-align:center;">{0}</td>'.format(html_escape(item['age'])))
+            parts.append('<td style="padding:6px;border:1px solid #e2e8f0;color:#92400e;font-weight:500;">{0}</td>'.format(html_escape(item['missing'])))
+            parts.append('</tr>')
+
+        parts.append('</tbody></table>')
+    else:
+        parts.append('<h2 style="color:#059669;border-bottom:3px solid #059669;padding-bottom:10px;margin-top:0;">Data Completeness</h2>')
+        parts.append('<div style="margin-top:30px;padding:30px;background:#d1fae5;border-radius:10px;text-align:center;">')
+        parts.append('<div style="font-size:48px;color:#059669;margin-bottom:16px;">&#10003;</div>')
+        parts.append('<h3 style="color:#065f46;margin:0 0 8px 0;">All Information Complete!</h3>')
+        parts.append('<p style="color:#047857;font-size:16px;margin:0;">Every registrant has the selected fields filled in.</p>')
+        parts.append('</div>')
+
+    parts.append('</div>')
+    return ''.join(parts)
+
+
+def render_medical_page(people, template, questions):
+    """Render a medical summary page.
+    Uses printSettings.medicalItems[] to decide which fields/questions/keywords to include."""
+    ps = template.get('printSettings', {})
+    items_config = ps.get('medicalItems', [])
+
+    # Default items if none configured
+    if not items_config:
+        items_config = [
+            {'itemType': 'medical', 'field': 'MedAllergy', 'label': 'Allergies'},
+            {'itemType': 'medical', 'field': 'Medications', 'label': 'Medications'},
+        ]
+
+    entries = []  # list of {name, age, items: [{label, value}]}
+
+    for p in people:
+        items = []
+        for item_cfg in items_config:
+            it = item_cfg.get('itemType', '')
+            field = item_cfg.get('field', '')
+            label = item_cfg.get('label', field)
+
+            if it == 'keyword':
+                # Scan all answers for keyword match
+                kw = field.lower()
+                answers = p.get('answers', {})
+                for q_text, a_val in answers.items():
+                    if not a_val:
+                        continue
+                    if kw in a_val.lower() or kw in q_text.lower():
+                        items.append({'label': q_text, 'value': a_val})
+            else:
+                val = _get_item_value(p, item_cfg)
+                if val and _is_meaningful_medical(val):
+                    items.append({'label': label, 'value': val})
+
+        if items:
+            entries.append({
+                'name': p.get('Name', ''),
+                'age': p.get('Age', '') or 'N/A',
+                'items': items
+            })
+
+    parts = []
+    parts.append('<div class="rr-medical-page" style="page-break-after:always;padding:20px;">')
+    parts.append('<div style="position:absolute;top:10px;right:20px;color:#c53030;font-weight:bold;font-size:14px;border:1px solid #c53030;padding:3px 10px;background:#fed7d7;">CONFIDENTIAL</div>')
+
+    if entries:
+        parts.append('<h2 style="color:#c53030;border-bottom:3px solid #c53030;padding-bottom:10px;margin-top:0;">Medical Summary</h2>')
+        parts.append('<table style="width:100%;border-collapse:collapse;">')
+        parts.append('<thead><tr style="background:#fed7d7;">')
+        parts.append('<th style="padding:8px;text-align:left;border:1px solid #fc8181;">Name</th>')
+        parts.append('<th style="padding:8px;text-align:center;border:1px solid #fc8181;width:60px;">Age</th>')
+        parts.append('<th style="padding:8px;text-align:left;border:1px solid #fc8181;">Item</th>')
+        parts.append('<th style="padding:8px;text-align:left;border:1px solid #fc8181;">Details</th>')
+        parts.append('</tr></thead><tbody>')
+
+        for c in sorted(entries, key=lambda x: x['name']):
+            for i, item in enumerate(c['items']):
+                parts.append('<tr>')
+                if i == 0:
+                    parts.append('<td style="padding:6px;border:1px solid #e2e8f0;font-weight:bold;vertical-align:top;" rowspan="{0}">{1}</td>'.format(
+                        len(c['items']), html_escape(c['name'])))
+                    parts.append('<td style="padding:6px;border:1px solid #e2e8f0;text-align:center;vertical-align:top;" rowspan="{0}">{1}</td>'.format(
+                        len(c['items']), html_escape(c['age'])))
+                parts.append('<td style="padding:6px;border:1px solid #e2e8f0;color:#c53030;font-weight:600;font-size:12px;">{0}</td>'.format(html_escape(item['label'])))
+                parts.append('<td style="padding:6px;border:1px solid #e2e8f0;">{0}</td>'.format(html_escape(item['value'])))
+                parts.append('</tr>')
+
+        parts.append('</tbody></table>')
+    else:
+        parts.append('<h2 style="color:#059669;border-bottom:3px solid #059669;padding-bottom:10px;margin-top:0;">Medical Summary</h2>')
+        parts.append('<div style="margin-top:30px;padding:30px;background:#d1fae5;border-radius:10px;text-align:center;">')
+        parts.append('<div style="font-size:48px;color:#059669;margin-bottom:16px;">&#10003;</div>')
+        parts.append('<h3 style="color:#065f46;margin:0 0 8px 0;">No Medical Items Found</h3>')
+        parts.append('<p style="color:#047857;font-size:16px;margin:0;">No data was found for the selected medical items in this group.</p>')
+        parts.append('</div>')
+
+    parts.append('</div>')
+    return ''.join(parts)
+
+
+# ============================================================================
 # AJAX HANDLER
 # ============================================================================
 if model.HttpMethod == "post":
@@ -1419,7 +1682,18 @@ if model.HttpMethod == "post":
                 ev_names = extract_ev_names_from_template(template)
                 if ev_names:
                     fetch_extra_values(data['people'], ev_names)
-                html_out = render_report_html(data['people'], template, org_name, data.get('questions', []), people_id)
+
+                # Supplemental pages in preview (shown before the person preview)
+                ps = template.get('printSettings', {})
+                prefix_html = ''
+                if ps.get('showCoverPage', False):
+                    prefix_html += render_cover_page(data['people'], org_name, template)
+                if ps.get('showMissingInfoPage', False):
+                    prefix_html += render_missing_info_page(data['people'], template)
+                if ps.get('showMedicalPage', False):
+                    prefix_html += render_medical_page(data['people'], template, data.get('questions', []))
+
+                html_out = prefix_html + render_report_html(data['people'], template, org_name, data.get('questions', []), people_id)
                 print json.dumps({'success': True, 'html': html_out})
             except Exception as e:
                 print json.dumps({'success': False, 'message': safe_str(e)})
@@ -1448,7 +1722,18 @@ if model.HttpMethod == "post":
                 ev_names = extract_ev_names_from_template(template)
                 if ev_names:
                     fetch_extra_values(data['people'], ev_names)
-                html_out = render_report_html(data['people'], template, org_name, data.get('questions', []))
+
+                # Build supplemental pages based on print settings
+                ps = template.get('printSettings', {})
+                prefix_html = ''
+                if ps.get('showCoverPage', False):
+                    prefix_html += render_cover_page(data['people'], org_name, template)
+                if ps.get('showMissingInfoPage', False):
+                    prefix_html += render_missing_info_page(data['people'], template)
+                if ps.get('showMedicalPage', False):
+                    prefix_html += render_medical_page(data['people'], template, data.get('questions', []))
+
+                html_out = prefix_html + render_report_html(data['people'], template, org_name, data.get('questions', []))
                 print json.dumps({'success': True, 'html': html_out, 'personCount': len(data['people'])})
             except Exception as e:
                 print json.dumps({'success': False, 'message': safe_str(e)})
@@ -1980,6 +2265,48 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                         <input type="color" id="rrOptHeadingColor" value="#2c5282" onchange="updateGlobalOption('headingColor', this.value)">
                     </div>
                 </div>
+
+                <div class="rr-card">
+                    <div class="rr-card-title">Supplemental Pages</div>
+                    <div style="font-size:12px;color:#718096;margin-bottom:10px;">These pages are prepended to the report when generating/printing.</div>
+                    <div class="rr-option-row">
+                        <span class="rr-option-label">Cover page with summary</span>
+                        <label class="rr-toggle"><input type="checkbox" id="rrOptCoverPage" onchange="updatePrintSetting('showCoverPage', this.checked)"><span class="rr-toggle-slider"></span></label>
+                    </div>
+
+                    <div class="rr-option-row">
+                        <span class="rr-option-label">Missing information page</span>
+                        <label class="rr-toggle"><input type="checkbox" id="rrOptMissingInfo" onchange="updatePrintSetting('showMissingInfoPage', this.checked)"><span class="rr-toggle-slider"></span></label>
+                    </div>
+                    <div id="rrMissingInfoPanel" style="display:none;padding:8px 12px;background:#f7fafc;border:1px solid #e2e8f0;border-radius:4px;margin:4px 0 8px 0;">
+                        <div style="font-size:12px;font-weight:600;color:#4a5568;margin-bottom:6px;">Fields to check (people missing these will be listed):</div>
+                        <div id="rrMissingItemsList"></div>
+                        <div style="display:flex;gap:6px;margin-top:6px;">
+                            <select id="rrMissingItemPicker" style="flex:1;font-size:12px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;"></select>
+                            <button class="rr-btn rr-btn-primary rr-btn-sm" onclick="addSupplementalItem('missing')">Add</button>
+                        </div>
+                    </div>
+
+                    <div class="rr-option-row">
+                        <span class="rr-option-label">Medical summary page</span>
+                        <label class="rr-toggle"><input type="checkbox" id="rrOptMedicalPage" onchange="updatePrintSetting('showMedicalPage', this.checked)"><span class="rr-toggle-slider"></span></label>
+                    </div>
+                    <div id="rrMedicalPanel" style="display:none;padding:8px 12px;background:#f7fafc;border:1px solid #e2e8f0;border-radius:4px;margin:4px 0 8px 0;">
+                        <div style="font-size:12px;font-weight:600;color:#4a5568;margin-bottom:6px;">Items to include on medical page:</div>
+                        <div id="rrMedicalItemsList"></div>
+                        <div style="display:flex;gap:6px;margin-top:6px;">
+                            <select id="rrMedicalItemPicker" style="flex:1;font-size:12px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;"></select>
+                            <button class="rr-btn rr-btn-primary rr-btn-sm" onclick="addSupplementalItem('medical')">Add</button>
+                        </div>
+                        <div id="rrMedKeywordRow" style="display:none;margin-top:6px;">
+                            <div style="display:flex;gap:6px;">
+                                <input type="text" id="rrMedKeywordInput" placeholder="Enter keyword (e.g. asthma)" style="flex:1;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;">
+                                <button class="rr-btn rr-btn-primary rr-btn-sm" onclick="addKeywordItem()">Add Keyword</button>
+                                <button class="rr-btn rr-btn-sm" onclick="document.getElementById('rrMedKeywordRow').style.display='none'" style="padding:2px 8px;">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div style="display:flex; gap:8px;">
                     <button class="rr-btn rr-btn-primary" onclick="goToStep(3)" style="flex:1;">Preview &rarr;</button>
                 </div>
@@ -2201,6 +2528,19 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
             setChecked('rrOptShowOrgHeader', ps.showOrgHeader !== false);
             setChecked('rrOptCompactRows', go.compactRows === true);
             document.getElementById('rrOptHeadingColor').value = go.headingColor || '#2c5282';
+            // Supplemental page toggles
+            setChecked('rrOptCoverPage', ps.showCoverPage === true);
+            setChecked('rrOptMissingInfo', ps.showMissingInfoPage === true);
+            setChecked('rrOptMedicalPage', ps.showMedicalPage === true);
+            var missingPanel = document.getElementById('rrMissingInfoPanel');
+            if (missingPanel) missingPanel.style.display = ps.showMissingInfoPage ? 'block' : 'none';
+            var medPanel = document.getElementById('rrMedicalPanel');
+            if (medPanel) medPanel.style.display = ps.showMedicalPage ? 'block' : 'none';
+            // Build pickers and render item lists
+            buildSupplementalPicker('missing');
+            buildSupplementalPicker('medical');
+            renderSupplementalItems('missing');
+            renderSupplementalItems('medical');
         }
         renderSections();
     };
@@ -2216,6 +2556,158 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         if (!state.template) return;
         if (!state.template.printSettings) state.template.printSettings = {};
         state.template.printSettings[key] = value;
+        if (key === 'showMissingInfoPage') {
+            var el = document.getElementById('rrMissingInfoPanel');
+            if (el) el.style.display = value ? 'block' : 'none';
+            if (value) { buildSupplementalPicker('missing'); renderSupplementalItems('missing'); }
+        }
+        if (key === 'showMedicalPage') {
+            var el = document.getElementById('rrMedicalPanel');
+            if (el) el.style.display = value ? 'block' : 'none';
+            if (value) { buildSupplementalPicker('medical'); renderSupplementalItems('medical'); }
+        }
+    };
+
+    // Build picker options for supplemental page item pickers
+    function buildSupplementalPicker(pageType) {
+        var pickerId = pageType === 'missing' ? 'rrMissingItemPicker' : 'rrMedicalItemPicker';
+        var sel = document.getElementById(pickerId);
+        if (!sel) return;
+        var af = state.availableFields || {};
+        var html = '<option value="">+ Add an item...</option>';
+        html += '<optgroup label="Person Fields">';
+        var personItems = [
+            {f: 'PhotoUrl', l: 'Profile Photo'},
+            {f: 'Age', l: 'Age/Birthdate'},
+            {f: 'EmailAddress', l: 'Email'},
+            {f: 'CellPhone', l: 'Cell Phone'},
+            {f: 'PrimaryAddress', l: 'Address'},
+            {f: 'Gender', l: 'Gender'}
+        ];
+        for (var i = 0; i < personItems.length; i++) {
+            html += '<option value="person|' + personItems[i].f + '|' + escAttr(personItems[i].l) + '">' + escHtml(personItems[i].l) + '</option>';
+        }
+        html += '</optgroup><optgroup label="Family">';
+        html += '<option value="family|Parents|Parent(s)/Guardian(s)">Parent(s)/Guardian(s)</option>';
+        html += '</optgroup><optgroup label="Medical / Emergency">';
+        var medItems = [
+            {f: 'emcontact', l: 'Emergency Contact'},
+            {f: 'emphone', l: 'Emergency Phone'},
+            {f: 'doctor', l: 'Doctor'},
+            {f: 'docphone', l: 'Doctor Phone'},
+            {f: 'insurance', l: 'Insurance'},
+            {f: 'policy', l: 'Policy #'},
+            {f: 'MedAllergy', l: 'Allergies'},
+            {f: 'CustodyIssue', l: 'Custody Issue'},
+            {f: 'AuthorizedCheckout', l: 'Authorized Checkout'},
+            {f: 'Medications', l: 'Medications'}
+        ];
+        for (var i = 0; i < medItems.length; i++) {
+            html += '<option value="medical|' + medItems[i].f + '|' + escAttr(medItems[i].l) + '">' + escHtml(medItems[i].l) + '</option>';
+        }
+        html += '</optgroup>';
+        if (af.regquestion && af.regquestion.length > 0) {
+            html += '<optgroup label="Registration Questions">';
+            for (var i = 0; i < af.regquestion.length; i++) {
+                var ql = af.regquestion[i].label;
+                var qs = ql.length > 50 ? ql.substring(0,47) + '...' : ql;
+                html += '<option value="regquestion|' + escAttr(af.regquestion[i].sourceField) + '|' + escAttr(ql) + '">' + escHtml(qs) + '</option>';
+            }
+            html += '</optgroup>';
+        }
+        if (pageType === 'medical') {
+            html += '<optgroup label="Keyword Search"><option value="keyword|_prompt_|">Keyword (scan all answers)...</option></optgroup>';
+        }
+        sel.innerHTML = html;
+    }
+
+    function renderSupplementalItems(pageType) {
+        if (!state.template || !state.template.printSettings) return;
+        var listKey = pageType === 'missing' ? 'missingInfoItems' : 'medicalItems';
+        var containerId = pageType === 'missing' ? 'rrMissingItemsList' : 'rrMedicalItemsList';
+        var container = document.getElementById(containerId);
+        if (!container) return;
+        var items = state.template.printSettings[listKey] || [];
+        if (!items.length) {
+            container.innerHTML = '<div style="font-size:11px;color:#a0aec0;padding:4px 0;font-style:italic;">No items added. Use the picker below to add fields.</div>';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            var tagColor = '#2c5282'; var tagBg = '#ebf8ff';
+            if (item.itemType === 'medical') { tagColor = '#c53030'; tagBg = '#fff5f5'; }
+            else if (item.itemType === 'regquestion') { tagColor = '#276749'; tagBg = '#f0fff4'; }
+            else if (item.itemType === 'keyword') { tagColor = '#6b46c1'; tagBg = '#faf5ff'; }
+            else if (item.itemType === 'family') { tagColor = '#b7791f'; tagBg = '#fffff0'; }
+            html += '<div style="display:inline-flex;align-items:center;gap:4px;margin:2px 4px 2px 0;padding:3px 8px;background:' + tagBg + ';border:1px solid ' + tagColor + ';border-radius:12px;font-size:11px;color:' + tagColor + ';">';
+            html += '<span>' + escHtml(item.label || item.field) + '</span>';
+            html += '<button data-pagetype="' + pageType + '" data-idx="' + i + '" onclick="removeSupplementalItem(this.dataset.pagetype,parseInt(this.dataset.idx))" style="border:none;background:none;cursor:pointer;color:' + tagColor + ';font-size:14px;padding:0 2px;line-height:1;" title="Remove">&times;</button>';
+            html += '</div>';
+        }
+        container.innerHTML = html;
+    }
+
+    window.addSupplementalItem = function(pageType) {
+        if (!state.template) return;
+        if (!state.template.printSettings) state.template.printSettings = {};
+        var listKey = pageType === 'missing' ? 'missingInfoItems' : 'medicalItems';
+        if (!state.template.printSettings[listKey]) state.template.printSettings[listKey] = [];
+        var pickerId = pageType === 'missing' ? 'rrMissingItemPicker' : 'rrMedicalItemPicker';
+        var sel = document.getElementById(pickerId);
+        if (!sel || !sel.value) return;
+        var parts = sel.value.split('|');
+        if (parts.length < 2) return;
+        // Keyword prompt
+        if (parts[0] === 'keyword' && parts[1] === '_prompt_') {
+            document.getElementById('rrMedKeywordRow').style.display = 'block';
+            var inp = document.getElementById('rrMedKeywordInput');
+            if (inp) { inp.value = ''; inp.focus(); }
+            sel.value = '';
+            return;
+        }
+        // Check for duplicate
+        var existing = state.template.printSettings[listKey];
+        for (var i = 0; i < existing.length; i++) {
+            if (existing[i].itemType === parts[0] && existing[i].field === parts[1]) {
+                showToast('Already added', 'info');
+                sel.value = '';
+                return;
+            }
+        }
+        existing.push({itemType: parts[0], field: parts[1], label: parts[2] || parts[1]});
+        sel.value = '';
+        renderSupplementalItems(pageType);
+    };
+
+    window.addKeywordItem = function() {
+        if (!state.template) return;
+        if (!state.template.printSettings) state.template.printSettings = {};
+        if (!state.template.printSettings.medicalItems) state.template.printSettings.medicalItems = [];
+        var inp = document.getElementById('rrMedKeywordInput');
+        var kw = inp ? inp.value.trim() : '';
+        if (!kw) { if (inp) inp.focus(); return; }
+        var existing = state.template.printSettings.medicalItems;
+        for (var i = 0; i < existing.length; i++) {
+            if (existing[i].itemType === 'keyword' && existing[i].field.toLowerCase() === kw.toLowerCase()) {
+                showToast('Keyword already added', 'info');
+                return;
+            }
+        }
+        existing.push({itemType: 'keyword', field: kw, label: 'Keyword: ' + kw});
+        document.getElementById('rrMedKeywordRow').style.display = 'none';
+        if (inp) inp.value = '';
+        renderSupplementalItems('medical');
+    };
+
+    window.removeSupplementalItem = function(pageType, idx) {
+        if (!state.template || !state.template.printSettings) return;
+        var listKey = pageType === 'missing' ? 'missingInfoItems' : 'medicalItems';
+        var items = state.template.printSettings[listKey] || [];
+        if (idx >= 0 && idx < items.length) {
+            items.splice(idx, 1);
+        }
+        renderSupplementalItems(pageType);
     };
 
     function renderSections() {
@@ -2531,6 +3023,10 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         css += '.rr-compact .rr-field-block{padding:1px 0}';
         css += '.rr-compact .rr-block-value{padding:2px 6px;margin-top:1px;min-height:16px}';
         css += '.rr-compact .rr-org-header{margin-bottom:6px;padding-bottom:4px}';
+        css += '.rr-cover-page{position:relative}';
+        css += '.rr-missing-page{position:relative}';
+        css += '.rr-medical-page{position:relative}';
+        css += '.rr-cover-page table,.rr-missing-page table,.rr-medical-page table{font-size:13px}';
         var pw = window.open('', '_blank');
         if (!pw) { showToast('Popup blocked - please allow popups for this site', 'danger'); return; }
         pw.document.write('<!DOCTYPE html><html><head><title>Registration Report</title>');
