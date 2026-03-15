@@ -18,7 +18,7 @@ A visual builder for creating polished, per-person registration reports. Staff c
 
 <summary><strong>Supplemental Pages (v1.3)</strong></summary>
 
-Toggle on optional pages that prepend to your report — configure exactly what to include using the item picker.
+Toggle on optional pages that prepend to your report and configure exactly what to include using the item picker.
 
 - **Cover Page:** Summary sheet with total registrants, gender breakdown, allergy/medical counts, and generation timestamp
 - **Missing Information Page:** Pick any combination of profile, medical, family, or registration question fields.  Anyone missing those fields gets listed in a flagged table
