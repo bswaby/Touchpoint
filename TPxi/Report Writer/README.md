@@ -21,8 +21,8 @@ A visual builder for creating polished, per-person registration reports. Staff c
 Toggle on optional pages that prepend to your report — configure exactly what to include using the item picker.
 
 - **Cover Page:** Summary sheet with total registrants, gender breakdown, allergy/medical counts, and generation timestamp
-- **Missing Information Page:** Pick any combination of profile, medical, family, or registration question fields — anyone missing those fields gets listed in a flagged table
-- **Medical Summary Page:** Pick medical fields, specific registration questions, or add keyword searches that scan all answers — consolidated into a single quick-reference table for trip leaders and event coordinators
+- **Missing Information Page:** Pick any combination of profile, medical, family, or registration question fields.  Anyone missing those fields gets listed in a flagged table
+- **Medical Summary Page:** Pick medical fields, specific registration questions, or add keyword searches that scan all answers.  Consolidated into a single quick-reference table for trip leaders and event coordinators
 
 <hr>
 <summary><strong>Configure Report</strong></summary>
