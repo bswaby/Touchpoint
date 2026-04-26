@@ -37,9 +37,9 @@ My philosophy is simple: **Kingdom tools should be accessible to every church, r
 
 ## ☕ Support This Work
 
-If these tools have saved your team hours (and they will), I'd love your support in return. I build two products that fund this community work — both built TouchPoint™-first, with the same heart as the free tools above.
+If these tools have saved your team hours (and they will), I'd love your support in return. I build two products that fund this community work. Both built TouchPoint™-first, with the same heart as the free tools above.
 
-### 📺 DisplayCache — Church Digital Signage
+### 📺 DisplayCache | Church Digital Signage
 
 **[DisplayCache](https://displaycache.com)** connects directly to TouchPoint™ and pulls **real people and ministry data** onto your screens. No double entry. No stale slides. Just live, ministry-driven content.
 
@@ -56,7 +56,7 @@ If these tools have saved your team hours (and they will), I'd love your support
 
 </div>
 
-### 📱 TPxi Go — TouchPoint™, Wherever You Work
+### 📱 TPxi Go | TouchPoint™, Wherever You Work
 
 **[TPxi Go](https://tpxigo.com)** brings your TouchPoint™ contacts into the apps your team already lives in. Look up anyone, log calls and emails from **Outlook** or your **phone**.  No tab switching, no lost context, no "let me jump back to TouchPoint™ to record that."
 
@@ -84,11 +84,11 @@ These are the tools churches install first and use daily:
 
 | Tool | What It Does in Practice |
 |------|--------------------------|
-| 🏆 [Ministry Structure](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure) | See your entire involvement hierarchy at a glance — programs, groups, sub-groups |
-| 🏆 [Weekly Attendance (WAAG 2.0)](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Weekly%20Attendance) | Groups track and own their own attendance — leaders actually use it |
+| 🏆 [Ministry Structure](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure) | See your entire involvement hierarchy at a glance. Programs, groups, sub-groups |
+| 🏆 [Weekly Attendance (WAAG 2.0)](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Weekly%20Attendance) | Groups track and own their own attendance. Leaders actually use it |
 | 🏆 [Live Search](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Live%20Search) | Type a name, see full history, log a note or task in under 10 seconds |
 | 🏆 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Contribution%20Report) | The financial processing and reconciliation workflow churches standardize on |
-| 🏆 [Communication Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Communication%20Dashboard) | Know exactly who's being reached, how, and when — across every ministry team |
+| 🏆 [Communication Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Communication%20Dashboard) | Know exactly who's being reached, how, and when. Across every ministry team |
 | 🏆 [API Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/API%20Explorer) | Explore and test TouchPoint™ API queries without writing a full script |
 
 ---
@@ -240,7 +240,7 @@ Open the tool folder and copy the contents of the `.py` or `.html` file. Most to
 <details>
 <summary><strong>Step 3 — Configure the Variables</strong></summary>
 
-Every script has a clearly marked configuration block near the top — usually looks like:
+Every script has a clearly marked configuration block near the top. Usually looks like:
 
 ```python
 # ── CONFIGURATION ──────────────────────────────────────────────
@@ -250,7 +250,7 @@ MAX_RESULTS = 50        # Results per page
 # ───────────────────────────────────────────────────────────────
 ```
 
-Adjust those values to match your church's setup. That's it — you don't need to touch anything else.
+Adjust those values to match your church's setup. That's it.  You don't need to touch anything else.
 
 </details>
 
@@ -272,7 +272,7 @@ The most valuable contributions right now are:
 
 - **Bug reports** — If something breaks in your environment, open an issue with your TP version
 - **SQL improvements** — Got a better query? Submit a PR with a clear explanation
-- **Real-world feedback** — Tell me what's missing or what's confusing as that shapes the roadmap more than anything
+- **Real-world feedback** — Tell me what's missing or what's confusing, as that shapes the roadmap more than anything
 
 ---
 
