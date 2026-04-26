@@ -2,7 +2,7 @@
 
 <img src="https://fbchville.com/wp-content/uploads/2022/08/BenSwaby.jpg" width="120" style="border-radius: 50%;" />
 
-# TPxi — TouchPoint Integrated Tools
+# TPxi — TouchPoint™ Integrated Tools
 
 **Built by Ben Swaby** · Director of Technology Solutions, First Baptist Church Hendersonville
 
@@ -23,7 +23,7 @@
 
 I'm Ben, a church technology director who got tired of waiting for software to do what ministry actually needs. So I started building it myself.
 
-Over the past few years, I've written **100,000+ lines of code** inside TouchPoint, creating tools that have quietly transformed how dozens of churches track attendance, process giving, re-engage lapsed members, manage volunteers, and understand their own data. I've written a **59-page SQL reference guide** for TouchPoint's database, led regional developer events, and stay actively involved in the TouchPoint developer community.
+Over the past few years, I've written **100,000+ lines of code** inside TouchPoint™, creating tools that have quietly transformed how dozens of churches track attendance, process giving, re-engage lapsed members, manage volunteers, and understand their own data. I've written a **59-page SQL reference guide** for TouchPoint™'s database, led regional developer events, and stay actively involved in the TouchPoint™ developer community.
 
 Every tool in this repo was born from a real problem at a real church. None of it is theoretical. All of it is free.
 
@@ -37,17 +37,17 @@ My philosophy is simple: **Kingdom tools should be accessible to every church, r
 
 ## ☕ Support This Work
 
-If these tools have saved your team hours (and they will), I'd love your support in return. I build two products that fund this community work — both built TouchPoint-first, with the same heart as the free tools above.
+If these tools have saved your team hours (and they will), I'd love your support in return. I build two products that fund this community work — both built TouchPoint™-first, with the same heart as the free tools above.
 
 ### 📺 DisplayCache — Church Digital Signage
 
-**[DisplayCache](https://displaycache.com)** connects directly to TouchPoint and pulls **real people and ministry data** onto your screens. No double entry. No stale slides. Just live, ministry-driven content.
+**[DisplayCache](https://displaycache.com)** connects directly to TouchPoint™ and pulls **real people and ministry data** onto your screens. No double entry. No stale slides. Just live, ministry-driven content.
 
 <div align="left">
 
 | What You Get | Why It Matters |
 |---|---|
-| 🔗 Live TouchPoint data on your screens | No more manually updating slides |
+| 🔗 Live TouchPoint™ data on your screens | No more manually updating slides |
 | 📺 Works on Apple TV, Fire Stick, Raspberry Pi | Use hardware you already own |
 | ✝️ Built specifically for churches | Not a generic signage tool |
 | 💰 $10/device/month | Fuels all 40+ free tools here |
@@ -56,18 +56,18 @@ If these tools have saved your team hours (and they will), I'd love your support
 
 </div>
 
-### 📱 TPxi Go — TouchPoint, Wherever You Work
+### 📱 TPxi Go — TouchPoint™, Wherever You Work
 
-**[TPxi Go](https://tpxigo.com)** brings your TouchPoint contacts into the apps your team already lives in. Look up anyone, log calls and emails from **Outlook** or your **phone**.  No tab switching, no lost context, no "let me jump back to TouchPoint to record that."
+**[TPxi Go](https://tpxigo.com)** brings your TouchPoint™ contacts into the apps your team already lives in. Look up anyone, log calls and emails from **Outlook** or your **phone**.  No tab switching, no lost context, no "let me jump back to TouchPoint™ to record that."
 
 <div align="left">
 
 | What You Get | Why It Matters |
 |---|---|
-| 📧 Outlook add-in.  lookup + log emails inline | Stop copy/pasting between Outlook and TouchPoint |
+| 📧 Outlook add-in.  lookup + log emails inline | Stop copy/pasting between Outlook and TouchPoint™ |
 | 📞 iOS app with Caller ID + call logging | Know who's calling. Log the call in one tap |
-| 🔍 Universal search across people, families, orgs | Same search you'd do in TouchPoint, anywhere |
-| 🔒 PAT-based auth.  Your data stays in TouchPoint | No third-party cloud storing your church's contacts |
+| 🔍 Universal search across people, families, orgs | Same search you'd do in TouchPoint™, anywhere |
+| 🔒 PAT-based auth.  Your data stays in TouchPoint™ | No third-party cloud storing your church's contacts |
 | 💰 Affordable per-user pricing | Funds the free TPxi tools right alongside DisplayCache |
 
 **[→ Check Out TPxi Go](https://tpxigo.com)** · Available on the App Store, Outlook Add-in store, and Android (coming soon).
@@ -89,7 +89,7 @@ These are the tools churches install first and use daily:
 | 🏆 [Live Search](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Live%20Search) | Type a name, see full history, log a note or task in under 10 seconds |
 | 🏆 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Contribution%20Report) | The financial processing and reconciliation workflow churches standardize on |
 | 🏆 [Communication Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Communication%20Dashboard) | Know exactly who's being reached, how, and when — across every ministry team |
-| 🏆 [API Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/API%20Explorer) | Explore and test TouchPoint API queries without writing a full script |
+| 🏆 [API Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/API%20Explorer) | Explore and test TouchPoint™ API queries without writing a full script |
 
 ---
 
@@ -185,7 +185,7 @@ These are the tools churches install first and use daily:
 
 | Tool | Description |
 |------|-------------|
-| [API Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/API%20Explorer) | Explore and test TouchPoint API queries live |
+| [API Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/API%20Explorer) | Explore and test TouchPoint™ API queries live |
 | [Registration Export](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export) | Easy registration data export |
 | [Account Security Monitor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Account%20Security%20Monitor) | Advanced security analytics |
 | [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator) | Bulk document download |
@@ -226,9 +226,9 @@ Open the tool folder and copy the contents of the `.py` or `.html` file. Most to
 </details>
 
 <details>
-<summary><strong>Step 2 — Add it to TouchPoint Special Content</strong></summary>
+<summary><strong>Step 2 — Add it to TouchPoint™ Special Content</strong></summary>
 
-1. Log into your TouchPoint instance as an admin
+1. Log into your TouchPoint™ instance as an admin
 2. Navigate to **Admin → Advanced → Special Content**
 3. Click **Add New**
 4. Give it a name (e.g., `TPxi-LiveSearch`)
@@ -260,9 +260,9 @@ Adjust those values to match your church's setup. That's it — you don't need t
 
 | Resource | Link |
 |----------|------|
-| 📖 SQL Reference Guide | **[TouchPoint SQL Documentation](https://bswaby.github.io/Touchpoint/DOC_SQLDocumentation.html)** |
+| 📖 SQL Reference Guide | **[TouchPoint™ SQL Documentation](https://bswaby.github.io/Touchpoint/DOC_SQLDocumentation.html)** |
 | 🎨 NextGen TP Concept Mocks | **[Visualize What TP Could Become](https://github.com/bswaby/Touchpoint/tree/main/NextGen%20TP%20Mocks)** |
-| 💬 Community & Support | Open an issue in this repo or find me in the TouchPoint Discord |
+| 💬 Community & Support | Open an issue in this repo or find me in the TouchPoint™ Discord |
 
 ---
 
