@@ -280,7 +280,7 @@ The most valuable contributions right now are:
 
 Built with ☕ and a deep belief that **technology should serve ministry, not complicate it.**
 
-*— Ben Swaby, [fbchtn.org](https://fbchtn.org)*
+*Ben Swaby*
 
 **[DisplayCache](https://displaycache.com)** · **[TPxi Go](https://tpxigo.com)** · **[GitHub](https://github.com/bswaby/Touchpoint)** · **[SQL Docs](https://bswaby.github.io/Touchpoint/DOC_SQLDocumentation.html)**
 
