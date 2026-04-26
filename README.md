@@ -79,6 +79,7 @@ These are the tools churches install first and use daily:
 | [Involvement Processor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Processor) | Full registrant processing workflow in one place |
 | [Menu Editor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Menu%20Editor) | Visually edit People, Involvement, Finance, Admin & toolbar menus |
 | [Mission Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Mission%20Dashboard) | Comprehensive view of all mission activity |
+| [Operations Checklists](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Operations%20Checklists) | Organize checks and reminders |
 | [Program Pulse](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Program%20Pulse) | Surface what's actually happening across programs |
 | [QuickLinks](https://github.com/bswaby/Touchpoint/blob/main/TPxi/Quicklinks) | Permissioned quick-access menu with live count overlays |
 | [Report Writer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Report%20Writer) | Build and save custom involvement & user reports |
@@ -171,6 +172,7 @@ These are the tools churches install first and use daily:
 | [Involvement Sync](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Sync) | Synchronize involvement settings across groups |
 | [Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator) | Pre-authenticated link creation |
 | [Menu Editor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Menu%20Editor) | Visual menu editor for all major nav areas |
+| [Operations Checklists](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Operations%20Checklists) | Organize checks and reminders |
 | [Registration Data Manager](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Data%20Manager) | Manage registration data at scale |
 | [Report Writer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Report%20Writer) | Build custom involvement & user reports |
 | [SQL Query Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/SQL%20Query%20Explorer) | Run and explore SQL queries directly |
