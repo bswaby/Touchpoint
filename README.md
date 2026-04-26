@@ -74,7 +74,7 @@ If these tools have saved your team hours (and they will), I'd love your support
 
 </div>
 
-> Your subscription to **either** product directly funds this community work. Pick the one that fits — or both.
+> Your subscription to **either** product directly funds this community work. Pick the one that fits... or both.
 
 ---
 
