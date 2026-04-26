@@ -6,7 +6,7 @@ Group-based recurring operations management for the things your team needs to do
 
 <summary><strong>Features</strong></summary>
 
-- **Group-Based Architecture:** Organize checks into Groups (Data Health, Sunday Operations, Month-End Finance, IT Security, etc.) — each with its own owner, frequency, and roster of checks
+- **Group-Based Architecture:** Organize checks into Groups (Data Health, Sunday Operations, Month-End Finance, IT Security, etc.). Each with its own owner, frequency, and roster of checks
 - **Automated SQL Checks:** Run live SQL on demand . Green when 0 rows returned, red with the row count and a drill-down grid when issues exist
 - **Saved Search Checks:** Point a check at a TouchPoint Saved Search or raw Search Builder code.  Same pass/fail UX as SQL
 - **Manual Checklist Items:** Pure-checklist items for non-data tasks (building unlocked, AV tested, batch reconciled)
