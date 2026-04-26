@@ -35,11 +35,13 @@ My philosophy is simple: **Kingdom tools should be accessible to every church, r
 
 ---
 
-## ☕ Support This Work — DisplayCache
+## ☕ Support This Work
 
-If these tools have saved your team hours (and they will), I'd love your support in return.
+If these tools have saved your team hours (and they will), I'd love your support in return. I build two products that fund this community work — both built TouchPoint-first, with the same heart as the free tools above.
 
-I'm the creator of **[DisplayCache](https://displaycache.com)**, a church digital signage platform built with the same heart as these tools. DisplayCache connects directly to TouchPoint, pulling **real people and ministry data** onto your screens. No double entry. No stale slides. Just live, ministry-driven content.
+### 📺 DisplayCache — Church Digital Signage
+
+**[DisplayCache](https://displaycache.com)** connects directly to TouchPoint and pulls **real people and ministry data** onto your screens. No double entry. No stale slides. Just live, ministry-driven content.
 
 <div align="left">
 
@@ -50,9 +52,29 @@ I'm the creator of **[DisplayCache](https://displaycache.com)**, a church digita
 | ✝️ Built specifically for churches | Not a generic signage tool |
 | 💰 $10/device/month | Fuels all 40+ free tools here |
 
-**[→ Check Out DisplayCache](https://displaycache.com)** · Your subscription directly funds this community work.
+**[→ Check Out DisplayCache](https://displaycache.com)**
 
 </div>
+
+### 📱 TPxi Go — TouchPoint, Wherever You Work
+
+**[TPxi Go](https://tpxigo.com)** brings your TouchPoint contacts into the apps your team already lives in. Look up anyone, log calls and emails from **Outlook** or your **phone**.  No tab switching, no lost context, no "let me jump back to TouchPoint to record that."
+
+<div align="left">
+
+| What You Get | Why It Matters |
+|---|---|
+| 📧 Outlook add-in.  lookup + log emails inline | Stop copy/pasting between Outlook and TouchPoint |
+| 📞 iOS app with Caller ID + call logging | Know who's calling. Log the call in one tap |
+| 🔍 Universal search across people, families, orgs | Same search you'd do in TouchPoint, anywhere |
+| 🔒 PAT-based auth.  Your data stays in TouchPoint | No third-party cloud storing your church's contacts |
+| 💰 Affordable per-user pricing | Funds the free TPxi tools right alongside DisplayCache |
+
+**[→ Check Out TPxi Go](https://tpxigo.com)** · Available on the App Store, Outlook Add-in store, and Android (coming soon).
+
+</div>
+
+> Your subscription to **either** product directly funds this community work. Pick the one that fits — or both.
 
 ---
 
@@ -260,6 +282,6 @@ Built with ☕ and a deep belief that **technology should serve ministry, not co
 
 *— Ben Swaby, [fbchtn.org](https://fbchtn.org)*
 
-**[DisplayCache](https://displaycache.com)** · **[GitHub](https://github.com/bswaby/Touchpoint)** · **[SQL Docs](https://bswaby.github.io/Touchpoint/DOC_SQLDocumentation.html)**
+**[DisplayCache](https://displaycache.com)** · **[TPxi Go](https://tpxigo.com)** · **[GitHub](https://github.com/bswaby/Touchpoint)** · **[SQL Docs](https://bswaby.github.io/Touchpoint/DOC_SQLDocumentation.html)**
 
 </div>
