@@ -1,5 +1,5 @@
 ### ✅ [Operations Checklists](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Operations%20Checklists)
-Group-based recurring operations management for the things your team needs to do every day, week, month, or year — data-health checks, Sunday-morning prep, month-end finance, new-member follow-up, IT audits. Mix automated SQL checks with manual checklist items, get morning-batch reminder emails, and pull from a community marketplace of pre-built checks.
+Group-based recurring operations management for the things your team needs to do every day, week, month, or year.  Data-health checks, Sunday-morning prep, month-end finance, new-member follow-up, IT audits. Mix automated SQL checks with manual checklist items, get morning-batch reminder emails, and pull from a community marketplace of pre-built checks.
 
 - ⚙️ **Implementation Level:** Easy
 - 🧩 **Installation:** Single script. Paste into Special Content > Python, navigate to `/PyScript/TPxi_OpsChecklists`. Configure groups and roles via the Settings panel.
@@ -7,26 +7,26 @@ Group-based recurring operations management for the things your team needs to do
 <summary><strong>Features</strong></summary>
 
 - **Group-Based Architecture:** Organize checks into Groups (Data Health, Sunday Operations, Month-End Finance, IT Security, etc.) — each with its own owner, frequency, and roster of checks
-- **Automated SQL Checks:** Run live SQL on demand — green when 0 rows returned, red with the row count and a drill-down grid when issues exist
-- **Saved Search Checks:** Point a check at a TouchPoint Saved Search or raw Search Builder code — same pass/fail UX as SQL
+- **Automated SQL Checks:** Run live SQL on demand . Green when 0 rows returned, red with the row count and a drill-down grid when issues exist
+- **Saved Search Checks:** Point a check at a TouchPoint Saved Search or raw Search Builder code.  Same pass/fail UX as SQL
 - **Manual Checklist Items:** Pure-checklist items for non-data tasks (building unlocked, AV tested, batch reconciled)
 - **Sub-Steps with Notes:** Break any check into per-step actions and capture per-step notes that persist between runs
 - **Drill-Down Person Grid:** SQL/search results render in an ag-Grid table with sortable columns, person picker, and bulk-tag actions
 - **Bulk Tag from Results:** Tag everyone (or selected rows) directly from a check's results — no copy/paste between screens
 - **Community Marketplace:** Browse 50+ pre-built checks across People, Involvements, Email, Finance, Facilities, General, and Archive categories. One-click install into any group
-- **Marketplace Updates:** When a marketplace check gets a new revision, you get a per-item Update button plus dashboard "Update All" — local edits are detected and protected before overwrite
+- **Marketplace Updates:** When a marketplace check gets a new revision, you get a per-item Update button plus dashboard "Update All".  Local edits are detected and protected before overwrite
 - **"New" Badge:** Items added to the marketplace within the last 14 days get a green "new" badge so you can spot fresh community contributions
 - **Share a Check:** Submit your own SQL/search checks back to the marketplace for community review — approved submissions become available to other churches
 - **Per-Check Reminder Emails:** Assign specific people (or fall back to a Default Recipient) to receive one consolidated email when checks are due
-- **One-Click MorningBatch Install:** Auto-install/uninstall the reminder block in your existing `MorningBatch` script — no manual editing required
+- **One-Click MorningBatch Install:** Auto-install/uninstall the reminder block in your existing `MorningBatch` script.  No manual editing required
 - **Send Reminders Now:** Trigger today's reminders on demand without waiting for the next morning-batch run
 - **Calendar View:** Month-grid showing what's due each day, what was completed, and what was missed
 - **Completion Log:** Per-check history of who ran it, when, and the row count returned
-- **Person Picker:** Type-ahead search for assigning recipients — handles both "First Last" and "Last, First" search patterns
+- **Person Picker:** Type-ahead search for assigning recipients. Handles both "First Last" and "Last, First" search patterns
 - **Saved Search Autocomplete:** Type-ahead search of saved searches by name, with description preview
 - **Two-Tier Permissions:** Edit Roles (manage groups, checks, library) and Complete Roles (run checks, mark steps done) configurable from Settings
 - **Auto-Update:** Checks DisplayCache for new versions (Admin/Developer only) and updates in-place
-- **Help System:** Built-in TOC of contextual help topics — Groups, Checks, Catalog, Reminders, Sharing
+- **Help System:** Built-in TOC of contextual help topics. Groups, Checks, Catalog, Reminders, Sharing
 - **Defaults Catalog:** First-time-open auto-installs a curated starter set into a "Data Health" group so new users have something to run immediately
 
 <summary><strong>Marketplace Categories</strong></summary>
@@ -110,4 +110,4 @@ If you'd rather edit MorningBatch by hand, the Settings panel shows the exact bl
 The dashboard banner and Manage Library button show a count of items that are uninstalled AND added to the marketplace within the last 14 days. After 14 days, items just become "uninstalled" — the badge clears automatically so you don't get permanent clutter. The 14-day window applies to both the dashboard count and the per-item ✨ `new` badge inside Manage Library.
 
 ---
-*Written by [Ben Swaby](https://github.com/bswaby). These tools are free because they should be. If they've saved you time, consider [DisplayCache](https://displaycache.com) — church digital signage that integrates with TouchPoint — or [TPxi Go](https://tpxigo.com) — your church contacts in Outlook and on your phone.*
+*Written by [Ben Swaby](https://github.com/bswaby). These tools are free because they should be. If they've saved you time, consider [DisplayCache](https://displaycache.com) Church digital signage that integrates with TouchPoint or [TPxi Go](https://tpxigo.com) your church contacts in Outlook and on your phone.*
