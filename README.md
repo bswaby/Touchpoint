@@ -105,6 +105,7 @@ These are the tools churches install first and use daily:
 | [Program Pulse](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Program%20Pulse) | Surface what's actually happening across programs |
 | [QuickLinks](https://github.com/bswaby/Touchpoint/blob/main/TPxi/Quicklinks) | Permissioned quick-access menu with live count overlays |
 | [Report Writer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Report%20Writer) | Build and save custom involvement & user reports |
+| [Roll Sheet](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Roll%20Sheet) | Build custom roll sheets |
 
 ---
 
@@ -197,6 +198,7 @@ These are the tools churches install first and use daily:
 | [Operations Checklists](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Operations%20Checklists) | Organize checks and reminders |
 | [Registration Data Manager](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Data%20Manager) | Manage registration data at scale |
 | [Report Writer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Report%20Writer) | Build custom involvement & user reports |
+| [Roll Sheet](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Roll%20Sheet) | Build custom roll sheets |
 | [SQL Query Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/SQL%20Query%20Explorer) | Run and explore SQL queries directly |
 | [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus) | System status and performance monitoring |
 
