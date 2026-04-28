@@ -18,7 +18,7 @@ Configurable rollsheet generator for any ministry area. Build reusable configs o
   - **Extra Values** (text, date, bit) by field name — pick from a dropdown of fields actually used in the org
   - **RecReg Fields** — pre-built shortcuts for Emergency Contact (name + phone), Allergies & Medical, Doctor (name + phone), and Insurance (company + policy)
 - **Color-Coded Highlights:** Allergies, medical, and other safety-critical data render in colored callouts so leaders can spot them at a glance
-- **Sort Options:** By Name, Age, or Gender — sorting is per config
+- **Sort Options:** By Name, Age, or Gender,  Sorting is per config
 - **Custom Title:** Override the rollsheet header per config (e.g., "VBS 2026 — Morning Session")
 - **Footer with Sign-Off:** Optional footer shows org count, total members, and a teacher signature line
 - **Sub-Group Display:** When sub-group column is on, each person's `MemberTags` (rooms, cabins, breakouts) appear inline
