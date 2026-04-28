@@ -7,10 +7,10 @@ Configurable rollsheet generator for any ministry area. Build reusable configs o
 <summary><strong>Features</strong></summary>
 
 - **Reusable Configs:** Build a rollsheet config once (source, columns, data sources, layout, sort) and run it any time. Configs persist across script updates
-- **Two Source Modes:** Pick by Program / Division (auto-includes all matching active orgs) or by specific Involvements (search-and-add picker)
+- **Two Source Modes:** Pick by Program / Division (auto-includes all matching active involvements) or by specific Involvements (search-and-add picker)
 - **Per-Day Filtering:** Optional "only show involvements with a meeting scheduled on the selected day" toggle.  Uses each Involvement's `OrgSchedule` so you only print rosters for the rooms actually meeting that day
 - **Date Presets:** Today, Coming Sunday, Following Sunday, Coming Wednesday or pick any custom date
-- **Layouts:** Two Column (default), Three Column, or Single Column. Each layout is print-optimized with page breaks between orgs
+- **Layouts:** Two Column (default), Three Column, or Single Column. Each layout is print-optimized with page breaks between involvements
 - **Standard Columns:** Name, Age, Gender, Phone, Email, Sub-Group, Member Type.  Toggle each on/off per config
 - **Name-Line Columns:** Choose which standard fields appear inline with the name vs. as a separate info line. Keeps dense rosters readable
 - **Universal Data Sources:** Add unlimited custom info lines per config:
@@ -20,11 +20,11 @@ Configurable rollsheet generator for any ministry area. Build reusable configs o
 - **Color-Coded Highlights:** Allergies, medical, and other safety-critical data render in colored callouts so leaders can spot them at a glance
 - **Sort Options:** By Name, Age, or Gender,  Sorting is per config
 - **Custom Title:** Override the rollsheet header per config (e.g., "VBS 2026 — Morning Session")
-- **Footer with Sign-Off:** Optional footer shows org count, total members, and a teacher signature line
+- **Footer with Sign-Off:** Optional footer shows involvement count, total members, and a teacher signature line
 - **Sub-Group Display:** When sub-group column is on, each person's `MemberTags` (rooms, cabins, breakouts) appear inline
 - **Print Popup:** Generates a clean popup window for printing.  Bypasses TouchPoint's page CSS so background colors and inline styles render correctly on every browser
-- **Search Builder for Specific Orgs:** Type-ahead search of organizations by name with member count preview
-- **Config Migration:** Older configs with separate medical/recreg fields are auto-migrated to the unified Data Sources format on first open.  No manual cleanup
+- **Search Builder for Specific Involvements:** Type-ahead search of involvements by name with member count preview
+
 
 <hr>
 
@@ -59,16 +59,16 @@ Configurable rollsheet generator for any ministry area. Build reusable configs o
 
 | Setting | Description |
 |---------|-------------|
-| **Source Type** | Program / Division (auto-includes matching active orgs) or Specific Involvements (manual picker) |
-| **Only With Meeting** | When ON, only includes orgs with a meeting scheduled on the selected day-of-week (via `OrgSchedule`) |
+| **Source Type** | Program / Division (auto-includes matching active involvements) or Specific Involvements (manual picker) |
+| **Only With Meeting** | When ON, only includes involvements with a meeting scheduled on the selected day-of-week (via `OrgSchedule`) |
 | **Layout** | Two Column (default), Three Column, or Single Column |
-| **Sort By** | Name, Age, or Gender (applied within each org) |
+| **Sort By** | Name, Age, or Gender (applied within each involvement) |
 | **Standard Columns** | Toggle Age, Gender, Phone, Email, Sub-Group, Member Type on/off |
 | **Name-Line Columns** | Which standard columns appear inline next to the name vs. as a separate info line |
 | **Data Sources** | Unlimited custom rows. Each is a Registration Question (wildcard pattern), Extra Value, or RecReg field with a custom label and color |
 | **Title** | Header text for the printed rollsheet (per-config override) |
-| **Show Footer** | Toggle the org-count / member-count / signature-line footer |
-| **Exclude Orgs** | Optional list of org IDs to skip when source is Program/Division |
+| **Show Footer** | Toggle the involvement-count / member-count / signature-line footer |
+| **Exclude Involvements** | Optional list of involvement IDs to skip when source is Program/Division |
 
 <summary><strong>Data Source Types</strong></summary>
 
