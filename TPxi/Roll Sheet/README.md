@@ -8,11 +8,11 @@ Configurable rollsheet generator for any ministry area. Build reusable configs o
 
 - **Reusable Configs:** Build a rollsheet config once (source, columns, data sources, layout, sort) and run it any time. Configs persist across script updates
 - **Two Source Modes:** Pick by Program / Division (auto-includes all matching active orgs) or by specific Involvements (search-and-add picker)
-- **Per-Day Filtering:** Optional "only show involvements with a meeting scheduled on the selected day" toggle — uses each org's `OrgSchedule` so you only print rosters for the rooms actually meeting that day
-- **Date Presets:** Today, Coming Sunday, Following Sunday, Coming Wednesday — or pick any custom date
+- **Per-Day Filtering:** Optional "only show involvements with a meeting scheduled on the selected day" toggle.  Uses each Involvement's `OrgSchedule` so you only print rosters for the rooms actually meeting that day
+- **Date Presets:** Today, Coming Sunday, Following Sunday, Coming Wednesday or pick any custom date
 - **Layouts:** Two Column (default), Three Column, or Single Column. Each layout is print-optimized with page breaks between orgs
-- **Standard Columns:** Name, Age, Gender, Phone, Email, Sub-Group, Member Type — toggle each on/off per config
-- **Name-Line Columns:** Choose which standard fields appear inline with the name vs. as a separate info line — keeps dense rosters readable
+- **Standard Columns:** Name, Age, Gender, Phone, Email, Sub-Group, Member Type.  Toggle each on/off per config
+- **Name-Line Columns:** Choose which standard fields appear inline with the name vs. as a separate info line. Keeps dense rosters readable
 - **Universal Data Sources:** Add unlimited custom info lines per config:
   - **Registration Questions** by wildcard pattern (e.g., `%Allergies%` matches any question containing "Allergies")
   - **Extra Values** (text, date, bit) by field name — pick from a dropdown of fields actually used in the org
@@ -22,9 +22,9 @@ Configurable rollsheet generator for any ministry area. Build reusable configs o
 - **Custom Title:** Override the rollsheet header per config (e.g., "VBS 2026 — Morning Session")
 - **Footer with Sign-Off:** Optional footer shows org count, total members, and a teacher signature line
 - **Sub-Group Display:** When sub-group column is on, each person's `MemberTags` (rooms, cabins, breakouts) appear inline
-- **Print Popup:** Generates a clean popup window for printing — bypasses TouchPoint's page CSS so background colors and inline styles render correctly on every browser
+- **Print Popup:** Generates a clean popup window for printing.  Bypasses TouchPoint's page CSS so background colors and inline styles render correctly on every browser
 - **Search Builder for Specific Orgs:** Type-ahead search of organizations by name with member count preview
-- **Config Migration:** Older configs with separate medical/recreg fields are auto-migrated to the unified Data Sources format on first open — no manual cleanup
+- **Config Migration:** Older configs with separate medical/recreg fields are auto-migrated to the unified Data Sources format on first open.  No manual cleanup
 
 <hr>
 
@@ -85,7 +85,7 @@ Configurable rollsheet generator for any ministry area. Build reusable configs o
 
 - **Use one config per use case.** A "Sunday Morning Kids" config and a "VBS Summer" config can both target the same Program but with different data sources and layouts
 - **Wildcard patterns are your friend.** Instead of hard-coding question IDs, use `%Allergies%` so the same config works across registrations that ask the question with slightly different wording
-- **Print Popup, not Print Preview.** The print button opens a clean popup window — this is intentional. Trying to print directly from the page will strip background colors due to how browsers handle TouchPoint's page CSS
+- **Print Popup, not Print Preview.** The print button opens a clean popup window.  This is intentional. Trying to print directly from the page will strip background colors due to how browsers handle TouchPoint's page CSS
 
 ---
 *Written by [Ben Swaby](https://github.com/bswaby). These tools are free because they should be. If they've saved you time, consider [DisplayCache](https://displaycache.com) Church digital signage that integrates with TouchPoint or [TPxi Go](https://tpxigo.com) your church contacts in Outlook and on your phone.*
