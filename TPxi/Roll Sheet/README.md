@@ -15,7 +15,7 @@ Configurable rollsheet generator for any ministry area. Build reusable configs o
 - **Name-Line Columns:** Choose which standard fields appear inline with the name vs. as a separate info line. Keeps dense rosters readable
 - **Universal Data Sources:** Add unlimited custom info lines per config:
   - **Registration Questions** by wildcard pattern (e.g., `%Allergies%` matches any question containing "Allergies")
-  - **Extra Values** (text, date, bit) by field name — pick from a dropdown of fields actually used in the org
+  - **Extra Values** (text, date, bit) by field name.  Pick from a dropdown of fields actually used in the org
   - **RecReg Fields** — pre-built shortcuts for Emergency Contact (name + phone), Allergies & Medical, Doctor (name + phone), and Insurance (company + policy)
 - **Color-Coded Highlights:** Allergies, medical, and other safety-critical data render in colored callouts so leaders can spot them at a glance
 - **Sort Options:** By Name, Age, or Gender,  Sorting is per config
