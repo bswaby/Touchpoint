@@ -51,7 +51,7 @@ Configurable historical attendance reports for any ministry area. Build a config
 1. **Admin > Advanced > Special Content > Python**
 2. Click **Add New**, name it `TPxi_AttendanceBuilder`
 3. Paste the script and Save
-4. Navigate to `/PyScriptForm/TPxi_AttendanceBuilder`
+4. Navigate to `/PyScript/TPxi_AttendanceBuilder`
 5. Click **+ New Config** to build your first report.  Pick source, toggle sections, set leader types, and save
 6. From the main menu, pick the config and choose a date range to generate
 
