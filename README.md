@@ -97,6 +97,7 @@ These are the tools churches install first and use daily:
 
 | Tool | What's New |
 |------|-----------|
+| [Attendance Report Builder](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Builder) | Easy Attendance Reports |
 | [Enterprise Reporting](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Enterprise%20Reporting) | 100+ reports accessible from a single dashboard |
 | [Involvement Processor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Processor) | Full registrant processing workflow in one place |
 | [Menu Editor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Menu%20Editor) | Visually edit People, Involvement, Finance, Admin & toolbar menus |
@@ -131,6 +132,7 @@ These are the tools churches install first and use daily:
 | [Weekly Attendance (WAAG 2.0)](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Weekly%20Attendance) | Advanced group attendance tracking |
 | [Geographic Distribution Map](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Geographic%20Distribution%20Map) | Visualize where your members live |
 | [Anniversaries Widget](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Anniversaries) | Track and celebrate member milestones |
+| [Attendance Report Builder](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Builder) | Easy Attendance Reports |
 | [Communication Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Communication%20Dashboard) | Analyze outreach patterns and effectiveness |
 | [New Member Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/New%20Member%20Report) | Track new member onboarding comprehensively |
 | [Emergency List](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Emergency%20List) | Critical contact and medical info management |
