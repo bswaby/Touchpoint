@@ -97,6 +97,8 @@ These are the tools churches install first and use daily:
 
 | Tool | What's New |
 |------|-----------|
+
+| [Attendance Markings](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Markings) | Reverse Attendance Markings for 1/5 the Clicks |
 | [Attendance Report Builder](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Builder) | Easy Attendance Reports |
 | [Enterprise Reporting](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Enterprise%20Reporting) | 100+ reports accessible from a single dashboard |
 | [Involvement Processor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Processor) | Full registrant processing workflow in one place |
@@ -106,6 +108,16 @@ These are the tools churches install first and use daily:
 | [Program Pulse](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Program%20Pulse) | Surface what's actually happening across programs |
 | [QuickLinks](https://github.com/bswaby/Touchpoint/blob/main/TPxi/Quicklinks) | Permissioned quick-access menu with live count overlays |
 | [Report Writer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Report%20Writer) | Build and save custom involvement & user reports |
+| [Roll Sheet](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Roll%20Sheet) | Build custom roll sheets |
+
+---
+
+## ✨ VBS Tool Chest
+
+| Tool | What we use |
+|------|-----------|
+| [Attendance Markings](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Markings) | Reverse Attendance Markings for 1/5 the Clicks |
+| [Attendance Report Builder](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Builder) | Easy Attendance Reports |
 | [Roll Sheet](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Roll%20Sheet) | Build custom roll sheets |
 
 ---
@@ -189,6 +201,7 @@ These are the tools churches install first and use daily:
 | Tool | Description |
 |------|-------------|
 | [API Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/API%20Explorer) | Explore and test TouchPoint™ API queries live |
+| [Attendance Markings](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Markings) | Reverse Attendance Markings for 1/5 the Clicks |
 | [Registration Export](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export) | Easy registration data export |
 | [Account Security Monitor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Account%20Security%20Monitor) | Advanced security analytics |
 | [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator) | Bulk document download |
