@@ -95,7 +95,7 @@ These are the tools churches install first and use daily:
 
 ## ✨ Recently Added
 
-| Tool | What's New |
+| Tool | New |
 |------|-----------|
 
 | [Attendance Markings](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Markings) | Reverse Attendance Markings for 1/5 the Clicks |
