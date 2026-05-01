@@ -95,9 +95,8 @@ These are the tools churches install first and use daily:
 
 ## ✨ Recently Added
 
-| Tool | New |
+| Tool | What's New |
 |------|-----------|
-
 | [Attendance Markings](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Markings) | Reverse Attendance Markings for 1/5 the Clicks |
 | [Attendance Report Builder](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Builder) | Easy Attendance Reports |
 | [Enterprise Reporting](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Enterprise%20Reporting) | 100+ reports accessible from a single dashboard |
