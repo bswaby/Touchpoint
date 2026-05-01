@@ -2,7 +2,7 @@
 Team-friendly attendance entry for large events. The trick: when most people show up, default everyone to **Present** and only click the few who didn't (or flip the default for sparsely-attended events). Built for VBS, camps, conferences where anywhere clicking 2,000 people one-by-one would take forever. Multiple staff can chip away at the involvement list together with live updates every 10 seconds.
 
 - ⚙️ **Implementation Level:** Easy
-- 🧩 **Installation:** Single script. Paste into Special Content > Python, navigate to `/PyScriptForm/TPxi_AttendanceMarkings`. Configure your first session from the UI.
+- 🧩 **Installation:** Single script. Paste into Special Content > Python, navigate to `/PyScript/TPxi_AttendanceMarkings`. Configure your first session from the UI.
 
 <summary><strong>Features</strong></summary>
 
@@ -73,7 +73,7 @@ Team-friendly attendance entry for large events. The trick: when most people sho
 1. **Admin > Advanced > Special Content > Python**
 2. Click **Add New**, name it `TPxi_AttendanceMarkings`
 3. Paste the script and Save
-4. Navigate to `/PyScriptForm/TPxi_AttendanceMarkings`
+4. Navigate to `/PyScript/TPxi_AttendanceMarkings`
 5. Click **+ New Config** to build your first session — pick source, default state, and walk-in member type, then save
 6. From the landing page, pick the config and choose a date to begin taking attendance
 
