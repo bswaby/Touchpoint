@@ -57,6 +57,17 @@ import re
 model.Header = 'Attendance Markings'
 
 # =====================================================================
+# AUTO-UPDATE — same pattern as TPxi_OpsChecklists.py / EnterpriseReporting.py
+# Browser checks scripts.displaycache.com for the latest version. Admin can
+# click "Update Now" on the landing page to fetch + write the new code via
+# the workers.dev edge (avoids CF Bot Fight on server-side fetches).
+# =====================================================================
+APP_VERSION = '1.0.1'
+DC_SCRIPT_ID = 'TPxi_AttendanceMarkings'
+DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
+DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
+
+# =====================================================================
 # HELPERS
 # =====================================================================
 
@@ -129,6 +140,34 @@ def safe_id(s):
     if not s:
         return ''
     return re.sub(r'[^a-zA-Z0-9_-]', '_', str(s))[:80]
+
+# --- Auto-update helpers ---------------------------------------------------
+def is_admin():
+    """True if current user has the Admin role."""
+    try:
+        return bool(model.UserIsInRole('Admin'))
+    except:
+        return False
+
+def get_script_name():
+    """Detect the actual script name. Prefers JS-posted script_name, then URL,
+    then DC_SCRIPT_ID as fallback. Lets admins rename the script and have
+    auto-update still write to the right slot."""
+    try:
+        if hasattr(Data, 'va_script_name'):
+            sn = str(Data.va_script_name).strip()
+            if sn:
+                return sn
+    except:
+        pass
+    try:
+        url = str(getattr(model, 'URL', '') or '')
+        m = re.search(r'/PyScript(?:Form)?/([^/?#&]+)', url)
+        if m:
+            return m.group(1)
+    except:
+        pass
+    return DC_SCRIPT_ID
 
 def sql_in_list(int_list):
     """Build a SQL-safe comma list from a list of ints. Returns '0' if empty."""
@@ -1280,6 +1319,30 @@ def handle_add_walkin_existing():
     except Exception as e:
         print json.dumps({'success': False, 'message': 'Add walk-in failed: ' + str(e)})
 
+def handle_apply_update():
+    """Admin-only: fetch the latest script from DisplayCache and overwrite the
+    installed copy. Uses workers.dev edge to avoid Cloudflare Bot Fight Mode
+    which blocks server-side fetches to the public domain."""
+    if not is_admin():
+        print json.dumps({'success': False, 'message': 'Admin role required to update'})
+        return
+    new_code = ''
+    try:
+        fetch_url = DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID
+        new_code = str(model.RestGet(fetch_url, {}))
+    except Exception as fe:
+        print json.dumps({'success': False, 'message': 'Fetch failed: ' + str(fe)})
+        return
+    if not new_code or len(new_code) < 200:
+        print json.dumps({'success': False, 'message': 'Invalid or empty script content received'})
+        return
+    target_name = get_script_name() or DC_SCRIPT_ID
+    try:
+        model.WriteContentPython(target_name, new_code)
+        print json.dumps({'success': True, 'message': 'Updated ' + target_name + '. Reload the page.'})
+    except Exception as we:
+        print json.dumps({'success': False, 'message': 'Write failed: ' + str(we)})
+
 def handle_create_walkin():
     """Create a brand-new person via AddPerson + add to org + mark present."""
     try:
@@ -1407,6 +1470,8 @@ if model.HttpMethod == "post":
         handle_add_walkin_existing()
     elif action == 'create_walkin':
         handle_create_walkin()
+    elif action == 'apply_update':
+        handle_apply_update()
     else:
         print json.dumps({'success': False, 'message': 'Unknown action: ' + safe_str(action)})
 
@@ -1534,6 +1599,8 @@ else:
         walkInSearch: '',     // current search term in walk-in panel
         walkInCreateOpen: false, // "create new" subform toggle
         dashboardFilter: 'all', // 'all' | 'not_started' | 'in_progress' | 'done'
+        appUpdateAvailable: false,
+        appLatestVersion: '',
       };
 
       var root = document.getElementById('vaRoot');
@@ -1637,6 +1704,19 @@ else:
           ])
         ]);
         root.appendChild(head);
+
+        // Auto-update banner — admin-only, only when an update is available
+        if (window.VA_IS_ADMIN && state.appUpdateAvailable) {
+          var banner = el('div', {style:'background:#e8f0fd;border:1px solid #cfe3ff;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;'}, [
+            el('div', {style:'font-size:18px'}, '🚀'),
+            el('div', {style:'flex:1;font-size:12px;color:#0078d4'}, [
+              el('strong', null, 'Attendance Markings update available'),
+              ' — you have v', window.VA_APP_VERSION || '', ', latest is v', state.appLatestVersion || '', '. Your configs and session data are preserved.'
+            ]),
+            el('button', {id:'va_update_btn', class:'va-btn va-sm', onclick: applyAppUpdate}, 'Update Now')
+          ]);
+          root.appendChild(banner);
+        }
 
         var card = el('div', {class:'va-card'});
         if (!state.configs.length) {
@@ -2263,7 +2343,7 @@ else:
           if (o.meetingId) {
             actions.appendChild(el('a', {
               class: 'va-btn va-secondary',
-              href: '/Meeting/' + o.meetingId,
+              href: '/Meeting/MeetingDetails/' + o.meetingId,
               target: '_blank',
               title: 'Set HeadCount, NumNewVisit, etc. in TouchPoint'
             }, 'Headcount in TouchPoint ↗'));
@@ -2551,8 +2631,50 @@ else:
         render();
       }
 
+      // ----------------- auto-update check -----------------
+      function checkForAppUpdate() {
+        // Browser-side fetch — scripts.displaycache.com is whitelisted by CF
+        // for browser traffic. Server-side fetches use workers.dev to bypass CF.
+        if (!window.VA_IS_ADMIN || !window.VA_DC_API_BASE || !window.VA_DC_SCRIPT_ID) return;
+        try {
+          var xhr = new XMLHttpRequest();
+          xhr.open('GET', window.VA_DC_API_BASE + '/script-versions', true);
+          xhr.timeout = 5000;
+          xhr.onreadystatechange = function() {
+            if (xhr.readyState !== 4) return;
+            if (xhr.status !== 200) return;
+            try {
+              var versions = JSON.parse(xhr.responseText);
+              var latest = versions[window.VA_DC_SCRIPT_ID];
+              if (latest && latest !== window.VA_APP_VERSION) {
+                state.appUpdateAvailable = true;
+                state.appLatestVersion = latest;
+                if (state.view === 'landing') render();
+              }
+            } catch(e) {}
+          };
+          xhr.send();
+        } catch(e) {}
+      }
+
+      function applyAppUpdate() {
+        if (!confirm('Update Attendance Markings from v' + (window.VA_APP_VERSION || '?') + ' to v' + (state.appLatestVersion || '?') + '?\n\nYour configs, session data, and audit logs are stored separately and will be preserved.')) return;
+        var btn = document.getElementById('va_update_btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+        ajax('apply_update', {}, function(err, resp){
+          if (err || !resp || !resp.success) {
+            toast('Update failed: ' + ((resp && resp.message) || err || 'unknown'), 'error');
+            if (btn) { btn.disabled = false; btn.textContent = 'Update Now'; }
+            return;
+          }
+          toast(resp.message || 'Updated. Reloading…', 'success');
+          setTimeout(function(){ window.location.reload(true); }, 1500);
+        });
+      }
+
       // ----------------- bootstrap -----------------
       loadConfigs(render);
+      checkForAppUpdate();
     })();
     </script>
     """
@@ -2563,4 +2685,14 @@ else:
     </div>
     """
 
-    model.Form = css + body + js
+    # Constants injected for client-side access (auto-update, admin gating, etc.)
+    meta_script = (
+        '<script>'
+        + 'window.VA_APP_VERSION=' + json.dumps(APP_VERSION) + ';'
+        + 'window.VA_IS_ADMIN=' + ('true' if is_admin() else 'false') + ';'
+        + 'window.VA_DC_API_BASE=' + json.dumps(DC_API_BASE) + ';'
+        + 'window.VA_DC_SCRIPT_ID=' + json.dumps(DC_SCRIPT_ID) + ';'
+        + '</script>'
+    )
+
+    model.Form = css + meta_script + body + js
