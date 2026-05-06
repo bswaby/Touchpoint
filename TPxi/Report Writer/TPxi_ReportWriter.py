@@ -1,13 +1,30 @@
 #roles=Edit
+#----------------------------------------------------------------------
+# TPxi_RollSheet.py
+#
+# Configurable Rollsheet Generator for TouchPoint
+#
+# Allows admins to create reusable rollsheet configurations through a UI,
+# then generate and print rollsheets for any ministry area. Each config
+# specifies source (program/division or specific orgs), columns to display,
+# universal data sources (reg questions, extra values, recreg), layout, and sort options.
+#
 # Written By: Ben Swaby
 # Email: bswaby@fbchtn.org
-# GitHub:  https://github.com/bswaby/Touchpoint
-# ---------------------------------------------------------------
-# Support: These tools are free because they should be. If they've
-#          saved you time, consider DisplayCache — church digital
-#          signage that integrates with TouchPoint.
-#          https://displaycache.com
-# ---------------------------------------------------------------
+# GitHub: https://github.com/bswaby/Touchpoint  (40+ free tools)
+# ----------------------------------------------------------------
+# These tools are free because they should be.
+# If they've saved you time or helped your team, and you want to
+# support continued development, check out:
+#
+# DisplayCache - church digital signage that integrates with TouchPoint
+# https://displaycache.com
+#
+# TPxi Go - your church contacts, wherever you work.
+# Look up anyone in TouchPoint, log calls and emails from Outlook
+# or your phone. No tab switching, no lost context.
+# https://tpxigo.com
+# ----------------------------------------------------------------
 
 """
 TPxi Report Writer
@@ -28,12 +45,27 @@ Features:
 - Saves template to org extra value for reuse
 - Handles both new (RegQuestion/RegAnswer) and old (RegistrationData XML) formats
 
-Written By: Ben Swaby
-Email: bswaby@fbchtn.org
-Version: 1.4
-Date: April 2026
 
 Change Log:
+v1.5 - May 2026
+  - Added: Multi-template save - keep multiple named report layouts per involvement
+           (Save / Save As / Rename / Delete) instead of a single overwriting save
+  - Added: Import / Export templates as JSON files for sharing across involvements or churches
+  - Added: Mismatch detection on import - case-insensitive auto-remap of question labels and
+           subgroup names, plus a warning banner listing anything that doesn't resolve, with
+           an "Auto-remove missing fields" one-click cleanup
+  - Added: Subgroups field (org-scoped) - shows each person's subgroup memberships within the
+           current involvement, with per-field display filter to pick which subgroups to show
+  - Added: Approved Medications now pulls from dbo.PersonMedication (canonical, current source)
+           in addition to RegAnswer and legacy RecReg booleans, all merged with case-insensitive
+           dedup so nothing is missed
+  - Fixed: OTC medication answers were tied to a single hardcoded RegQuestionId from one
+           involvement; now matches by question label so it works across every org with an
+           "Approved over-the-counter medications" question
+  - Added: Auto-update mechanism - checks scripts.displaycache.com on page load, shows a banner
+           when a newer version is available, one-click update preserves all saved templates
+  - Backward-compat: existing single-saved-template installs auto-appear as "Default" with no
+           data loss; storage migrates to the new multi-template format on the next save
 v1.4 - April 2026
   - Added: CSV export button (Export CSV) alongside Print, using same template layout for columns
   - Added: Page numbers option using @page CSS for true printed page numbering
@@ -73,6 +105,33 @@ To upload code to Touchpoint, use the following steps:
 
 import json
 import re
+
+# --- Version / Auto-update -------------------------------------------
+APP_VERSION = '1.5.0'
+DC_SCRIPT_ID = 'TPxi_ReportWriter'  # ID used on DisplayCache to identify this script
+# scripts.displaycache.com is the custom domain used for browser-side version checks.
+# workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
+DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
+DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
+
+def get_script_name():
+    """Detect the actual script name TouchPoint installed this as (admin may have
+    renamed it). Order: posted script_name, model.URL parse, hardcoded default."""
+    try:
+        if hasattr(Data, 'script_name') and Data.script_name:
+            sn = str(Data.script_name).strip()
+            if sn:
+                return sn
+    except:
+        pass
+    try:
+        url = str(getattr(model, 'URL', '') or '')
+        m = re.search(r'/PyScript(?:Form)?/([^/?#&]+)', url)
+        if m:
+            return m.group(1)
+    except:
+        pass
+    return DC_SCRIPT_ID
 
 model.Header = 'Registration Report Builder'
 
@@ -374,7 +433,8 @@ DETAILED_TEMPLATE = {
             "fields": [
                 {"fieldId": "fld_16", "fieldType": "medical", "sourceField": "MedAllergy", "label": "Allergies", "displayFormat": "block", "order": 1, "visible": True, "colSpan": 1},
                 {"fieldId": "fld_18", "fieldType": "medical", "sourceField": "AuthorizedCheckout", "label": "Authorized Checkout", "displayFormat": "block", "order": 2, "visible": True, "colSpan": 1},
-                {"fieldId": "fld_19", "fieldType": "medical", "sourceField": "Medications", "label": "Approved Medications", "displayFormat": "block", "order": 3, "visible": True, "colSpan": 1}
+                {"fieldId": "fld_19", "fieldType": "medical", "sourceField": "Medications", "label": "Approved Medications", "displayFormat": "block", "order": 3, "visible": True, "colSpan": 1},
+                {"fieldId": "fld_20", "fieldType": "person", "sourceField": "SubGroups", "label": "Subgroups", "displayFormat": "block", "order": 4, "visible": True, "colSpan": 1}
             ]
         },
         {
@@ -420,6 +480,91 @@ CUSTOM_TEMPLATE = {
 # ============================================================================
 # DATA QUERY FUNCTIONS
 # ============================================================================
+
+def build_meds_map(people_ids, people_list):
+    """Build {peopleId: [medication names]} from three sources, deduped case-insensitively.
+
+    Sources (all queried; merged, not either/or):
+      1. dbo.PersonMedication -> lookup.Medication  (canonical, current)
+      2. RegAnswer matched by question label (covers per-org variants of the OTC question)
+      3. Legacy RecReg.Tylenol/Advil/Maalox/Robitussin booleans on people_list (carries _Xxx keys)
+    """
+    if not people_ids:
+        return {}
+    pid_csv = ','.join(str(pid) for pid in people_ids)
+
+    # peopleId -> {'order': [names], 'seen': set(lowercase)}
+    bucket = {}
+    def _add(pid, name):
+        n = (name or '').strip().strip('"').strip("'").strip()
+        if not n:
+            return
+        if pid not in bucket:
+            bucket[pid] = {'order': [], 'seen': set()}
+        k = n.lower()
+        if k in bucket[pid]['seen']:
+            return
+        bucket[pid]['seen'].add(k)
+        bucket[pid]['order'].append(n)
+
+    # Source 1: PersonMedication
+    try:
+        pm_sql = """
+            SELECT pm.PeopleId, md.Description AS Medication
+            FROM dbo.PersonMedication pm
+            JOIN lookup.Medication md ON md.Id = pm.MedicationId
+            WHERE pm.PeopleId IN ({0})
+              AND md.Description IS NOT NULL
+            ORDER BY pm.PeopleId, md.Description
+        """.format(pid_csv)
+        for r in q.QuerySql(pm_sql):
+            _add(int(r.PeopleId), safe_str(r.Medication))
+    except:
+        pass
+
+    # Source 2: RegAnswer (label match across both old hardcoded GUID and newer per-org variants)
+    try:
+        ra_sql = """
+            SELECT rp.PeopleId, ra.AnswerValue
+            FROM RegAnswer ra
+            INNER JOIN RegPeople rp ON rp.RegPeopleId = ra.RegPeopleId
+            INNER JOIN RegQuestion rq ON rq.RegQuestionId = ra.RegQuestionId
+            WHERE rp.PeopleId IN ({0})
+              AND (
+                    ra.RegQuestionId = '8A9F1199-6F1C-480C-8A2D-146EEEAE55B8'
+                 OR rq.Label LIKE '%Approved%over-the-counter%'
+                 OR rq.Label LIKE '%Approved Over-the-Counter%'
+                 OR rq.Label LIKE '%OTC medication%'
+              )
+              AND ra.AnswerValue IS NOT NULL
+              AND LTRIM(RTRIM(CAST(ra.AnswerValue AS NVARCHAR(MAX)))) <> ''
+            ORDER BY rp.PeopleId, rp.RegPeopleId DESC
+        """.format(pid_csv)
+        for r in q.QuerySql(ra_sql):
+            pid = int(r.PeopleId)
+            av = safe_str(r.AnswerValue)
+            if av.startswith('[') and av.endswith(']'):
+                av = av[1:-1]
+            for med in av.split(','):
+                _add(pid, med)
+    except:
+        pass
+
+    # Source 3: legacy RecReg flags (already loaded onto each person row via _Xxx keys)
+    for p in people_list or []:
+        try:
+            pid = int(p.get('PeopleId') or 0)
+        except:
+            continue
+        if not pid:
+            continue
+        if p.get('_Tylenol'): _add(pid, 'Tylenol')
+        if p.get('_Advil'): _add(pid, 'Advil/Ibuprofen')
+        if p.get('_Maalox'): _add(pid, 'Maalox')
+        if p.get('_Robitussin'): _add(pid, 'Robitussin')
+
+    return {pid: bucket[pid]['order'] for pid in bucket}
+
 
 def get_registrant_data(org_id, filter_people_ids=None):
     """Get all registrant data for an org in batch queries.
@@ -671,23 +816,31 @@ def get_registrant_data(org_id, filter_people_ids=None):
     except:
         pass
 
-    # Query 5: Approved medications (new PersonMedication table + lookup.Medication)
-    meds_map = {}
+    # Query 5: Approved medications (PersonMedication + RegAnswer + RecReg legacy fallback)
+    meds_map = build_meds_map(people_ids, people_list)
+
+    # Query 6: Subgroups in this org (MemberTags + OrgMemMemTags). Org-scoped, since
+    # the same subgroup name can mean different things in different involvements.
+    subgroups_map = {}
     try:
-        meds_sql = """
-            SELECT pm.PeopleId, md.Description AS Medication
-            FROM dbo.PersonMedication pm
-            JOIN lookup.Medication md ON md.Id = pm.MedicationId
-            WHERE pm.PeopleId IN ({0})
-            ORDER BY pm.PeopleId, md.Description
-        """.format(','.join(str(pid) for pid in people_ids))
-        for r in q.QuerySql(meds_sql):
+        sg_sql = """
+            SELECT ommt.PeopleId, mt.Name
+            FROM OrgMemMemTags ommt
+            INNER JOIN MemberTags mt ON mt.Id = ommt.MemberTagId
+            WHERE ommt.OrgId = {0}
+              AND ommt.PeopleId IN ({1})
+              AND mt.Name IS NOT NULL
+            ORDER BY ommt.PeopleId, mt.Name
+        """.format(int(org_id), ','.join(str(pid) for pid in people_ids))
+        for r in q.QuerySql(sg_sql):
             pid = int(r.PeopleId)
-            if pid not in meds_map:
-                meds_map[pid] = []
-            med_name = safe_str(r.Medication)
-            if med_name and med_name not in meds_map[pid]:
-                meds_map[pid].append(med_name)
+            name = safe_str(r.Name).strip()
+            if not name:
+                continue
+            if pid not in subgroups_map:
+                subgroups_map[pid] = []
+            if name not in subgroups_map[pid]:
+                subgroups_map[pid].append(name)
     except:
         pass
 
@@ -719,21 +872,35 @@ def get_registrant_data(org_id, filter_people_ids=None):
         co_names = checkout_map.get(p['PeopleId'], [])
         p['AuthorizedCheckout'] = ', '.join(co_names) if co_names else ''
 
-        # Approved medications - new system first, fall back to legacy RecReg booleans
-        pid_key = int(p['PeopleId'])
-        med_names = meds_map.get(pid_key, [])
-        if not med_names:
-            legacy_meds = []
-            if p.get('_Tylenol'): legacy_meds.append('Tylenol')
-            if p.get('_Advil'): legacy_meds.append('Advil/Ibuprofen')
-            if p.get('_Maalox'): legacy_meds.append('Maalox')
-            if p.get('_Robitussin'): legacy_meds.append('Robitussin')
-            med_names = legacy_meds
+        # Approved medications - merged from all three sources with case-insensitive dedup
+        med_names = meds_map.get(int(p['PeopleId']), [])
         p['Medications'] = ', '.join(med_names) if med_names else ''
 
+        # Subgroups in this org (org-scoped — subgroup names are unique per involvement)
+        sg_names = subgroups_map.get(int(p['PeopleId']), [])
+        p['_SubGroupsList'] = sg_names
+        p['SubGroups'] = ', '.join(sg_names) if sg_names else ''
+
+    # All subgroups configured for this involvement (from MemberTags, not derived from
+    # assignments) — so the picker shows every option even when nobody is in some of them.
+    all_subgroups = []
+    try:
+        sg_all_sql = """
+            SELECT DISTINCT Name
+            FROM MemberTags
+            WHERE OrgId = {0}
+              AND Name IS NOT NULL
+              AND LTRIM(RTRIM(Name)) <> ''
+            ORDER BY Name
+        """.format(int(org_id))
+        for r in q.QuerySql(sg_all_sql):
+            all_subgroups.append(safe_str(r.Name).strip())
+    except:
+        pass
     result['people'] = people_list
     result['questions'] = questions
     result['familyData'] = family_data
+    result['availableSubGroups'] = all_subgroups
     return result
 
 def get_people_data_direct(people_ids):
@@ -868,26 +1035,8 @@ def get_people_data_direct(people_ids):
     except:
         pass
 
-    # Approved medications (new PersonMedication table + lookup.Medication)
-    meds_map = {}
-    _meds_error = ''
-    try:
-        meds_sql = """
-            SELECT pm.PeopleId, md.Description AS Medication
-            FROM dbo.PersonMedication pm
-            JOIN lookup.Medication md ON md.Id = pm.MedicationId
-            WHERE pm.PeopleId IN ({0})
-            ORDER BY pm.PeopleId, md.Description
-        """.format(pid_list)
-        for r in q.QuerySql(meds_sql):
-            pid = int(r.PeopleId)
-            if pid not in meds_map:
-                meds_map[pid] = []
-            med_name = safe_str(r.Medication)
-            if med_name and med_name not in meds_map[pid]:
-                meds_map[pid].append(med_name)
-    except:
-        pass
+    # Approved medications (PersonMedication + RegAnswer + RecReg legacy fallback)
+    meds_map = build_meds_map(people_ids, people_list)
 
     for p in people_list:
         fid = p.get('FamilyId')
@@ -916,17 +1065,12 @@ def get_people_data_direct(people_ids):
         co_names = checkout_map.get(p['PeopleId'], [])
         p['AuthorizedCheckout'] = ', '.join(co_names) if co_names else ''
 
-        # Approved medications - new system first, fall back to legacy RecReg booleans
-        pid_key = int(p['PeopleId'])
-        med_names = meds_map.get(pid_key, [])
-        if not med_names:
-            legacy_meds = []
-            if p.get('_Tylenol'): legacy_meds.append('Tylenol')
-            if p.get('_Advil'): legacy_meds.append('Advil/Ibuprofen')
-            if p.get('_Maalox'): legacy_meds.append('Maalox')
-            if p.get('_Robitussin'): legacy_meds.append('Robitussin')
-            med_names = legacy_meds
+        # Approved medications - merged from all three sources with case-insensitive dedup
+        med_names = meds_map.get(int(p['PeopleId']), [])
         p['Medications'] = ', '.join(med_names) if med_names else ''
+
+        # No org context available here — subgroups can't be resolved (they're per-org)
+        p['SubGroups'] = ''
 
     result['people'] = people_list
     result['familyData'] = family_data
@@ -949,6 +1093,17 @@ def get_field_value(person, field, preserve_newlines=False):
     if ft == 'person':
         if src == 'PrimaryAddress' or src == 'FullAddress':
             return html_escape(person.get('FullAddress', ''))
+        if src == 'SubGroups':
+            sg_list = person.get('_SubGroupsList', None)
+            if sg_list is None:
+                return html_escape(person.get('SubGroups', ''))
+            sg_filter = field.get('subgroupFilter') or []
+            if sg_filter:
+                allowed_lc = set(s.lower() for s in sg_filter if s)
+                shown = [s for s in sg_list if s.lower() in allowed_lc]
+            else:
+                shown = sg_list
+            return html_escape(', '.join(shown))
         return html_escape(person.get(src, ''))
 
     elif ft == 'family':
@@ -1457,6 +1612,36 @@ if model.HttpMethod == "post":
     action = str(Data.action) if hasattr(Data, 'action') and Data.action else ''
 
     # -------------------------------------------------------------------------
+    # Template storage helpers (multi-template + backward compat)
+    # Storage shape (new "v2"): {"_format": "v2", "templates": {name: tpl}, "currentName": name}
+    # Old shape: a single template object (has 'sections' or 'templateName' at top level).
+    # On read: detect format, return list. On save: always write new format.
+    # -------------------------------------------------------------------------
+    def _read_template_store(org_id):
+        try:
+            saved = model.ExtraValueTextOrg(org_id, 'RegReportTemplate')
+        except:
+            saved = None
+        if not saved:
+            return {'_format': 'v2', 'templates': {}, 'currentName': None}
+        try:
+            data = json.loads(saved)
+        except:
+            return {'_format': 'v2', 'templates': {}, 'currentName': None}
+        if isinstance(data, dict) and data.get('_format') == 'v2' and isinstance(data.get('templates'), dict):
+            return data
+        # Legacy single-template format - wrap it as {"Default": <old>}
+        if isinstance(data, dict) and ('sections' in data or 'templateName' in data):
+            return {'_format': 'v2', 'templates': {'Default': data}, 'currentName': 'Default'}
+        return {'_format': 'v2', 'templates': {}, 'currentName': None}
+
+    def _write_template_store(org_id, store):
+        store['_format'] = 'v2'
+        if 'templates' not in store or not isinstance(store.get('templates'), dict):
+            store['templates'] = {}
+        model.AddExtraValueTextOrg(org_id, 'RegReportTemplate', json.dumps(store))
+
+    # -------------------------------------------------------------------------
     # Search Orgs with Registration Questions
     # -------------------------------------------------------------------------
     if action == 'search_orgs':
@@ -1579,7 +1764,8 @@ if model.HttpMethod == "post":
                         {'sourceField': 'BDate', 'label': 'Date of Birth', 'fieldType': 'person'},
                         {'sourceField': 'Gender', 'label': 'Gender', 'fieldType': 'person'},
                         {'sourceField': 'MaritalStatus', 'label': 'Marital Status', 'fieldType': 'person'},
-                        {'sourceField': 'PrimaryAddress', 'label': 'Full Address', 'fieldType': 'person'}
+                        {'sourceField': 'PrimaryAddress', 'label': 'Full Address', 'fieldType': 'person'},
+                        {'sourceField': 'SubGroups', 'label': 'Subgroups', 'fieldType': 'person'}
                     ]
 
                     family_fields = [
@@ -1618,6 +1804,7 @@ if model.HttpMethod == "post":
                         'questionCount': len(data['questions']),
                         'questions': data['questions'],
                         'personList': person_list,
+                        'availableSubGroups': data.get('availableSubGroups', []),
                         'availableFields': {
                             'person': person_fields,
                             'family': family_fields,
@@ -1695,38 +1882,124 @@ if model.HttpMethod == "post":
                 print json.dumps({'success': False, 'message': safe_str(e)})
 
     # -------------------------------------------------------------------------
-    # Load Saved Template
+    # Load Saved Template(s)
+    # Returns: {success, templates: {name: tpl}, names: [sortedNames], currentName, currentTemplate}
+    # If a specific 'name' is given, currentTemplate is that one; else first/saved currentName.
     # -------------------------------------------------------------------------
     elif action == 'load_template':
         org_id = getattr(Data, 'org_id', '')
+        requested_name = getattr(Data, 'tpl_name', '') or getattr(Data, 'name', '')
         if not org_id:
             print json.dumps({'success': False, 'message': 'Organization ID required'})
         else:
             try:
                 org_id = int(org_id)
-                saved = model.ExtraValueTextOrg(org_id, 'RegReportTemplate')
-                if saved:
-                    template = json.loads(saved)
-                    print json.dumps({'success': True, 'template': template, 'hasSaved': True})
-                else:
-                    print json.dumps({'success': True, 'template': None, 'hasSaved': False})
+                store = _read_template_store(org_id)
+                templates = store.get('templates', {}) or {}
+                names = sorted(templates.keys(), key=lambda s: s.lower())
+                current_name = None
+                if requested_name and str(requested_name) in templates:
+                    current_name = str(requested_name)
+                elif store.get('currentName') and store['currentName'] in templates:
+                    current_name = store['currentName']
+                elif names:
+                    current_name = names[0]
+                current_template = templates.get(current_name) if current_name else None
+                print json.dumps({
+                    'success': True,
+                    'templates': templates,
+                    'names': names,
+                    'currentName': current_name,
+                    'currentTemplate': current_template,
+                    'hasSaved': len(names) > 0
+                })
             except Exception as e:
                 print json.dumps({'success': False, 'message': safe_str(e)})
 
     # -------------------------------------------------------------------------
-    # Save Template
+    # Save Template (under a name; creates or overwrites)
     # -------------------------------------------------------------------------
     elif action == 'save_template':
         org_id = getattr(Data, 'org_id', '')
         template_json = getattr(Data, 'template_json', '')
+        name = getattr(Data, 'tpl_name', '') or getattr(Data, 'name', '') or 'Default'
         if not org_id or not template_json:
             print json.dumps({'success': False, 'message': 'Organization ID and template required'})
         else:
             try:
                 org_id = int(org_id)
                 parsed = json.loads(template_json)
-                model.AddExtraValueTextOrg(org_id, 'RegReportTemplate', template_json)
-                print json.dumps({'success': True, 'message': 'Template saved successfully'})
+                store = _read_template_store(org_id)
+                templates = store.get('templates', {}) or {}
+                templates[str(name)] = parsed
+                store['templates'] = templates
+                store['currentName'] = str(name)
+                _write_template_store(org_id, store)
+                print json.dumps({
+                    'success': True,
+                    'message': 'Saved as "' + str(name) + '"',
+                    'name': str(name),
+                    'names': sorted(templates.keys(), key=lambda s: s.lower())
+                })
+            except Exception as e:
+                print json.dumps({'success': False, 'message': safe_str(e)})
+
+    # -------------------------------------------------------------------------
+    # Delete Template by name
+    # -------------------------------------------------------------------------
+    elif action == 'delete_template':
+        org_id = getattr(Data, 'org_id', '')
+        name = getattr(Data, 'tpl_name', '') or getattr(Data, 'name', '')
+        if not org_id or not name:
+            print json.dumps({'success': False, 'message': 'Organization ID and template name required'})
+        else:
+            try:
+                org_id = int(org_id)
+                store = _read_template_store(org_id)
+                templates = store.get('templates', {}) or {}
+                if str(name) in templates:
+                    del templates[str(name)]
+                    store['templates'] = templates
+                    if store.get('currentName') == str(name):
+                        store['currentName'] = sorted(templates.keys(), key=lambda s: s.lower())[0] if templates else None
+                    _write_template_store(org_id, store)
+                print json.dumps({
+                    'success': True,
+                    'names': sorted(templates.keys(), key=lambda s: s.lower())
+                })
+            except Exception as e:
+                print json.dumps({'success': False, 'message': safe_str(e)})
+
+    # -------------------------------------------------------------------------
+    # Rename Template
+    # -------------------------------------------------------------------------
+    elif action == 'rename_template':
+        org_id = getattr(Data, 'org_id', '')
+        old_name = getattr(Data, 'tpl_old_name', '') or getattr(Data, 'old_name', '')
+        new_name = getattr(Data, 'tpl_new_name', '') or getattr(Data, 'new_name', '')
+        if not org_id or not old_name or not new_name:
+            print json.dumps({'success': False, 'message': 'Organization ID, old name, and new name required'})
+        else:
+            try:
+                org_id = int(org_id)
+                store = _read_template_store(org_id)
+                templates = store.get('templates', {}) or {}
+                old_name = str(old_name); new_name = str(new_name)
+                if old_name not in templates:
+                    print json.dumps({'success': False, 'message': 'Template "' + old_name + '" not found'})
+                elif new_name in templates and new_name != old_name:
+                    print json.dumps({'success': False, 'message': 'Template "' + new_name + '" already exists'})
+                else:
+                    templates[new_name] = templates.pop(old_name)
+                    store['templates'] = templates
+                    if store.get('currentName') == old_name:
+                        store['currentName'] = new_name
+                    _write_template_store(org_id, store)
+                    print json.dumps({
+                        'success': True,
+                        'name': new_name,
+                        'names': sorted(templates.keys(), key=lambda s: s.lower())
+                    })
             except Exception as e:
                 print json.dumps({'success': False, 'message': safe_str(e)})
 
@@ -1899,6 +2172,28 @@ if model.HttpMethod == "post":
                 print json.dumps({'success': True, 'persons': persons})
             except Exception as e:
                 print json.dumps({'success': False, 'message': safe_str(e)})
+
+    # -------------------------------------------------------------------------
+    # Apply Update — fetch latest script from DisplayCache and overwrite the
+    # installed Python content. Triggered by "Update Now" banner button.
+    # -------------------------------------------------------------------------
+    elif action == 'apply_update':
+        new_code = ''
+        try:
+            fetch_url = DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID
+            new_code = str(model.RestGet(fetch_url, {}))
+        except Exception as fe:
+            print json.dumps({'success': False, 'message': 'Failed to fetch update: ' + safe_str(fe)})
+        else:
+            if not new_code or len(new_code) < 200:
+                print json.dumps({'success': False, 'message': 'Invalid or empty script code received'})
+            else:
+                target_name = get_script_name() or DC_SCRIPT_ID
+                try:
+                    model.WriteContentPython(target_name, new_code)
+                    print json.dumps({'success': True, 'message': 'Updated ' + target_name + '. Reload the page.'})
+                except Exception as we:
+                    print json.dumps({'success': False, 'message': 'Write failed: ' + safe_str(we)})
 
     else:
         print json.dumps({'success': False, 'message': 'Unknown action: ' + action})
@@ -2257,6 +2552,7 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
 
     <!-- STEP 1: Select Involvement -->
     <div id="step1" class="rr-panel active">
+        <div id="rrAppUpdateBanner" style="display:none;background:#e8f0fd;border:1px solid #cfe3ff;border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:10px;"></div>
         <div class="rr-card">
             <div class="rr-card-title">Search Involvements with Registration Questions</div>
             <div class="rr-search-box">
@@ -2295,10 +2591,7 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                     <h4>Custom</h4>
                     <p>Start with a blank canvas</p>
                 </div>
-                <div class="rr-template-card" data-tpl="saved" id="rrSavedTplCard" style="display:none;" onclick="selectTemplate('saved')">
-                    <h4>Saved Template</h4>
-                    <p>Load previously saved template for this org</p>
-                </div>
+                <span id="rrSavedTplContainer"></span>
             </div>
         </div>
 
@@ -2479,12 +2772,38 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         <div class="rr-card">
             <div class="rr-card-title">Save &amp; Generate Report</div>
             <div id="rrGenStats" class="rr-stats"></div>
-            <div class="rr-generate-actions">
-                <button class="rr-btn rr-btn-primary" onclick="saveTemplate()"><i class="fa fa-save"></i> Save Template</button>
+            <div class="rr-generate-actions" style="flex-wrap:wrap;gap:8px;">
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <select id="rrSavedTplPicker" onchange="onSavedTemplatePicked(this.value)" style="padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:13px;min-width:200px;">
+                        <option value="">(no saved templates)</option>
+                    </select>
+                    <button class="rr-btn rr-btn-primary" id="rrSaveBtn" onclick="saveTemplate()" title="Overwrite the currently loaded saved template"><i class="fa fa-save"></i> Save</button>
+                    <button class="rr-btn rr-btn-secondary" onclick="saveTemplateAs()" title="Save current configuration under a new name"><i class="fa fa-plus"></i> Save As&hellip;</button>
+                    <button class="rr-btn rr-btn-secondary" id="rrRenameBtn" onclick="renameTemplate()" title="Rename the currently loaded saved template"><i class="fa fa-pencil"></i> Rename</button>
+                    <button class="rr-btn rr-btn-danger" id="rrDeleteBtn" onclick="deleteTemplate()" title="Delete the currently loaded saved template"><i class="fa fa-trash"></i> Delete</button>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <button class="rr-btn rr-btn-secondary" onclick="exportTemplate()" title="Download the current configuration as a JSON file"><i class="fa fa-download"></i> Export</button>
+                    <button class="rr-btn rr-btn-secondary" onclick="openImportTemplate()" title="Load a configuration from a JSON file or pasted text"><i class="fa fa-upload"></i> Import</button>
+                </div>
+                <div style="flex-basis:100%;height:0;"></div>
                 <button class="rr-btn rr-btn-success" onclick="generateFullReport()"><i class="fa fa-file-text-o"></i> Generate Report</button>
                 <button class="rr-btn rr-btn-secondary" id="rrPrintBtn" style="display:none;" onclick="printReport()"><i class="fa fa-print"></i> Print Report</button>
                 <button class="rr-btn rr-btn-secondary" id="rrCsvBtn" style="display:none;" onclick="exportCsv()"><i class="fa fa-download"></i> Export CSV</button>
             </div>
+            <div id="rrImportPanel" style="display:none;margin-top:10px;padding:12px;background:#f0f4ff;border:1px solid #cbd5e0;border-radius:6px;">
+                <div style="font-weight:600;margin-bottom:6px;">Import Template</div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+                    <input type="file" id="rrImportFile" accept=".json,application/json" style="font-size:12px;">
+                    <span style="font-size:12px;color:#666;">or paste JSON below:</span>
+                </div>
+                <textarea id="rrImportText" placeholder='Paste a previously exported template JSON here...' style="width:100%;min-height:80px;font-size:12px;font-family:monospace;padding:6px;border:1px solid #cbd5e0;border-radius:4px;"></textarea>
+                <div style="margin-top:6px;display:flex;gap:6px;">
+                    <button class="rr-btn rr-btn-primary rr-btn-sm" onclick="doImportTemplate()"><i class="fa fa-check"></i> Import</button>
+                    <button class="rr-btn rr-btn-sm" onclick="document.getElementById('rrImportPanel').style.display='none';" style="padding:4px 10px;">Cancel</button>
+                </div>
+            </div>
+            <div id="rrImportWarnings" style="display:none;margin-top:10px;"></div>
         </div>
         <div id="rrGeneratedReport" class="rr-card" style="display:none;">
             <div class="rr-card-title" style="display:flex; justify-content:space-between; align-items:center;">
@@ -2503,6 +2822,22 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
 
 <script>
 (function() {
+    var APP_VERSION = ''' + json.dumps(APP_VERSION) + ''';
+    var DC_SCRIPT_ID = ''' + json.dumps(DC_SCRIPT_ID) + ''';
+    var DC_API_BASE = ''' + json.dumps(DC_API_BASE) + ''';
+    // SCRIPT_NAME is detected client-side from the URL the browser actually loaded —
+    // this is bulletproof regardless of admin renames or model.URL quirks server-side.
+    // Falls back to the server-rendered value, then the hardcoded default.
+    var SCRIPT_NAME = (function() {
+        try {
+            var m = (window.location.pathname || '').match(/\\/PyScript(?:Form)?\\/([^\\/?#]+)/);
+            if (m && m[1]) return m[1];
+        } catch(e) {}
+        return ''' + json.dumps(get_script_name()) + ''';
+    })();
+    var APP_UPDATE_AVAILABLE = false;
+    var APP_LATEST_VERSION = '';
+
     var scriptUrl = window.location.pathname;
     if (scriptUrl.indexOf('/PyScript/') > -1) {
         scriptUrl = scriptUrl.replace('/PyScript/', '/PyScriptForm/');
@@ -2528,8 +2863,12 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         personList: [],
         questions: [],
         availableFields: {},
+        availableSubGroups: [],
         template: null,
         savedTemplate: null,
+        savedTemplates: {},
+        savedNames: [],
+        currentSavedName: null,
         generatedHtml: '',
         btMode: false,
         btPeopleIds: []
@@ -2547,6 +2886,11 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
     function ajax(action, params, callback) {
         params = params || {};
         params.action = action;
+        // Always echo the script name so server handlers (e.g. apply_update) write to the
+        // right Python content slot regardless of how the admin renamed the install.
+        if (typeof SCRIPT_NAME !== 'undefined' && SCRIPT_NAME) {
+            params.script_name = SCRIPT_NAME;
+        }
         if (state.btMode && state.btPeopleIds.length > 0) {
             params.filter_people = state.btPeopleIds.join(',');
         }
@@ -2627,6 +2971,7 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
             state.personList = data.personList || [];
             state.questions = data.questions || [];
             state.availableFields = data.availableFields || {};
+            state.availableSubGroups = data.availableSubGroups || [];
             document.getElementById('rrOrgNameBar').textContent = data.orgName;
             var countLabel = state.btMode ? data.personCount + ' selected' : data.personCount + ' people';
             document.getElementById('rrOrgPeopleCount').textContent = countLabel;
@@ -2643,13 +2988,18 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                 sel.appendChild(opt);
             }
             ajax('load_template', {org_id: orgId}, function(tplData) {
-                if (tplData.success && tplData.hasSaved) {
-                    state.savedTemplate = tplData.template;
-                    document.getElementById('rrSavedTplCard').style.display = 'block';
+                if (tplData.success) {
+                    state.savedTemplates = tplData.templates || {};
+                    state.savedNames = tplData.names || [];
+                    state.currentSavedName = tplData.currentName || null;
+                    state.savedTemplate = tplData.currentTemplate || null;
                 } else {
+                    state.savedTemplates = {};
+                    state.savedNames = [];
+                    state.currentSavedName = null;
                     state.savedTemplate = null;
-                    document.getElementById('rrSavedTplCard').style.display = 'none';
                 }
+                renderSavedTemplateCards();
                 selectTemplate('basic');
                 showToast('Organization loaded! Configure layout next.', 'success');
                 goToStep(2);
@@ -2658,6 +3008,44 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
     };
 
     // ===== STEP 2 =====
+    function renderSavedTemplateCards() {
+        var container = document.getElementById('rrSavedTplContainer');
+        if (!container) return;
+        var html = '';
+        for (var i = 0; i < state.savedNames.length; i++) {
+            var nm = state.savedNames[i];
+            html += '<div class="rr-template-card" data-tpl="saved" data-name="' + escAttr(nm) + '" onclick="selectSavedTemplate(this.dataset.name)">';
+            html += '<h4><i class="fa fa-bookmark-o"></i> ' + escHtml(nm) + '</h4>';
+            html += '<p>Saved template for this org</p>';
+            html += '</div>';
+        }
+        container.innerHTML = html;
+    }
+
+    window.selectSavedTemplate = function(name) {
+        if (!state.savedTemplates || !state.savedTemplates[name]) return;
+        state.currentSavedName = name;
+        state.savedTemplate = state.savedTemplates[name];
+        document.querySelectorAll('.rr-template-card').forEach(function(c) { c.classList.remove('selected'); });
+        var card = document.querySelector('.rr-template-card[data-tpl="saved"][data-name="' + name.replace(/"/g, '\\\\"') + '"]');
+        if (card) card.classList.add('selected');
+        state.template = JSON.parse(JSON.stringify(state.savedTemplate));
+        applyLoadedTemplateToUI();
+    };
+
+    function applyLoadedTemplateToUI() {
+        if (!state.template) return;
+        var go = state.template.globalOptions || {};
+        var ps = state.template.printSettings || {};
+        var hidEl = document.getElementById('rrHideEmpty'); if (hidEl) hidEl.checked = !!go.hideEmptyFields;
+        var hidQ = document.getElementById('rrHideUnanswered'); if (hidQ) hidQ.checked = !!go.hideUnansweredQuestions;
+        var oneEl = document.getElementById('rrOnePerPage'); if (oneEl) oneEl.checked = !!ps.onePersonPerPage;
+        var pgEl = document.getElementById('rrShowPageNum'); if (pgEl) pgEl.checked = !!ps.showPageNumbers;
+        var orgEl = document.getElementById('rrShowOrgHeader'); if (orgEl) orgEl.checked = !!ps.showOrgHeader;
+        renderSections();
+        refreshSaveControls();
+    }
+
     window.selectTemplate = function(tplName) {
         document.querySelectorAll('.rr-template-card').forEach(function(c) { c.classList.remove('selected'); });
         var card = document.querySelector('.rr-template-card[data-tpl="' + tplName + '"]');
@@ -2666,6 +3054,7 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
             state.template = JSON.parse(JSON.stringify(state.savedTemplate));
         } else if (TEMPLATES[tplName]) {
             state.template = JSON.parse(JSON.stringify(TEMPLATES[tplName]));
+            state.currentSavedName = null;
         }
         if (state.template) {
             var go = state.template.globalOptions || {};
@@ -2920,7 +3309,7 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                     html += '<button class="rr-btn rr-btn-danger rr-btn-sm" onclick="removeField(' + si + ',' + fi + ')" style="padding:2px 6px;">&times;</button>';
                     html += '</div>';
                 } else {
-                    html += '<div class="rr-field-item">';
+                    html += '<div class="rr-field-item" style="flex-wrap:wrap;">';
                     html += mvBtns;
                     html += '<span class="rr-field-label-text">';
                     html += '<input type="text" value="' + escAttr(f.label || '') + '" onchange="updateFieldLabel(' + si + ',' + fi + ',this.value)" style="border:none;background:transparent;font-size:13px;width:140px;">';
@@ -2931,7 +3320,26 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                     html += '<option value="block"' + (f.displayFormat === 'block' ? ' selected' : '') + '>Block</option>';
                     html += '</select>';
                     html += '<label style="font-size:11px;white-space:nowrap;"><input type="checkbox"' + (f.visible !== false ? ' checked' : '') + ' onchange="updateFieldVisible(' + si + ',' + fi + ',this.checked)"> Show</label>';
+                    if (f.sourceField === 'SubGroups' && (state.availableSubGroups || []).length > 0) {
+                        var sgFilter = f.subgroupFilter || [];
+                        var summary = sgFilter.length === 0 ? 'All' : sgFilter.length + ' picked';
+                        html += '<button type="button" class="rr-btn rr-btn-sm" onclick="toggleSubGroupFilter(' + si + ',' + fi + ')" style="padding:2px 8px;font-size:11px;" title="Pick which subgroups appear in this field">Subgroups: ' + escHtml(summary) + ' \\u25BE</button>';
+                    }
                     html += '<button class="rr-btn rr-btn-danger rr-btn-sm" onclick="removeField(' + si + ',' + fi + ')" style="padding:2px 6px;">&times;</button>';
+                    if (f.sourceField === 'SubGroups' && (state.availableSubGroups || []).length > 0) {
+                        var fid = 'rrSgFilter_' + si + '_' + fi;
+                        var sgFilter2 = f.subgroupFilter || [];
+                        var sgSet = {};
+                        for (var sgi = 0; sgi < sgFilter2.length; sgi++) sgSet[sgFilter2[sgi]] = true;
+                        html += '<div id="' + fid + '" style="display:none;width:100%;margin-top:4px;padding:6px 8px;background:#f0f4ff;border:1px solid #cbd5e0;border-radius:4px;">';
+                        html += '<div style="font-size:12px;font-weight:600;margin-bottom:4px;color:#2c5282;">Show only these subgroups (none = all):</div>';
+                        html += '<label style="font-size:11px;display:inline-block;margin-right:10px;cursor:pointer;"><input type="checkbox"' + (sgFilter2.length === 0 ? ' checked' : '') + ' onchange="setSubGroupFilterAll(' + si + ',' + fi + ',this.checked)"> <strong>All</strong></label>';
+                        for (var asgi = 0; asgi < state.availableSubGroups.length; asgi++) {
+                            var asg = state.availableSubGroups[asgi];
+                            html += '<label style="font-size:11px;display:inline-block;margin-right:10px;cursor:pointer;white-space:nowrap;"><input type="checkbox" data-sg="' + escAttr(asg) + '"' + (sgSet[asg] ? ' checked' : '') + ' onchange="toggleSubGroupPick(' + si + ',' + fi + ',this.dataset.sg,this.checked)"> ' + escHtml(asg) + '</label>';
+                        }
+                        html += '</div>';
+                    }
                     html += '</div>';
                 }
             }
@@ -3093,6 +3501,33 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
     window.updateFieldVisible = function(si, fi, val) { if (state.template && state.template.sections[si] && state.template.sections[si].fields[fi]) state.template.sections[si].fields[fi].visible = val; };
     window.updateFieldContent = function(si, fi, val) { if (state.template && state.template.sections[si] && state.template.sections[si].fields[fi]) state.template.sections[si].fields[fi].staticContent = val; };
 
+    // ----- Subgroup filter (Option 1: display-only filter) -----
+    window.toggleSubGroupFilter = function(si, fi) {
+        var el = document.getElementById('rrSgFilter_' + si + '_' + fi);
+        if (el) el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
+    };
+    window.setSubGroupFilterAll = function(si, fi, checked) {
+        if (!state.template || !state.template.sections[si] || !state.template.sections[si].fields[fi]) return;
+        if (checked) {
+            state.template.sections[si].fields[fi].subgroupFilter = [];
+            renderSections();
+        }
+    };
+    window.toggleSubGroupPick = function(si, fi, sgName, checked) {
+        if (!state.template || !state.template.sections[si] || !state.template.sections[si].fields[fi]) return;
+        var f = state.template.sections[si].fields[fi];
+        var arr = f.subgroupFilter || [];
+        var idx = arr.indexOf(sgName);
+        if (checked && idx < 0) arr.push(sgName);
+        if (!checked && idx >= 0) arr.splice(idx, 1);
+        f.subgroupFilter = arr;
+        // Update the button summary text without collapsing the picker
+        renderSections();
+        // Re-open the picker that was collapsed by re-render
+        var el = document.getElementById('rrSgFilter_' + si + '_' + fi);
+        if (el) el.style.display = 'block';
+    };
+
     // ===== STEP 3 =====
     window.refreshPreview = function() {
         if (!state.selectedOrgId || !state.template) return;
@@ -3113,16 +3548,332 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         document.getElementById('rrGenStats').innerHTML = h;
     }
 
+    function refreshSaveControls() {
+        var sel = document.getElementById('rrSavedTplPicker');
+        if (!sel) return;
+        var html = '';
+        if (!state.savedNames || state.savedNames.length === 0) {
+            html = '<option value="">(no saved templates)</option>';
+        } else {
+            html = '<option value="">-- pick a saved template --</option>';
+            for (var i = 0; i < state.savedNames.length; i++) {
+                var nm = state.savedNames[i];
+                var sel2 = state.currentSavedName === nm ? ' selected' : '';
+                html += '<option value="' + escAttr(nm) + '"' + sel2 + '>' + escHtml(nm) + '</option>';
+            }
+        }
+        sel.innerHTML = html;
+        var hasCurrent = !!state.currentSavedName;
+        var saveBtn = document.getElementById('rrSaveBtn');
+        var renameBtn = document.getElementById('rrRenameBtn');
+        var deleteBtn = document.getElementById('rrDeleteBtn');
+        if (saveBtn) saveBtn.disabled = !hasCurrent;
+        if (renameBtn) renameBtn.disabled = !hasCurrent;
+        if (deleteBtn) deleteBtn.disabled = !hasCurrent;
+    }
+
+    window.onSavedTemplatePicked = function(name) {
+        if (!name || !state.savedTemplates[name]) {
+            state.currentSavedName = null;
+            refreshSaveControls();
+            return;
+        }
+        state.currentSavedName = name;
+        state.savedTemplate = state.savedTemplates[name];
+        state.template = JSON.parse(JSON.stringify(state.savedTemplate));
+        applyLoadedTemplateToUI();
+        showToast('Loaded "' + name + '"', 'success');
+    };
+
     window.saveTemplate = function() {
         if (!state.selectedOrgId || !state.template) return;
-        if (state.selectedOrgId === 'bt_direct') { showToast('Cannot save template without an involvement selected. Templates are saved per-involvement.', 'danger'); return; }
-        ajax('save_template', { org_id: state.selectedOrgId, template_json: JSON.stringify(state.template) }, function(data) {
+        if (state.selectedOrgId === 'bt_direct') { showToast('Cannot save without an involvement selected. Templates are saved per-involvement.', 'danger'); return; }
+        var name = state.currentSavedName;
+        if (!name) { return saveTemplateAs(); }
+        ajax('save_template', { org_id: state.selectedOrgId, template_json: JSON.stringify(state.template), tpl_name: name }, function(data) {
             if (data.success) {
-                showToast('Template saved!', 'success');
-                state.savedTemplate = JSON.parse(JSON.stringify(state.template));
-                document.getElementById('rrSavedTplCard').style.display = 'block';
+                state.savedTemplates[name] = JSON.parse(JSON.stringify(state.template));
+                state.savedNames = data.names || state.savedNames;
+                state.currentSavedName = name;
+                state.savedTemplate = state.savedTemplates[name];
+                renderSavedTemplateCards();
+                refreshSaveControls();
+                showToast('Saved "' + name + '"', 'success');
             } else { showToast('Error: ' + data.message, 'danger'); }
         });
+    };
+
+    window.saveTemplateAs = function() {
+        if (!state.selectedOrgId || !state.template) return;
+        if (state.selectedOrgId === 'bt_direct') { showToast('Cannot save without an involvement selected.', 'danger'); return; }
+        var name = prompt('Save as (template name):', state.currentSavedName || 'My Report');
+        if (name === null) return;
+        name = (name || '').trim();
+        if (!name) { showToast('Name cannot be blank', 'warning'); return; }
+        if (state.savedTemplates[name] && !confirm('A template named "' + name + '" already exists. Overwrite?')) return;
+        ajax('save_template', { org_id: state.selectedOrgId, template_json: JSON.stringify(state.template), tpl_name: name }, function(data) {
+            if (data.success) {
+                state.savedTemplates[name] = JSON.parse(JSON.stringify(state.template));
+                state.savedNames = data.names || state.savedNames;
+                state.currentSavedName = name;
+                state.savedTemplate = state.savedTemplates[name];
+                renderSavedTemplateCards();
+                refreshSaveControls();
+                showToast('Saved as "' + name + '"', 'success');
+            } else { showToast('Error: ' + data.message, 'danger'); }
+        });
+    };
+
+    window.renameTemplate = function() {
+        if (!state.currentSavedName) return;
+        var oldName = state.currentSavedName;
+        var newName = prompt('Rename "' + oldName + '" to:', oldName);
+        if (newName === null) return;
+        newName = (newName || '').trim();
+        if (!newName || newName === oldName) return;
+        ajax('rename_template', { org_id: state.selectedOrgId, tpl_old_name: oldName, tpl_new_name: newName }, function(data) {
+            if (data.success) {
+                state.savedTemplates[newName] = state.savedTemplates[oldName];
+                delete state.savedTemplates[oldName];
+                state.savedNames = data.names || state.savedNames;
+                state.currentSavedName = newName;
+                renderSavedTemplateCards();
+                refreshSaveControls();
+                showToast('Renamed to "' + newName + '"', 'success');
+            } else { showToast('Error: ' + data.message, 'danger'); }
+        });
+    };
+
+    window.deleteTemplate = function() {
+        if (!state.currentSavedName) return;
+        var name = state.currentSavedName;
+        if (!confirm('Delete saved template "' + name + '"? This cannot be undone.')) return;
+        ajax('delete_template', { org_id: state.selectedOrgId, tpl_name: name }, function(data) {
+            if (data.success) {
+                delete state.savedTemplates[name];
+                state.savedNames = data.names || [];
+                state.currentSavedName = null;
+                state.savedTemplate = null;
+                renderSavedTemplateCards();
+                refreshSaveControls();
+                showToast('Deleted "' + name + '"', 'success');
+            } else { showToast('Error: ' + data.message, 'danger'); }
+        });
+    };
+
+    // ===== Export / Import =====
+    window.exportTemplate = function() {
+        if (!state.template) { showToast('No template loaded', 'warning'); return; }
+        var payload = {
+            _exportFormat: 'reportwriter-v1',
+            exportedAt: new Date().toISOString(),
+            sourceOrgName: state.selectedOrgName || '',
+            templateName: state.currentSavedName || 'Untitled',
+            template: state.template
+        };
+        var json = JSON.stringify(payload, null, 2);
+        var safeName = (state.currentSavedName || 'template').replace(/[^a-z0-9_\\-]+/gi, '_');
+        var orgPart = (state.selectedOrgName || 'org').replace(/[^a-z0-9_\\-]+/gi, '_').substring(0, 30);
+        var fname = orgPart + '-' + safeName + '.json';
+        try {
+            var blob = new Blob([json], {type: 'application/json'});
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url; a.download = fname;
+            document.body.appendChild(a); a.click();
+            setTimeout(function() { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+        } catch(e) { showToast('Export failed: ' + e.message, 'danger'); }
+    };
+
+    window.openImportTemplate = function() {
+        var p = document.getElementById('rrImportPanel');
+        if (p) p.style.display = (p.style.display === 'block') ? 'none' : 'block';
+        var w = document.getElementById('rrImportWarnings');
+        if (w) { w.style.display = 'none'; w.innerHTML = ''; }
+        var fileEl = document.getElementById('rrImportFile');
+        if (fileEl) {
+            fileEl.value = '';
+            fileEl.onchange = function(e) {
+                var f = e.target.files && e.target.files[0];
+                if (!f) return;
+                var reader = new FileReader();
+                reader.onload = function(ev) {
+                    document.getElementById('rrImportText').value = ev.target.result || '';
+                };
+                reader.readAsText(f);
+            };
+        }
+    };
+
+    function _normalizeForMatch(s) { return (s || '').toString().trim().toLowerCase(); }
+
+    function validateImportedTemplate(tpl) {
+        // Returns {missingQuestions: [{label, fieldRef}], missingSubgroups: [{name, fieldRef}], missingExtras: [...]}.
+        // Auto-remaps subgroup names case-insensitively if a trim-match exists in availableSubGroups.
+        var result = {missingQuestions: [], missingSubgroups: [], missingExtras: []};
+        if (!tpl || !tpl.sections) return result;
+
+        // Build lookup sets from current org context
+        var qKeys = {};
+        var qLabels = {};
+        for (var qi = 0; qi < (state.questions || []).length; qi++) {
+            var qit = state.questions[qi];
+            var k = (qit && qit.key) ? qit.key : qit;
+            var l = (qit && qit.label) ? qit.label : qit;
+            qKeys[_normalizeForMatch(k)] = k;
+            qLabels[_normalizeForMatch(l)] = k;
+        }
+        var sgMap = {};
+        for (var sgi = 0; sgi < (state.availableSubGroups || []).length; sgi++) {
+            sgMap[_normalizeForMatch(state.availableSubGroups[sgi])] = state.availableSubGroups[sgi];
+        }
+
+        for (var si = 0; si < tpl.sections.length; si++) {
+            var sec = tpl.sections[si];
+            for (var fi = 0; fi < (sec.fields || []).length; fi++) {
+                var f = sec.fields[fi];
+                if (f.fieldType === 'regquestion' && f.sourceField) {
+                    var matched = qKeys[_normalizeForMatch(f.sourceField)] || qLabels[_normalizeForMatch(f.label)] || qLabels[_normalizeForMatch(f.sourceField)];
+                    if (matched) {
+                        f.sourceField = matched;
+                    } else {
+                        result.missingQuestions.push({label: f.label || f.sourceField, sectionIdx: si, fieldIdx: fi});
+                    }
+                } else if (f.sourceField === 'SubGroups' && f.subgroupFilter && f.subgroupFilter.length > 0) {
+                    var keptFilter = [];
+                    for (var fsi = 0; fsi < f.subgroupFilter.length; fsi++) {
+                        var orig = f.subgroupFilter[fsi];
+                        var canon = sgMap[_normalizeForMatch(orig)];
+                        if (canon) {
+                            keptFilter.push(canon);
+                        } else {
+                            result.missingSubgroups.push({name: orig, sectionIdx: si, fieldIdx: fi});
+                            keptFilter.push(orig); // preserve so re-import to original involvement still works
+                        }
+                    }
+                    f.subgroupFilter = keptFilter;
+                } else if (f.fieldType === 'extravalue' && f.sourceField) {
+                    // We can't easily verify EVs here without an extra round-trip; assume the renderer
+                    // will produce empty for missing ones (consistent with existing behavior).
+                }
+            }
+        }
+        return result;
+    }
+
+    window.doImportTemplate = function() {
+        var raw = document.getElementById('rrImportText').value || '';
+        raw = raw.trim();
+        if (!raw) { showToast('Paste a JSON template or choose a file first', 'warning'); return; }
+        var parsed;
+        try { parsed = JSON.parse(raw); } catch(e) { showToast('Invalid JSON: ' + e.message, 'danger'); return; }
+        // Accept either the export envelope or a bare template
+        var tpl = (parsed && parsed._exportFormat === 'reportwriter-v1' && parsed.template) ? parsed.template : parsed;
+        if (!tpl || !tpl.sections) { showToast('Not a valid report template', 'danger'); return; }
+        var suggestedName = (parsed && parsed.templateName) ? parsed.templateName : 'Imported';
+        var nameForUI = prompt('Save imported template as:', suggestedName);
+        if (nameForUI === null) return;
+        nameForUI = (nameForUI || '').trim();
+        if (!nameForUI) { showToast('Name cannot be blank', 'warning'); return; }
+
+        var validation = validateImportedTemplate(tpl);
+
+        // Apply to UI
+        state.template = JSON.parse(JSON.stringify(tpl));
+        state.currentSavedName = nameForUI;
+        applyLoadedTemplateToUI();
+        document.getElementById('rrImportPanel').style.display = 'none';
+
+        // Auto-save to server too
+        if (state.selectedOrgId && state.selectedOrgId !== 'bt_direct') {
+            ajax('save_template', { org_id: state.selectedOrgId, template_json: JSON.stringify(state.template), tpl_name: nameForUI }, function(data) {
+                if (data.success) {
+                    state.savedTemplates[nameForUI] = JSON.parse(JSON.stringify(state.template));
+                    state.savedNames = data.names || state.savedNames;
+                    state.savedTemplate = state.savedTemplates[nameForUI];
+                    renderSavedTemplateCards();
+                    refreshSaveControls();
+                }
+            });
+        }
+
+        renderImportWarnings(validation);
+        var totalMissing = validation.missingQuestions.length + validation.missingSubgroups.length;
+        showToast(totalMissing === 0 ? 'Imported successfully' : 'Imported with ' + totalMissing + ' mismatch(es)', totalMissing === 0 ? 'success' : 'warning');
+    };
+
+    function renderImportWarnings(v) {
+        var box = document.getElementById('rrImportWarnings');
+        if (!box) return;
+        if (v.missingQuestions.length === 0 && v.missingSubgroups.length === 0) {
+            box.style.display = 'none'; box.innerHTML = '';
+            return;
+        }
+        var h = '<div style="background:#fff7ed;border:1px solid #fb923c;border-radius:6px;padding:10px 14px;">';
+        h += '<div style="font-weight:600;color:#9a3412;margin-bottom:6px;"><i class="fa fa-exclamation-triangle"></i> Imported with mismatches</div>';
+        h += '<div style="font-size:13px;color:#4a4a4a;margin-bottom:6px;">The fields below reference items that don\\'t exist in this involvement. They will render empty until adjusted.</div>';
+        if (v.missingQuestions.length > 0) {
+            h += '<div style="margin-top:6px;"><strong>Missing questions (' + v.missingQuestions.length + '):</strong><ul style="margin:4px 0 0 20px;font-size:12px;">';
+            for (var i = 0; i < v.missingQuestions.length; i++) {
+                h += '<li>' + escHtml(v.missingQuestions[i].label) + '</li>';
+            }
+            h += '</ul></div>';
+        }
+        if (v.missingSubgroups.length > 0) {
+            var seen = {}; var uniq = [];
+            for (var j = 0; j < v.missingSubgroups.length; j++) {
+                var n = v.missingSubgroups[j].name;
+                if (!seen[n]) { seen[n] = true; uniq.push(n); }
+            }
+            h += '<div style="margin-top:6px;"><strong>Subgroup filter names not in this involvement (' + uniq.length + '):</strong><ul style="margin:4px 0 0 20px;font-size:12px;">';
+            for (var k = 0; k < uniq.length; k++) {
+                h += '<li>' + escHtml(uniq[k]) + '</li>';
+            }
+            h += '</ul></div>';
+        }
+        h += '<div style="margin-top:8px;display:flex;gap:6px;">';
+        h += '<button class="rr-btn rr-btn-sm rr-btn-secondary" onclick="autoRemoveMissingFields()" style="font-size:12px;"><i class="fa fa-eraser"></i> Auto-remove missing fields</button>';
+        h += '<button class="rr-btn rr-btn-sm" onclick="document.getElementById(\\'rrImportWarnings\\').style.display=\\'none\\';" style="font-size:12px;padding:4px 10px;">Dismiss</button>';
+        h += '</div></div>';
+        box.innerHTML = h;
+        box.style.display = 'block';
+    }
+
+    window.autoRemoveMissingFields = function() {
+        if (!state.template) return;
+        var qKeys = {};
+        for (var qi = 0; qi < (state.questions || []).length; qi++) {
+            var qit = state.questions[qi];
+            var k = (qit && qit.key) ? qit.key : qit;
+            qKeys[_normalizeForMatch(k)] = true;
+        }
+        var sgMap = {};
+        for (var sgi = 0; sgi < (state.availableSubGroups || []).length; sgi++) {
+            sgMap[_normalizeForMatch(state.availableSubGroups[sgi])] = true;
+        }
+        var removedFields = 0;
+        for (var si = 0; si < state.template.sections.length; si++) {
+            var sec = state.template.sections[si];
+            var keep = [];
+            for (var fi = 0; fi < (sec.fields || []).length; fi++) {
+                var f = sec.fields[fi];
+                if (f.fieldType === 'regquestion' && f.sourceField && !qKeys[_normalizeForMatch(f.sourceField)]) {
+                    removedFields++; continue;
+                }
+                if (f.sourceField === 'SubGroups' && f.subgroupFilter && f.subgroupFilter.length > 0) {
+                    var keptFilter = [];
+                    for (var fsi = 0; fsi < f.subgroupFilter.length; fsi++) {
+                        if (sgMap[_normalizeForMatch(f.subgroupFilter[fsi])]) keptFilter.push(f.subgroupFilter[fsi]);
+                    }
+                    f.subgroupFilter = keptFilter;
+                }
+                keep.push(f);
+            }
+            sec.fields = keep;
+        }
+        renderSections();
+        document.getElementById('rrImportWarnings').style.display = 'none';
+        showToast('Removed ' + removedFields + ' field(s) referencing missing questions', 'success');
     };
 
     window.generateFullReport = function() {
@@ -3249,7 +4000,70 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         });
     }
 
+    // --- App version / auto-update ---------------------------------------
+    function checkForAppUpdate() {
+        try {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', DC_API_BASE + '/script-versions', true);
+            xhr.timeout = 5000;
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState !== 4) return;
+                if (xhr.status !== 200) return;
+                try {
+                    var versions = JSON.parse(xhr.responseText);
+                    var latest = versions[DC_SCRIPT_ID];
+                    if (latest && latest !== APP_VERSION) {
+                        APP_UPDATE_AVAILABLE = true;
+                        APP_LATEST_VERSION = latest;
+                        renderAppUpdateBanner();
+                    }
+                } catch(e) {}
+            };
+            xhr.send();
+        } catch(e) {}
+    }
+
+    function renderAppUpdateBanner() {
+        var b = document.getElementById('rrAppUpdateBanner');
+        if (!b || !APP_UPDATE_AVAILABLE) return;
+        var h = '';
+        h += '<div style="font-size:18px">&#128640;</div>';
+        h += '<div style="flex:1;font-size:12px;color:#0078d4">';
+        h += '<strong>Report Writer update available</strong>';
+        h += ' &mdash; you have <code>v' + escHtml(APP_VERSION) + '</code>, latest is <code>v' + escHtml(APP_LATEST_VERSION) + '</code>. Your saved templates are preserved.';
+        h += '</div>';
+        h += '<button id="rrAppUpdateBtn" class="rr-btn rr-btn-primary" onclick="applyAppUpdate()" style="white-space:nowrap;">Update Now</button>';
+        b.innerHTML = h;
+        b.style.display = 'flex';
+    }
+
+    window.applyAppUpdate = function() {
+        if (!confirm('Update Report Writer from v' + APP_VERSION + ' to v' + APP_LATEST_VERSION + '?\\n\\nYour saved templates and report configurations are stored separately and will be preserved.')) return;
+        var btn = document.getElementById('rrAppUpdateBtn');
+        if (btn) { btn.disabled = true; btn.innerHTML = 'Updating...'; }
+        $.post(scriptUrl, {action: 'apply_update', script_name: SCRIPT_NAME}, function(r) {
+            try {
+                var d = JSON.parse(r);
+                if (d.success) {
+                    alert(d.message || 'Updated! Reloading...');
+                    window.location.reload(true);
+                } else {
+                    alert('Update failed: ' + (d.message || 'Unknown error'));
+                    if (btn) { btn.disabled = false; btn.innerHTML = 'Update Now'; }
+                }
+            } catch(e) {
+                alert('Update failed (could not parse response)');
+                if (btn) { btn.disabled = false; btn.innerHTML = 'Update Now'; }
+            }
+        }).fail(function() {
+            alert('Update failed (network error)');
+            if (btn) { btn.disabled = false; btn.innerHTML = 'Update Now'; }
+        });
+    };
+
     function initApp() {
+        // Kick off background version check; banner appears if update available
+        checkForAppUpdate();
         // Blue Toolbar mode - has selected people
         if (btPeopleIds.length > 0) {
             state.btMode = true;
@@ -3285,7 +4099,10 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                         sel.appendChild(opt);
                     }
                     state.savedTemplate = null;
-                    document.getElementById('rrSavedTplCard').style.display = 'none';
+                    state.savedTemplates = {};
+                    state.savedNames = [];
+                    state.currentSavedName = null;
+                    renderSavedTemplateCards();
                     selectTemplate('basic');
                     showToast('People loaded! Person, family & medical fields available. Select an involvement to add registration questions.', 'success');
                     goToStep(2);
