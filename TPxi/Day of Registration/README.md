@@ -2,7 +2,7 @@
 A multi station tablet friendly tool for handling day of event registration at scale, such as VBS or summer camps. Multiple volunteers staff iPads simultaneously, each running their own station (Kindergarten, 1st Grade, etc.) and assigning incoming families to specific room involvements with live capacity tracking.
 
 - ⚙️ **Implementation Level:** Easy to Moderate
-- 🧩 **Installation:** Single script. Paste into Special Content > Python, navigate to `/PyScriptForm/TPxi_DayOfRegistration`. Configure scenarios via Admin Setup.
+- 🧩 **Installation:** Single script. Paste into Special Content > Python, navigate to `/PyScript/TPxi_DayOfRegistration`. Configure scenarios via Admin Setup.
 
 <summary><strong>Features</strong></summary>
 
@@ -80,7 +80,7 @@ A multi station tablet friendly tool for handling day of event registration at s
 1. **Admin > Advanced > Special Content > Python**
 2. Click **Add New**, name it `TPxi_DayOfRegistration`
 3. Paste the script and Save
-4. Navigate to `/PyScriptForm/TPxi_DayOfRegistration`
+4. Navigate to `/PyScript/TPxi_DayOfRegistration`
 5. Click **Admin Setup** to create your first scenario
 
 <summary><strong>Quick Setup</strong></summary>
@@ -109,4 +109,4 @@ The script uses these Special Content > Text entries:
 | `DayOfRegistration_Backup_<scenarioId>_<timestamp>` | Snapshot saved before Reset Test Assignments runs |
 
 ---
-*Written by [Ben Swaby](https://github.com/bswaby). These tools are free because they should be. If they've saved you time, consider [DisplayCache](https://displaycache.com), church digital signage that integrates with TouchPoint.*
+*Written by [Ben Swaby](https://github.com/bswaby). These tools are free because they should be. If they've saved you time, consider [DisplayCache](https://displaycache.com) Church digital signage that integrates with TouchPoint or [TPxi Go](https://tpxigo.com) your church contacts in Outlook and on your phone.*
