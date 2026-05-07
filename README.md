@@ -117,6 +117,7 @@ These are the tools churches install first and use daily:
 |------|-----------|
 | [Attendance Markings](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Markings) | Reverse Attendance Markings for 1/5 the Clicks |
 | [Attendance Report Builder](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Builder) | Easy Attendance Reports |
+| [Day of Registration](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Day%20of%20Registration) | Quickly get people in classes for day of registration |
 | [Roll Sheet](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Roll%20Sheet) | Build custom roll sheets |
 
 ---
@@ -204,6 +205,7 @@ These are the tools churches install first and use daily:
 | [Registration Export](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Registration%20Export) | Easy registration data export |
 | [Account Security Monitor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Account%20Security%20Monitor) | Advanced security analytics |
 | [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator) | Bulk document download |
+| [Day of Registration](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Day%20of%20Registration) | Quickly get people in classes for day of registration |
 | [Email Technical Diagnostics](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Email%20Technical%20Diagnostics) | Deep email troubleshooting dashboard |
 | [Involvement Processor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Processor) | Comprehensive registrant processing |
 | [Involvement Sync](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Sync) | Synchronize involvement settings across groups |
