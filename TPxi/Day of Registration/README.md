@@ -14,7 +14,6 @@ A multi station tablet friendly tool for handling day of event registration at s
 - **Pinned Registration Questions:** Pick which registration questions appear front and center in the volunteer info bar (allergies, grade, friend request) without having to click into a panel
 - **Bulk Add Destinations:** Add multiple destination rooms at once with a default capacity, especially useful for setups with 20+ rooms
 - **Find a Friend:** Search by name across the entire program (or all of TouchPoint) and see exactly which room a registrant has already been placed in
-- **Walk in Support:** Search anyone in TouchPoint and assign them on the spot, even if they were not pre registered
 - **Subgroup Filter on Display:** Color coded destination cards with sort options (A to Z, Most available, Most full) so volunteers can find rooms quickly
 - **Find Friend Filter:** Restrict friend search to a specific program or division so unrelated involvements stay out of results
 - **Undo Support:** Reverse a recent assignment with a single click, audit logged
