@@ -1,14 +1,22 @@
 # Role=Admin
 
-# Written By: Ben Swaby
-# Email: bswaby@fbchtn.org
-# GitHub:  https://github.com/bswaby/Touchpoint
-# ---------------------------------------------------------------
-# Support: These tools are free because they should be. If they've
-#          saved you time, consider DisplayCache — church digital
-#          signage that integrates with TouchPoint.
-#          https://displaycache.com
-# ---------------------------------------------------------------
+# Written By: Ben Swaby (TPxi Software, LLC)
+# Email: bswaby@fbchtn.org                                                                                                      
+# Website: https://tpxisoftware.com
+# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
+# ----------------------------------------------------------------                                                              
+# These tools are free because they should be.
+# If they've saved you time or helped your team, and you want to                                                                
+# support continued development, check out:                                                                                     
+#
+# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
+# https://displaycache.com                                
+#
+# TPxi Go(TM) - your church contacts, wherever you work.
+# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
+# or your phone. No tab switching, no lost context.
+# https://tpxigo.com                                                                                                            
+# ----------------------------------------------------------------
 
 ###############################################################
 # TouchPoint Authenticated Link Generator with Live Search
