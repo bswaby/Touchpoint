@@ -20,11 +20,6 @@
 # or your phone. No tab switching, no lost context.
 # https://tpxigo.com                                                                                                            
 # ----------------------------------------------------------------
-# Support: These tools are free because they should be. If they've
-#          saved you time, consider DisplayCache — church digital
-#          signage that integrates with TouchPoint.
-#          https://displaycache.com
-# ---------------------------------------------------------------
 
 """
 Touchpoint User Activity Analysis Tool
