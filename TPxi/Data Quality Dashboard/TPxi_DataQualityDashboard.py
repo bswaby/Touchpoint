@@ -9,8 +9,23 @@
 #2. Select New Python Script File and Name the File
 #3. Paste in all this code and Run
 #Optional: Add to navigation menu
-# written by: Ben Swaby
-# email: bswaby@fbchtn.org
+# Written By: Ben Swaby (TPxi Software, LLC)
+# Email: bswaby@fbchtn.org                                                                                                      
+# Website: https://tpxisoftware.com
+# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
+# ----------------------------------------------------------------                                                              
+# These tools are free because they should be.
+# If they've saved you time or helped your team, and you want to                                                                
+# support continued development, check out:                                                                                     
+#
+# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
+# https://displaycache.com                                
+#
+# TPxi Go(TM) - your church contacts, wherever you work.
+# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
+# or your phone. No tab switching, no lost context.
+# https://tpxigo.com                                                                                                            
+# ----------------------------------------------------------------
 #--------------------------------------------------------------------
 ####USER CONFIG FIELDS
 #--------------------------------------------------------------------
