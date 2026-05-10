@@ -9,9 +9,23 @@
 # phone numbers). V1 is match & link only - shows matched people with
 # profile links. No record updates.
 #
-# Created By: Ben Swaby
-# Email: bswaby@fbchtn.org
+# Written By: Ben Swaby (TPxi Software, LLC)
+# Email: bswaby@fbchtn.org                                                                                                      
+# Website: https://tpxisoftware.com
+# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
+# ----------------------------------------------------------------                                                              
+# These tools are free because they should be.
+# If they've saved you time or helped your team, and you want to                                                                
+# support continued development, check out:                                                                                     
 #
+# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
+# https://displaycache.com                                
+#
+# TPxi Go(TM) - your church contacts, wherever you work.
+# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
+# or your phone. No tab switching, no lost context.
+# https://tpxigo.com                                                                                                            
+# ----------------------------------------------------------------
 # Architecture:
 #   Single .py file SPA - Python AJAX handlers for POST, HTML SPA for GET.
 #   No persistent state - all data lives in browser session only.
