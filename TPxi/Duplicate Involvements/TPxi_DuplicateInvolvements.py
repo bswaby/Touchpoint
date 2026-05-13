@@ -31,6 +31,11 @@
 # Member types can be excluded from the duplicate check (e.g., exclude
 # Leader types so a leader serving in three classes is not flagged).
 #
+# Per-person actions:
+#   - Drop  : model.DropOrgMember(peopleId, orgId)
+#   - Move  : model.MoveToOrg(peopleId, fromOrgId, toOrgId)
+#            (target is any active org, scope or not)
+#
 # Every action is logged with who, what, when, source org, target org.
 # Log is stored in TouchPoint content storage as JSON, capped at the
 # last N entries.  A "View Action Log" link in the header opens it.
@@ -47,7 +52,33 @@ import traceback
 
 model.Header = 'Duplicate Involvements'
 
+# --- Version / Auto-update -------------------------------------------
 APP_VERSION = '1.0.0'
+DC_SCRIPT_ID = 'TPxi_DuplicateInvolvements'
+DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
+DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
+
+
+def get_script_name():
+    """Detect the actual script name TouchPoint installed this as (admin may
+    have renamed it). Order: posted script_name, model.URL parse, default."""
+    try:
+        if hasattr(model.Data, 'script_name') and model.Data.script_name:
+            sn = str(model.Data.script_name).strip()
+            if sn:
+                return sn
+    except:
+        pass
+    try:
+        import re
+        url = str(getattr(model, 'URL', '') or '')
+        m = re.search(r'/PyScript(?:Form)?/([^/?#&]+)', url)
+        if m:
+            return m.group(1)
+    except:
+        pass
+    return DC_SCRIPT_ID
+
 
 CONFIG = {
     'max_results': 1000,
@@ -57,17 +88,103 @@ CONFIG = {
 
 
 # ===== Helpers =====
+# Unicode handling: IronPython's json.dumps crashes on non-ASCII unicode
+# chars (e.g., names with U+00F1 n-tilde). Transliterate Latin chars to
+# ASCII so output is JSON-safe and still readable. Pattern lifted from
+# TPxi_InvolvementProcessor.py.
 
-def safe_str(v):
-    if v is None:
+_LATIN_TO_ASCII = {
+    0xc0: 'A', 0xc1: 'A', 0xc2: 'A', 0xc3: 'A', 0xc4: 'A', 0xc5: 'A',
+    0xc6: 'AE', 0xc7: 'C', 0xc8: 'E', 0xc9: 'E', 0xca: 'E', 0xcb: 'E',
+    0xcc: 'I', 0xcd: 'I', 0xce: 'I', 0xcf: 'I', 0xd0: 'D', 0xd1: 'N',
+    0xd2: 'O', 0xd3: 'O', 0xd4: 'O', 0xd5: 'O', 0xd6: 'O', 0xd8: 'O',
+    0xd9: 'U', 0xda: 'U', 0xdb: 'U', 0xdc: 'U', 0xdd: 'Y', 0xdf: 'ss',
+    0xe0: 'a', 0xe1: 'a', 0xe2: 'a', 0xe3: 'a', 0xe4: 'a', 0xe5: 'a',
+    0xe6: 'ae', 0xe7: 'c', 0xe8: 'e', 0xe9: 'e', 0xea: 'e', 0xeb: 'e',
+    0xec: 'i', 0xed: 'i', 0xee: 'i', 0xef: 'i', 0xf0: 'd', 0xf1: 'n',
+    0xf2: 'o', 0xf3: 'o', 0xf4: 'o', 0xf5: 'o', 0xf6: 'o', 0xf8: 'o',
+    0xf9: 'u', 0xfa: 'u', 0xfb: 'u', 0xfc: 'u', 0xfd: 'y', 0xff: 'y',
+    0x2018: "'", 0x2019: "'", 0x201c: '"', 0x201d: '"',
+    0x2013: '-', 0x2014: '-', 0x2026: '...', 0xa0: ' ',
+}
+
+
+def _to_ascii(s):
+    """Transliterate a unicode string to pure ASCII."""
+    if s is None:
+        return ''
+    result = []
+    for c in s:
+        o = ord(c)
+        if o < 128:
+            result.append(c)
+        else:
+            result.append(_LATIN_TO_ASCII.get(o, '?'))
+    return ''.join(result)
+
+
+def safe_str(val):
+    """Convert any value to a pure-ASCII JSON-safe string. Handles unicode,
+    .NET System.String, byte strings in multiple encodings."""
+    if val is None:
         return ''
     try:
-        return str(v)
+        if isinstance(val, unicode):
+            return _to_ascii(val)
+    except NameError:
+        pass
+    try:
+        return _to_ascii(unicode(val))
     except:
+        pass
+    try:
+        s = str(val)
         try:
-            return v.encode('utf-8', 'ignore')
+            return _to_ascii(s.decode('utf-8'))
         except:
-            return ''
+            pass
+        try:
+            return _to_ascii(s.decode('latin-1'))
+        except:
+            pass
+        try:
+            return _to_ascii(s.decode('cp1252'))
+        except:
+            pass
+        return ''.join(c if ord(c) < 128 else '?' for c in s)
+    except:
+        pass
+    try:
+        return repr(val)
+    except:
+        return ''
+
+
+def sanitize_for_json(obj):
+    """Recursively walk an object and ensure every value is safe for
+    json.dumps. Catches str, unicode, .NET System.String, SqlString, etc."""
+    if obj is None:
+        return None
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, (int, float)):
+        return obj
+    try:
+        if isinstance(obj, long):
+            return obj
+    except NameError:
+        pass
+    if isinstance(obj, dict):
+        return dict((sanitize_for_json(k), sanitize_for_json(v)) for k, v in obj.items())
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_for_json(item) for item in obj]
+    return safe_str(obj)
+
+
+def jprint(obj):
+    """json.dumps the object after sanitizing. All AJAX handlers print via this."""
+    import sys
+    sys.stdout.write(json.dumps(sanitize_for_json(obj)))
 
 
 def safe_int(v, default=0):
@@ -191,7 +308,7 @@ def handle_get_filters():
     mtypes = []
     for r in q.QuerySql("SELECT Id, Description FROM lookup.MemberType WHERE Description IS NOT NULL ORDER BY Description"):
         mtypes.append({'id': r.Id, 'description': safe_str(r.Description)})
-    print json.dumps({
+    jprint({
         'success': True,
         'programs': progs,
         'divisions': divs,
@@ -202,7 +319,7 @@ def handle_get_filters():
 def handle_search_involvements():
     term = get_data('dup_term', '').strip()
     if not term:
-        print json.dumps({'success': True, 'results': []})
+        jprint({'success': True, 'results': []})
         return
     safe_term = term.replace("'", "''")
     sql = """
@@ -225,7 +342,62 @@ def handle_search_involvements():
             'division': safe_str(r.Division),
             'program': safe_str(r.Program),
         })
-    print json.dumps({'success': True, 'results': results})
+    jprint({'success': True, 'results': results})
+
+
+def handle_bulk_lookup_involvements():
+    """Resolve a paste of involvement IDs (comma/space/newline separated)
+    to chip data. Skips inactive orgs and unknown IDs."""
+    import re
+    raw = get_data('dup_ids_raw', '')
+    # Split on anything that isn't a digit; ints only
+    ids = []
+    seen = set()
+    for tok in re.split(r'[^0-9]+', raw):
+        if not tok:
+            continue
+        try:
+            n = int(tok)
+        except:
+            continue
+        if n > 0 and n not in seen:
+            seen.add(n)
+            ids.append(n)
+
+    if not ids:
+        jprint({'success': True, 'found': [], 'missing': [], 'inactive': []})
+        return
+
+    id_csv = ','.join(str(x) for x in ids)
+    sql = """
+        SELECT o.OrganizationId,
+               o.OrganizationName,
+               o.OrganizationStatusId,
+               ISNULL(MAX(CAST(os.Division AS NVARCHAR(200))), '') AS Division,
+               ISNULL(MAX(CAST(os.Program AS NVARCHAR(200))), '') AS Program
+        FROM Organizations o
+        LEFT JOIN OrganizationStructure os ON os.OrgId = o.OrganizationId
+        WHERE o.OrganizationId IN (""" + id_csv + """)
+        GROUP BY o.OrganizationId, o.OrganizationName, o.OrganizationStatusId
+    """
+    found = []
+    inactive = []
+    seen_ids = set()
+    for r in q.QuerySql(sql):
+        oid = r.OrganizationId
+        seen_ids.add(int(oid))
+        entry = {
+            'orgId': oid,
+            'orgName': safe_str(r.OrganizationName),
+            'division': safe_str(r.Division),
+            'program': safe_str(r.Program),
+        }
+        if r.OrganizationStatusId == 30:
+            found.append(entry)
+        else:
+            inactive.append(entry)
+    missing = [i for i in ids if i not in seen_ids]
+    jprint({'success': True, 'found': found, 'missing': missing, 'inactive': inactive})
 
 
 def handle_run_search():
@@ -246,7 +418,7 @@ def handle_run_search():
     scope_orgs = resolve_scope_orgs(prog_div_groups, specific_org_ids)
 
     if not scope_orgs:
-        print json.dumps({
+        jprint({
             'success': True, 'results': [], 'scopeOrgCount': 0,
             'message': 'Empty scope. Add a program, division, or specific involvement.'
         })
@@ -286,7 +458,7 @@ def handle_run_search():
         if len(results) >= CONFIG['max_results']:
             break
 
-    print json.dumps({
+    jprint({
         'success': True,
         'results': results,
         'scopeOrgCount': len(scope_orgs),
@@ -296,7 +468,7 @@ def handle_run_search():
 def handle_get_person_detail():
     people_id = safe_int(get_data('dup_people_id', 0))
     if people_id <= 0:
-        print json.dumps({'success': False, 'message': 'No person ID'})
+        jprint({'success': False, 'message': 'No person ID'})
         return
 
     try:
@@ -315,7 +487,7 @@ def handle_get_person_detail():
 
     scope_orgs = resolve_scope_orgs(prog_div_groups, specific_org_ids)
     if not scope_orgs:
-        print json.dumps({'success': False, 'message': 'Empty scope'})
+        jprint({'success': False, 'message': 'Empty scope'})
         return
 
     org_csv = ','.join(str(x) for x in scope_orgs)
@@ -390,14 +562,14 @@ def handle_get_person_detail():
                 except:
                     pass
     except Exception as outer_e:
-        print json.dumps({
+        jprint({
             'success': False,
             'message': 'Detail query failed: ' + safe_str(outer_e),
             'trace': traceback.format_exc(),
         })
         return
 
-    print json.dumps({
+    jprint({
         'success': True,
         'peopleId': people_id,
         'name': person_name,
@@ -420,12 +592,12 @@ def handle_drop():
     people_id = safe_int(get_data('dup_people_id', 0))
     org_id = safe_int(get_data('dup_org_id', 0))
     if people_id <= 0 or org_id <= 0:
-        print json.dumps({'success': False, 'message': 'Missing person or org ID'})
+        jprint({'success': False, 'message': 'Missing person or org ID'})
         return
     try:
         person = model.GetPerson(people_id)
         if not person:
-            print json.dumps({'success': False, 'message': 'Person not found'})
+            jprint({'success': False, 'message': 'Person not found'})
             return
         person_name = safe_str(person.Name)
         org_name = _org_name(org_id)
@@ -440,9 +612,9 @@ def handle_drop():
         except:
             pass
 
-        print json.dumps({'success': True, 'message': 'Removed from ' + org_name})
+        jprint({'success': True, 'message': 'Removed from ' + org_name})
     except Exception as e:
-        print json.dumps({'success': False, 'message': 'Drop failed: ' + safe_str(e)})
+        jprint({'success': False, 'message': 'Drop failed: ' + safe_str(e)})
 
 
 def handle_move():
@@ -450,15 +622,15 @@ def handle_move():
     from_org_id = safe_int(get_data('dup_from_org_id', 0))
     to_org_id = safe_int(get_data('dup_to_org_id', 0))
     if people_id <= 0 or from_org_id <= 0 or to_org_id <= 0:
-        print json.dumps({'success': False, 'message': 'Missing IDs'})
+        jprint({'success': False, 'message': 'Missing IDs'})
         return
     if from_org_id == to_org_id:
-        print json.dumps({'success': False, 'message': 'Source and target are the same'})
+        jprint({'success': False, 'message': 'Source and target are the same'})
         return
     try:
         person = model.GetPerson(people_id)
         if not person:
-            print json.dumps({'success': False, 'message': 'Person not found'})
+            jprint({'success': False, 'message': 'Person not found'})
             return
         person_name = safe_str(person.Name)
         from_name = _org_name(from_org_id)
@@ -475,16 +647,16 @@ def handle_move():
         except:
             pass
 
-        print json.dumps({'success': True, 'message': 'Moved to ' + to_name})
+        jprint({'success': True, 'message': 'Moved to ' + to_name})
     except Exception as e:
-        print json.dumps({'success': False, 'message': 'Move failed: ' + safe_str(e)})
+        jprint({'success': False, 'message': 'Move failed: ' + safe_str(e)})
 
 
 def handle_get_log():
     limit = safe_int(get_data('dup_limit', 200))
     log = load_log()
     log_recent = list(reversed(log))[:limit]
-    print json.dumps({'success': True, 'log': log_recent, 'totalCount': len(log)})
+    jprint({'success': True, 'log': log_recent, 'totalCount': len(log)})
 
 
 # ===== Dispatch =====
@@ -496,6 +668,8 @@ if model.HttpMethod == "post":
             handle_get_filters()
         elif action == 'search_involvements':
             handle_search_involvements()
+        elif action == 'bulk_lookup_involvements':
+            handle_bulk_lookup_involvements()
         elif action == 'run_search':
             handle_run_search()
         elif action == 'get_person_detail':
@@ -506,10 +680,27 @@ if model.HttpMethod == "post":
             handle_move()
         elif action == 'get_log':
             handle_get_log()
+        elif action == 'apply_update':
+            new_code = ''
+            try:
+                fetch_url = DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID
+                new_code = str(model.RestGet(fetch_url, {}))
+            except Exception as fe:
+                jprint({'success': False, 'message': 'Failed to fetch update: ' + safe_str(fe)})
+            else:
+                if not new_code or len(new_code) < 200:
+                    jprint({'success': False, 'message': 'Invalid or empty script code received'})
+                else:
+                    target_name = get_script_name() or DC_SCRIPT_ID
+                    try:
+                        model.WriteContentPython(target_name, new_code)
+                        jprint({'success': True, 'message': 'Updated ' + target_name + '. Reload the page.'})
+                    except Exception as we:
+                        jprint({'success': False, 'message': 'Write failed: ' + safe_str(we)})
         else:
-            print json.dumps({'success': False, 'message': 'Unknown action: ' + safe_str(action)})
+            jprint({'success': False, 'message': 'Unknown action: ' + safe_str(action)})
     except Exception as e:
-        print json.dumps({
+        jprint({
             'success': False,
             'message': 'Server error: ' + safe_str(e),
             'trace': traceback.format_exc(),
@@ -517,7 +708,7 @@ if model.HttpMethod == "post":
 else:
     # ===== HTML / CSS / JS =====
     # Render via model.Form so we're served by /PyScriptForm/...
-    # POST handlers above use print json.dumps(...) for raw AJAX responses.
+    # POST handlers above use jprint(...) for raw AJAX responses.
     model.Form = """
 <style>
 .dup-root { font-family: 'Segoe UI', Arial, sans-serif; color: #222; max-width: 1400px; margin: 0 auto; padding: 12px; }
@@ -578,9 +769,10 @@ else:
 </style>
 
 <div class="dup-root" id="dupRoot">
+  <div id="appUpdateBanner" style="display:none;background:#e8f0fd;border:1px solid #cfe3ff;border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:10px;"></div>
   <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:8px; gap:12px;">
     <div>
-      <div class="dup-h1">Duplicate Involvements</div>
+      <div class="dup-h1">Duplicate Involvements <span style="font-size:11px; color:#888; font-weight:400;">v""" + APP_VERSION + """</span></div>
       <div class="dup-sub">Find people in more than one involvement within a scope. Clean down to one.</div>
     </div>
     <div>
@@ -591,6 +783,85 @@ else:
 </div>
 
 <script>
+// --- Auto-update constants ------------------------------------------
+var APP_VERSION = """ + json.dumps(APP_VERSION) + """;
+var DC_SCRIPT_ID = """ + json.dumps(DC_SCRIPT_ID) + """;
+var DC_API_BASE = """ + json.dumps(DC_API_BASE) + """;
+var SCRIPT_NAME = (function() {
+    try {
+        var m = (window.location.pathname || '').match(/\\/PyScript(?:Form)?\\/([^\\/?#]+)/);
+        if (m && m[1]) return m[1];
+    } catch(e) {}
+    return """ + json.dumps(get_script_name()) + """;
+})();
+var APP_UPDATE_AVAILABLE = false;
+var APP_LATEST_VERSION = '';
+
+function checkForAppUpdate() {
+    try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', DC_API_BASE + '/script-versions', true);
+        xhr.timeout = 5000;
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== 4 || xhr.status !== 200) return;
+            try {
+                var versions = JSON.parse(xhr.responseText);
+                var latest = versions[DC_SCRIPT_ID];
+                if (latest && latest !== APP_VERSION) {
+                    APP_UPDATE_AVAILABLE = true;
+                    APP_LATEST_VERSION = latest;
+                    renderAppUpdateBanner();
+                }
+            } catch(e) {}
+        };
+        xhr.send();
+    } catch(e) {}
+}
+
+function renderAppUpdateBanner() {
+    var b = document.getElementById('appUpdateBanner');
+    if (!b || !APP_UPDATE_AVAILABLE) return;
+    var h = '';
+    h += '<div style="font-size:18px">&#128640;</div>';
+    h += '<div style="flex:1;font-size:12px;color:#0078d4">';
+    h += '<strong>Update available</strong>';
+    h += ' &mdash; you have <code>v' + APP_VERSION + '</code>, latest is <code>v' + APP_LATEST_VERSION + '</code>. Your saved data is preserved.';
+    h += '</div>';
+    h += '<button id="appUpdateBtn" onclick="applyAppUpdate()" style="white-space:nowrap;padding:6px 14px;background:#0078d4;color:#fff;border:0;border-radius:4px;cursor:pointer;">Update Now</button>';
+    b.innerHTML = h;
+    b.style.display = 'flex';
+}
+
+window.applyAppUpdate = function() {
+    if (!confirm('Update from v' + APP_VERSION + ' to v' + APP_LATEST_VERSION + '?\\n\\nYour saved data (action log) is stored separately and will be preserved.')) return;
+    var btn = document.getElementById('appUpdateBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Updating...'; }
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', window.location.pathname, true);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.onload = function() {
+        try {
+            var d = JSON.parse(xhr.responseText);
+            if (d.success) {
+                alert(d.message || 'Updated! Reloading...');
+                window.location.reload(true);
+            } else {
+                alert('Update failed: ' + (d.message || 'Unknown error'));
+                if (btn) { btn.disabled = false; btn.innerHTML = 'Update Now'; }
+            }
+        } catch(e) {
+            alert('Update failed (could not parse response)');
+            if (btn) { btn.disabled = false; btn.innerHTML = 'Update Now'; }
+        }
+    };
+    xhr.onerror = function() {
+        alert('Update failed (network error)');
+        if (btn) { btn.disabled = false; btn.innerHTML = 'Update Now'; }
+    };
+    xhr.send('dup_action=apply_update&script_name=' + encodeURIComponent(SCRIPT_NAME));
+};
+checkForAppUpdate();
+
 window.dupApp = (function(){
 var state = {
   programs: [],
@@ -636,6 +907,9 @@ function el(tag, attrs, children) {
 function ajax(action, data, cb) {
   data = data || {};
   data.dup_action = action;
+  if (typeof SCRIPT_NAME !== 'undefined' && SCRIPT_NAME) {
+    data.script_name = SCRIPT_NAME;
+  }
   var params = [];
   for (var k in data) {
     params.push(encodeURIComponent(k) + '=' + encodeURIComponent(data[k]));
@@ -694,6 +968,19 @@ function renderScope() {
   searchWrap.appendChild(searchInput);
   searchWrap.appendChild(el('div', {id: 'dupOrgSearchResults'}));
   card.appendChild(searchWrap);
+
+  // Bulk paste IDs (collapsible)
+  var bulkDetails = el('details', {style: 'margin-top:8px;'});
+  bulkDetails.appendChild(el('summary', {style: 'cursor:pointer; font-size:12px; color:#1f4e79; font-weight:600;'}, 'Bulk paste involvement IDs'));
+  var bulkInner = el('div', {style: 'margin-top:6px;'});
+  var bulkTA = el('textarea', {id: 'dupBulkIds', class: 'dup-input', style: 'width:100%; min-height:80px; box-sizing:border-box; font-family: monospace;', placeholder: 'Paste IDs separated by commas, spaces, or newlines (e.g., 12345, 67890, 24680)'});
+  bulkInner.appendChild(bulkTA);
+  var bulkBtnRow = el('div', {style: 'margin-top:6px; display:flex; gap:8px; align-items:center;'});
+  bulkBtnRow.appendChild(el('button', {class: 'dup-btn dup-secondary dup-sm', onclick: bulkAddIds}, 'Add These IDs'));
+  bulkBtnRow.appendChild(el('span', {id: 'dupBulkStatus', class: 'dup-muted'}, ''));
+  bulkInner.appendChild(bulkBtnRow);
+  bulkDetails.appendChild(bulkInner);
+  card.appendChild(bulkDetails);
 
   card.appendChild(el('div', {class: 'dup-label'}, 'Exclude these member types from the duplicate check'));
   var mtGrid = el('div', {class: 'dup-mt-grid'});
@@ -810,6 +1097,37 @@ function addSpecificOrg(o) {
   // Clear the search input
   var inputs = document.querySelectorAll('#dupRoot input[type="text"]');
   for (var i=0; i<inputs.length; i++) inputs[i].value = '';
+}
+
+function bulkAddIds() {
+  var ta = document.getElementById('dupBulkIds');
+  var status = document.getElementById('dupBulkStatus');
+  if (!ta || !ta.value.trim()) {
+    if (status) status.textContent = 'Paste some IDs first.';
+    return;
+  }
+  if (status) status.textContent = 'Looking up...';
+  ajax('bulk_lookup_involvements', {dup_ids_raw: ta.value}, function(err, resp){
+    if (err || !resp.success) {
+      if (status) status.textContent = 'Lookup failed: ' + (err || (resp && resp.message) || '');
+      return;
+    }
+    var added = 0;
+    var dupes = 0;
+    (resp.found || []).forEach(function(o){
+      if (state.specificOrgs.some(function(s){ return s.orgId === o.orgId; })) { dupes++; return; }
+      state.specificOrgs.push(o);
+      added++;
+    });
+    renderSpecificChips();
+    ta.value = '';
+    var parts = [];
+    if (added) parts.push(added + ' added');
+    if (dupes) parts.push(dupes + ' already in scope');
+    if (resp.inactive && resp.inactive.length) parts.push(resp.inactive.length + ' inactive (skipped)');
+    if (resp.missing && resp.missing.length) parts.push(resp.missing.length + ' not found (' + resp.missing.slice(0,5).join(',') + (resp.missing.length > 5 ? ',...' : '') + ')');
+    if (status) status.textContent = parts.length ? parts.join(' . ') : 'No new IDs to add.';
+  });
 }
 
 function runSearch() {
