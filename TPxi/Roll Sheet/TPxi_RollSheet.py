@@ -49,21 +49,68 @@ import re
 
 model.Header = 'Rollsheet Generator'
 
+# --- Version / Auto-update -------------------------------------------
+APP_VERSION = '1.0.0'                              # bump on each release published
+DC_SCRIPT_ID = 'TPxi_RollSheet'
+# scripts.displaycache.com is the public domain for browser-side version checks.
+# workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
+DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
+DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
+
+def get_script_name():
+    """Detect the actual script name TouchPoint installed this as (admin may
+    have renamed it). Order: posted script_name, model.URL parse, default."""
+    try:
+        if hasattr(Data, 'script_name') and Data.script_name:
+            sn = str(Data.script_name).strip()
+            if sn:
+                return sn
+    except:
+        pass
+    try:
+        url = str(getattr(model, 'URL', '') or '')
+        m = re.search(r'/PyScript(?:Form)?/([^/?#&]+)', url)
+        if m:
+            return m.group(1)
+    except:
+        pass
+    return DC_SCRIPT_ID
+
 # =====================================================================
 # HELPER FUNCTIONS
 # =====================================================================
 
-def html_escape(text):
-    """Escape HTML special characters"""
-    if not text:
+# Latin-1/Windows-1252 transliteration to ASCII. IronPython chokes on
+# many non-ASCII bytes coming back from SQL/.NET ("'unknown' codec can't
+# decode byte 0xXX") so we never let raw bytes near html_escape or str().
+# Same pattern shared with TPxi_InvolvementProcessor and other tools.
+_LATIN_TO_ASCII = {
+    0xc0: 'A', 0xc1: 'A', 0xc2: 'A', 0xc3: 'A', 0xc4: 'A', 0xc5: 'A',
+    0xc6: 'AE', 0xc7: 'C', 0xc8: 'E', 0xc9: 'E', 0xca: 'E', 0xcb: 'E',
+    0xcc: 'I', 0xcd: 'I', 0xce: 'I', 0xcf: 'I', 0xd0: 'D', 0xd1: 'N',
+    0xd2: 'O', 0xd3: 'O', 0xd4: 'O', 0xd5: 'O', 0xd6: 'O', 0xd8: 'O',
+    0xd9: 'U', 0xda: 'U', 0xdb: 'U', 0xdc: 'U', 0xdd: 'Y', 0xdf: 'ss',
+    0xe0: 'a', 0xe1: 'a', 0xe2: 'a', 0xe3: 'a', 0xe4: 'a', 0xe5: 'a',
+    0xe6: 'ae', 0xe7: 'c', 0xe8: 'e', 0xe9: 'e', 0xea: 'e', 0xeb: 'e',
+    0xec: 'i', 0xed: 'i', 0xee: 'i', 0xef: 'i', 0xf0: 'd', 0xf1: 'n',
+    0xf2: 'o', 0xf3: 'o', 0xf4: 'o', 0xf5: 'o', 0xf6: 'o', 0xf8: 'o',
+    0xf9: 'u', 0xfa: 'u', 0xfb: 'u', 0xfc: 'u', 0xfd: 'y', 0xff: 'y',
+    0x2018: "'", 0x2019: "'", 0x201c: '"', 0x201d: '"',
+    0x2013: '-', 0x2014: '-', 0x2026: '...', 0xa0: ' ',
+}
+
+def _to_ascii(s):
+    """Transliterate a unicode string to pure ASCII."""
+    if s is None:
         return ''
-    s = str(text)
-    s = s.replace('&', '&amp;')
-    s = s.replace('<', '&lt;')
-    s = s.replace('>', '&gt;')
-    s = s.replace('"', '&quot;')
-    s = s.replace("'", '&#39;')
-    return s
+    result = []
+    for c in s:
+        o = ord(c)
+        if o < 128:
+            result.append(c)
+        else:
+            result.append(_LATIN_TO_ASCII.get(o, '?'))
+    return ''.join(result)
 
 def safe_int(val, default=0):
     try:
@@ -72,12 +119,54 @@ def safe_int(val, default=0):
         return default
 
 def safe_str(val):
+    """Convert any value to pure-ASCII safely. Handles unicode, .NET
+    System.String, byte strings in multiple encodings without ever
+    raising a UnicodeDecodeError."""
     if val is None:
         return ''
     try:
-        return str(val)
+        if isinstance(val, unicode):
+            return _to_ascii(val)
+    except NameError:
+        pass
+    try:
+        return _to_ascii(unicode(val))
+    except:
+        pass
+    try:
+        s = str(val)
+        try:
+            return _to_ascii(s.decode('utf-8'))
+        except:
+            pass
+        try:
+            return _to_ascii(s.decode('latin-1'))
+        except:
+            pass
+        try:
+            return _to_ascii(s.decode('cp1252'))
+        except:
+            pass
+        return ''.join(c if ord(c) < 128 else '?' for c in s)
+    except:
+        pass
+    try:
+        return repr(val)
     except:
         return ''
+
+def html_escape(text):
+    """Escape HTML special characters. Routes through safe_str first so
+    any non-ASCII bytes (System.String, etc.) become ASCII before escaping."""
+    if text is None or text == '':
+        return ''
+    s = safe_str(text)
+    s = s.replace('&', '&amp;')
+    s = s.replace('<', '&lt;')
+    s = s.replace('>', '&gt;')
+    s = s.replace('"', '&quot;')
+    s = s.replace("'", '&#39;')
+    return s
 
 ExcludeAnswers = [
     'Ma', 'Mon', 'Mone', 'No ', 'Non', 'Non ', 'Nine',
@@ -447,6 +536,18 @@ def _build_table_row(student, columns, ds_results, data_sources, name_line_cols=
     parts.append('</tr>')
     return ''.join(parts)
 
+
+def _build_addin_row():
+    """Blank write-in row: checkbox + visible underline in the name column.
+
+    Distinct from the column-balancing padding rows (which leave the name
+    column empty); this one is intentional space for staff to write a name.
+    """
+    return ('<tr class="rs-row rs-row-addin">'
+            '<td class="rs-td rs-td-check"><div class="rs-checkbox"></div></td>'
+            '<td class="rs-td rs-td-name"><div class="rs-addin-line">&nbsp;</div></td>'
+            '</tr>')
+
 # =====================================================================
 # AJAX HANDLERS (POST)
 # =====================================================================
@@ -639,6 +740,13 @@ if model.HttpMethod == "post":
             report_date = str(Data.report_date) if hasattr(Data, 'report_date') and Data.report_date else ''
             report_date_iso = str(Data.report_date_iso) if hasattr(Data, 'report_date_iso') and Data.report_date_iso else ''
             only_with_meeting = config.get('onlyWithMeeting', False)
+            # Blank write-in rows (per org) so staff can hand-write add-ins.
+            # Capped to a sane max to prevent a typo from generating a thousand-row sheet.
+            add_in_rows = safe_int(config.get('addInRows', 0))
+            if add_in_rows < 0:
+                add_in_rows = 0
+            if add_in_rows > 100:
+                add_in_rows = 100
 
             # Determine org IDs to include
             org_ids = []
@@ -785,22 +893,34 @@ if model.HttpMethod == "post":
 
                     th_parts = ['<th class="rs-th rs-th-check">&#10003;</th>', '<th class="rs-th rs-th-name">Name</th>']
 
+                    # Build the combined list: real students first, then any
+                    # configured blank write-in rows (represented as None).
+                    # Column-split layouts slice this list, so add-ins land
+                    # naturally at the end of each column's portion.
+                    addin_count = add_in_rows
+                    combined = list(students) + ([None] * addin_count)
+
+                    def _row_html(item):
+                        if item is None:
+                            return _build_addin_row()
+                        return _build_table_row(item, columns, ds_results, enabled_ds, name_line_cols)
+
                     if layout == 'table':
                         html_parts.append('<table class="rs-table"><thead><tr>{0}</tr></thead><tbody>'.format(''.join(th_parts)))
-                        for s in students:
-                            html_parts.append(_build_table_row(s, columns, ds_results, enabled_ds, name_line_cols))
+                        for s in combined:
+                            html_parts.append(_row_html(s))
                         html_parts.append('</tbody></table>')
 
                     elif layout == 'single_column':
                         html_parts.append('<table class="rs-table"><thead><tr>{0}</tr></thead><tbody>'.format(''.join(th_parts)))
-                        for s in students:
-                            html_parts.append(_build_table_row(s, columns, ds_results, enabled_ds, name_line_cols))
+                        for s in combined:
+                            html_parts.append(_row_html(s))
                         html_parts.append('</tbody></table>')
 
                     elif layout == 'three_column':
-                        n = len(students)
+                        n = len(combined)
                         third = int((n + 2) / 3)
-                        cols = [students[:third], students[third:third*2], students[third*2:]]
+                        cols = [combined[:third], combined[third:third*2], combined[third*2:]]
                         max_len = max(len(c) for c in cols)
 
                         html_parts.append('<div class="rs-two-col">')
@@ -808,8 +928,8 @@ if model.HttpMethod == "post":
                             html_parts.append('<div class="rs-col">')
                             html_parts.append('<table class="rs-table"><thead><tr>{0}</tr></thead><tbody>'.format(''.join(th_parts)))
                             for s in cols[ci]:
-                                html_parts.append(_build_table_row(s, columns, ds_results, enabled_ds, name_line_cols))
-                            # pad shorter columns with empty rows
+                                html_parts.append(_row_html(s))
+                            # pad shorter columns with empty rows (column balance only -- NOT writeable)
                             for _ in range(max_len - len(cols[ci])):
                                 html_parts.append('<tr class="rs-row"><td class="rs-td rs-td-check"><div class="rs-checkbox"></div></td>')
                                 html_parts.append('<td class="rs-td">&nbsp;</td></tr>')
@@ -818,27 +938,28 @@ if model.HttpMethod == "post":
                         html_parts.append('</div>')
 
                     else:
-                        mid_point = int((len(students) + 1) / 2)
-                        left_col = students[:mid_point]
-                        right_col = students[mid_point:]
+                        mid_point = int((len(combined) + 1) / 2)
+                        left_col = combined[:mid_point]
+                        right_col = combined[mid_point:]
 
                         html_parts.append('<div class="rs-two-col">')
                         html_parts.append('<div class="rs-col">')
                         html_parts.append('<table class="rs-table"><thead><tr>{0}</tr></thead><tbody>'.format(''.join(th_parts)))
                         for s in left_col:
-                            html_parts.append(_build_table_row(s, columns, ds_results, enabled_ds, name_line_cols))
+                            html_parts.append(_row_html(s))
                         html_parts.append('</tbody></table>')
                         html_parts.append('</div>')
 
                         html_parts.append('<div class="rs-col">')
                         html_parts.append('<table class="rs-table"><thead><tr>{0}</tr></thead><tbody>'.format(''.join(th_parts)))
                         for s in right_col:
-                            html_parts.append(_build_table_row(s, columns, ds_results, enabled_ds, name_line_cols))
+                            html_parts.append(_row_html(s))
+                        # column balance padding (NOT writeable)
                         while len(right_col) < len(left_col):
                             html_parts.append('<tr class="rs-row"><td class="rs-td rs-td-check"><div class="rs-checkbox"></div></td>')
                             html_parts.append('<td class="rs-td">&nbsp;</td>')
                             html_parts.append('</tr>')
-                            right_col.append(None)
+                            right_col.append('__pad__')
                         html_parts.append('</tbody></table>')
                         html_parts.append('</div>')
                         html_parts.append('</div>')
@@ -930,6 +1051,29 @@ if model.HttpMethod == "post":
                 })
         except Exception as e:
             print json.dumps({'success': False, 'message': str(e)})
+
+    # -----------------------------------------------------------------
+    # Auto-update: fetch latest source from the workers.dev mirror and
+    # overwrite the installed PythonContent slot. User data lives in
+    # separate content keys, so this is non-destructive.
+    # -----------------------------------------------------------------
+    elif action == 'apply_update':
+        new_code = ''
+        try:
+            fetch_url = DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID
+            new_code = str(model.RestGet(fetch_url, {}))
+        except Exception as fe:
+            print json.dumps({'success': False, 'message': 'Failed to fetch update: ' + str(fe)})
+        else:
+            if not new_code or len(new_code) < 200:
+                print json.dumps({'success': False, 'message': 'Invalid or empty script code received'})
+            else:
+                target_name = get_script_name() or DC_SCRIPT_ID
+                try:
+                    model.WriteContentPython(target_name, new_code)
+                    print json.dumps({'success': True, 'message': 'Updated ' + target_name + '. Reload the page.'})
+                except Exception as we:
+                    print json.dumps({'success': False, 'message': 'Write failed: ' + str(we)})
 
     # -----------------------------------------------------------------
     # Unknown action
@@ -1137,6 +1281,8 @@ else:
 .rs-td-name { min-width: 120px; }
 .rs-checkbox { width: 18px; height: 18px; border: 2px solid #007bff; border-radius: 3px; margin: 0 auto; }
 .rs-name { font-weight: 700; font-size: 13px; }
+.rs-addin-line { border-bottom: 1px solid #888; min-height: 1.4em; }
+.rs-row-addin .rs-td { background: #fcfcfc; }
 .rs-info-inline { font-weight: 400; font-size: 11px; color: #555; }
 .rs-info-line { font-size: 11px; color: #555; margin-top: 1px; }
 .rs-footer { margin-top: 16px; border-top: 1px solid #ddd; padding-top: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
@@ -1252,6 +1398,7 @@ else:
 </head>
 <body>
 <div class="rs-root" id="rsApp">
+    <div id="appUpdateBanner" style="display:none;background:#e8f0fd;border:1px solid #cfe3ff;border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:10px;"></div>
     <div class="rs-toast-container" id="rsToastContainer"></div>
     <div id="rsContent">
         <div class="rs-loading"><div class="rs-spinner"></div><p>Loading...</p></div>
@@ -1306,6 +1453,75 @@ else:
     })();
 
     // =====================================================================
+    // AUTO-UPDATE
+    // =====================================================================
+    var APP_VERSION = ''' + json.dumps(APP_VERSION) + ''';
+    var DC_SCRIPT_ID = ''' + json.dumps(DC_SCRIPT_ID) + ''';
+    var DC_API_BASE = ''' + json.dumps(DC_API_BASE) + ''';
+    // Detect the installed script name from the URL (handles admins who rename
+    // the install) and fall back to the server-side detection result.
+    var SCRIPT_NAME = (function() {
+        try {
+            var m = (window.location.pathname || '').match(/\\/PyScript(?:Form)?\\/([^\\/?#]+)/);
+            if (m && m[1]) return m[1];
+        } catch(e) {}
+        return ''' + json.dumps(get_script_name()) + ''';
+    })();
+    var APP_UPDATE_AVAILABLE = false;
+    var APP_LATEST_VERSION = '';
+
+    function checkForAppUpdate() {
+        try {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', DC_API_BASE + '/script-versions', true);
+            xhr.timeout = 5000;
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState !== 4 || xhr.status !== 200) return;
+                try {
+                    var versions = JSON.parse(xhr.responseText);
+                    var latest = versions[DC_SCRIPT_ID];
+                    if (latest && latest !== APP_VERSION) {
+                        APP_UPDATE_AVAILABLE = true;
+                        APP_LATEST_VERSION = latest;
+                        renderAppUpdateBanner();
+                    }
+                } catch(e) {}
+            };
+            xhr.send();
+        } catch(e) {}
+    }
+
+    function renderAppUpdateBanner() {
+        var b = document.getElementById('appUpdateBanner');
+        if (!b || !APP_UPDATE_AVAILABLE) return;
+        var h = '';
+        h += '<div style="font-size:18px">&#128640;</div>';
+        h += '<div style="flex:1;font-size:12px;color:#0078d4">';
+        h += '<strong>Update available</strong>';
+        h += ' &mdash; you have <code>v' + APP_VERSION + '</code>, latest is <code>v' + APP_LATEST_VERSION + '</code>. Your saved data is preserved.';
+        h += '</div>';
+        h += '<button id="appUpdateBtn" onclick="applyAppUpdate()" style="white-space:nowrap;padding:6px 14px;background:#0078d4;color:#fff;border:0;border-radius:4px;cursor:pointer;">Update Now</button>';
+        b.innerHTML = h;
+        b.style.display = 'flex';
+    }
+
+    // Exposed on window so the inline onclick can reach it from outside the IIFE.
+    window.applyAppUpdate = function() {
+        if (!confirm('Update from v' + APP_VERSION + ' to v' + APP_LATEST_VERSION + '?\\n\\nYour saved data is stored separately and will be preserved.')) return;
+        var btn = document.getElementById('appUpdateBtn');
+        if (btn) { btn.disabled = true; btn.innerHTML = 'Updating...'; }
+        ajax('apply_update', {}, function(err, d) {
+            if (!err && d && d.success) {
+                alert(d.message || 'Updated! Reloading...');
+                window.location.reload(true);
+            } else {
+                alert('Update failed: ' + ((d && d.message) || err || 'Unknown error'));
+                if (btn) { btn.disabled = false; btn.innerHTML = 'Update Now'; }
+            }
+        });
+    };
+
+    // =====================================================================
     // UTILITIES
     // =====================================================================
     function escHtml(s) {
@@ -1335,6 +1551,11 @@ else:
 
     function ajax(action, params, callback) {
         var data = 'action=' + encodeURIComponent(action);
+        // Always forward script_name so the server's get_script_name() lands on
+        // the install the user is actually viewing (matters for apply_update).
+        if (typeof SCRIPT_NAME !== 'undefined' && SCRIPT_NAME) {
+            data += '&script_name=' + encodeURIComponent(SCRIPT_NAME);
+        }
         if (params) {
             for (var key in params) {
                 if (params.hasOwnProperty(key)) {
@@ -1400,7 +1621,8 @@ else:
             layout: 'two_column',
             title: '',
             showFooter: true,
-            onlyWithMeeting: false
+            onlyWithMeeting: false,
+            addInRows: 0
         };
     }
 
@@ -1462,7 +1684,7 @@ else:
     // =====================================================================
     function renderLanding() {
         return '<div class="rs-landing">' +
-            '<div class="rs-landing-title">Rollsheet Generator</div>' +
+            '<div class="rs-landing-title">Rollsheet Generator <span style="font-size:13px;color:#888;font-weight:400;">v' + APP_VERSION + '</span></div>' +
             '<div class="rs-landing-subtitle">Create configurable rollsheets for any ministry area</div>' +
             '<div class="rs-landing-buttons">' +
                 '<div class="rs-landing-btn rs-admin-btn" onclick="RSApp.goAdmin()">' +
@@ -1656,6 +1878,12 @@ else:
         h += '<option value="age"' + (c.sortBy === 'age' ? ' selected' : '') + '>Age</option>';
         h += '<option value="gender"' + (c.sortBy === 'gender' ? ' selected' : '') + '>Gender</option>';
         h += '</select>';
+        h += '</div>';
+
+        h += '<div class="rs-form-group">';
+        h += '<label class="rs-label">Blank Write-in Rows</label>';
+        h += '<input class="rs-input" type="number" id="rsAddInRows" min="0" max="100" value="' + ((typeof c.addInRows === 'number' ? c.addInRows : 0)) + '" style="max-width:120px;">';
+        h += '<div class="rs-help-text">Empty rows added at the bottom of each org sheet so staff can write in walk-ins.</div>';
         h += '</div>';
         h += '</div>';
 
@@ -2190,6 +2418,8 @@ else:
         printHtml += '.rs-td-check{text-align:center;}';
         printHtml += '.rs-checkbox{width:18px;height:18px;border:2px solid #007bff;border-radius:3px;margin:0 auto;}';
         printHtml += '.rs-name{font-weight:700;font-size:13px;}';
+        printHtml += '.rs-addin-line{border-bottom:1px solid #888;min-height:1.4em;}';
+        printHtml += '.rs-row-addin .rs-td{background:#fcfcfc;}';
         printHtml += '.rs-info-inline{font-weight:400;font-size:11px;color:#555;}';
         printHtml += '.rs-info-line{font-size:11px;color:#555;margin-top:1px;}';
         printHtml += '.rs-footer{margin-top:16px;border-top:1px solid #ddd;padding-top:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;}';
@@ -2375,6 +2605,11 @@ else:
         c.sortBy = document.getElementById('rsSortBy').value;
         c.showFooter = document.getElementById('rsShowFooter').checked;
         c.onlyWithMeeting = document.getElementById('rsOnlyWithMeeting') ? document.getElementById('rsOnlyWithMeeting').checked : false;
+        var addInEl = document.getElementById('rsAddInRows');
+        var addInVal = addInEl ? parseInt(addInEl.value, 10) : 0;
+        if (isNaN(addInVal) || addInVal < 0) addInVal = 0;
+        if (addInVal > 100) addInVal = 100;
+        c.addInRows = addInVal;
 
         return c;
     }
@@ -2694,6 +2929,7 @@ else:
     // INIT
     // =====================================================================
     render();
+    checkForAppUpdate();
 
 })();
 </script>
