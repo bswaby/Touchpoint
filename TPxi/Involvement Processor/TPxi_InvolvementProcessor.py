@@ -1,23 +1,5 @@
 #Roles=Edit
 
-# Written By: Ben Swaby (TPxi Software, LLC)
-# Email: bswaby@fbchtn.org                                                                                                      
-# Website: https://tpxisoftware.com
-# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
-# ----------------------------------------------------------------                                                              
-# These tools are free because they should be.
-# If they've saved you time or helped your team, and you want to                                                                
-# support continued development, check out:                                                                                     
-#
-# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
-# https://displaycache.com                                
-#
-# TPxi Go(TM) - your church contacts, wherever you work.
-# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
-# or your phone. No tab switching, no lost context.
-# https://tpxigo.com                                                                                                            
-# ----------------------------------------------------------------
-
 """
 TPxi Involvement Processor
 ===========================
@@ -35,22 +17,10 @@ Features:
 - Save/load setup configurations for quick recall
 - AJAX-based responsive UI with no page reloads
 
-Version: 1.1
+Written By: Ben Swaby
+Email: bswaby@fbchtn.org
+Version: 1.0
 Date: January 2025
-
-Updates:
---------
-v1.1 (February 2025)
-- Added External Change Sync: Detects when people are removed from target
-  involvements or subgroups outside of Involvement Processor
-- Sync runs automatically when loading an effort, or manually via refresh button
-- Visual indicators: Red strikethrough for org removal, orange for subgroup removal
-- Sync modal shows: New changes detected, people still removed from involvement,
-  and people removed from subgroups
-- "Clear Removed Entries" button to clear external change flags:
-  - Org removals: Removes from processed list (appear as pending again)
-  - Subgroup removals: Clears strikethrough (stays processed)
-- Detects when removed people are added back (restoration)
 
 --Upload Instructions Start--
 To upload code to Touchpoint, use the following steps:
@@ -64,104 +34,154 @@ To upload code to Touchpoint, use the following steps:
 import json
 import datetime
 
-def _to_ascii(s):
-    """Transliterate a unicode string to pure ASCII.
-    IronPython's json.dumps fails on non-ASCII unicode chars, so we must
-    convert them to ASCII equivalents (e.g. ñ->n, é->e) to preserve readability."""
-    result = []
-    for c in s:
-        o = ord(c)
-        if o < 128:
-            result.append(c)
-        else:
-            result.append(_LATIN_TO_ASCII.get(o, '?'))
-    return ''.join(result)
-
-# Common Latin-1/CP1252 character to ASCII mapping
-_LATIN_TO_ASCII = {
-    0xc0: 'A', 0xc1: 'A', 0xc2: 'A', 0xc3: 'A', 0xc4: 'A', 0xc5: 'A',
-    0xc6: 'AE', 0xc7: 'C', 0xc8: 'E', 0xc9: 'E', 0xca: 'E', 0xcb: 'E',
-    0xcc: 'I', 0xcd: 'I', 0xce: 'I', 0xcf: 'I', 0xd0: 'D', 0xd1: 'N',
-    0xd2: 'O', 0xd3: 'O', 0xd4: 'O', 0xd5: 'O', 0xd6: 'O', 0xd8: 'O',
-    0xd9: 'U', 0xda: 'U', 0xdb: 'U', 0xdc: 'U', 0xdd: 'Y', 0xdf: 'ss',
-    0xe0: 'a', 0xe1: 'a', 0xe2: 'a', 0xe3: 'a', 0xe4: 'a', 0xe5: 'a',
-    0xe6: 'ae', 0xe7: 'c', 0xe8: 'e', 0xe9: 'e', 0xea: 'e', 0xeb: 'e',
-    0xec: 'i', 0xed: 'i', 0xee: 'i', 0xef: 'i', 0xf0: 'd', 0xf1: 'n',
-    0xf2: 'o', 0xf3: 'o', 0xf4: 'o', 0xf5: 'o', 0xf6: 'o', 0xf8: 'o',
-    0xf9: 'u', 0xfa: 'u', 0xfb: 'u', 0xfc: 'u', 0xfd: 'y', 0xff: 'y',
-    0x2018: "'", 0x2019: "'", 0x201c: '"', 0x201d: '"',
-    0x2013: '-', 0x2014: '-', 0x2026: '...', 0xa0: ' ',
-}
-
-def safe_str(val):
-    """Safely convert any value to a pure-ASCII JSON-serializable string.
-    IronPython's json.dumps crashes on non-ASCII unicode chars (even valid ones
-    like U+00F1 ñ), so all output must be ASCII. Latin characters are
-    transliterated (ñ->n, é->e) to keep names readable."""
-    if val is None:
-        return ''
-    # 1. Already a Python unicode string - transliterate to ASCII
-    try:
-        if isinstance(val, unicode):
-            return _to_ascii(val)
-    except NameError:
-        pass
-    # 2. Try unicode() - handles .NET System.String values
-    try:
-        return _to_ascii(unicode(val))
-    except:
-        pass
-    # 3. Try str() then decode to unicode, then to ASCII
-    try:
-        s = str(val)
-        try:
-            return _to_ascii(s.decode('utf-8'))
-        except:
-            pass
-        try:
-            return _to_ascii(s.decode('latin-1'))
-        except:
-            pass
-        try:
-            return _to_ascii(s.decode('cp1252'))
-        except:
-            pass
-        # Byte-by-byte ASCII fallback
-        return ''.join(c if ord(c) < 128 else '?' for c in s)
-    except:
-        pass
-    # 4. repr() as absolute last resort
-    try:
-        return repr(val)
-    except:
-        return ''
-
-def sanitize_for_json(obj):
-    """Recursively walk an object and ensure every value is safe for json.dumps.
-    In IronPython, .NET types from SQL Server may not match isinstance checks
-    for str/unicode, so we treat EVERYTHING that isn't a known primitive as
-    a string candidate and force it through safe_str."""
-    if obj is None:
-        return None
-    if isinstance(obj, bool):
-        return obj
-    if isinstance(obj, (int, float)):
-        return obj
-    # Handle long type in Python 2
-    try:
-        if isinstance(obj, long):
-            return obj
-    except NameError:
-        pass
-    if isinstance(obj, dict):
-        return {sanitize_for_json(k): sanitize_for_json(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [sanitize_for_json(item) for item in obj]
-    # EVERYTHING else gets forced through safe_str
-    # This catches str, unicode, .NET System.String, SqlString, etc.
-    return safe_str(obj)
-
 model.Header = 'Involvement Processor'
+
+# --- Version / Auto-update -------------------------------------------------
+# Bump APP_VERSION on every release published to the DisplayCache manifest.
+# See TPxi/AutoUpdate/README.md for the full mechanism. In short:
+#   1. Browser checks scripts.displaycache.com for the latest version key
+#   2. If newer, shows the "Update Now" banner
+#   3. Click sends action=apply_update; server fetches new source from the
+#      workers.dev mirror (bypasses Cloudflare Bot Fight) and rewrites the
+#      installed PythonContent slot — user data in OrgExtra is preserved.
+APP_VERSION = '1.1.0'
+DC_SCRIPT_ID = 'TPxi_InvolvementProcessor'
+DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
+DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
+
+
+def get_script_name():
+    """Detect the actual PythonContent slot this script was installed as.
+
+    Admin may rename the install (e.g. ``MyChurchProcessor`` instead of
+    ``TPxi_InvolvementProcessor``). The update writer needs to write back
+    to the slot the user is actually viewing, not the canonical ID.
+
+    Resolution order:
+      1. ``Data.script_name`` posted by the JS (most reliable — the JS
+         parses the URL the browser actually loaded).
+      2. Server-side ``model.URL`` regex.
+      3. Hardcoded ``DC_SCRIPT_ID`` fallback.
+    """
+    try:
+        if hasattr(Data, 'script_name') and Data.script_name:
+            sn = str(Data.script_name).strip()
+            if sn:
+                return sn
+    except:
+        pass
+    try:
+        import re
+        url = str(getattr(model, 'URL', '') or '')
+        m = re.search(r'/PyScript(?:Form)?/([^/?#&]+)', url)
+        if m:
+            return m.group(1)
+    except:
+        pass
+    return DC_SCRIPT_ID
+
+
+def _json_escape_string(s):
+    """Build a JSON-escaped string body (with surrounding double-quotes), pure ASCII out.
+
+    Walks char-by-char and escapes every codepoint >= 0x7F as ``\\uXXXX``.
+    Output contains ONLY bytes in 0x20..0x7E plus JSON control escapes.
+    `print` can emit that through any codec without ever choking.
+
+    IronPython quirk: str and unicode are unified as .NET System.String,
+    so iterating yields unicode chars whose `ord()` returns the codepoint.
+    A name containing Ü iterates with one char of ord 0xDC, which we emit
+    as ``\\u00dc`` — no .NET interop boundary, no codec to fail.
+    """
+    if not isinstance(s, (str, unicode)):
+        s = unicode(s)
+    parts = ['"']
+    for ch in s:
+        try:
+            code = ord(ch)
+        except Exception:
+            parts.append('\\ufffd')
+            continue
+        if   code == 0x22: parts.append('\\"')
+        elif code == 0x5C: parts.append('\\\\')
+        elif code == 0x08: parts.append('\\b')
+        elif code == 0x0C: parts.append('\\f')
+        elif code == 0x0A: parts.append('\\n')
+        elif code == 0x0D: parts.append('\\r')
+        elif code == 0x09: parts.append('\\t')
+        elif code < 0x20 or code >= 0x7F:
+            parts.append('\\u%04x' % code)
+        else:
+            parts.append(chr(code))
+    parts.append('"')
+    return ''.join(parts)
+
+
+def safe_json(obj):
+    """Serialize ``obj`` to JSON, bypassing IronPython's broken ``json.dumps``.
+
+    Why a hand-rolled encoder instead of stdlib?
+      ``json.dumps`` in IronPython 2.7 fails at the .NET interop boundary
+      on certain non-ASCII codepoints even with ``ensure_ascii=True``:
+        - Smart quote U+201C raises ``'ascii' codec can't encode character``
+        - Latin-1 Ü (0xDC) raises ``UnicodeDecodeError('unknown', u'\\xdc', ...)``
+      Both fail UNDER the json module itself, before we can intercept.
+
+      Walking the structure and emitting JSON ourselves sidesteps every
+      codec — we never call into .NET serialization, we never go through
+      stdout's ASCII codec. The output is plain ASCII bytes that `print`
+      handles trivially.
+
+    Bug history (2026-05-17, org 3346, 747 members):
+      - First symptom: umlaut killed load_registrants silently
+      - Then: smart quote in involvement name killed it again
+      - Both fixed permanently by going manual.
+    """
+    try:
+        return _json_encode(obj)
+    except Exception as _exc:
+        # Hand the caller a meaningful JSON error rather than letting
+        # the unhandled exception turn into a blank/500 response that
+        # the UI displays as "no registrants" with no clue why.
+        try:
+            return '{"success":false,"message":' + _json_escape_string(
+                'safe_json failed: ' + repr(_exc)) + '}'
+        except Exception:
+            return '{"success":false,"message":"safe_json catastrophic failure"}'
+
+
+def _json_encode(obj):
+    """Recursive JSON encoder — pure ASCII output, no ``json.dumps`` involved."""
+    if obj is None:
+        return 'null'
+    if obj is True:
+        return 'true'
+    if obj is False:
+        return 'false'
+    if isinstance(obj, bool):  # safety: should hit the literal branches above
+        return 'true' if obj else 'false'
+    if isinstance(obj, (int, long)):
+        return str(obj)
+    if isinstance(obj, float):
+        if obj != obj:  # NaN — JSON has no representation, use null
+            return 'null'
+        return repr(obj)
+    if isinstance(obj, (str, unicode)):
+        return _json_escape_string(obj)
+    if isinstance(obj, datetime.datetime):
+        return _json_escape_string(obj.isoformat())
+    if isinstance(obj, datetime.date):
+        return _json_escape_string(obj.isoformat())
+    if isinstance(obj, dict):
+        items = []
+        for k, v in obj.items():
+            key = k if isinstance(k, (str, unicode)) else unicode(k)
+            items.append(_json_escape_string(key) + ':' + _json_encode(v))
+        return '{' + ','.join(items) + '}'
+    if isinstance(obj, (list, tuple)):
+        return '[' + ','.join(_json_encode(x) for x in obj) + ']'
+    # Fall back to repr-as-string for anything else (sql Row objects, etc.)
+    return _json_escape_string(unicode(obj))
 
 # ============================================================================
 # AJAX HANDLER
@@ -213,14 +233,14 @@ if model.HttpMethod == "post":
             for r in results:
                 involvements.append({
                     'id': r.OrganizationId,
-                    'name': safe_str(r.OrganizationName),
-                    'division': safe_str(r.DivisionName),
-                    'program': safe_str(r.ProgramName),
+                    'name': r.OrganizationName,
+                    'division': r.DivisionName or '',
+                    'program': r.ProgramName or '',
                     'memberCount': r.MemberCount or 0
                 })
-            print json.dumps({'success': True, 'involvements': involvements})
+            print safe_json({'success': True, 'involvements': involvements})
         except Exception as e:
-            print json.dumps({'success': False, 'message': str(e)})
+            print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Get Programs and Divisions for filter dropdowns
@@ -238,7 +258,7 @@ if model.HttpMethod == "post":
             """
             programs = []
             for r in q.QuerySql(prog_sql):
-                programs.append({'id': r.Id, 'name': safe_str(r.Name)})
+                programs.append({'id': r.Id, 'name': r.Name})
 
             # Get divisions
             div_sql = """
@@ -250,11 +270,11 @@ if model.HttpMethod == "post":
             """
             divisions = []
             for r in q.QuerySql(div_sql):
-                divisions.append({'id': r.Id, 'name': safe_str(r.Name), 'programId': r.ProgId})
+                divisions.append({'id': r.Id, 'name': r.Name, 'programId': r.ProgId})
 
-            print json.dumps({'success': True, 'programs': programs, 'divisions': divisions})
+            print safe_json({'success': True, 'programs': programs, 'divisions': divisions})
         except Exception as e:
-            print json.dumps({'success': False, 'message': str(e)})
+            print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Load Registrants with Registration Questions/Answers
@@ -262,16 +282,13 @@ if model.HttpMethod == "post":
     # -------------------------------------------------------------------------
     elif action == 'load_registrants':
         import re
-        import time
         org_id = getattr(Data, 'org_id', '')
 
         if not org_id:
-            print json.dumps({'success': False, 'message': 'Organization ID required'})
+            print safe_json({'success': False, 'message': 'Organization ID required'})
         else:
             try:
                 org_id = int(org_id)
-                diagnostics = []  # Collect diagnostic info for client display
-                load_start = time.time()
 
                 # Get organization members with birthdate for age-in-months calculation
                 members_sql = """
@@ -337,27 +354,20 @@ if model.HttpMethod == "post":
 
                     member = {
                         'peopleId': r.PeopleId,
-                        'name': safe_str(r.Name),
-                        'email': safe_str(r.EmailAddress),
-                        'phone': safe_str(r.CellPhone),
+                        'name': r.Name,
+                        'email': r.EmailAddress or '',
+                        'phone': r.CellPhone or '',
                         'age': r.Age,
                         'ageMonths': age_months,
                         'gender': 'M' if r.GenderId == 1 else 'F' if r.GenderId == 2 else '',
                         'enrollmentDate': str(r.EnrollmentDate)[:10] if r.EnrollmentDate else '',
-                        'memberType': safe_str(r.MemberType),
+                        'memberType': r.MemberType or '',
                         'answers': {},
                         'subgroups': []  # Will be populated below
                     }
                     members.append(member)
                     member_ids.append(r.PeopleId)
                     member_map[r.PeopleId] = member
-
-                members_elapsed = round(time.time() - load_start, 2)
-                diagnostics.append({
-                    'phase': 'Load Members',
-                    'status': 'ok',
-                    'detail': 'Loaded {0} members in {1}s'.format(len(members), members_elapsed)
-                })
 
                 # Get registration questions and answers using RegQuestion/RegAnswer tables (newer registrations)
                 # This approach matches MissionsDashboard - gets questions through the answer relationships
@@ -388,33 +398,20 @@ if model.HttpMethod == "post":
                         if answers_result:
                             for r in answers_result:
                                 # Build questions list from actual answers found
-                                q_text = safe_str(r.Question)
-                                if q_text and q_text not in question_set:
+                                if r.Question and r.Question not in question_set:
                                     questions.append({
                                         'id': str(r.RegQuestionId) if r.RegQuestionId else 'q_' + str(len(questions)),
-                                        'text': q_text
+                                        'text': r.Question
                                     })
-                                    question_set.add(q_text)
+                                    question_set.add(r.Question)
 
                                 # Find the member and add their answer
-                                if q_text:
-                                    for m in members:
-                                        if m['peopleId'] == r.PeopleId:
-                                            m['answers'][q_text] = safe_str(r.Answer)
-                                            break
-                        questions_elapsed = round(time.time() - load_start, 2)
-                        diagnostics.append({
-                            'phase': 'Registration Questions',
-                            'status': 'ok',
-                            'detail': 'Found {0} questions via RegQuestion tables ({1}s)'.format(len(questions), questions_elapsed)
-                        })
-                    except Exception as eq:
-                        questions_elapsed = round(time.time() - load_start, 2)
-                        diagnostics.append({
-                            'phase': 'Registration Questions',
-                            'status': 'warning',
-                            'detail': 'RegQuestion query failed ({0}s): {1}'.format(questions_elapsed, str(eq))
-                        })
+                                for m in members:
+                                    if m['peopleId'] == r.PeopleId:
+                                        m['answers'][r.Question] = r.Answer or ''
+                                        break
+                    except:
+                        pass
 
                 # Also try RegistrationData table for older registrations (XML format)
                 rd_sql = """
@@ -451,8 +448,8 @@ if model.HttpMethod == "post":
                                 # Extract ExtraQuestion elements
                                 extra_pattern = r'<ExtraQuestion[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</ExtraQuestion>'
                                 for match in re.finditer(extra_pattern, person_xml):
-                                    question = safe_str(match.group(1))
-                                    answer = safe_str(match.group(2))
+                                    question = match.group(1)
+                                    answer = match.group(2)
                                     if question and question not in m['answers']:
                                         m['answers'][question] = answer.strip() if answer else ''
                                         if question not in question_set:
@@ -462,8 +459,8 @@ if model.HttpMethod == "post":
                                 # Extract Text elements
                                 text_pattern = r'<Text[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</Text>'
                                 for match in re.finditer(text_pattern, person_xml):
-                                    question = safe_str(match.group(1))
-                                    answer = safe_str(match.group(2))
+                                    question = match.group(1)
+                                    answer = match.group(2)
                                     if question and question not in m['answers']:
                                         m['answers'][question] = answer.strip() if answer else ''
                                         if question not in question_set:
@@ -473,8 +470,8 @@ if model.HttpMethod == "post":
                                 # Extract YesNoQuestion elements (convert True/False to Yes/No)
                                 yn_pattern = r'<YesNoQuestion[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</YesNoQuestion>'
                                 for match in re.finditer(yn_pattern, person_xml):
-                                    question = safe_str(match.group(1))
-                                    answer_val = safe_str(match.group(2))
+                                    question = match.group(1)
+                                    answer_val = match.group(2)
                                     if question and question not in m['answers']:
                                         # Convert True/False to Yes/No for readability
                                         answer = 'Yes' if answer_val.strip() == 'True' else 'No' if answer_val.strip() == 'False' else answer_val.strip()
@@ -482,19 +479,8 @@ if model.HttpMethod == "post":
                                         if question not in question_set:
                                             questions.append({'id': 'xml_' + question[:20], 'text': question})
                                             question_set.add(question)
-                    xml_elapsed = round(time.time() - load_start, 2)
-                    diagnostics.append({
-                        'phase': 'XML Registration Data',
-                        'status': 'ok',
-                        'detail': 'Parsed RegistrationData XML ({0}s total)'.format(xml_elapsed)
-                    })
-                except Exception as ex:
-                    xml_elapsed = round(time.time() - load_start, 2)
-                    diagnostics.append({
-                        'phase': 'XML Registration Data',
-                        'status': 'warning',
-                        'detail': 'XML parse failed ({0}s): {1}'.format(xml_elapsed, str(ex))
-                    })
+                except:
+                    pass
 
                 # Get subgroups for this org
                 subgroups_sql = """
@@ -514,22 +500,11 @@ if model.HttpMethod == "post":
                     if sg_result:
                         for r in sg_result:
                             subgroups.append({
-                                'name': safe_str(r.Name),
+                                'name': r.Name,
                                 'count': r.MemberCount or 0
                             })
-                    sg_elapsed = round(time.time() - load_start, 2)
-                    diagnostics.append({
-                        'phase': 'Subgroups',
-                        'status': 'ok',
-                        'detail': 'Found {0} subgroups ({1}s)'.format(len(subgroups), sg_elapsed)
-                    })
-                except Exception as esg:
-                    sg_elapsed = round(time.time() - load_start, 2)
-                    diagnostics.append({
-                        'phase': 'Subgroups',
-                        'status': 'warning',
-                        'detail': 'Subgroup query failed ({0}s): {1}'.format(sg_elapsed, str(esg))
-                    })
+                except:
+                    pass
 
                 # Get subgroup membership for each member
                 if member_ids:
@@ -548,121 +523,18 @@ if model.HttpMethod == "post":
                         if msg_result:
                             for r in msg_result:
                                 if r.PeopleId in member_map:
-                                    member_map[r.PeopleId]['subgroups'].append(safe_str(r.SubgroupName))
-                        mssg_elapsed = round(time.time() - load_start, 2)
-                        diagnostics.append({
-                            'phase': 'Member Subgroups',
-                            'status': 'ok',
-                            'detail': 'Loaded member subgroup assignments ({0}s)'.format(mssg_elapsed)
-                        })
-                    except Exception as ems:
-                        mssg_elapsed = round(time.time() - load_start, 2)
-                        diagnostics.append({
-                            'phase': 'Member Subgroups',
-                            'status': 'warning',
-                            'detail': 'Member subgroup query failed ({0}s): {1}'.format(mssg_elapsed, str(ems))
-                        })
+                                    member_map[r.PeopleId]['subgroups'].append(r.SubgroupName)
+                    except:
+                        pass
 
-                total_elapsed = round(time.time() - load_start, 2)
-                diagnostics.append({
-                    'phase': 'Complete',
-                    'status': 'ok',
-                    'detail': 'Total load time: {0}s | {1} members, {2} questions, {3} subgroups'.format(
-                        total_elapsed, len(members), len(questions), len(subgroups))
-                })
-
-                result_obj = {
+                print safe_json({
                     'success': True,
                     'members': members,
                     'questions': questions,
-                    'subgroups': subgroups,
-                    'diagnostics': diagnostics
-                }
-
-                # Serialize and send response (sanitize all strings to prevent encoding errors)
-                try:
-                    result_json = json.dumps(sanitize_for_json(result_obj))
-                    print result_json
-                except Exception as ej:
-                    # JSON serialization failed - find the problem member/field
-                    bad_fields = []
-                    for mi, m in enumerate(members):
-                        for fk, fv in m.items():
-                            if fk == 'answers':
-                                for ak, av in fv.items():
-                                    try:
-                                        json.dumps({ak: av})
-                                    except:
-                                        bad_fields.append('Member #{0} (PeopleId={1}) answers[{2}] type={3} repr={4}'.format(
-                                            mi, m.get('peopleId', '?'), safe_str(ak), type(av).__name__, safe_str(repr(av))))
-                            elif fk == 'subgroups':
-                                for si, sv in enumerate(fv):
-                                    try:
-                                        json.dumps(sv)
-                                    except:
-                                        bad_fields.append('Member #{0} (PeopleId={1}) subgroups[{2}] type={3} repr={4}'.format(
-                                            mi, m.get('peopleId', '?'), si, type(sv).__name__, safe_str(repr(sv))))
-                            else:
-                                try:
-                                    json.dumps({fk: fv})
-                                except:
-                                    bad_fields.append('Member #{0} (PeopleId={1}) .{2} type={3} repr={4}'.format(
-                                        mi, m.get('peopleId', '?'), fk, type(fv).__name__, safe_str(repr(fv))))
-                    diagnostics.append({
-                        'phase': 'JSON Serialization',
-                        'status': 'error',
-                        'detail': 'Failed to serialize response: {0}'.format(safe_str(str(ej)))
-                    })
-                    if bad_fields:
-                        diagnostics.append({
-                            'phase': 'Bad Fields',
-                            'status': 'error',
-                            'detail': '; '.join(bad_fields[:10])
-                        })
-                    else:
-                        diagnostics.append({
-                            'phase': 'Field Scan',
-                            'status': 'warning',
-                            'detail': 'Individual field scan found no issues - problem may be in questions or subgroups list'
-                        })
-                        # Check questions and subgroups lists too
-                        bad_other = []
-                        for qi, qo in enumerate(questions):
-                            try:
-                                json.dumps(qo)
-                            except:
-                                bad_other.append('questions[{0}] type={1}'.format(qi, type(qo).__name__))
-                        for si, so in enumerate(subgroups):
-                            try:
-                                json.dumps(so)
-                            except:
-                                bad_other.append('subgroups[{0}] type={1}'.format(si, type(so).__name__))
-                        if bad_other:
-                            diagnostics.append({
-                                'phase': 'Bad List Items',
-                                'status': 'error',
-                                'detail': '; '.join(bad_other[:10])
-                            })
-                    print json.dumps(sanitize_for_json({
-                        'success': False,
-                        'message': 'Serialization error: {0}'.format(safe_str(str(ej))),
-                        'diagnostics': diagnostics,
-                        'members': [],
-                        'questions': questions,
-                        'subgroups': subgroups
-                    }))
-            except Exception as e:
-                # Include any diagnostics collected before the error
-                try:
-                    diag = diagnostics
-                except:
-                    diag = []
-                diag.append({
-                    'phase': 'Fatal Error',
-                    'status': 'error',
-                    'detail': safe_str(str(e))
+                    'subgroups': subgroups
                 })
-                print json.dumps(sanitize_for_json({'success': False, 'message': safe_str(str(e)), 'diagnostics': diag}))
+            except Exception as e:
+                print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Search Members within involvement (for match finding)
@@ -672,7 +544,7 @@ if model.HttpMethod == "post":
         search_term = getattr(Data, 'search_term', '')
 
         if not org_id:
-            print json.dumps({'success': False, 'message': 'Organization ID required'})
+            print safe_json({'success': False, 'message': 'Organization ID required'})
         else:
             try:
                 where_clause = "om.OrganizationId = {0}".format(int(org_id))
@@ -699,14 +571,14 @@ if model.HttpMethod == "post":
                 for r in q.QuerySql(sql):
                     results.append({
                         'peopleId': r.PeopleId,
-                        'name': safe_str(r.Name),
+                        'name': r.Name,
                         'age': r.Age,
                         'gender': 'M' if r.GenderId == 1 else 'F' if r.GenderId == 2 else ''
                     })
 
-                print json.dumps({'success': True, 'members': results})
+                print safe_json({'success': True, 'members': results})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Global People Search
@@ -715,7 +587,7 @@ if model.HttpMethod == "post":
         search_term = getattr(Data, 'search_term', '')
 
         if not search_term or len(search_term) < 2:
-            print json.dumps({'success': False, 'message': 'Search term must be at least 2 characters'})
+            print safe_json({'success': False, 'message': 'Search term must be at least 2 characters'})
         else:
             try:
                 safe_term = search_term.replace("'", "''")
@@ -742,16 +614,16 @@ if model.HttpMethod == "post":
                 for r in q.QuerySql(sql):
                     results.append({
                         'peopleId': r.PeopleId,
-                        'name': safe_str(r.Name),
-                        'email': safe_str(r.EmailAddress),
+                        'name': r.Name,
+                        'email': r.EmailAddress or '',
                         'age': r.Age,
                         'gender': 'M' if r.GenderId == 1 else 'F' if r.GenderId == 2 else '',
-                        'status': safe_str(r.MemberStatus)
+                        'status': r.MemberStatus or ''
                     })
 
-                print json.dumps({'success': True, 'people': results})
+                print safe_json({'success': True, 'people': results})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Get Target Involvement Counts (for load balancing display)
@@ -760,7 +632,7 @@ if model.HttpMethod == "post":
         org_ids = getattr(Data, 'org_ids', '')
 
         if not org_ids:
-            print json.dumps({'success': False, 'message': 'Organization IDs required'})
+            print safe_json({'success': False, 'message': 'Organization IDs required'})
         else:
             try:
                 # Parse org IDs - convert to string first in case it comes in as int
@@ -805,13 +677,13 @@ if model.HttpMethod == "post":
                             for sg in sg_list:
                                 if sg and hasattr(sg, 'Name') and sg.Name:
                                     subgroups.append({
-                                        'name': safe_str(sg.Name),
+                                        'name': sg.Name,
                                         'count': sg.MemberCount or 0 if hasattr(sg, 'MemberCount') else 0
                                     })
 
                             results.append({
                                 'orgId': org.OrganizationId if hasattr(org, 'OrganizationId') and org.OrganizationId else org_id,
-                                'name': safe_str(org.OrganizationName) if hasattr(org, 'OrganizationName') and org.OrganizationName else 'Unknown',
+                                'name': org.OrganizationName if hasattr(org, 'OrganizationName') and org.OrganizationName else 'Unknown',
                                 'totalCount': org.MemberCount or 0 if hasattr(org, 'MemberCount') else 0,
                                 'subgroups': subgroups
                             })
@@ -825,9 +697,9 @@ if model.HttpMethod == "post":
                             'error': str(inner_e)
                         })
 
-                print json.dumps({'success': True, 'targets': results, 'debug': {'org_ids_raw': str(org_ids), 'parsed_ids': ids, 'result_count': len(results)}})
+                print safe_json({'success': True, 'targets': results, 'debug': {'org_ids_raw': str(org_ids), 'parsed_ids': ids, 'result_count': len(results)}})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Process Queue - Add people to target involvement/subgroups
@@ -838,7 +710,7 @@ if model.HttpMethod == "post":
         subgroup_names = getattr(Data, 'subgroup_names', '')
 
         if not people_ids or not target_org_id:
-            print json.dumps({'success': False, 'message': 'People and target organization required'})
+            print safe_json({'success': False, 'message': 'People and target organization required'})
         else:
             try:
                 target_org_id = int(target_org_id)
@@ -863,14 +735,14 @@ if model.HttpMethod == "post":
 
                             processed.append({
                                 'peopleId': pid,
-                                'name': safe_str(person.Name2)
+                                'name': person.Name2
                             })
                         else:
                             errors.append({'peopleId': pid, 'error': 'Person not found'})
                     except Exception as e:
                         errors.append({'peopleId': pid, 'error': str(e)})
 
-                print json.dumps({
+                print safe_json({
                     'success': True,
                     'processed': processed,
                     'errors': errors,
@@ -881,7 +753,7 @@ if model.HttpMethod == "post":
                     }
                 })
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Save Configuration
@@ -891,15 +763,15 @@ if model.HttpMethod == "post":
         config_data = getattr(Data, 'config_data', '{}')
 
         if not org_id:
-            print json.dumps({'success': False, 'message': 'Organization ID required'})
+            print safe_json({'success': False, 'message': 'Organization ID required'})
         else:
             try:
                 org_id = int(org_id)
                 # Store config in org extra value
                 model.AddExtraValueTextOrg(org_id, "InvolvementProcessorConfig", config_data)
-                print json.dumps({'success': True, 'message': 'Configuration saved'})
+                print safe_json({'success': True, 'message': 'Configuration saved'})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Load Configuration
@@ -908,17 +780,17 @@ if model.HttpMethod == "post":
         org_id = getattr(Data, 'org_id', '')
 
         if not org_id:
-            print json.dumps({'success': False, 'message': 'Organization ID required'})
+            print safe_json({'success': False, 'message': 'Organization ID required'})
         else:
             try:
                 org_id = int(org_id)
                 config = model.ExtraValueTextOrg(org_id, "InvolvementProcessorConfig")
                 if config:
-                    print json.dumps({'success': True, 'config': json.loads(config)})
+                    print safe_json({'success': True, 'config': json.loads(config)})
                 else:
-                    print json.dumps({'success': True, 'config': None})
+                    print safe_json({'success': True, 'config': None})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Watchlist Management
@@ -929,7 +801,7 @@ if model.HttpMethod == "post":
         requested_name = getattr(Data, 'requested_name', '')
 
         if not org_id or not watcher_id or not requested_name:
-            print json.dumps({'success': False, 'message': 'All fields required'})
+            print safe_json({'success': False, 'message': 'All fields required'})
         else:
             try:
                 org_id = int(org_id)
@@ -947,32 +819,32 @@ if model.HttpMethod == "post":
                 })
 
                 # Save updated watchlist
-                model.AddExtraValueTextOrg(org_id, "InvolvementProcessorWatchlist", json.dumps(watchlist))
+                model.AddExtraValueTextOrg(org_id, "InvolvementProcessorWatchlist", safe_json(watchlist))
 
-                print json.dumps({'success': True, 'message': 'Added to watchlist', 'watchlist': watchlist})
+                print safe_json({'success': True, 'message': 'Added to watchlist', 'watchlist': watchlist})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     elif action == 'get_watchlist':
         org_id = getattr(Data, 'org_id', '')
 
         if not org_id:
-            print json.dumps({'success': False, 'message': 'Organization ID required'})
+            print safe_json({'success': False, 'message': 'Organization ID required'})
         else:
             try:
                 org_id = int(org_id)
                 existing = model.ExtraValueTextOrg(org_id, "InvolvementProcessorWatchlist")
                 watchlist = json.loads(existing) if existing else []
-                print json.dumps({'success': True, 'watchlist': watchlist})
+                print safe_json({'success': True, 'watchlist': watchlist})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     elif action == 'remove_watchlist':
         org_id = getattr(Data, 'org_id', '')
         index = getattr(Data, 'index', '')
 
         if not org_id:
-            print json.dumps({'success': False, 'message': 'Organization ID required'})
+            print safe_json({'success': False, 'message': 'Organization ID required'})
         else:
             try:
                 org_id = int(org_id)
@@ -983,20 +855,24 @@ if model.HttpMethod == "post":
 
                 if 0 <= index < len(watchlist):
                     watchlist.pop(index)
-                    model.AddExtraValueTextOrg(org_id, "InvolvementProcessorWatchlist", json.dumps(watchlist))
+                    model.AddExtraValueTextOrg(org_id, "InvolvementProcessorWatchlist", safe_json(watchlist))
 
-                print json.dumps({'success': True, 'watchlist': watchlist})
+                print safe_json({'success': True, 'watchlist': watchlist})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Effort Management - List all efforts for an organization
     # -------------------------------------------------------------------------
     elif action == 'list_efforts':
         org_id = getattr(Data, 'org_id', '')
+        # Hide archived (merged-away) efforts by default so the picker stays
+        # uncluttered; UI passes include_archived=true when showing the
+        # "Show archived" panel where restore is available.
+        include_archived = str(getattr(Data, 'include_archived', '')).lower() in ('true', '1', 'yes')
 
         if not org_id:
-            print json.dumps({'success': False, 'message': 'Organization ID required'})
+            print safe_json({'success': False, 'message': 'Organization ID required'})
         else:
             try:
                 org_id = int(org_id)
@@ -1009,18 +885,35 @@ if model.HttpMethod == "post":
                 }
                 data = json.loads(existing) if existing else {'efforts': []}
                 efforts = data.get('efforts', [])
-                # Return just the summary info for listing
+                # Return summary info for listing. Archived efforts carry
+                # `archived`, `archivedAt`, and `mergedInto` so the UI can
+                # render them with a Restore action and show what they
+                # were merged into.
                 effort_list = []
+                archived_count = 0
                 for e in efforts:
+                    is_archived = bool(e.get('archived'))
+                    if is_archived:
+                        archived_count += 1
+                        if not include_archived:
+                            continue
                     effort_list.append({
                         'id': e.get('id'),
                         'name': e.get('name'),
                         'updatedAt': e.get('updatedAt'),
-                        'processedCount': len(e.get('processed', []))
+                        'processedCount': len(e.get('processed', [])),
+                        'archived': is_archived,
+                        'archivedAt': e.get('archivedAt'),
+                        'mergedInto': e.get('mergedInto')
                     })
-                print json.dumps({'success': True, 'efforts': effort_list, 'debug': debug_info})
+                print safe_json({
+                    'success': True,
+                    'efforts': effort_list,
+                    'archivedCount': archived_count,
+                    'debug': debug_info
+                })
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Effort Management - Save an effort (create or update)
@@ -1034,7 +927,7 @@ if model.HttpMethod == "post":
         processed_ids = getattr(Data, 'processed_ids', '')  # Legacy support
 
         if not org_id or not effort_name:
-            print json.dumps({'success': False, 'message': 'Organization ID and effort name required'})
+            print safe_json({'success': False, 'message': 'Organization ID and effort name required'})
         else:
             try:
                 org_id = int(org_id)
@@ -1069,7 +962,7 @@ if model.HttpMethod == "post":
                             found = True
                             break
                     if not found:
-                        print json.dumps({'success': False, 'message': 'Effort not found'})
+                        print safe_json({'success': False, 'message': 'Effort not found'})
                         # Early exit handled by the if/else structure
                 else:
                     # Create new effort
@@ -1086,11 +979,11 @@ if model.HttpMethod == "post":
 
                 # Save back
                 data['efforts'] = efforts
-                model.AddExtraValueTextOrg(org_id, "InvolvementProcessorEfforts", json.dumps(data))
+                model.AddExtraValueTextOrg(org_id, "InvolvementProcessorEfforts", safe_json(data))
 
-                print json.dumps({'success': True, 'message': 'Effort saved', 'effortId': effort_id})
+                print safe_json({'success': True, 'message': 'Effort saved', 'effortId': effort_id})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Effort Management - Load a specific effort
@@ -1100,7 +993,7 @@ if model.HttpMethod == "post":
         effort_id = getattr(Data, 'effort_id', '')
 
         if not org_id or not effort_id:
-            print json.dumps({'success': False, 'message': 'Organization ID and effort ID required'})
+            print safe_json({'success': False, 'message': 'Organization ID and effort ID required'})
         else:
             try:
                 org_id = int(org_id)
@@ -1115,11 +1008,11 @@ if model.HttpMethod == "post":
                         break
 
                 if effort:
-                    print json.dumps({'success': True, 'effort': effort})
+                    print safe_json({'success': True, 'effort': effort})
                 else:
-                    print json.dumps({'success': False, 'message': 'Effort not found'})
+                    print safe_json({'success': False, 'message': 'Effort not found'})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Effort Management - Delete an effort
@@ -1129,7 +1022,7 @@ if model.HttpMethod == "post":
         effort_id = getattr(Data, 'effort_id', '')
 
         if not org_id or not effort_id:
-            print json.dumps({'success': False, 'message': 'Organization ID and effort ID required'})
+            print safe_json({'success': False, 'message': 'Organization ID and effort ID required'})
         else:
             try:
                 org_id = int(org_id)
@@ -1142,12 +1035,144 @@ if model.HttpMethod == "post":
 
                 if len(new_efforts) < len(efforts):
                     data['efforts'] = new_efforts
-                    model.AddExtraValueTextOrg(org_id, "InvolvementProcessorEfforts", json.dumps(data))
-                    print json.dumps({'success': True, 'message': 'Effort deleted'})
+                    model.AddExtraValueTextOrg(org_id, "InvolvementProcessorEfforts", safe_json(data))
+                    print safe_json({'success': True, 'message': 'Effort deleted'})
                 else:
-                    print json.dumps({'success': False, 'message': 'Effort not found'})
+                    print safe_json({'success': False, 'message': 'Effort not found'})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
+
+    # -------------------------------------------------------------------------
+    # Effort Management - Merge two efforts (soft-archives the source)
+    # -------------------------------------------------------------------------
+    # Combines the processed list from `source_effort_id` into
+    # `target_effort_id`, deduping by peopleId. The source effort is
+    # NOT deleted — it is marked `archived: true` with a `mergedInto`
+    # pointer so the operation is reversible via `unarchive_effort`.
+    elif action == 'merge_efforts':
+        org_id = getattr(Data, 'org_id', '')
+        source_effort_id = getattr(Data, 'source_effort_id', '')
+        target_effort_id = getattr(Data, 'target_effort_id', '')
+
+        if not org_id or not source_effort_id or not target_effort_id:
+            print safe_json({'success': False, 'message': 'org_id, source_effort_id, and target_effort_id required'})
+        elif source_effort_id == target_effort_id:
+            print safe_json({'success': False, 'message': 'Source and target must be different efforts'})
+        else:
+            try:
+                org_id = int(org_id)
+                existing = model.ExtraValueTextOrg(org_id, "InvolvementProcessorEfforts")
+                data = json.loads(existing) if existing else {'efforts': []}
+                efforts = data.get('efforts', [])
+
+                source = None
+                target = None
+                for e in efforts:
+                    if e.get('id') == source_effort_id:
+                        source = e
+                    elif e.get('id') == target_effort_id:
+                        target = e
+
+                if not source:
+                    print safe_json({'success': False, 'message': 'Source effort not found'})
+                elif not target:
+                    print safe_json({'success': False, 'message': 'Target effort not found'})
+                elif source.get('archived'):
+                    print safe_json({'success': False, 'message': 'Source effort is already archived'})
+                elif target.get('archived'):
+                    print safe_json({'success': False, 'message': 'Cannot merge into an archived effort — restore it first'})
+                else:
+                    # Build union of processed records, keyed by peopleId so the
+                    # same person processed in both efforts isn't double-counted.
+                    # Tie-break: if both sides have a `processedAt` timestamp,
+                    # keep the more recent one so subgroup/note metadata from
+                    # the latest decision wins.
+                    target_processed = target.get('processed', []) or []
+                    source_processed = source.get('processed', []) or []
+                    target_count_before = len(target_processed)
+
+                    merged = {}
+                    for p in target_processed:
+                        pid = p.get('peopleId') if isinstance(p, dict) else p
+                        if pid is not None:
+                            merged[pid] = p if isinstance(p, dict) else {'peopleId': pid}
+                    for p in source_processed:
+                        pid = p.get('peopleId') if isinstance(p, dict) else p
+                        if pid is None:
+                            continue
+                        new_entry = p if isinstance(p, dict) else {'peopleId': pid}
+                        existing_entry = merged.get(pid)
+                        if existing_entry and isinstance(existing_entry, dict):
+                            existing_ts = existing_entry.get('processedAt', '') or ''
+                            new_ts = new_entry.get('processedAt', '') or ''
+                            if new_ts >= existing_ts:
+                                merged[pid] = new_entry
+                        else:
+                            merged[pid] = new_entry
+
+                    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                    target['processed'] = list(merged.values())
+                    target['updatedAt'] = now
+
+                    # Soft-archive — keep recoverable instead of deleting.
+                    source['archived'] = True
+                    source['archivedAt'] = now
+                    source['mergedInto'] = target_effort_id
+                    source['updatedAt'] = now
+
+                    data['efforts'] = efforts
+                    model.AddExtraValueTextOrg(org_id, "InvolvementProcessorEfforts", safe_json(data))
+
+                    print safe_json({
+                        'success': True,
+                        'message': 'Merged "' + source.get('name', '') + '" into "' + target.get('name', '') + '"',
+                        'movedCount': len(merged) - target_count_before,
+                        'targetTotal': len(merged),
+                        'archivedEffortId': source_effort_id
+                    })
+            except Exception as e:
+                print safe_json({'success': False, 'message': str(e)})
+
+    # -------------------------------------------------------------------------
+    # Effort Management - Restore (unarchive) an effort
+    # -------------------------------------------------------------------------
+    # Reverses a merge by clearing the archived/mergedInto metadata so the
+    # effort reappears in the regular picker. Does NOT touch the target
+    # effort the records were merged into — the target keeps its merged
+    # data, so after restore you'll have duplicate processed records in
+    # both efforts. This is intentional: the target's records remain its
+    # own state, the source's records are independently recoverable.
+    elif action == 'unarchive_effort':
+        org_id = getattr(Data, 'org_id', '')
+        effort_id = getattr(Data, 'effort_id', '')
+
+        if not org_id or not effort_id:
+            print safe_json({'success': False, 'message': 'org_id and effort_id required'})
+        else:
+            try:
+                org_id = int(org_id)
+                existing = model.ExtraValueTextOrg(org_id, "InvolvementProcessorEfforts")
+                data = json.loads(existing) if existing else {'efforts': []}
+                efforts = data.get('efforts', [])
+
+                found = False
+                for e in efforts:
+                    if e.get('id') == effort_id:
+                        for k in ('archived', 'archivedAt', 'mergedInto'):
+                            if k in e:
+                                del e[k]
+                        e['updatedAt'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                        found = True
+                        break
+
+                if found:
+                    data['efforts'] = efforts
+                    model.AddExtraValueTextOrg(org_id, "InvolvementProcessorEfforts", safe_json(data))
+                    print safe_json({'success': True, 'message': 'Effort restored'})
+                else:
+                    print safe_json({'success': False, 'message': 'Effort not found'})
+            except Exception as e:
+                print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Sync Effort - Check for external changes to involvement/subgroup membership
@@ -1158,7 +1183,7 @@ if model.HttpMethod == "post":
         auto_update = getattr(Data, 'auto_update', 'false') == 'true'
 
         if not org_id or not effort_id:
-            print json.dumps({'success': False, 'message': 'Organization ID and effort ID required'})
+            print safe_json({'success': False, 'message': 'Organization ID and effort ID required'})
         else:
             try:
                 org_id = int(org_id)
@@ -1175,7 +1200,7 @@ if model.HttpMethod == "post":
                         break
 
                 if not effort:
-                    print json.dumps({'success': False, 'message': 'Effort not found'})
+                    print safe_json({'success': False, 'message': 'Effort not found'})
                 else:
                     processed = effort.get('processed', [])
                     changes = []
@@ -1200,7 +1225,7 @@ if model.HttpMethod == "post":
                             continue
 
                         person = model.GetPerson(people_id)
-                        person_name = safe_str(person.Name2) if person else 'Unknown (ID: {0})'.format(people_id)
+                        person_name = person.Name2 if person else 'Unknown (ID: {0})'.format(people_id)
 
                         # Check CURRENT state in TouchPoint
                         currently_in_org = model.InOrg(people_id, target_org_id) if person else False
@@ -1307,12 +1332,12 @@ if model.HttpMethod == "post":
                         effort['processed'] = updated_processed
                         effort['lastSyncAt'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                         data['efforts'][effort_idx] = effort
-                        model.AddExtraValueTextOrg(org_id, "InvolvementProcessorEfforts", json.dumps(data))
+                        model.AddExtraValueTextOrg(org_id, "InvolvementProcessorEfforts", safe_json(data))
 
                     # Count only items with actual changes for changeCount
                     actual_changes = [c for c in changes if c['changes']]
 
-                    print json.dumps({
+                    print safe_json({
                         'success': True,
                         'changes': actual_changes,
                         'changeCount': len(actual_changes),
@@ -1324,7 +1349,7 @@ if model.HttpMethod == "post":
                         }
                     })
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     # -------------------------------------------------------------------------
     # Mark person as processed
@@ -1334,7 +1359,7 @@ if model.HttpMethod == "post":
         people_id = getattr(Data, 'people_id', '')
 
         if not org_id or not people_id:
-            print json.dumps({'success': False, 'message': 'Organization and People ID required'})
+            print safe_json({'success': False, 'message': 'Organization and People ID required'})
         else:
             try:
                 org_id = int(org_id)
@@ -1346,41 +1371,67 @@ if model.HttpMethod == "post":
 
                 if people_id not in processed:
                     processed.append(people_id)
-                    model.AddExtraValueTextOrg(org_id, "InvolvementProcessorProcessed", json.dumps(processed))
+                    model.AddExtraValueTextOrg(org_id, "InvolvementProcessorProcessed", safe_json(processed))
 
-                print json.dumps({'success': True, 'processed': processed})
+                print safe_json({'success': True, 'processed': processed})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     elif action == 'get_processed':
         org_id = getattr(Data, 'org_id', '')
 
         if not org_id:
-            print json.dumps({'success': False, 'message': 'Organization ID required'})
+            print safe_json({'success': False, 'message': 'Organization ID required'})
         else:
             try:
                 org_id = int(org_id)
                 existing = model.ExtraValueTextOrg(org_id, "InvolvementProcessorProcessed")
                 processed = json.loads(existing) if existing else []
-                print json.dumps({'success': True, 'processed': processed})
+                print safe_json({'success': True, 'processed': processed})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
 
     elif action == 'clear_processed':
         org_id = getattr(Data, 'org_id', '')
 
         if not org_id:
-            print json.dumps({'success': False, 'message': 'Organization ID required'})
+            print safe_json({'success': False, 'message': 'Organization ID required'})
         else:
             try:
                 org_id = int(org_id)
                 model.AddExtraValueTextOrg(org_id, "InvolvementProcessorProcessed", "[]")
-                print json.dumps({'success': True, 'message': 'Processed list cleared'})
+                print safe_json({'success': True, 'message': 'Processed list cleared'})
             except Exception as e:
-                print json.dumps({'success': False, 'message': str(e)})
+                print safe_json({'success': False, 'message': str(e)})
+
+    # -------------------------------------------------------------------------
+    # Auto-update — fetch latest source from DisplayCache worker mirror and
+    # rewrite the PythonContent slot the user is currently viewing.
+    # See TPxi/AutoUpdate/README.md for the full mechanism.
+    # -------------------------------------------------------------------------
+    elif action == 'apply_update':
+        new_code = ''
+        try:
+            fetch_url = DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID
+            new_code = str(model.RestGet(fetch_url, {}))
+        except Exception as fe:
+            print safe_json({'success': False, 'message': 'Failed to fetch update: ' + str(fe)})
+        else:
+            # Length guard: a real source file is many KB. A short response
+            # almost always means the worker returned an HTML error page or
+            # an empty 200 — never overwrite the installed script with that.
+            if not new_code or len(new_code) < 200:
+                print safe_json({'success': False, 'message': 'Invalid or empty script code received'})
+            else:
+                target_name = get_script_name() or DC_SCRIPT_ID
+                try:
+                    model.WriteContentPython(target_name, new_code)
+                    print safe_json({'success': True, 'message': 'Updated ' + target_name + '. Reload the page.'})
+                except Exception as we:
+                    print safe_json({'success': False, 'message': 'Write failed: ' + str(we)})
 
     else:
-        print json.dumps({'success': False, 'message': 'Unknown action: ' + action})
+        print safe_json({'success': False, 'message': 'Unknown action: ' + action})
 
 # ============================================================================
 # MAIN PAGE DISPLAY
@@ -1466,6 +1517,29 @@ else:
     position: sticky;
     top: 10px;
     z-index: 100;
+    /* Cap the whole sticky panel to the viewport so it can never push
+       Target Assignment (which sits below it) off-screen no matter how
+       many people are queued. The list inside scrolls instead. */
+    max-height: calc(100vh - 20px);
+    display: flex;
+    flex-direction: column;
+}
+
+.ip-queue-sticky .ip-panel-body {
+    /* Let the body flex into remaining space within the capped panel. */
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* The actual scrollable list of selected names. Capped so it doesn't
+   crowd out the Clear All button or anything below it. */
+#queueList {
+    overflow-y: auto;
+    max-height: 50vh;
+    min-height: 0;
+    flex: 1 1 auto;
 }
 
 /* Person Cards */
@@ -1976,7 +2050,15 @@ var state = {
     // Effort tracking
     currentEffort: null,  // { name: 'Cabin Assignments', id: 'effort_123' }
     efforts: [],          // List of available efforts for current source
-    effortDirty: false    // Track if current effort has unsaved changes
+    effortDirty: false,   // Track if current effort has unsaved changes
+    // Picker state (efforts modal). Archived efforts are hidden by default
+    // and revealed via the "Show archived" toggle inside the picker.
+    pickerShowArchived: false,
+    pickerArchivedCount: 0,
+    // Merge state — set while the merge-target modal is open so the
+    // confirm handler knows which source to merge.
+    mergeSourceId: null,
+    mergeSourceName: ''
 };
 
 var searchTimeout = null;
@@ -2046,15 +2128,17 @@ console.log('jQuery version:', typeof $ !== 'undefined' ? $.fn.jquery : 'NOT LOA
 // ============================================================================
 // AJAX Helper
 // ============================================================================
-function ajax(action, params, callback, options) {
-    var startTime = performance.now();
+function ajax(action, params, callback) {
     console.log('ajax() called with action:', action);
     params = params || {};
-    options = options || {};
     params.ajax = 'true';
     params.action = action;
-
-    var timeoutMs = options.timeout || 120000; // 2 min default, configurable
+    // Pass the install-name on every request so server-side handlers
+    // (notably apply_update) can write back to the correct PythonContent
+    // slot even if the admin renamed the install. See AutoUpdate README.
+    if (typeof SCRIPT_NAME !== 'undefined' && SCRIPT_NAME) {
+        params.script_name = SCRIPT_NAME;
+    }
 
     console.log('AJAX URL:', scriptUrl);
     console.log('AJAX params:', params);
@@ -2063,55 +2147,23 @@ function ajax(action, params, callback, options) {
         url: scriptUrl,
         type: 'POST',
         data: params,
-        timeout: timeoutMs,
         success: function(response) {
-            var elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-            var respLen = response ? response.length : 0;
-            console.log('AJAX success [' + action + '] - ' + elapsed + 's, ' + respLen + ' bytes');
-
-            if (respLen === 0) {
-                console.error('AJAX [' + action + '] returned EMPTY response (0 bytes). Possible causes: ASP.NET blocked parameter name, server timeout, or script error.');
-                showToast('Empty response from server for "' + action + '". This may indicate a server error.', 'danger');
-                if (callback) callback({ success: false, message: 'Empty response from server (0 bytes). The server may have timed out or encountered an error.', diagnostics: [{ phase: 'Network', status: 'error', detail: 'Empty response (0 bytes) after ' + elapsed + 's' }] });
-                return;
-            }
-
+            console.log('AJAX success - raw response:', response);
+            console.log('Response length:', response ? response.length : 0);
             try {
                 var data = JSON.parse(response);
-                data._clientTiming = { elapsed: elapsed, responseBytes: respLen };
-                console.log('Parsed response [' + action + ']:', data);
+                console.log('Parsed response data:', data);
                 if (callback) callback(data);
             } catch(e) {
-                console.error('Parse error [' + action + ']:', e);
-                console.error('Raw response (first 500 chars):', response.substring(0, 500));
-                showToast('Error parsing response for "' + action + '": ' + e.message, 'danger');
-                if (callback) callback({ success: false, message: 'JSON parse error: ' + e.message, diagnostics: [{ phase: 'JSON Parse', status: 'error', detail: 'Failed to parse ' + respLen + ' byte response after ' + elapsed + 's: ' + e.message }] });
+                console.error('Parse error:', e, response);
+                showToast('Error processing response', 'danger');
             }
         },
         error: function(xhr, status, error) {
-            var elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-            console.error('AJAX error [' + action + '] after ' + elapsed + 's:', status, error);
-            console.error('XHR status:', xhr.status, 'statusText:', xhr.statusText);
-            console.error('XHR responseText (first 500):', xhr.responseText ? xhr.responseText.substring(0, 500) : '(empty)');
-
-            var userMsg = 'Network error';
-            var diagDetail = '';
-            if (status === 'timeout') {
-                userMsg = 'Request timed out after ' + (timeoutMs/1000) + ' seconds. The involvement may have too many members to load at once.';
-                diagDetail = 'Request timed out after ' + elapsed + 's (limit: ' + (timeoutMs/1000) + 's)';
-            } else if (xhr.status === 0) {
-                userMsg = 'Connection lost. Please check your internet connection and try again.';
-                diagDetail = 'Connection failed (status 0) after ' + elapsed + 's';
-            } else if (xhr.status >= 500) {
-                userMsg = 'Server error (' + xhr.status + '). The server may be overloaded or the data may contain problematic characters.';
-                diagDetail = 'Server error ' + xhr.status + ' after ' + elapsed + 's';
-            } else {
-                userMsg = 'Request failed: ' + (error || status) + ' (HTTP ' + xhr.status + ')';
-                diagDetail = 'HTTP ' + xhr.status + ' ' + (error || status) + ' after ' + elapsed + 's';
-            }
-
-            showToast(userMsg, 'danger');
-            if (callback) callback({ success: false, message: userMsg, diagnostics: [{ phase: 'Network', status: 'error', detail: diagDetail }] });
+            console.error('AJAX error:', error);
+            console.error('XHR status:', status);
+            console.error('XHR responseText:', xhr.responseText);
+            showToast('Network error: ' + error, 'danger');
         }
     });
 }
@@ -2220,6 +2272,7 @@ function loadEfforts(orgId, skipPrompt) {
         console.log('efforts count:', response.efforts ? response.efforts.length : 0);
         if (response.success) {
             state.efforts = response.efforts || [];
+            state.pickerArchivedCount = response.archivedCount || 0;
             console.log('state.efforts:', state.efforts);
 
             // If there are existing efforts and we're not skipping the prompt, show the choice modal
@@ -2246,60 +2299,251 @@ function loadEfforts(orgId, skipPrompt) {
 function showContinueEffortModal() {
     console.log('showContinueEffortModal called, efforts:', state.efforts);
     try {
-        // Build list of previous efforts
-        var html = '';
-        state.efforts.forEach(function(e) {
-            console.log('Building effort item:', e);
-            var dateStr = e.updatedAt || 'Unknown date';
-            html += '<a href="#" class="list-group-item list-group-item-action" data-effort-id="' + e.id + '">';
-            html += '<div class="d-flex justify-content-between align-items-center">';
-            html += '<div>';
-            html += '<strong>' + escapeHtml(e.name) + '</strong>';
-            html += '<br><small class="text-muted">' + (e.processedCount || 0) + ' processed - Last updated: ' + dateStr + '</small>';
-            html += '</div>';
-            html += '<i class="bi bi-chevron-right"></i>';
-            html += '</div>';
-            html += '</a>';
-        });
-        console.log('Modal HTML built, length:', html.length);
-        $('#previousEffortsList').html(html);
-
-        // Bind click handlers using jQuery (avoids quote escaping issues)
-        $('#previousEffortsList a').on('click', function(ev) {
-            ev.preventDefault();
-            var effortId = $(this).data('effort-id');
-            console.log('Effort clicked:', effortId);
-            selectEffortFromModal(effortId);
-        });
+        renderEffortsList();
 
         var modalEl = document.getElementById('continueEffortModal');
-        console.log('Modal element:', modalEl);
         if (modalEl) {
-            // Check if there's already an instance
             var existingModal = bootstrap.Modal.getInstance(modalEl);
-            console.log('Existing modal instance:', existingModal);
-
             if (existingModal) {
-                console.log('Using existing modal instance');
                 existingModal.show();
             } else {
-                console.log('Creating new modal instance');
                 var modal = new bootstrap.Modal(modalEl);
                 modal.show();
             }
-            console.log('Modal show() called');
-
-            // Debug: Check modal state after a brief delay
-            setTimeout(function() {
-                console.log('Modal classList after show:', modalEl.className);
-                console.log('Modal display style:', window.getComputedStyle(modalEl).display);
-            }, 500);
         } else {
             console.error('continueEffortModal element not found');
         }
     } catch (err) {
         console.error('Error in showContinueEffortModal:', err);
     }
+}
+
+// Render the efforts picker list — split into its own function so
+// the Show Archived toggle and post-merge refresh can re-render
+// without re-opening the modal.
+function renderEffortsList() {
+    var html = '';
+    var activeEfforts = [];
+    var archivedEfforts = [];
+    (state.efforts || []).forEach(function(e) {
+        if (e.archived) archivedEfforts.push(e); else activeEfforts.push(e);
+    });
+
+    if (activeEfforts.length === 0 && !state.pickerShowArchived) {
+        html = '<div class="text-muted text-center py-3">No active efforts. Click <em>Start Fresh</em> to begin one.</div>';
+    }
+
+    activeEfforts.forEach(function(e) {
+        var dateStr = e.updatedAt || 'Unknown date';
+        // Actions cluster uses stopPropagation so clicking Merge/Delete
+        // doesn't also trigger the row-select.
+        html += '<div class="list-group-item d-flex justify-content-between align-items-center" data-effort-id="' + e.id + '">';
+        html +=   '<a href="#" class="flex-grow-1 text-decoration-none text-reset effort-select" data-effort-id="' + e.id + '">';
+        html +=     '<strong>' + escapeHtml(e.name) + '</strong>';
+        html +=     '<br><small class="text-muted">' + (e.processedCount || 0) + ' processed - Last updated: ' + dateStr + '</small>';
+        html +=   '</a>';
+        html +=   '<div class="btn-group btn-group-sm ms-2 effort-actions">';
+        html +=     '<button type="button" class="btn btn-outline-primary effort-merge-btn" data-effort-id="' + e.id + '" title="Merge into another effort"><i class="bi bi-arrow-bar-up"></i> Merge</button>';
+        html +=     '<button type="button" class="btn btn-outline-danger effort-delete-btn" data-effort-id="' + e.id + '" data-effort-name="' + escapeHtml(e.name) + '" title="Delete this effort"><i class="bi bi-trash"></i></button>';
+        html +=   '</div>';
+        html += '</div>';
+    });
+
+    // Show Archived toggle + archived rows live in their own bordered section
+    // so it's visually obvious they're separate from the active list.
+    var totalArchived = state.pickerArchivedCount || archivedEfforts.length;
+    if (totalArchived > 0 || state.pickerShowArchived) {
+        html += '<div class="mt-3 pt-2 border-top">';
+        html +=   '<a href="#" id="togglePickerArchivedLink" class="small text-muted text-decoration-none">';
+        if (state.pickerShowArchived) {
+            html += '<i class="bi bi-chevron-down"></i> Hide archived (' + archivedEfforts.length + ')';
+        } else {
+            html += '<i class="bi bi-chevron-right"></i> Show archived (' + totalArchived + ')';
+        }
+        html +=   '</a>';
+        html += '</div>';
+
+        if (state.pickerShowArchived) {
+            if (archivedEfforts.length === 0) {
+                html += '<div class="text-muted small text-center py-2">No archived efforts.</div>';
+            }
+            archivedEfforts.forEach(function(e) {
+                var dateStr = e.archivedAt || e.updatedAt || 'Unknown date';
+                html += '<div class="list-group-item d-flex justify-content-between align-items-center bg-light" data-effort-id="' + e.id + '">';
+                html +=   '<div class="flex-grow-1">';
+                html +=     '<span class="text-muted"><i class="bi bi-archive me-1"></i>' + escapeHtml(e.name) + '</span>';
+                html +=     '<br><small class="text-muted">' + (e.processedCount || 0) + ' processed - Archived: ' + dateStr;
+                if (e.mergedInto) html += ' (merged)';
+                html +=     '</small>';
+                html +=   '</div>';
+                html +=   '<div class="btn-group btn-group-sm ms-2">';
+                html +=     '<button type="button" class="btn btn-outline-success effort-restore-btn" data-effort-id="' + e.id + '" title="Restore this effort"><i class="bi bi-arrow-counterclockwise"></i> Restore</button>';
+                html +=   '</div>';
+                html += '</div>';
+            });
+        }
+    }
+
+    $('#previousEffortsList').html(html);
+
+    // Bind row-select on the name area only — actions handle their own clicks.
+    $('#previousEffortsList .effort-select').off('click').on('click', function(ev) {
+        ev.preventDefault();
+        var effortId = $(this).data('effort-id');
+        selectEffortFromModal(effortId);
+    });
+    $('#previousEffortsList .effort-merge-btn').off('click').on('click', function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openMergeTargetModal($(this).data('effort-id'));
+    });
+    $('#previousEffortsList .effort-delete-btn').off('click').on('click', function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var $btn = $(this);
+        deleteEffortFromPicker($btn.data('effort-id'), $btn.data('effort-name'));
+    });
+    $('#previousEffortsList .effort-restore-btn').off('click').on('click', function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        restoreEffortFromPicker($(this).data('effort-id'));
+    });
+    $('#togglePickerArchivedLink').off('click').on('click', function(ev) {
+        ev.preventDefault();
+        state.pickerShowArchived = !state.pickerShowArchived;
+        refreshPickerList();
+    });
+}
+
+// Refresh the picker's effort list — fetches archived efforts on demand
+// when the user toggles "Show archived" on for the first time so we don't
+// pay the cost (or the JSON size) up front.
+function refreshPickerList() {
+    if (!state.sourceOrgId) {
+        renderEffortsList();
+        return;
+    }
+    var params = { org_id: state.sourceOrgId };
+    if (state.pickerShowArchived) params.include_archived = 'true';
+    ajax('list_efforts', params, function(response) {
+        if (response.success) {
+            state.efforts = response.efforts || [];
+            state.pickerArchivedCount = response.archivedCount || 0;
+            renderEffortsList();
+        }
+    });
+}
+
+// Open the merge-target picker for a given source effort.
+function openMergeTargetModal(sourceEffortId) {
+    var source = (state.efforts || []).filter(function(e) { return e.id === sourceEffortId; })[0];
+    if (!source) return;
+
+    // Build target list: every active effort except the source itself.
+    var targets = (state.efforts || []).filter(function(e) {
+        return e.id !== sourceEffortId && !e.archived;
+    });
+
+    if (targets.length === 0) {
+        showToast('No other active efforts to merge into. Create one first.', 'warning');
+        return;
+    }
+
+    state.mergeSourceId = sourceEffortId;
+    state.mergeSourceName = source.name;
+
+    var html = '<p class="mb-2">Merging from: <strong>' + escapeHtml(source.name) + '</strong> (' + (source.processedCount || 0) + ' processed)</p>';
+    html += '<p class="mb-2 small text-muted">Pick a target effort. Processed records will be combined (deduped by person) and the source effort will be archived (recoverable from <em>Show archived</em>).</p>';
+    html += '<div class="list-group">';
+    targets.forEach(function(t) {
+        html += '<a href="#" class="list-group-item list-group-item-action merge-target-item" data-effort-id="' + t.id + '" data-effort-name="' + escapeHtml(t.name) + '">';
+        html +=   '<div class="d-flex justify-content-between align-items-center">';
+        html +=     '<div><strong>' + escapeHtml(t.name) + '</strong>';
+        html +=     '<br><small class="text-muted">' + (t.processedCount || 0) + ' processed</small></div>';
+        html +=     '<i class="bi bi-chevron-right"></i>';
+        html +=   '</div>';
+        html += '</a>';
+    });
+    html += '</div>';
+
+    $('#mergeTargetList').html(html);
+    $('#mergeTargetList .merge-target-item').off('click').on('click', function(ev) {
+        ev.preventDefault();
+        confirmMerge($(this).data('effort-id'), $(this).data('effort-name'));
+    });
+
+    var modalEl = document.getElementById('mergeEffortModal');
+    var instance = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+    instance.show();
+}
+
+function confirmMerge(targetId, targetName) {
+    if (!confirm('Merge "' + state.mergeSourceName + '" into "' + targetName + '"?\\n\\nProcessed records will be combined. The source effort will be archived (you can restore it later from Show archived).')) {
+        return;
+    }
+
+    ajax('merge_efforts', {
+        org_id: state.sourceOrgId,
+        source_effort_id: state.mergeSourceId,
+        target_effort_id: targetId
+    }, function(response) {
+        if (response.success) {
+            // Close the merge modal
+            var mergeEl = document.getElementById('mergeEffortModal');
+            var mergeInst = bootstrap.Modal.getInstance(mergeEl);
+            if (mergeInst) mergeInst.hide();
+
+            showToast(response.message + ' — ' + (response.movedCount || 0) + ' new records moved', 'success');
+
+            // If the user was currently working in the source effort, switch
+            // them into the target so they keep going on the merged view.
+            if (state.currentEffort && state.currentEffort.id === state.mergeSourceId) {
+                loadEffort(targetId);
+            }
+
+            refreshPickerList();
+        } else {
+            showToast('Merge failed: ' + (response.message || 'Unknown error'), 'danger');
+        }
+    });
+}
+
+function deleteEffortFromPicker(effortId, effortName) {
+    if (!confirm('Permanently delete "' + effortName + '"?\\n\\nThis cannot be undone. To preserve the effort but hide it, merge it into another effort instead.')) {
+        return;
+    }
+    ajax('delete_effort', {
+        org_id: state.sourceOrgId,
+        effort_id: effortId
+    }, function(response) {
+        if (response.success) {
+            showToast('Deleted: ' + effortName, 'success');
+            // If the deleted effort was the currently-loaded one, clear state.
+            if (state.currentEffort && state.currentEffort.id === effortId) {
+                state.currentEffort = null;
+                state.processed = [];
+                updateEffortDisplay();
+                renderRegistrantList();
+            }
+            refreshPickerList();
+        } else {
+            showToast('Delete failed: ' + (response.message || 'Unknown error'), 'danger');
+        }
+    });
+}
+
+function restoreEffortFromPicker(effortId) {
+    ajax('unarchive_effort', {
+        org_id: state.sourceOrgId,
+        effort_id: effortId
+    }, function(response) {
+        if (response.success) {
+            showToast('Effort restored', 'success');
+            refreshPickerList();
+        } else {
+            showToast('Restore failed: ' + (response.message || 'Unknown error'), 'danger');
+        }
+    });
 }
 
 function selectEffortFromModal(effortId) {
@@ -2700,10 +2944,15 @@ function clearExternallyRemovedFromModal() {
 }
 
 function showEffortPicker() {
-    // Refresh efforts and show picker modal
-    ajax('list_efforts', { org_id: state.sourceOrgId }, function(response) {
+    // Refresh efforts and show picker modal. Reset the archived toggle
+    // each time the picker is opened — fresh entry shouldn't expose the
+    // archived list unless the user explicitly asks for it again.
+    state.pickerShowArchived = false;
+    var params = { org_id: state.sourceOrgId };
+    ajax('list_efforts', params, function(response) {
         if (response.success) {
             state.efforts = response.efforts || [];
+            state.pickerArchivedCount = response.archivedCount || 0;
             showContinueEffortModal();
         }
     });
@@ -2826,7 +3075,64 @@ function updateEffortDisplay() {
         $('#effortName').text('No effort selected');
         $('#effortProgress').text('');
     }
+
+    // Keep the collapsed-state summary line in sync with current selection
+    updateSetupSummary();
 }
+
+// Collapsible Setup panel. Once the user has picked their involvement +
+// effort, this section just takes screen real estate from the actual work
+// (the Registrants list). User toggles it to reclaim that space; choice
+// persists across page loads so power users get their preferred layout
+// every time.
+function toggleSetupPanel(forceCollapse) {
+    var collapsed = (typeof forceCollapse === 'boolean')
+        ? forceCollapse
+        : ($('#setupPanelBody').is(':visible'));
+
+    if (collapsed) {
+        $('#setupPanelBody').slideUp(150);
+        $('#setupSummary').show();
+        $('#setupToggleIcon').removeClass('bi-chevron-up').addClass('bi-chevron-down');
+        $('#setupToggleBtn').attr('title', 'Expand setup');
+        // Hide the Last Used / Save Setup buttons too — they only make
+        // sense when the body's visible.
+        $('#setupLastUsedBtn,#setupSaveBtn').hide();
+    } else {
+        $('#setupPanelBody').slideDown(150);
+        $('#setupSummary').hide();
+        $('#setupToggleIcon').removeClass('bi-chevron-down').addClass('bi-chevron-up');
+        $('#setupToggleBtn').attr('title', 'Collapse setup');
+        $('#setupLastUsedBtn,#setupSaveBtn').show();
+    }
+
+    try { localStorage.setItem('ip_setupCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+}
+
+function updateSetupSummary() {
+    var parts = [];
+    if (state.sourceOrgName) {
+        parts.push('<i class="bi bi-bookmark-fill me-1"></i>' + escapeHtml(state.sourceOrgName));
+    }
+    if (state.currentEffort && state.currentEffort.name) {
+        parts.push('<i class="bi bi-bookmark-star me-1"></i>' + escapeHtml(state.currentEffort.name));
+    }
+    $('#setupSummary').html(parts.length ? parts.join(' &nbsp;·&nbsp; ') : '');
+}
+
+// Restore collapsed state on page load. Only collapse if the user has
+// previously collapsed it AND has something selected — opening a blank
+// page to a collapsed panel with nothing to show would be confusing.
+$(function() {
+    try {
+        if (localStorage.getItem('ip_setupCollapsed') === '1') {
+            // Defer until after initial selection state has settled.
+            setTimeout(function() {
+                if (state.sourceOrgId) toggleSetupPanel(true);
+            }, 400);
+        }
+    } catch (e) {}
+});
 
 function clearEffortState() {
     state.currentEffort = null;
@@ -2971,16 +3277,10 @@ function clearSourceSelection() {
 // ============================================================================
 function loadRegistrants(orgId) {
     $('#registrantLoading').show();
-    $('#loadDiagnostics').hide().html('');
-    updateLoadingStatus('Loading members from server...');
 
     ajax('load_registrants', { org_id: orgId }, function(response) {
         $('#registrantLoading').hide();
-        updateLoadingStatus('');
         console.log('load_registrants response:', response);
-
-        // Always render diagnostics if available
-        renderDiagnostics(response);
 
         if (response.success) {
             // Ensure arrays are always initialized (defensive coding)
@@ -3003,83 +3303,8 @@ function loadRegistrants(orgId) {
             $('#registrantCount').text(memberCount + ' people');
         } else {
             showToast(response.message || 'Error loading registrants', 'danger');
-            $('#registrantList').html(
-                '<div class="ip-empty-state">' +
-                '<i class="bi bi-exclamation-triangle d-block" style="color: #dc3545;"></i>' +
-                '<span style="color: #dc3545;">' + escapeHtml(response.message || 'Error loading registrants') + '</span>' +
-                '</div>'
-            );
         }
-    }, { timeout: 180000 }); // 3 min timeout for large involvements
-}
-
-function updateLoadingStatus(msg) {
-    var el = document.getElementById('loadingStatusText');
-    if (el) {
-        el.textContent = msg;
-        el.style.display = msg ? 'block' : 'none';
-    }
-}
-
-function renderDiagnostics(response) {
-    var container = $('#loadDiagnostics');
-    if (!container.length) return;
-
-    var diags = response.diagnostics || [];
-    var clientTiming = response._clientTiming || {};
-    if (diags.length === 0 && !clientTiming.elapsed) {
-        container.hide();
-        return;
-    }
-
-    var hasWarnings = false;
-    var hasErrors = false;
-    var html = '';
-
-    // Status icons
-    var icons = { ok: '&#9679;', warning: '&#9888;', error: '&#10060;' };
-    var colors = { ok: '#28a745', warning: '#ffc107', error: '#dc3545' };
-
-    diags.forEach(function(d) {
-        if (d.status === 'warning') hasWarnings = true;
-        if (d.status === 'error') hasErrors = true;
-        var icon = icons[d.status] || icons.ok;
-        var color = colors[d.status] || colors.ok;
-        html += '<div style="font-size: 12px; padding: 2px 0; color: #555;">';
-        html += '<span style="color:' + color + ';">' + icon + '</span> ';
-        html += '<strong>' + escapeHtml(d.phase) + ':</strong> ' + escapeHtml(d.detail);
-        html += '</div>';
     });
-
-    // Add client-side timing
-    if (clientTiming.elapsed) {
-        html += '<div style="font-size: 12px; padding: 2px 0; color: #555;">';
-        html += '<span style="color:#28a745;">&#9679;</span> ';
-        html += '<strong>Network:</strong> Round-trip ' + clientTiming.elapsed + 's, ' +
-                formatBytes(clientTiming.responseBytes) + ' transferred';
-        html += '</div>';
-    }
-
-    // Determine header color
-    var headerColor = hasErrors ? '#dc3545' : hasWarnings ? '#ffc107' : '#28a745';
-    var headerText = hasErrors ? 'Issues Detected' : hasWarnings ? 'Loaded with Warnings' : 'Loaded Successfully';
-
-    var wrapper = '<div style="margin-top: 8px; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden;">';
-    wrapper += '<div style="background: ' + headerColor + '; color: white; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer;" onclick="$(this).next().toggle();">';
-    wrapper += '<i class="bi bi-info-circle me-1"></i>' + headerText + ' <span style="float:right; font-weight: normal; opacity: 0.8;">(click to ' + (hasErrors || hasWarnings ? 'view' : 'toggle') + ' details)</span>';
-    wrapper += '</div>';
-    wrapper += '<div style="padding: 8px 10px; background: #f8f9fa;' + (hasErrors || hasWarnings ? '' : ' display: none;') + '">' + html + '</div>';
-    wrapper += '</div>';
-
-    container.html(wrapper).show();
-}
-
-function formatBytes(bytes) {
-    if (!bytes) return '0 B';
-    bytes = parseInt(bytes);
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / 1048576).toFixed(1) + ' MB';
 }
 
 function renderQuestionToggles() {
@@ -3981,16 +4206,113 @@ function showHelp() {
     var modal = new bootstrap.Modal(document.getElementById('helpModal'));
     modal.show();
 }
+
+// ============================================================================
+// Auto-Update (see TPxi/AutoUpdate/README.md)
+// ============================================================================
+// Server-injected version constants. The __TOKEN__ placeholders are
+// .replace()'d by Python after the HTML template is built.
+var APP_VERSION = '__APP_VERSION__';
+var DC_SCRIPT_ID = '__DC_SCRIPT_ID__';
+var DC_API_BASE = '__DC_API_BASE__';
+// SCRIPT_NAME is detected client-side from the URL the browser loaded so
+// it survives admin renames (the server's model.URL is less reliable
+// across PyScript vs PyScriptForm variants). Using a string-split here
+// instead of a regex literal — backslash escapes inside a Python
+// triple-quoted string have historically been a source of confusion,
+// and split avoids the question entirely.
+var SCRIPT_NAME = (function() {
+    try {
+        var parts = (window.location.pathname || '').split('/');
+        for (var i = 0; i < parts.length; i++) {
+            if ((parts[i] === 'PyScript' || parts[i] === 'PyScriptForm')
+                && i + 1 < parts.length && parts[i + 1]) {
+                // Strip any query/hash suffix the path might carry.
+                return parts[i + 1].split('?')[0].split('#')[0];
+            }
+        }
+    } catch(e) {}
+    return DC_SCRIPT_ID;
+})();
+var APP_UPDATE_AVAILABLE = false;
+var APP_LATEST_VERSION = '';
+
+function checkForAppUpdate() {
+    try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', DC_API_BASE + '/script-versions', true);
+        xhr.timeout = 5000;
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== 4 || xhr.status !== 200) return;
+            try {
+                var versions = JSON.parse(xhr.responseText);
+                var latest = versions[DC_SCRIPT_ID];
+                if (latest && latest !== APP_VERSION) {
+                    APP_UPDATE_AVAILABLE = true;
+                    APP_LATEST_VERSION = latest;
+                    renderAppUpdateBanner();
+                }
+            } catch(e) { /* silently swallow — banner stays hidden */ }
+        };
+        xhr.send();
+    } catch(e) { /* if we can't reach the manifest, just don't show the banner */ }
+}
+
+function renderAppUpdateBanner() {
+    var b = document.getElementById('appUpdateBanner');
+    if (!b || !APP_UPDATE_AVAILABLE) return;
+    var h = '';
+    h += '<div style="font-size:18px">&#128640;</div>';
+    h += '<div style="flex:1;font-size:12px;color:#0078d4">';
+    h += '<strong>Update available</strong>';
+    h += ' &mdash; you have <code>v' + APP_VERSION + '</code>, latest is <code>v' + APP_LATEST_VERSION + '</code>. Your saved data (efforts, watchlists, settings) is preserved.';
+    h += '</div>';
+    h += '<button id="appUpdateBtn" onclick="applyAppUpdate()" style="white-space:nowrap;padding:6px 14px;background:#0078d4;color:#fff;border:0;border-radius:4px;cursor:pointer;">Update Now</button>';
+    b.innerHTML = h;
+    b.style.display = 'flex';
+}
+
+window.applyAppUpdate = function() {
+    if (!confirm('Update from v' + APP_VERSION + ' to v' + APP_LATEST_VERSION + '?\\n\\nYour saved data (efforts, watchlists, setup configs) is stored separately and will be preserved.')) return;
+    var btn = document.getElementById('appUpdateBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Updating...'; }
+    // Use the same scriptUrl the rest of the page uses so PyScript vs
+    // PyScriptForm routing matches.
+    $.post(scriptUrl, {action: 'apply_update', script_name: SCRIPT_NAME}, function(r) {
+        try {
+            var d = JSON.parse(r);
+            if (d.success) {
+                alert(d.message || 'Updated! Reloading...');
+                window.location.reload(true);
+            } else {
+                alert('Update failed: ' + (d.message || 'Unknown error'));
+                if (btn) { btn.disabled = false; btn.innerHTML = 'Update Now'; }
+            }
+        } catch(e) {
+            alert('Update failed (could not parse response)');
+            if (btn) { btn.disabled = false; btn.innerHTML = 'Update Now'; }
+        }
+    }).fail(function() {
+        alert('Update failed (network error)');
+        if (btn) { btn.disabled = false; btn.innerHTML = 'Update Now'; }
+    });
+};
+
+// Kick off the check after the page has loaded so it never blocks the UI.
+checkForAppUpdate();
 </script>
 
 <!-- Debug output div - shows JS errors visually -->
 <div id="jsDebugOutput" class="alert alert-danger m-3" style="display: none;"></div>
 
 <div class="ip-root ip-main-container">
+    <!-- Auto-update banner (populated by checkForAppUpdate when a newer version is published) -->
+    <div id="appUpdateBanner" style="display:none;background:#e8f0fd;border:1px solid #cfe3ff;border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:10px;"></div>
+
     <!-- Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h2 class="mb-1"><i class="bi bi-people-fill me-2"></i>Involvement Processor</h2>
+            <h2 class="mb-1"><i class="bi bi-people-fill me-2"></i>Involvement Processor <span class="text-muted" style="font-size:13px;font-weight:normal;">v__APP_VERSION__</span></h2>
             <p class="text-muted mb-0">Process registrations, match pairs, and manage track assignments</p>
         </div>
         <div>
@@ -4004,19 +4326,27 @@ function showHelp() {
         <!-- Left Column: Source & Registrants -->
         <div class="col-lg-8">
             <!-- Setup Panel -->
-            <div class="ip-panel ip-setup-panel">
+            <div class="ip-panel ip-setup-panel" id="setupPanel">
                 <div class="ip-panel-header">
-                    <span><i class="bi bi-gear-fill me-2"></i>Setup</span>
+                    <span>
+                        <i class="bi bi-gear-fill me-2"></i>Setup
+                        <!-- Compact summary, only visible when collapsed so the
+                             user still knows which involvement/effort is active. -->
+                        <span id="setupSummary" class="ms-2 small fw-normal opacity-75" style="display: none;"></span>
+                    </span>
                     <div>
-                        <button class="btn btn-sm btn-light me-1" onclick="loadLastConfig()">
+                        <button class="btn btn-sm btn-light me-1" onclick="loadLastConfig()" id="setupLastUsedBtn">
                             <i class="bi bi-clock-history"></i> Last Used
                         </button>
-                        <button class="btn btn-sm btn-light" onclick="saveCurrentConfig()">
+                        <button class="btn btn-sm btn-light me-1" onclick="saveCurrentConfig()" id="setupSaveBtn">
                             <i class="bi bi-save"></i> Save Setup
+                        </button>
+                        <button class="btn btn-sm btn-light" onclick="toggleSetupPanel()" id="setupToggleBtn" title="Collapse setup">
+                            <i class="bi bi-chevron-up" id="setupToggleIcon"></i>
                         </button>
                     </div>
                 </div>
-                <div class="ip-panel-body">
+                <div class="ip-panel-body" id="setupPanelBody">
                     <div class="row">
                         <div class="col-md-6">
                             <label class="form-label fw-bold">Source Involvement</label>
@@ -4186,14 +4516,10 @@ function showHelp() {
                         </div>
                     </div>
                     <div id="registrantLoading" class="ip-loading-overlay" style="display: none;">
-                        <div style="text-align: center;">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                            <div id="loadingStatusText" style="display: none; margin-top: 8px; font-size: 13px; color: #666;"></div>
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
                         </div>
                     </div>
-                    <div id="loadDiagnostics" style="display: none;"></div>
                 </div>
             </div>
         </div>
@@ -4453,6 +4779,24 @@ function showHelp() {
     </div>
 </div>
 
+<!-- Merge Effort Modal -->
+<div class="modal fade" id="mergeEffortModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-arrow-bar-up me-2"></i>Merge Effort</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="mergeTargetList"><!-- Populated dynamically --></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Sync Changes Modal -->
 <div class="modal fade" id="syncChangesModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
@@ -4486,6 +4830,14 @@ function showHelp() {
 </body>
 </html>
 '''
+    # Inject the auto-update constants into the HTML template. Done as
+    # placeholder substitution (vs breaking the triple-quoted string into
+    # concatenated chunks) to keep the template readable as one block.
+    html = (html
+        .replace('__APP_VERSION__',  APP_VERSION)
+        .replace('__DC_SCRIPT_ID__', DC_SCRIPT_ID)
+        .replace('__DC_API_BASE__',  DC_API_BASE))
+
     # Output for both PyScript (print) and PyScriptForm (model.Form)
     print html
     model.Form = html
