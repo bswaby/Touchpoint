@@ -50,7 +50,7 @@ import re
 model.Header = 'Rollsheet Generator'
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.0.0'                              # bump on each release published
+APP_VERSION = '1.1.0'                              # bump on each release published
 DC_SCRIPT_ID = 'TPxi_RollSheet'
 # scripts.displaycache.com is the public domain for browser-side version checks.
 # workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
