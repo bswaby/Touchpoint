@@ -17,10 +17,23 @@ Features:
 - Save/load setup configurations for quick recall
 - AJAX-based responsive UI with no page reloads
 
-Written By: Ben Swaby
-Email: bswaby@fbchtn.org
-Version: 1.0
-Date: January 2025
+# Written By: Ben Swaby (TPxi Software, LLC)
+# Email: bswaby@fbchtn.org                                                                                                      
+# Website: https://tpxisoftware.com
+# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
+# ----------------------------------------------------------------                                                              
+# These tools are free because they should be.
+# If they've saved you time or helped your team, and you want to                                                                
+# support continued development, check out:                                                                                     
+#
+# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
+# https://displaycache.com                                
+#
+# TPxi Go(TM) - your church contacts, wherever you work.
+# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
+# or your phone. No tab switching, no lost context.
+# https://tpxigo.com                                                                                                            
+# ----------------------------------------------------------------
 
 --Upload Instructions Start--
 To upload code to Touchpoint, use the following steps:
@@ -44,7 +57,7 @@ model.Header = 'Involvement Processor'
 #   3. Click sends action=apply_update; server fetches new source from the
 #      workers.dev mirror (bypasses Cloudflare Bot Fight) and rewrites the
 #      installed PythonContent slot — user data in OrgExtra is preserved.
-APP_VERSION = '1.1.0'
+APP_VERSION = '1.1.2'
 DC_SCRIPT_ID = 'TPxi_InvolvementProcessor'
 DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
 DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
