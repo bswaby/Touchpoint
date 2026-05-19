@@ -63,7 +63,7 @@ They enable it on most paid plans for free.
 
 The token is stored in TouchPoint's `Setting` table under
 `MinistrySafeApiToken`. It is never echoed back in any AJAX response
-or log line — only a masked last-4-digit preview is shown on the
+or log line.  Only a masked last-4-digit preview is shown on the
 Settings tab.
 
 ### What the token can do
