@@ -7,18 +7,27 @@
 # urgency (Overdue / Today / This Week / Later / Undated) with quick
 # actions (complete, snooze, open person) per row.
 #
-# Phase 1a (this file): identity + load + minimal grouped render.
-# Phase 1b: prettier render, mobile-friendly CSS, keyword chips.
-# Phase 1c: complete / snooze / open-person AJAX actions.
-# Phase 1d: Daily Focus card + capacity awareness.
+## Written By: Ben Swaby (TPxi Software, LLC)
+# Email: bswaby@fbchtn.org                                                                                                      
+# Website: https://tpxisoftware.com
+# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
+# ----------------------------------------------------------------                                                              
+# These tools are free because they should be.
+# If they've saved you time or helped your team, and you want to                                                                
+# support continued development, check out:                                                                                     
 #
+# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
+# https://displaycache.com                                
+#
+# TPxi Go(TM) - your church contacts, wherever you work.
+# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
+# or your phone. No tab switching, no lost context.
+# https://tpxigo.com                                                                                                            
+# ----------------------------------------------------------------
 # Storage Keys:
 #   TaskRunner_UserPrefs_<peopleId>  - per-user UI prefs (JSON)
 #   TaskRunner_OrgSettings           - install-wide config (JSON)
 #
-# Written By: Ben Swaby
-# Email: bswaby@fbchtn.org
-# GitHub: https://github.com/bswaby/Touchpoint
 #----------------------------------------------------------------------
 
 import json
@@ -1560,6 +1569,25 @@ if model.HttpMethod == "post":
                     save_snoozed(pid, snoozed)
                 jprint({'success': True, 'taskId': task_id, 'remainingHidden': len(snoozed)})
 
+        elif action == 'apply_update':
+            new_code = ''
+            try:
+                fetch_url = DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID
+                new_code = str(model.RestGet(fetch_url, {}))
+            except Exception as fe:
+                jprint({'success': False, 'message': 'Failed to fetch update: ' + safe_str(fe)})
+            else:
+                if not new_code or len(new_code) < 200:
+                    jprint({'success': False, 'message': 'Invalid or empty script code received'})
+                else:
+                    target_name = get_script_name() or DC_SCRIPT_ID
+                    try:
+                        model.WriteContentPython(target_name, new_code)
+                        jprint({'success': True,
+                                'message': 'Updated ' + target_name + '. Reload the page.'})
+                    except Exception as we:
+                        jprint({'success': False, 'message': 'Write failed: ' + safe_str(we)})
+
         elif action == 'save_user_pref':
             # Generic per-user pref store. Whitelist keys here so the client
             # can't write arbitrary JSON into the prefs blob.
@@ -1855,6 +1883,13 @@ else:
 .tr-extra-val  { color: #1e293b; }
 .tr-extra-kw   { color: var(--tr-primary); font-weight: 700; }
 .tr-empty { padding: 16px; color: var(--tr-muted); font-style: italic; text-align: center; }
+.tr-empty-details { margin-top: 8px; border: 1px solid var(--tr-border);
+                    background: #f8f9fa; border-radius: 6px; padding: 6px 12px;
+                    color: var(--tr-muted); font-size: 12px; }
+.tr-empty-details summary { cursor: pointer; padding: 4px 0; font-style: normal; }
+.tr-empty-details-body { padding: 6px 0 4px; }
+.tr-empty-details-body div { padding: 1px 0; }
+.tr-empty-details-body strong { color: #1e293b; }
 
 .tr-banner-error { background: #fde7e9; border: 1px solid #f5c6cb;
                    color: var(--tr-danger); padding: 10px 14px; border-radius: 6px;
@@ -1866,6 +1901,8 @@ else:
 .tr-btn-secondary { background: #fff; color: var(--tr-primary); }
 .tr-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
+
+<div id="appUpdateBanner" style="display:none;background:#e8f0fd;border:1px solid #cfe3ff;border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:10px;"></div>
 
 <div class="tr-root" id="trRoot">
   <div>
@@ -2065,11 +2102,26 @@ var scriptPath = (function() {
     return p.replace('/PyScript/', '/PyScriptForm/');
 })();
 
+// --- Auto-update constants -----------------------------------------------
+var APP_VERSION = ''' + json.dumps(APP_VERSION) + ''';
+var DC_SCRIPT_ID = ''' + json.dumps(DC_SCRIPT_ID) + ''';
+var DC_API_BASE = ''' + json.dumps(DC_API_BASE) + ''';
+var SCRIPT_NAME = (function() {
+    try {
+        var m = (window.location.pathname || '').match(/\\/PyScript(?:Form)?\\/([^\\/?#]+)/);
+        if (m && m[1]) return m[1];
+    } catch(e) {}
+    return ''' + json.dumps(get_script_name()) + ''';
+})();
+var APP_UPDATE_AVAILABLE = false;
+var APP_LATEST_VERSION = '';
+
 function ajax(action, params, cb) {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', scriptPath, true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-    var data = 'action=' + encodeURIComponent(action);
+    var data = 'action=' + encodeURIComponent(action)
+             + '&script_name=' + encodeURIComponent(SCRIPT_NAME);
     if (params) for (var k in params) {
         if (params.hasOwnProperty(k))
             data += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
@@ -2083,6 +2135,61 @@ function ajax(action, params, cb) {
     };
     xhr.send(data);
 }
+
+function checkForAppUpdate() {
+    try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', DC_API_BASE + '/script-versions', true);
+        xhr.timeout = 5000;
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== 4 || xhr.status !== 200) return;
+            try {
+                var versions = JSON.parse(xhr.responseText);
+                var latest = versions[DC_SCRIPT_ID];
+                if (latest && latest !== APP_VERSION) {
+                    APP_UPDATE_AVAILABLE = true;
+                    APP_LATEST_VERSION = latest;
+                    renderAppUpdateBanner();
+                }
+            } catch(e) {}
+        };
+        xhr.send();
+    } catch(e) {}
+}
+
+function renderAppUpdateBanner() {
+    var b = document.getElementById('appUpdateBanner');
+    if (!b || !APP_UPDATE_AVAILABLE) return;
+    var h = '';
+    h += '<div style="font-size:18px">&#128640;</div>';
+    h += '<div style="flex:1;font-size:12px;color:#0078d4">';
+    h += '<strong>Update available</strong>';
+    h += ' &mdash; you have <code>v' + APP_VERSION + '</code>, latest is <code>v' + APP_LATEST_VERSION + '</code>. Your saved data is preserved.';
+    h += '</div>';
+    h += '<button id="appUpdateBtn" onclick="applyAppUpdate()" style="white-space:nowrap;padding:6px 14px;background:#0078d4;color:#fff;border:0;border-radius:4px;cursor:pointer;">Update Now</button>';
+    b.innerHTML = h;
+    b.style.display = 'flex';
+}
+
+window.applyAppUpdate = function() {
+    if (!confirm('Update from v' + APP_VERSION + ' to v' + APP_LATEST_VERSION + '?\\n\\nYour saved data is stored separately and will be preserved.')) return;
+    var btn = document.getElementById('appUpdateBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Updating...'; }
+    ajax('apply_update', {}, function(err, d) {
+        if (err) {
+            alert('Update failed: ' + err);
+            if (btn) { btn.disabled = false; btn.innerHTML = 'Update Now'; }
+            return;
+        }
+        if (d && d.success) {
+            alert(d.message || 'Updated! Reloading...');
+            window.location.reload(true);
+        } else {
+            alert('Update failed: ' + ((d && d.message) || 'Unknown error'));
+            if (btn) { btn.disabled = false; btn.innerHTML = 'Update Now'; }
+        }
+    });
+};
 
 function esc(s) {
     if (s === null || s === undefined) return '';
@@ -2481,21 +2588,36 @@ function renderAll() {
     if (!state.tasks.length) {
         var msg = '<div class="tr-bucket"><div class="tr-empty">'
                 + 'You have no open tasks. Nice work.</div></div>';
-        // If the server tells us why, show it so we can debug install-specific
-        // misfilters. Most useful field: asAssignee_open / asSoloOwner_open.
+        // The diagnosis block is only useful when something looks wrong --
+        // i.e. the database has open tasks for this user but the script
+        // filtered them all out. Otherwise it's noise and reads like a bug
+        // report to the author when it isn't.
         if (state.diagnosis) {
             var d = state.diagnosis;
+            var assigneeOpen = parseInt(d.asAssignee_open || 0, 10);
+            var ownerOpen    = parseInt(d.asSoloOwner_open || 0, 10);
+            var likelyBug    = (assigneeOpen > 0 || ownerOpen > 0);
+
             var rows = '';
             for (var k in d) {
                 if (!d.hasOwnProperty(k)) continue;
                 rows += '<div><strong>' + esc(k) + ':</strong> ' + esc(d[k]) + '</div>';
             }
-            msg += '<div class="tr-banner-error" style="background:#fff4ce;color:#7a5c00;border-color:#f4d35e;">'
-                 + '<div style="font-weight:700;margin-bottom:4px;">Diagnostic</div>'
-                 + rows
-                 + '<div style="margin-top:6px;font-size:11px;">If <code>asAssignee_open</code> or '
-                 + '<code>asSoloOwner_open</code> is &gt; 0, the filter is missing something. '
-                 + 'Send this to the script author.</div></div>';
+
+            if (likelyBug) {
+                msg += '<div class="tr-banner-error" style="background:#fff4ce;color:#7a5c00;border-color:#f4d35e;">'
+                     + '<div style="font-weight:700;margin-bottom:4px;">Diagnostic - tasks exist but were filtered out</div>'
+                     + rows
+                     + '<div style="margin-top:6px;font-size:11px;">'
+                     +   '<code>asAssignee_open</code> or <code>asSoloOwner_open</code> is &gt; 0, so the filter is missing something. '
+                     +   'Send this to the script author.</div></div>';
+            } else {
+                msg += '<details class="tr-empty-details">'
+                     + '<summary>Diagnostic (no tasks assigned to you)</summary>'
+                     + '<div class="tr-empty-details-body">'
+                     +   rows
+                     + '</div></details>';
+            }
         }
         body.innerHTML = msg + renderHiddenBucket();
         document.getElementById('trCount').textContent = '';
@@ -2773,6 +2895,7 @@ function renderDrillInBanner() {
 }
 
 function bootstrap() {
+    checkForAppUpdate();
     attachReassignSearch();
     ajax('who_am_i', {}, function(err, d) {
         var sub = document.getElementById('trSub');
