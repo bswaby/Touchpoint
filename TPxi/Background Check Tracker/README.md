@@ -2,7 +2,7 @@
 
 A focused utility for triaging in-flight background checks. Pulls TouchPoint's
 cached status AND the live MinistrySafe status side-by-side so you can spot
-sync drift fast — solves the common *"MinistrySafe says Pending but TouchPoint
+sync drift fast.  Solves the common *"MinistrySafe says Pending but TouchPoint
 says Overdue"* problem.
 
 Extracted from the Compliance Dashboard's Pending BG tab and rebuilt as a
