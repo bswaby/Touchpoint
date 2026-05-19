@@ -163,14 +163,6 @@ click rewrites the installed PythonContent slot. Your saved settings
 
 ---
 
-## Version
-
-Current version is set in `APP_VERSION` near the top of
-`TPxi_BGCheckTracker.py`. Bump on every release published to the
-DisplayCache manifest at `scripts.displaycache.com/api/touchpoint/script-versions`.
-
 ## Author
 
-Ben Swaby — bswaby@fbchtn.org
-
-First Baptist Church Hendersonville
+*Written by [Ben Swaby](https://github.com/bswaby). These tools are free because they should be. If they've saved you time, consider [DisplayCache](https://displaycache.com) Church digital signage that integrates with TouchPoint or [TPxi Go](https://tpxigo.com) your church contacts in Outlook and on your phone.*
