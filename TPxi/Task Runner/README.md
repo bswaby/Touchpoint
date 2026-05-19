@@ -28,7 +28,7 @@ An individual-first task triage view for staff who live in TouchPoint Tasks all 
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Task%20Runner/TR-TeamView.png" width="700">
 </p>
 
-The toolbar above the team list has a **"Hide teammates with no open tasks"** toggle — sticky per user — so leaders looking only for stuck queues can collapse the empty ones.
+The toolbar above the team list has a **"Hide teammates with no open tasks"** toggle and sticky per user so leaders looking only for stuck queues can collapse the empty ones.
 
 <summary><strong>Settings — admin-controlled, no code edits</strong></summary>
 <p>All policy lives in <strong>⚙️ Settings</strong>.  Two storage slots (org-wide + per-user) so individual prefs don't trample org policy.</p>
@@ -46,10 +46,8 @@ The toolbar above the team list has a **"Hide teammates with no open tasks"** to
 <summary><strong>Multi-tenant & permission-aware</strong></summary>
 <p>Designed to be safe to roll out to staff:</p>
 
-- **READ-ONLY SQL.**  No `UPDATE` / `INSERT` / `DELETE` against the database — every write goes through `model.TaskNoteComplete`, `model.TaskNoteMassAssign`, or `model.CreateTaskNote`.  Hide-from-view is stored in per-user TouchPoint content, not in TaskNote itself.
 - **Auth on drill-in.**  Even with the Team View toggle showing, the server rechecks that the drilled-in PeopleId is actually in the caller's team before returning their tasks.
 - **Per-action permissions.**  Reassign-only vs Reassign-and-Complete is gated server-side; a user without permission gets a refusal even if they hand-craft an AJAX call.
-- **Legacy migration.**  If an older version had `use_subgroups` set, it migrates to the new `drillin_scope` + `team_display_grouped` pair on first load — no settings re-entry needed.
 
 <summary><strong>Why "Runner"?</strong></summary>
-<p>The point of this tool isn't to admire the workload — it's to <em>run the queue down</em>.  Daily Focus tells you where to start, urgency buckets keep overdue work from drowning under a pile of "Later", Hide kills the noise of stale tickets that aren't actionable today, and Log Contact + Reassign close out a row in seconds.  The team layer is there for the leader who needs to know who's stuck, not who's busy.</p>
+<p>The point of this tool isn't to admire the workload, it's to <em>run the queue down</em>.  Daily Focus tells you where to start, urgency buckets keep overdue work from drowning under a pile of "Later", Hide kills the noise of stale tickets that aren't actionable today, and Log Contact + Reassign close out a row in seconds.  The team layer is there for the leader who needs to know who's stuck, not who's busy.</p>
