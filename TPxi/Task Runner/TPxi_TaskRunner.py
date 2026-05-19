@@ -1719,7 +1719,12 @@ else:
                font-weight: 600; }
 .tr-view-btn:not(:last-child) { border-right: 1px solid var(--tr-border); }
 .tr-view-btn.active { background: var(--tr-primary); color: #fff; }
-.tr-view-btn:hover:not(.active) { background: #f0f4f8; }
+.tr-view-btn:hover:not(.active):not(.tr-view-btn-disabled) { background: #f0f4f8; }
+.tr-view-btn-disabled { color: var(--tr-muted); cursor: help;
+                        background: repeating-linear-gradient(
+                            45deg, #fff, #fff 6px, #fafbfc 6px, #fafbfc 12px); }
+.tr-view-btn-disabled:hover { background: repeating-linear-gradient(
+                                  45deg, #f8f9fa, #f8f9fa 6px, #fff 6px, #fff 12px); }
 
 /* Team list */
 .tr-team-toolbar { display: flex; align-items: center; justify-content: space-between;
@@ -1810,6 +1815,24 @@ else:
 .tr-modal { background: #fff; border-radius: 10px; max-width: 520px; width: 100%;
             max-height: 85vh; overflow-y: auto; padding: 18px 20px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+.tr-help-modal { max-width: 720px; }
+.tr-help-body { font-size: 13px; line-height: 1.55; color: #1e293b; }
+.tr-help-section { border-top: 1px solid var(--tr-border); padding: 14px 0 6px; }
+.tr-help-section:first-of-type { border-top: 0; padding-top: 0; }
+.tr-help-section h3 { font-size: 14px; color: var(--tr-primary); margin: 0 0 6px;
+                      font-weight: 700; }
+.tr-help-section p { margin: 0 0 8px; }
+.tr-help-section ul, .tr-help-section ol { margin: 0 0 8px; padding-left: 22px; }
+.tr-help-section li { margin-bottom: 3px; }
+.tr-help-section code { background: #f0f4f8; padding: 1px 5px; border-radius: 3px;
+                        font-size: 12px; color: var(--tr-primary); }
+.tr-help-note { font-size: 12px; color: var(--tr-muted); font-style: italic;
+                background: #f8f9fa; padding: 6px 10px; border-radius: 4px;
+                border-left: 3px solid var(--tr-border); }
+.tr-help-link { color: var(--tr-accent); cursor: pointer; text-decoration: underline; }
+.tr-help-highlight { background: #fff4ce !important; border-left-color: #f4d35e !important;
+                     padding: 12px !important; border-radius: 6px;
+                     transition: background 0.5s ease-out; }
 .tr-modal-header { display: flex; justify-content: space-between; align-items: center;
                    margin-bottom: 12px; padding-bottom: 8px;
                    border-bottom: 1px solid var(--tr-border); }
@@ -1911,8 +1934,9 @@ else:
   </div>
   <div class="tr-tools">
     <button class="tr-btn tr-btn-secondary" onclick="TRApp.reload()">Refresh</button>
+    <button class="tr-btn tr-btn-secondary" onclick="TRApp.openHelp()" title="How Task Runner works">? Help</button>
     <button class="tr-btn tr-btn-secondary" onclick="TRApp.openSettings()" title="Configure contact methods">&#9881; Settings</button>
-    <div class="tr-view-toggle" id="trViewToggle" style="display:none;">
+    <div class="tr-view-toggle" id="trViewToggle">
       <button id="trViewMyBtn" class="tr-view-btn active" onclick="TRApp.setView('mine')">My View</button>
       <button id="trViewTeamBtn" class="tr-view-btn" onclick="TRApp.setView('team')">Team View</button>
     </div>
@@ -2062,6 +2086,109 @@ else:
         <div class="tr-modal-footer">
           <button class="tr-btn tr-btn-secondary" onclick="TRApp.closeModal('trReassignModal')">Cancel</button>
           <button class="tr-btn" id="trReassignSubmit" onclick="TRApp.submitReassign()" disabled>Reassign</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tr-modal-overlay" id="trHelpModal">
+    <div class="tr-modal tr-help-modal">
+      <div class="tr-modal-header">
+        <span class="tr-modal-title">Task Runner Help</span>
+        <button class="tr-modal-close" onclick="TRApp.closeModal('trHelpModal')">&times;</button>
+      </div>
+      <div class="tr-modal-body tr-help-body">
+
+        <div class="tr-help-section" id="trHelpSec-teamview-disabled">
+          <h3>&#9888;&#65039; Why isn't Team View showing up?</h3>
+          <p>Team View is <strong>disabled until an admin configures it</strong>. It needs two things in
+            <a class="tr-help-link" onclick="TRApp.closeModal('trHelpModal');TRApp.openSettings();return false;">Settings</a>:</p>
+          <ol>
+            <li><strong>Staff Involvement</strong> &mdash; the TouchPoint involvement that defines who counts as "staff." Type-ahead search to pick it.</li>
+            <li><strong>Team drill-in scope</strong> &mdash; one of:
+              <ul>
+                <li><code>Off</code> &mdash; Team View stays disabled.</li>
+                <li><code>Subgroup</code> &mdash; you only see teammates who share a subgroup with you.</li>
+                <li><code>All staff</code> &mdash; you see every member of the staff involvement.</li>
+              </ul>
+            </li>
+          </ol>
+          <p class="tr-help-note">Once both are set, the Team View button activates for everyone in the staff involvement.</p>
+        </div>
+
+        <div class="tr-help-section">
+          <h3>What is Task Runner?</h3>
+          <p>An individual-first task triage view. Instead of an admin workload chart, it answers <em>"what do I do RIGHT NOW?"</em></p>
+          <ul>
+            <li><strong>My View</strong> &mdash; your own open tasks, grouped by urgency.</li>
+            <li><strong>Team View</strong> (admin-enabled) &mdash; a leader's snapshot of how each teammate's queue is doing.</li>
+          </ul>
+        </div>
+
+        <div class="tr-help-section">
+          <h3>&#127919; Where to start</h3>
+          <p>The card at the top of My View picks up to three tasks based on age + due date so you don't have to decide. Knock those out first; the rest of the page is there if you want to triage further.</p>
+        </div>
+
+        <div class="tr-help-section">
+          <h3>Urgency buckets</h3>
+          <ul>
+            <li><strong>Overdue</strong> &mdash; past due date.</li>
+            <li><strong>Today</strong> &mdash; due today.</li>
+            <li><strong>This Week</strong> &mdash; due in the next 7 days.</li>
+            <li><strong>Later</strong> &mdash; due more than 7 days out.</li>
+            <li><strong>Undated</strong> &mdash; no due date set.</li>
+          </ul>
+        </div>
+
+        <div class="tr-help-section">
+          <h3>Hide vs Complete &mdash; what's the difference?</h3>
+          <ul>
+            <li><strong>Complete</strong> closes the task for everyone. The Note you add is saved on the TaskNote. Other users immediately see the task as done.</li>
+            <li><strong>Hide</strong> is a <em>local-only filter</em>. It removes the task from <em>your</em> view (for 1 day, 1 week, or forever) without touching the task or affecting anyone else's view. Useful for parked items, blocked tasks, or noise you don't want to look at today.</li>
+          </ul>
+          <p class="tr-help-note">Your hide list lives in TouchPoint per-user content. It does <em>not</em> sync to other users; teammates still see the task on their dashboards.</p>
+        </div>
+
+        <div class="tr-help-section">
+          <h3>&#128222; Log Contact</h3>
+          <p>Records a contact attempt against the about-person (call / text / email / visit / meeting). Creates a linked TaskNote with a keyword so it surfaces in their history and in the per-row "last contact" indicator.</p>
+          <p>Contact methods are admin-configurable in Settings. The lookback window controls how far back to scan when computing the "last contact" badge.</p>
+        </div>
+
+        <div class="tr-help-section">
+          <h3>&#128257; Reassign</h3>
+          <p>Hand a task to someone else. Search by first / last / partial name (e.g. <code>be swa</code> or <code>swa, b</code> both find Ben Swaby). Uses TouchPoint's <code>TaskNoteMassAssign</code> &mdash; no direct database writes.</p>
+        </div>
+
+        <div class="tr-help-section">
+          <h3>&#128101; Team View &mdash; drill-in scope</h3>
+          <p>Set in Settings. Controls <em>which teammates you can drill into</em>:</p>
+          <ul>
+            <li><strong>Off</strong> &mdash; Team View hidden.</li>
+            <li><strong>Subgroup</strong> &mdash; just people who share a subgroup with you in the staff involvement (your department).</li>
+            <li><strong>All staff</strong> &mdash; everyone in the staff involvement.</li>
+          </ul>
+        </div>
+
+        <div class="tr-help-section">
+          <h3>&#128272; Team View &mdash; action permissions</h3>
+          <p>Independently controlled in Settings. Controls <em>what you can do once drilled into</em> someone's queue:</p>
+          <ul>
+            <li><strong>None</strong> &mdash; read-only. See what they have, can't change it.</li>
+            <li><strong>Reassign only</strong> &mdash; you can hand their tasks to someone else.</li>
+            <li><strong>Reassign + Complete</strong> &mdash; you can also mark their tasks complete on their behalf.</li>
+          </ul>
+          <p class="tr-help-note">Permissions are enforced server-side, not just by hiding UI. A user without permission gets refused even if they craft the AJAX call manually.</p>
+        </div>
+
+        <div class="tr-help-section">
+          <h3>Auto-update</h3>
+          <p>The script checks for a newer published version on every load. If one exists, you'll see a banner at the top with a one-click <strong>Update Now</strong> button. Your saved settings and hidden-task lists are preserved across updates.</p>
+        </div>
+
+        <div class="tr-modal-footer">
+          <button class="tr-btn" onclick="TRApp.closeModal('trHelpModal')">Got it</button>
         </div>
       </div>
     </div>
@@ -2681,21 +2808,39 @@ function loadAndRender() {
 
 // ---- View management ----
 function applyViewVisibility() {
-    // Show / hide the Team toggle based on org settings. The toggle stays
-    // hidden until the admin configures a staff org + scope != 'off'.
+    // The Team toggle is ALWAYS visible -- discoverability matters more than
+    // tidiness. When the org hasn't configured a Staff Involvement + scope,
+    // the Team button is disabled and a click opens the help modal so the
+    // admin learns how to enable it.
     var os = state.orgSettings || {};
     var teamEnabled = (os.drillin_scope && os.drillin_scope !== 'off' && os.staff_org_id);
-    var toggle = document.getElementById('trViewToggle');
-    if (toggle) toggle.style.display = teamEnabled ? 'inline-flex' : 'none';
-    // Sync the active button highlight
     var myBtn = document.getElementById('trViewMyBtn');
     var teamBtn = document.getElementById('trViewTeamBtn');
     var activeView = (state.view === 'mine') ? 'mine' : 'team';
     if (myBtn) myBtn.classList.toggle('active', activeView === 'mine');
-    if (teamBtn) teamBtn.classList.toggle('active', activeView === 'team');
+    if (teamBtn) {
+        teamBtn.classList.toggle('active', activeView === 'team' && teamEnabled);
+        teamBtn.classList.toggle('tr-view-btn-disabled', !teamEnabled);
+        if (!teamEnabled) {
+            teamBtn.title = 'Team View is not configured. Click for help.';
+        } else {
+            teamBtn.removeAttribute('title');
+        }
+    }
 }
 
 function setView(view) {
+    // Intercept clicks on a disabled Team button: open help instead of silently
+    // refusing. This is the named confusion -- "teams not showing up if an
+    // involvement isn't defined."
+    if (view === 'team') {
+        var os = state.orgSettings || {};
+        var teamEnabled = (os.drillin_scope && os.drillin_scope !== 'off' && os.staff_org_id);
+        if (!teamEnabled) {
+            openHelp('teamview-disabled');
+            return;
+        }
+    }
     if (view === state.view) return;
     if (view === 'mine') {
         state.view = 'mine';
@@ -3104,6 +3249,35 @@ function openModal(id) {
 function closeModal(id) {
     var el = document.getElementById(id);
     if (el) el.classList.remove('open');
+    // When the help modal closes, drop any temporary highlight.
+    if (id === 'trHelpModal') {
+        var hilited = document.querySelectorAll('.tr-help-highlight');
+        for (var i = 0; i < hilited.length; i++) {
+            hilited[i].classList.remove('tr-help-highlight');
+        }
+    }
+}
+
+function openHelp(focusSection) {
+    var modal = document.getElementById('trHelpModal');
+    if (!modal) return;
+    modal.classList.add('open');
+    // Reset any stale highlight, then optionally scroll to / highlight a specific section.
+    var hilited = modal.querySelectorAll('.tr-help-highlight');
+    for (var i = 0; i < hilited.length; i++) hilited[i].classList.remove('tr-help-highlight');
+    // Reset scroll to top by default.
+    var body = modal.querySelector('.tr-modal');
+    if (body) body.scrollTop = 0;
+    if (focusSection) {
+        var sec = document.getElementById('trHelpSec-' + focusSection);
+        if (sec) {
+            sec.classList.add('tr-help-highlight');
+            setTimeout(function() {
+                try { sec.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+                catch (e) { sec.scrollIntoView(); }
+            }, 50);
+        }
+    }
 }
 
 function findTask(taskId) {
@@ -3553,6 +3727,7 @@ window.TRApp = {
     drillInto: drillInto,
     backToTeam: backToTeam,
     toggleHideEmptyTeam: toggleHideEmptyTeam,
+    openHelp: openHelp,
     closeModal: closeModal
 };
 
