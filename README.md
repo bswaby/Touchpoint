@@ -111,6 +111,7 @@ These are the tools churches install first and use daily:
 | [Program Pulse](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Program%20Pulse) | Surface what's actually happening across programs |
 | [Report Writer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Report%20Writer) | Build and save custom involvement & user reports |
 | [Roll Sheet](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Roll%20Sheet) | Build custom roll sheets |
+| [Task Runner](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Task%20Runner) | Self and Team Task Management |
 
 ---
 
@@ -151,6 +152,7 @@ These are the tools churches install first and use daily:
 | [Communication Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Communication%20Dashboard) | Analyze outreach patterns and effectiveness |
 | [New Member Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/New%20Member%20Report) | Track new member onboarding comprehensively |
 | [Emergency List](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Emergency%20List) | Critical contact and medical info management |
+| [Task Runner](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Task%20Runner) | Self and Team Task Management |
 | [Volunteer Scheduler Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Scheduler%20Report) | Full volunteer scheduling report |
 | [Volunteer Widget](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Volunteer%20Widget) | Shows logged-in user's upcoming assignments |
 
