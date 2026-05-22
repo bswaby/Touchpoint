@@ -1,32 +1,6 @@
+#roles=Finance,FinanceAdmin,ManageTransactions
 # -*- coding: utf-8 -*-
-
-# Written By: Ben Swaby (TPxi Software, LLC)
-# Email: bswaby@fbchtn.org                                                                                                      
-# Website: https://tpxisoftware.com
-# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
-# ----------------------------------------------------------------                                                              
-# These tools are free because they should be.
-# If they've saved you time or helped your team, and you want to                                                                
-# support continued development, check out:                                                                                     
-#
-# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
-# https://displaycache.com                                
-#
-# TPxi Go(TM) - your church contacts, wherever you work.
-# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
-# or your phone. No tab switching, no lost context.
-# https://tpxigo.com                                                                                                            
-# ----------------------------------------------------------------
-
 """
---Upload Instructions Start--
-To upload code to Touchpoint, use the following steps:
-1. Click Admin ~ Advanced ~ Special Content ~ Python
-2. Click New Python Script File  
-3. Name the Python "ModernPaymentManager" and paste all this code
-4. Test and optionally add to menu
---Upload Instructions End--
-
 Modern Payment Manager System
 ============================
 A complete, responsive payment management system with:
@@ -37,20 +11,115 @@ A complete, responsive payment management system with:
 - AJAX-based user experience
 - TouchPoint-compatible design
 
-Version: 2.0
-Date: May 2025
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub: https://github.com/bswaby/Touchpoint  (40+ free tools)
+# ----------------------------------------------------------------
+# These tools are free because they should be.
+# If they've saved you time or helped your team, and you want to
+# support continued development, check out:
+#
+# DisplayCache - church digital signage that integrates with TouchPoint
+# https://displaycache.com
+#
+# TPxi Go - your church contacts, wherever you work.
+# Look up anyone in TouchPoint, log calls and emails from Outlook
+# or your phone. No tab switching, no lost context.
+# https://tpxigo.com
+# ----------------------------------------------------------------
+
+--Upload Instructions Start--
+To upload code to Touchpoint, use the following steps:
+1. Click Admin ~ Advanced ~ Special Content ~ Python
+2. Click New Python Script File  
+3. Name the Python "ModernPaymentManager" and paste all this code
+4. Test and optionally add to menu
+--Upload Instructions End--
+
+Changelog
+---------
+v2.1.1 - May 2026
+  - Added: Email template editor inside Settings. The two HTML templates
+           (PM_PaymentMade_Email / PM_Notification_Email) can be edited,
+           saved, previewed, and reset to the built-in default without
+           leaving the tool. Falls back to defaults so the editor never
+           opens empty even before any custom HtmlContent exists.
+  - Added: Source column on Receipts results. Distinguishes payments
+           recorded via Payment Manager (CHK|/CSH| signature) from those
+           recorded elsewhere (TouchPoint batch entry, syncs, etc.).
+  - Added: "Include payments not recorded via Payment Manager" toggle
+           on Receipts. Default is OFF so a duplicate-receipt email
+           isn't fired for a payment that had no original receipt.
+  - Defense: Server now refuses to email a duplicate receipt for a
+           non-PM payment even if a hand-crafted POST hits the action,
+           with a clear explanation in the response.
+v2.1.0 - May 2026
+  - Added: Receipts tab. Find past check/cash payments by date range
+           (single date or range), then Print (popup-window receipt
+           for church files) or Email (re-send the original-template
+           receipt with a "Duplicate Receipt" banner).
+  - Added: Settings UI. All hardcoded module constants (default email
+           sender, template names, subject prefix, payment-type prefixes)
+           now configurable from a Settings modal. Per-program sender
+           overrides replace the legacy PM_EmailSenders dict (auto-
+           imported on first save). Stored as JSON in
+           TextContent('PaymentManager_Settings').
+  - Added: AutoUpdate banner -- one-click pull of newer published
+           versions; saved Settings preserved across updates.
+  - Added: ? Help modal documenting drill-down flow, Receipts, Settings,
+           and AutoUpdate.
+  - Internal: get_email_details() now routes through pm_load_settings()
+           rather than parsing PM_EmailSenders directly.
+v2.0 - May 2025
+  - Initial modern rewrite (drill-down navigation, AJAX, modal payment
+    record, email history + preview, transaction history).
 """
 
 from datetime import datetime
 import sys
 import ast
-import re 
+import re
 import json
 from collections import defaultdict
 
-# General Settings
+# =====================================================================
+# VERSION / AUTO-UPDATE  (matches the TPxi house pattern)
+# =====================================================================
+APP_VERSION = '2.3.6'
+DC_SCRIPT_ID = 'TPxi_PaymentManager'
+DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
+DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
+
+def pm_get_script_name():
+    """Detect the installed script name (admin may have renamed it)."""
+    try:
+        if hasattr(model.Data, 'script_name') and model.Data.script_name:
+            sn = str(model.Data.script_name).strip()
+            if sn:
+                return sn
+    except:
+        pass
+    try:
+        url = str(getattr(model, 'URL', '') or '')
+        m = re.search(r'/PyScript(?:Form)?/([^/?#&]+)', url)
+        if m:
+            return m.group(1)
+    except:
+        pass
+    return DC_SCRIPT_ID
+
+# =====================================================================
+# SETTINGS STORAGE
+# Single source of truth for what used to be hardcoded module constants.
+# Stored as JSON in TextContent('PaymentManager_Settings'); first load
+# bootstraps from the legacy PM_EmailSenders dict so existing installs
+# don't lose their per-program sender mappings.
+# =====================================================================
+PM_SETTINGS_KEY = 'PaymentManager_Settings'
+
+# General Settings (defaults -- override via Settings UI)
 DEFAULT_PROGRAM_ID = 0
-PAGE_TITLE = "Modern Payment Manager"
+PAGE_TITLE = "Payment Manager"
 
 # Payment Settings
 PAYMENT_LINK_DESCRIPTION = "CreditCardLinkSent"
@@ -72,25 +141,47 @@ DEFAULT_EMAIL_SENDER = {
 PAYMENT_CONFIRMATION_TEMPLATE_NAME = "PM_PaymentMade_Email"
 PAYMENT_NOTIFICATION_TEMPLATE_NAME = "PM_Notification_Email"
 
-# Email Templates (default templates if not found in HTML Content)
+# Email Templates -- friendlier defaults that look acceptable out of the
+# box. These render when no custom HtmlContent exists for the configured
+# template name, OR when Settings -> Email Template Bodies -> Reset is
+# clicked. They use inline styles only (no <style> blocks) so they
+# survive whatever sanitization email clients throw at them.
 DEFAULT_PAYMENT_EMAIL_TEMPLATE = """
-<p>Dear {name},</p>
-<p>You have an outstanding balance of {totalDue}.</p>
-<p>Previous Balance: {previousDue}<br>
-   New Charges: {chargeNotes}<br>
-   <strong>Total Due: {totalDue}</strong></p>
-<p>Please use the following link to make your payment:</p>
-<p><a href="{paylink}">Pay Now</a></p>
-<p>Thank you,<br>{sender_alias}<br>{sender_phone}<br>{sender_email}</p>
+<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#333;max-width:600px;">
+  <p>Hi {name},</p>
+  <p>You have a balance due. Use the secure link below to pay online whenever you're ready -- the link is unique to your account and is good until your balance is paid.</p>
+  <div style="background:#f7fafc;border:1px solid #e2e8f0;border-radius:6px;padding:14px 18px;margin:14px 0;">
+    <div style="margin-bottom:4px;">Previous Balance: <strong>{previousDue}</strong></div>
+    <div style="margin-bottom:4px;">New Charges: <strong>{chargeNotes}</strong></div>
+    <div style="font-size:1.1em;color:#1f4e79;margin-top:6px;">Total Due: <strong>{totalDue}</strong></div>
+  </div>
+  <p style="text-align:center;margin:20px 0;">
+    <a href="{paylink}" style="display:inline-block;background:#1f4e79;color:#fff;text-decoration:none;padding:10px 22px;border-radius:6px;font-weight:600;">Pay Now &raquo;</a>
+  </p>
+  <p>If the button doesn't work, copy and paste this link into your browser:<br>
+    <span style="word-break:break-all;color:#0078d4;font-size:12px;">{paylink}</span></p>
+  <p style="margin-top:24px;">Thank you,<br>
+    <strong>{sender_alias}</strong><br>
+    {sender_phone}<br>
+    <a href="mailto:{sender_email}" style="color:#1f4e79;">{sender_email}</a></p>
+</div>
 """
 
 DEFAULT_PAYMENT_CONFIRMATION_TEMPLATE = """
-<p>Dear {name},</p>
-<p>We have received your payment. Thank you!</p>
-<p>Payment Details: {chargeNotes}<br>
-   Previous Balance: {previousDue}<br>
-   <strong>New Balance: {newTotalDue}</strong></p>
-<p>Thank you,<br>{sender_alias}<br>{sender_phone}<br>{sender_email}</p>
+<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#333;max-width:600px;">
+  <p>Hi {name},</p>
+  <p>We've received your payment -- thank you! Here's a summary for your records:</p>
+  <div style="background:#f0f9ff;border:1px solid #cfe3ff;border-radius:6px;padding:14px 18px;margin:14px 0;">
+    <div style="margin-bottom:4px;">Payment: <strong>{chargeNotes}</strong></div>
+    <div style="margin-bottom:4px;">Previous Balance: <strong>{previousDue}</strong></div>
+    <div style="font-size:1.1em;color:#107c10;margin-top:6px;">New Balance: <strong>{newTotalDue}</strong></div>
+  </div>
+  <p>If you have questions about this payment, reply to this email or call the number below.</p>
+  <p style="margin-top:24px;">Thank you,<br>
+    <strong>{sender_alias}</strong><br>
+    {sender_phone}<br>
+    <a href="mailto:{sender_email}" style="color:#1f4e79;">{sender_email}</a></p>
+</div>
 """
 
 """
@@ -131,6 +222,106 @@ To set up these templates:
 
 Default templates will be used if the custom templates are not found.
 """
+
+# =====================================================================
+# SETTINGS LOAD / SAVE
+# =====================================================================
+def _pm_normalize_settings(s):
+    # Treat empty strings as "missing" so a prior partial save that
+    # wrote '' for template names doesn't leave HtmlContent lookups
+    # hitting nothing.
+    def _or_default(key, default):
+        v = s.get(key)
+        if v is None or (isinstance(v, basestring) and not v.strip()):
+            s[key] = default
+    _or_default('pageTitle', PAGE_TITLE)
+    _or_default('paymentLinkDescription', PAYMENT_LINK_DESCRIPTION)
+    _or_default('creditChargePaymentType', CREDIT_CHARGE_PAYMENT_TYPE)
+    _or_default('checkPaymentType', CHECK_PAYMENT_TYPE)
+    _or_default('cashPaymentType', CASH_PAYMENT_TYPE)
+    _or_default('emailSubjectPrefix', EMAIL_SUBJECT_PREFIX)
+    _or_default('paymentConfirmationTemplate', PAYMENT_CONFIRMATION_TEMPLATE_NAME)
+    _or_default('paymentNotificationTemplate', PAYMENT_NOTIFICATION_TEMPLATE_NAME)
+    s.setdefault('defaultProgramId', DEFAULT_PROGRAM_ID)
+    if not isinstance(s.get('defaultSender'), dict):
+        s['defaultSender'] = dict(DEFAULT_EMAIL_SENDER)
+    if not isinstance(s.get('senders'), dict):
+        s['senders'] = {}
+    return s
+
+def pm_load_settings():
+    """Load PM settings JSON. Falls back to module constants and -- on
+    first run -- imports the legacy PM_EmailSenders dict so installs
+    upgrading from <2.1 don't lose sender mappings."""
+    try:
+        raw = model.TextContent(PM_SETTINGS_KEY)
+        if raw:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return _pm_normalize_settings(data)
+    except:
+        pass
+    boot = {}
+    try:
+        legacy = model.TextContent('PM_EmailSenders')
+        if legacy:
+            parsed = ast.literal_eval(legacy)
+            if isinstance(parsed, dict):
+                boot['senders'] = {str(k): v for k, v in parsed.items()}
+    except:
+        pass
+    return _pm_normalize_settings(boot)
+
+def pm_save_settings(s):
+    try:
+        model.WriteContentText(PM_SETTINGS_KEY, json.dumps(s), '')
+        return True
+    except:
+        return False
+
+def pm_setup_issues():
+    """Return a list of human-readable problems with the current
+    configuration. Empty list means everything is set up. Used by the
+    main-page banner to show admins exactly what to fix and which
+    features won't work until they do."""
+    issues = []
+    try:
+        s = pm_load_settings()
+    except:
+        return [("Settings could not be loaded -- click Settings to initialize.",
+                 "All email features unavailable")]
+    ds = s.get('defaultSender') or {}
+    # Default sender must have at least a from-address and sender-id.
+    if not (ds.get('sender_email') or '').strip():
+        issues.append(("Default sender email is blank.",
+                       "Payment-link and confirmation emails will fail."))
+    if not str(ds.get('sender_id') or '').strip():
+        issues.append(("Default sender PeopleId is blank.",
+                       "TouchPoint requires a queued-by PeopleId; sends will be rejected."))
+    if (ds.get('sender_email') or '').strip().lower() in ('noreply@church.com', ''):
+        # The bundled placeholder -- almost certainly not the church's
+        # real address.
+        if (ds.get('sender_email') or '').strip().lower() == 'noreply@church.com':
+            issues.append(("Default sender email is the bundled placeholder (noreply@church.com).",
+                           "Bounces / spam risk; change to a real church address."))
+    # Template existence -- check that HtmlContent rows actually exist,
+    # so admins know they're rendering the built-in defaults vs their
+    # own customized copy.
+    for label, key, default_name in [
+        ('Payment Confirmation', 'paymentConfirmationTemplate', PAYMENT_CONFIRMATION_TEMPLATE_NAME),
+        ('Payment Notification', 'paymentNotificationTemplate', PAYMENT_NOTIFICATION_TEMPLATE_NAME),
+    ]:
+        nm = (s.get(key) or default_name)
+        try:
+            body = model.HtmlContent(nm)
+        except:
+            body = None
+        if not body:
+            issues.append((
+                "Template '" + label + "' (" + nm + ") not found in HTML Content -- using built-in default.",
+                "Emails will send, but with the generic default body. Open Settings to customize."
+            ))
+    return issues
 
 try:
     class ModernPaymentManager:
@@ -360,6 +551,128 @@ try:
             ORDER BY eq.Sent DESC
             '''.format(people_id)
             return q.QuerySql(sql)
+
+        def get_charge_details(self, people_id, org_id):
+            """Return the underlying transactions for a single
+            (PeopleId, OrgId) pair, oldest first so a running balance
+            can be calculated client-side.
+
+            Returns rows with: TranDate, Description, Message, Type,
+            Amount (signed: + = charge, - = payment), TransactionId.
+            """
+            try:
+                pid = int(people_id)
+                oid = int(org_id)
+            except:
+                return []
+            sql = """
+                SELECT
+                    FORMAT(t.TransactionDate, 'yyyy-MM-dd HH:mm') AS TranDate,
+                    t.TransactionId,
+                    ISNULL(t.[Message], '')     AS Message,
+                    ISNULL(t.[Description], '') AS Description,
+                    t.amt                       AS RawAmt,
+                    t.amtdue                    AS AmtDue,
+                    CASE WHEN t.[Message] LIKE 'CHK%'                     THEN 'Check'
+                         WHEN t.[Message] LIKE 'CSH%'                     THEN 'Cash'
+                         WHEN t.[Message] LIKE 'Response%'                THEN 'Credit Card'
+                         WHEN t.TransactionId LIKE 'Coupon%'              THEN 'Coupon'
+                         WHEN t.[Message] LIKE 'FEE%'                     THEN 'Fee'
+                         WHEN t.[Message] LIKE 'ADJ|%' OR t.[Message] LIKE 'Adj%' THEN 'Adjustment'
+                         WHEN t.[Message] LIKE 'variableCredit%' OR t.[Message] LIKE 'variableRefund%' OR t.[Message] LIKE '%Credit for%' THEN 'Credit'
+                         WHEN t.[Message] LIKE 'variableLate%'            THEN 'Late Fee'
+                         WHEN t.[Message] LIKE 'variable%'                THEN 'Variable Charge'
+                         WHEN t.[Message] LIKE 'setDefaultCharge%'        THEN 'Recurring Setup'
+                         WHEN t.[Message] LIKE 'move-to-payer%'           THEN 'Transfer'
+                         WHEN t.[Message] LIKE 'Initial%'                 THEN 'Initial Charge'
+                         WHEN t.[Message] LIKE '%Household%'              THEN 'Household Charge'
+                         WHEN t.[Message] IS NULL OR t.[Message] = ''     THEN 'Manual'
+                         ELSE 'Charge' END AS Kind
+                FROM TransactionSummary ts
+                INNER JOIN [Transaction] t ON ts.RegId = t.OriginalId
+                WHERE ts.PeopleId = {0}
+                  AND ts.OrganizationId = {1}
+                  AND ts.IsLatestTransaction = 1
+                  AND t.amt <> 0
+                  AND t.voided IS NULL
+                ORDER BY t.TransactionDate ASC, t.TransactionId
+            """.format(pid, oid)
+            return q.QuerySql(sql)
+
+        def process_charge_details(self):
+            """AJAX endpoint backing the inline expand on payer rows.
+            Returns a normalized list of charges + payments with a
+            running balance computed server-side so all clients see the
+            same math.
+            """
+            try:
+                people_id = str(getattr(model.Data, 'people_id', '') or '').strip()
+                org_id    = str(getattr(model.Data, 'org_id', '') or '').strip()
+                if not people_id or not org_id:
+                    return self.create_json_response(False, "people_id and org_id are required")
+                rows = []
+                running = 0.0
+                for r in self.get_charge_details(people_id, org_id):
+                    msg = str(self.safe_get_attr(r, 'Message', '') or '')
+                    txid = str(self.safe_get_attr(r, 'TransactionId', '') or '')
+                    amtdue = self.safe_get_attr(r, 'AmtDue', None)
+                    amt    = float(self.safe_get_attr(r, 'RawAmt', 0) or 0)
+                    # Signing rule (verified against local DB):
+                    #   1) If the Message looks like a payment vehicle
+                    #      (CHK/CSH/Response/Coupon), it's always a
+                    #      payment regardless of amtdue's sign -- some
+                    #      Response: rows have amtdue=0 when the payment
+                    #      offsets a separate charge row.
+                    #   2) Else if amtdue is non-NULL and non-zero, trust
+                    #      its sign (FEE rows have +amtdue = charge,
+                    #      adjustments can have -amtdue = credit).
+                    #   3) Fall back to +abs(amt) (treat as charge).
+                    is_payment_msg = (msg.startswith('CHK') or msg.startswith('CSH')
+                                       or msg.startswith('Response') or txid.startswith('Coupon'))
+                    if is_payment_msg:
+                        signed = -abs(amt)
+                    elif amtdue is not None:
+                        try:
+                            adv = float(amtdue)
+                            signed = adv if adv != 0 else abs(amt)
+                        except:
+                            signed = abs(amt)
+                    else:
+                        signed = abs(amt)
+                    running += signed
+                    # Strip the type prefix (CHK|, CSH|, FEE|, ADJ|)
+                    # from the Message to expose just the staff note.
+                    # Falls back to the raw Description (the involvement
+                    # context for online payments) when there's no note.
+                    note = ''
+                    if '|' in msg:
+                        note = msg.split('|', 1)[1].strip()
+                    elif msg.startswith('Response'):
+                        # CC responses are gateway noise; show involvement
+                        # context from t.Description instead.
+                        note = ''
+                    else:
+                        # Other messages are usually descriptive in full
+                        # (Initial Charge, variableLate Fee, etc.).
+                        note = msg
+                    desc_from_tx = str(self.safe_get_attr(r, 'Description', '') or '').strip()
+                    rows.append({
+                        'tranDate':    self.safe_get_attr(r, 'TranDate', ''),
+                        'transactionId': txid,
+                        'kind':        self.safe_get_attr(r, 'Kind', ''),
+                        'description': desc_from_tx,   # involvement context if any
+                        'note':        note,           # user-added note, prefix stripped
+                        'message':     msg,            # raw for tooltip
+                        'amount':      signed,
+                        'isPayment':   signed < 0,
+                        'runningBalance': running,
+                    })
+                return self.create_json_response(True, "ok", {
+                    'charges': rows,
+                    'endingBalance': running,
+                })
+            except Exception as e:
+                return self.create_json_response(False, "charge_details error: " + str(e))
 
         def get_transaction_history(self, people_id):
             """Get transaction history for a person"""
@@ -629,17 +942,729 @@ try:
                 return self.create_json_response(False, "Error processing email resend: " + str(e))
 
         def get_email_details(self, program_id):
-            """Get email configuration for program"""
+            """Get email configuration for program. Routes through the new
+            Settings store; falls back to module DEFAULT_EMAIL_SENDER if
+            the Settings UI hasn't been touched yet."""
             try:
-                email_details_text = model.TextContent("PM_EmailSenders")
-                email_details = ast.literal_eval(email_details_text)
-                
-                if program_id in email_details:
-                    return email_details[program_id]
-                return DEFAULT_EMAIL_SENDER
+                settings = pm_load_settings()
+                senders = settings.get('senders', {}) or {}
+                pid_key = str(program_id) if program_id is not None else ''
+                if pid_key in senders and isinstance(senders[pid_key], dict):
+                    return senders[pid_key]
+                return settings.get('defaultSender') or DEFAULT_EMAIL_SENDER
             except:
-                # Return default email configuration
                 return DEFAULT_EMAIL_SENDER
+
+        # ==============================================================
+        # RECEIPTS REPRINT -- find past check/cash payments, re-fire email
+        # ==============================================================
+        def process_find_receipts(self):
+            """Date-range search for check/cash payments. Returns JSON
+            list of {transactionId, person, peopleId, email, orgName,
+            amount, transactionDate, paymentType, source, description}.
+
+            Source detection:
+              * 'pm'       -- Message looks like 'CHK|...' or 'CSH|...'.
+                              Payment Manager writes the pipe; only these
+                              are safe to reprint a receipt for, since
+                              they're the only payments that had an
+                              original receipt fire from this tool.
+              * 'external' -- anything else (TouchPoint batch entry,
+                              other apps). Receipts are NOT shown for
+                              these unless include_external=true.
+            """
+            try:
+                settings = pm_load_settings()
+                pm_chk = (settings.get('checkPaymentType') or CHECK_PAYMENT_TYPE).replace("'", "''")
+                pm_csh = (settings.get('cashPaymentType')  or CASH_PAYMENT_TYPE).replace("'", "''")
+                date_from = str(getattr(model.Data, 'date_from', '')).strip()
+                date_to   = str(getattr(model.Data, 'date_to', '')).strip()
+                # rcpt_types is a comma-separated multi-select. Legacy
+                # rcpt_type ('check'|'cash'|'both') is honored for any
+                # callers that haven't upgraded.
+                raw_types = str(getattr(model.Data, 'rcpt_types', '')).strip().lower()
+                if not raw_types:
+                    legacy = str(getattr(model.Data, 'rcpt_type', 'both')).strip().lower()
+                    if legacy == 'both':
+                        raw_types = 'check,cash'
+                    else:
+                        raw_types = legacy
+                selected_types = set([t.strip() for t in raw_types.split(',') if t.strip()])
+                include_external = str(getattr(model.Data, 'include_external', '')).lower() in ('true', '1', 'yes', 'on')
+                # Optional substring filters. Either can be empty.
+                payer_filter = str(getattr(model.Data, 'payer', '') or '').strip()
+                org_filter   = str(getattr(model.Data, 'involvement', '') or '').strip()
+                # Last-4 search: matches Transaction.LastFourCC or
+                # LastFourACH exactly (after stripping non-digits).
+                last4_filter = ''.join(c for c in (str(getattr(model.Data, 'last4', '') or '')) if c.isdigit())
+                # Limit to last 4 digits if more typed
+                if len(last4_filter) > 4:
+                    last4_filter = last4_filter[-4:]
+                if not date_from or not date_to:
+                    return self.create_json_response(False, "Both From and To dates are required")
+                # Build the type filter. Check/Cash respect include_external
+                # (PM signature vs all CHK/CSH). Credit Card and Coupon are
+                # never PM-originated, so they're shown whenever selected
+                # regardless of the include_external toggle.
+                type_clauses = []
+                if 'check' in selected_types:
+                    if include_external:
+                        type_clauses.append("t.[Message] LIKE 'CHK%'")
+                    else:
+                        type_clauses.append("t.[Message] LIKE '" + pm_chk + "%'")
+                if 'cash' in selected_types:
+                    if include_external:
+                        type_clauses.append("t.[Message] LIKE 'CSH%'")
+                    else:
+                        type_clauses.append("t.[Message] LIKE '" + pm_csh + "%'")
+                if 'credit' in selected_types or 'creditcard' in selected_types or 'cc' in selected_types:
+                    type_clauses.append("t.[Message] LIKE 'Response%'")
+                if 'coupon' in selected_types:
+                    # Coupons live in Transaction too, but their Message is
+                    # usually NULL -- we identify them by TransactionId.
+                    type_clauses.append("t.TransactionId LIKE 'Coupon%'")
+                if 'other' in selected_types:
+                    # Anything that REDUCED the balance (a payment of any
+                    # kind) but doesn't carry one of the standard prefixes.
+                    # Catches TouchPoint-direct check/cash entries, ACH,
+                    # wire transfers, and any other manually-recorded
+                    # payments. We also explicitly exclude ADJ| / FEE| /
+                    # variable...  patterns -- those are credits or fees
+                    # that change a balance but aren't payments received.
+                    type_clauses.append(
+                        "(t.amtdue < 0 "
+                        "  AND t.[Message] NOT LIKE 'CHK%' "
+                        "  AND t.[Message] NOT LIKE 'CSH%' "
+                        "  AND t.[Message] NOT LIKE 'Response%' "
+                        "  AND t.TransactionId NOT LIKE 'Coupon%' "
+                        "  AND ISNULL(t.[Message], '') NOT LIKE 'ADJ|%' "
+                        "  AND ISNULL(t.[Message], '') NOT LIKE 'FEE|%' "
+                        "  AND ISNULL(t.[Message], '') NOT LIKE 'variable%')"
+                    )
+                if not type_clauses:
+                    return self.create_json_response(False, "Pick at least one payment type")
+                type_sql = '(' + ' OR '.join(type_clauses) + ')'
+                # Sanitize dates -- only ISO yyyy-mm-dd accepted.
+                def _iso(s):
+                    return bool(re.match(r'^\d{4}-\d{2}-\d{2}$', s or ''))
+                if not (_iso(date_from) and _iso(date_to)):
+                    return self.create_json_response(False, "Dates must be in YYYY-MM-DD format")
+                # Use t.amt (the actual payment amount) instead of
+                # t.amtdue -- amtdue is NULL or 0 for many rows
+                # (especially CC and Coupon), which would silently drop
+                # them. MinistryDepositReport uses the same convention.
+                sql = """
+                    SELECT
+                        t.TransactionId,
+                        ISNULL(NULLIF(t.Name, ''), ISNULL(p.Name, '')) AS PersonName,
+                        ISNULL(p.PeopleId, 0)     AS PeopleId,
+                        ISNULL(p.EmailAddress, '') AS Email,
+                        ISNULL(o.OrganizationName, '') AS OrgName,
+                        ISNULL(o.OrganizationId, 0) AS OrgId,
+                        t.amt                     AS Amount,
+                        FORMAT(t.TransactionDate, 'yyyy-MM-dd HH:mm') AS TranDate,
+                        FORMAT(t.TransactionDate, 'yyyy-MM-dd') AS TranDateOnly,
+                        CASE WHEN t.[Message] LIKE 'CHK%' THEN 'Check'
+                             WHEN t.[Message] LIKE 'CSH%' THEN 'Cash'
+                             WHEN t.[Message] LIKE 'Response%' THEN 'Credit Card'
+                             WHEN t.TransactionId LIKE 'Coupon%' THEN 'Coupon'
+                             WHEN t.amtdue < 0 THEN 'Other Payment'
+                             ELSE 'Other' END AS PaymentType,
+                        ISNULL(t.[Message], '')   AS Message,
+                        ISNULL(t.[Description], '') AS Description,
+                        ISNULL(t.LastFourCC, '')  AS LastFourCC,
+                        ISNULL(t.LastFourACH, '') AS LastFourACH,
+                        -- All people linked to this registration. Lets
+                        -- the UI explain why several rows share a date /
+                        -- amount / payer -- a family registered multiple
+                        -- kids on one transaction.
+                        ISNULL(STUFF((
+                            SELECT ', ' + p2.Name
+                            FROM TransactionSummary ts2
+                            JOIN People p2 ON p2.PeopleId = ts2.PeopleId
+                            WHERE ts2.RegId = t.OriginalId
+                              AND ts2.IsLatestTransaction = 1
+                            FOR XML PATH('')
+                        ), 1, 2, ''), '') AS RegistrantNames
+                    FROM [Transaction] t
+                    -- OUTER APPLY (TOP 1) prevents row-multiplication when
+                    -- a transaction is linked to several TransactionSummary
+                    -- rows -- e.g. multi-person registrations, multi-use
+                    -- coupons, recurring adjustments. Locally
+                    -- 'Adjustment (12431)' multiplied to 12 rows under a
+                    -- plain LEFT JOIN.
+                    OUTER APPLY (
+                        SELECT TOP 1 ts.PeopleId, ts.OrganizationId
+                        FROM TransactionSummary ts
+                        WHERE ts.RegId = t.OriginalId
+                          AND ts.IsLatestTransaction = 1
+                        ORDER BY ts.PeopleId
+                    ) ts
+                    LEFT JOIN People p ON p.PeopleId = ts.PeopleId
+                    LEFT JOIN Organizations o ON o.OrganizationId = ts.OrganizationId
+                    WHERE {0}
+                      AND t.TransactionDate >= '{1}'
+                      AND t.TransactionDate <  DATEADD(day, 1, '{2}')
+                      AND t.amt <> 0
+                      AND t.TransactionId IS NOT NULL
+                      AND t.voided IS NULL
+                      {3}
+                      {4}
+                    ORDER BY t.TransactionDate DESC
+                """.format(type_sql, date_from, date_to,
+                           ("AND (p.Name LIKE '%" + payer_filter.replace("'", "''") + "%' OR t.Name LIKE '%" + payer_filter.replace("'", "''") + "%')") if payer_filter else "",
+                           ("AND o.OrganizationName LIKE '%" + org_filter.replace("'", "''") + "%'") if org_filter else "")
+                # Last-4 narrows on Transaction.LastFourCC or LastFourACH
+                # AFTER the OUTER APPLY structure -- inject before the
+                # ORDER BY. Doing it as a string splice keeps the
+                # OUTER APPLY block readable.
+                if last4_filter:
+                    sql = sql.replace(
+                        "ORDER BY t.TransactionDate DESC",
+                        "AND (t.LastFourCC = '" + last4_filter + "' OR t.LastFourACH = '" + last4_filter + "')\n                    ORDER BY t.TransactionDate DESC"
+                    )
+                rows = []
+                for r in q.QuerySql(sql):
+                    msg = str(self.safe_get_attr(r, 'Message', '') or '')
+                    txid = str(self.safe_get_attr(r, 'TransactionId', '') or '')
+                    # Source = 'pm' when message begins with PM's exact
+                    # signature (CHK|... / CSH|...). Anything else came
+                    # from elsewhere -- batch entry, sync, etc.
+                    src = 'pm' if (msg.startswith(pm_chk) or msg.startswith(pm_csh)) else 'external'
+                    # Extract the staff note from the Message so the row
+                    # list can show "Added banquet via phone call" instead
+                    # of a hex TransactionId. Skips CC gateway noise.
+                    note = ''
+                    if '|' in msg:
+                        note = msg.split('|', 1)[1].strip()
+                    elif msg and not msg.startswith('Response'):
+                        note = msg.strip()
+                    rows.append({
+                        'transactionId': txid,
+                        'person':        self.safe_get_attr(r, 'PersonName', ''),
+                        'peopleId':      self.safe_get_attr(r, 'PeopleId', 0),
+                        'email':         self.safe_get_attr(r, 'Email', ''),
+                        'orgName':       self.safe_get_attr(r, 'OrgName', ''),
+                        'orgId':         self.safe_get_attr(r, 'OrgId', 0),
+                        'amount':        float(self.safe_get_attr(r, 'Amount', 0) or 0),
+                        'tranDate':      self.safe_get_attr(r, 'TranDate', ''),
+                        'tranDateOnly':  self.safe_get_attr(r, 'TranDateOnly', ''),
+                        'paymentType':   self.safe_get_attr(r, 'PaymentType', ''),
+                        'registrants':   self.safe_get_attr(r, 'RegistrantNames', ''),
+                        'message':       msg,
+                        'note':          note,
+                        'source':        src,
+                        'description':   self.safe_get_attr(r, 'Description', ''),
+                        'last4cc':       self.safe_get_attr(r, 'LastFourCC', ''),
+                        'last4ach':      self.safe_get_attr(r, 'LastFourACH', ''),
+                    })
+                # Diagnostic counts so the empty-state can explain why
+                # nothing showed up. We count UNFILTERED (no amtdue gate
+                # or type gate) so the staffer can tell the difference
+                # between "no transactions in this range" and "lots of
+                # transactions but none with a payment amount." We also
+                # surface the most recent transaction date so it's
+                # obvious when a test/QA database is just stale.
+                # Capture raw model.Data values verbatim so the diagnostic
+                # can show exactly what arrived from the browser (helps
+                # catch cases where a value silently becomes empty).
+                try:
+                    raw_df = repr(getattr(model.Data, 'date_from', None))
+                except: raw_df = '<read-error>'
+                try:
+                    raw_dt = repr(getattr(model.Data, 'date_to', None))
+                except: raw_dt = '<read-error>'
+                diag = {'totalTxns': 0, 'chkCount': 0, 'cshCount': 0, 'ccCount': 0,
+                        'couponCount': 0, 'otherCount': 0, 'pmCount': 0, 'extCount': 0,
+                        'nonZeroAmt': 0, 'latestTxnDate': '',
+                        'tableTotal': 0, 'tableProbeErr': '',
+                        'dateFromEcho': date_from, 'dateToEcho': date_to,
+                        'rawDateFrom': raw_df, 'rawDateTo': raw_dt}
+                if not rows:
+                    # ALWAYS run the table probes first -- if these fail,
+                    # we want to KNOW (regardless of whether the filtered
+                    # diagnostic succeeds). Each in its own try.
+                    try:
+                        tc = list(q.QuerySql("SELECT COUNT(*) AS TableTotal FROM [Transaction]"))
+                        if tc:
+                            diag['tableTotal'] = int(self.safe_get_attr(tc[0], 'TableTotal', 0) or 0)
+                    except Exception as tce:
+                        diag['tableProbeErr'] = 'count: ' + str(tce)
+                    try:
+                        mx = list(q.QuerySql("SELECT FORMAT(MAX(TransactionDate), 'yyyy-MM-dd') AS LatestDate FROM [Transaction]"))
+                        if mx:
+                            diag['latestTxnDate'] = str(self.safe_get_attr(mx[0], 'LatestDate', '') or '')
+                    except Exception as mxe:
+                        if not diag.get('tableProbeErr'):
+                            diag['tableProbeErr'] = 'max: ' + str(mxe)
+                    # Filtered counts. Any exception here goes into
+                    # diag['error'] so the UI can render it (no more
+                    # silently-swallowed failures).
+                    try:
+                        diag_sql = """
+                            SELECT
+                                COUNT(*) AS TotalTxns,
+                                SUM(CASE WHEN t.amt <> 0 THEN 1 ELSE 0 END) AS NonZeroAmt,
+                                SUM(CASE WHEN t.[Message] LIKE 'CHK%' THEN 1 ELSE 0 END) AS ChkCount,
+                                SUM(CASE WHEN t.[Message] LIKE 'CSH%' THEN 1 ELSE 0 END) AS CshCount,
+                                SUM(CASE WHEN t.[Message] LIKE 'Response%' THEN 1 ELSE 0 END) AS CCCount,
+                                SUM(CASE WHEN t.TransactionId LIKE 'Coupon%' THEN 1 ELSE 0 END) AS CouponCount,
+                                SUM(CASE WHEN t.amtdue < 0
+                                          AND t.[Message] NOT LIKE 'CHK%'
+                                          AND t.[Message] NOT LIKE 'CSH%'
+                                          AND t.[Message] NOT LIKE 'Response%'
+                                          AND t.TransactionId NOT LIKE 'Coupon%'
+                                          AND ISNULL(t.[Message], '') NOT LIKE 'ADJ|%'
+                                          AND ISNULL(t.[Message], '') NOT LIKE 'FEE|%'
+                                          AND ISNULL(t.[Message], '') NOT LIKE 'variable%'
+                                         THEN 1 ELSE 0 END) AS OtherCount,
+                                SUM(CASE WHEN t.[Message] LIKE '{0}%' OR t.[Message] LIKE '{1}%' THEN 1 ELSE 0 END) AS PMCount
+                            FROM [Transaction] t
+                            WHERE t.TransactionDate >= '{2}'
+                              AND t.TransactionDate <  DATEADD(day, 1, '{3}')
+                        """.format(pm_chk, pm_csh, date_from, date_to)
+                        d = list(q.QuerySql(diag_sql))
+                        if d:
+                            diag['totalTxns']   = int(self.safe_get_attr(d[0], 'TotalTxns', 0) or 0)
+                            diag['nonZeroAmt']  = int(self.safe_get_attr(d[0], 'NonZeroAmt', 0) or 0)
+                            diag['chkCount']    = int(self.safe_get_attr(d[0], 'ChkCount', 0) or 0)
+                            diag['cshCount']    = int(self.safe_get_attr(d[0], 'CshCount', 0) or 0)
+                            diag['ccCount']     = int(self.safe_get_attr(d[0], 'CCCount', 0) or 0)
+                            diag['couponCount'] = int(self.safe_get_attr(d[0], 'CouponCount', 0) or 0)
+                            diag['otherCount']  = int(self.safe_get_attr(d[0], 'OtherCount', 0) or 0)
+                            diag['pmCount']     = int(self.safe_get_attr(d[0], 'PMCount', 0) or 0)
+                            diag['extCount']    = (diag['chkCount'] + diag['cshCount']) - diag['pmCount']
+                    except Exception as diag_err:
+                        diag['error'] = 'diag_sql: ' + str(diag_err)
+                return self.create_json_response(True, str(len(rows)) + " receipt(s) found",
+                                                {'receipts': rows, 'diag': diag, 'includeExternal': include_external})
+            except Exception as e:
+                return self.create_json_response(False, "Error finding receipts: " + str(e))
+
+        def _build_receipt_html(self, row, settings):
+            """Build the receipt body. Re-uses the PM_PaymentMade_Email
+            template (or the bundled default) so a reprint looks identical
+            to the original send. The 'previous' balance can't be
+            historically reconstructed without a balance snapshot table,
+            so we frame this as a 'Payment Receipt -- duplicate' and show
+            current balance instead, clearly labelled."""
+            try:
+                tpl = model.HtmlContent(settings.get('paymentConfirmationTemplate') or PAYMENT_CONFIRMATION_TEMPLATE_NAME)
+            except:
+                tpl = None
+            if not tpl:
+                tpl = DEFAULT_PAYMENT_CONFIRMATION_TEMPLATE
+            sender = settings.get('defaultSender') or DEFAULT_EMAIL_SENDER
+            charge_notes = '${:,.2f} -- {} payment on {}'.format(
+                abs(float(row.get('amount') or 0)),
+                row.get('paymentType', ''),
+                row.get('tranDateOnly', ''))
+            # Enrich charge_notes with the involvement + registrants and
+            # the staff note (if any). All three appear below the amount
+            # line as subtle dimmer text, so every template -- default or
+            # user-custom -- benefits via the existing {chargeNotes}
+            # placeholder. Templates that opt into {orgName},
+            # {registrants}, or {note} directly are also handled below.
+            org_name    = str(row.get('orgName', '') or '').strip()
+            registrants = str(row.get('registrants', '') or '').strip()
+            raw_msg     = str(row.get('message', '') or '').strip()
+            # Extract the staff note from a typed Message ("CHK|note",
+            # "CSH|note", "FEE|note", "ADJ|note"). Skip CC gateway noise
+            # ("Response:...") and pre-piped patterns.
+            staff_note = ''
+            if '|' in raw_msg:
+                staff_note = raw_msg.split('|', 1)[1].strip()
+            elif raw_msg and not raw_msg.startswith('Response'):
+                staff_note = raw_msg
+            details_html = ''
+            if org_name:
+                details_html += ('<br><span style="color:#666;font-size:13px;">'
+                                 'For: <strong>' + org_name + '</strong></span>')
+            if registrants and registrants.lower() != str(row.get('person', '') or '').strip().lower():
+                details_html += ('<br><span style="color:#666;font-size:13px;">'
+                                 'Registered: <strong>' + registrants + '</strong></span>')
+            if staff_note:
+                details_html += ('<br><span style="color:#666;font-size:13px;font-style:italic;">'
+                                 'Note: ' + staff_note + '</span>')
+            charge_notes_full = charge_notes + details_html
+            cur_balance = self.get_current_balance(row.get('peopleId'), row.get('orgId')) if row.get('peopleId') and row.get('orgId') else 0.0
+            body = tpl
+            body = body.replace('{name}',         str(row.get('person', '')))
+            body = body.replace('{chargeNotes}',  charge_notes_full)
+            body = body.replace('{orgName}',      org_name)
+            body = body.replace('{registrants}',  registrants)
+            body = body.replace('{note}',         staff_note)
+            body = body.replace('{previousDue}',  '${:,.2f}'.format(abs(float(row.get('amount') or 0)) + float(cur_balance)))
+            body = body.replace('{newTotalDue}',  '${:,.2f}'.format(float(cur_balance)))
+            body = body.replace('{sender_alias}', str(sender.get('sender_alias', '')))
+            body = body.replace('{sender_phone}', str(sender.get('sender_phone', '')))
+            body = body.replace('{sender_email}', str(sender.get('sender_email', '')))
+            # Duplicate-receipt banner above the rendered template body.
+            banner = ("<div style=\"background:#fff4ce;border:1px solid #f4d35e;"
+                      "padding:8px 12px;border-radius:4px;font-size:12px;"
+                      "color:#7a5c00;margin-bottom:12px;\">"
+                      "<strong>Duplicate Receipt</strong> &mdash; original payment "
+                      "recorded " + str(row.get('tranDate', '')) + ". "
+                      "Balance shown reflects today's account state, not the "
+                      "balance at the time of the original transaction."
+                      "</div>")
+            return banner + body
+
+        def process_reprint_receipt(self):
+            """Reprint mode: 'email' fires the receipt to the payer's
+            email on file; 'html' returns the rendered HTML so the JS
+            can pop a print window."""
+            try:
+                tx_id = str(getattr(model.Data, 'transaction_id', ''))
+                mode = str(getattr(model.Data, 'mode', 'html')).strip().lower()
+                if not tx_id:
+                    return self.create_json_response(False, "Missing transaction_id")
+                # Pull the single transaction back. Same column logic
+                # as find_receipts (t.amt for actual amount, full
+                # PaymentType CASE including CC + Coupon, registrant list).
+                sql = """
+                    SELECT TOP 1 t.TransactionId,
+                        ISNULL(NULLIF(t.Name, ''), ISNULL(p.Name, '')) AS PersonName,
+                        ISNULL(p.PeopleId, 0)     AS PeopleId,
+                        ISNULL(p.EmailAddress, '') AS Email,
+                        ISNULL(o.OrganizationName, '') AS OrgName,
+                        ISNULL(o.OrganizationId, 0) AS OrgId,
+                        t.amt                     AS Amount,
+                        FORMAT(t.TransactionDate, 'yyyy-MM-dd HH:mm') AS TranDate,
+                        FORMAT(t.TransactionDate, 'yyyy-MM-dd') AS TranDateOnly,
+                        CASE WHEN t.[Message] LIKE 'CHK%' THEN 'Check'
+                             WHEN t.[Message] LIKE 'CSH%' THEN 'Cash'
+                             WHEN t.[Message] LIKE 'Response%' THEN 'Credit Card'
+                             WHEN t.TransactionId LIKE 'Coupon%' THEN 'Coupon'
+                             ELSE 'Other' END AS PaymentType,
+                        ISNULL(t.[Message], '')   AS Message,
+                        ISNULL(STUFF((
+                            SELECT ', ' + p2.Name
+                            FROM TransactionSummary ts2
+                            JOIN People p2 ON p2.PeopleId = ts2.PeopleId
+                            WHERE ts2.RegId = t.OriginalId
+                              AND ts2.IsLatestTransaction = 1
+                            FOR XML PATH('')
+                        ), 1, 2, ''), '') AS RegistrantNames
+                    FROM [Transaction] t
+                    OUTER APPLY (
+                        SELECT TOP 1 ts.PeopleId, ts.OrganizationId
+                        FROM TransactionSummary ts
+                        WHERE ts.RegId = t.OriginalId
+                          AND ts.IsLatestTransaction = 1
+                        ORDER BY ts.PeopleId
+                    ) ts
+                    LEFT JOIN People p ON p.PeopleId = ts.PeopleId
+                    LEFT JOIN Organizations o ON o.OrganizationId = ts.OrganizationId
+                    WHERE t.TransactionId = '""" + tx_id.replace("'", "''") + """'
+                """
+                rows = list(q.QuerySql(sql))
+                if not rows:
+                    return self.create_json_response(False, "Transaction not found")
+                r = rows[0]
+                row = {
+                    'transactionId': self.safe_get_attr(r, 'TransactionId', ''),
+                    'person':        self.safe_get_attr(r, 'PersonName', ''),
+                    'peopleId':      self.safe_get_attr(r, 'PeopleId', 0),
+                    'email':         self.safe_get_attr(r, 'Email', ''),
+                    'orgName':       self.safe_get_attr(r, 'OrgName', ''),
+                    'orgId':         self.safe_get_attr(r, 'OrgId', 0),
+                    'amount':        float(self.safe_get_attr(r, 'Amount', 0) or 0),
+                    'tranDate':      self.safe_get_attr(r, 'TranDate', ''),
+                    'tranDateOnly':  self.safe_get_attr(r, 'TranDateOnly', ''),
+                    'paymentType':   self.safe_get_attr(r, 'PaymentType', ''),
+                    'registrants':   self.safe_get_attr(r, 'RegistrantNames', ''),
+                    'message':       self.safe_get_attr(r, 'Message', ''),
+                }
+                settings = pm_load_settings()
+                body = self._build_receipt_html(row, settings)
+                if mode == 'email':
+                    # Defense-in-depth: refuse to email a "duplicate
+                    # receipt" for a payment that didn't go through PM
+                    # to begin with (no original receipt was ever sent).
+                    settings = pm_load_settings()
+                    pm_chk = settings.get('checkPaymentType') or CHECK_PAYMENT_TYPE
+                    pm_csh = settings.get('cashPaymentType')  or CASH_PAYMENT_TYPE
+                    msg = str(self.safe_get_attr(r, 'Message', '') or '')
+                    if not (msg.startswith(pm_chk) or msg.startswith(pm_csh)):
+                        return self.create_json_response(False,
+                            "This payment was not recorded through Payment Manager. "
+                            "No original receipt was sent, so a duplicate cannot be emailed. "
+                            "You can still Print a receipt for the church files.")
+                    if not row.get('email'):
+                        return self.create_json_response(False, "No email on file for " + str(row.get('person', '')))
+                    sender = settings.get('defaultSender') or DEFAULT_EMAIL_SENDER
+                    subject = "Receipt (duplicate) -- " + str(row.get('paymentType', '')) + " payment on " + str(row.get('tranDateOnly', ''))
+                    try:
+                        model.Email(
+                            int(row.get('peopleId') or 0),
+                            int(sender.get('sender_id') or 0),
+                            str(sender.get('sender_email', '')),
+                            str(sender.get('sender_alias', '')),
+                            subject,
+                            body
+                        )
+                        return self.create_json_response(True, "Receipt emailed to " + str(row.get('email')))
+                    except Exception as e:
+                        return self.create_json_response(False, "Email failed: " + str(e))
+                # mode == 'html' -- return for popup print.
+                # mode == 'customize' -- same body but also returns the
+                # subject + recipient email so the JS can pre-fill the
+                # Customize modal.
+                subject = 'Receipt (duplicate) -- ' + str(row.get('paymentType', '')) + ' payment on ' + str(row.get('tranDateOnly', ''))
+                return self.create_json_response(True, "ok", {
+                    'html': body,
+                    'subject': subject,
+                    'person': row.get('person', ''),
+                    'email': row.get('email', ''),
+                    'peopleId': row.get('peopleId', 0),
+                    'paymentType': row.get('paymentType', ''),
+                    'tranDateOnly': row.get('tranDateOnly', ''),
+                })
+            except Exception as e:
+                return self.create_json_response(False, "Reprint error: " + str(e))
+
+        def process_send_custom_receipt(self):
+            """Send a hand-edited receipt body. Lets a staffer add custom
+            language ("thanks for your generous gift", "see you Sunday",
+            etc.) on top of the rendered receipt before firing it. The
+            same external-payment guard as reprint applies: we will not
+            send for payments that didn't go through PM.
+
+            Inputs (URL-encoded body to dodge ASP.NET validation):
+              transaction_id, subject, body, encoded='urlc'
+            """
+            try:
+                tx_id    = str(getattr(model.Data, 'transaction_id', '') or '').strip()
+                subject  = str(getattr(model.Data, 'subject', '') or '')
+                body     = str(getattr(model.Data, 'body', '') or '')
+                to_email = str(getattr(model.Data, 'to_email', '') or '').strip()
+                if str(getattr(model.Data, 'encoded', '') or '') == 'urlc':
+                    try:
+                        import urllib
+                        subject = urllib.unquote(subject)
+                        body    = urllib.unquote(body)
+                        try: subject = subject.decode('utf-8')
+                        except: pass
+                        try: body = body.decode('utf-8')
+                        except: pass
+                    except:
+                        pass
+                if not tx_id:    return self.create_json_response(False, "Missing transaction_id")
+                if not subject:  return self.create_json_response(False, "Subject is required")
+                if not body:     return self.create_json_response(False, "Receipt body is empty")
+                if not to_email: return self.create_json_response(False, "Recipient email is required")
+                # Server-side email sanity check (JS validates too).
+                import re as _re
+                if not _re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', to_email):
+                    return self.create_json_response(False, "Invalid recipient email address")
+                # Pull the txn back so we know who to send to + can
+                # enforce the PM-only guard.
+                sql = """
+                    SELECT TOP 1 t.TransactionId,
+                        ISNULL(NULLIF(t.Name, ''), ISNULL(p.Name, '')) AS PersonName,
+                        ISNULL(p.PeopleId, 0)     AS PeopleId,
+                        ISNULL(p.EmailAddress, '') AS Email,
+                        ISNULL(t.[Message], '')   AS Message
+                    FROM [Transaction] t
+                    LEFT JOIN TransactionSummary ts ON ts.RegId = t.OriginalId AND ts.IsLatestTransaction = 1
+                    LEFT JOIN People p ON p.PeopleId = ts.PeopleId
+                    WHERE t.TransactionId = '""" + tx_id.replace("'", "''") + """'
+                """
+                rows = list(q.QuerySql(sql))
+                if not rows:
+                    return self.create_json_response(False, "Transaction not found")
+                r = rows[0]
+                people_id = int(self.safe_get_attr(r, 'PeopleId', 0) or 0)
+                email     = str(self.safe_get_attr(r, 'Email', '') or '')
+                msg       = str(self.safe_get_attr(r, 'Message', '') or '')
+                person    = str(self.safe_get_attr(r, 'PersonName', '') or '')
+                settings = pm_load_settings()
+                # No PM-origin guard here -- Customize generates a fresh
+                # receipt the staffer authored, not a duplicate of a
+                # prior PM send. It's appropriate for any payment type
+                # (CC, Coupon, external CHK/CSH, etc.).
+                sender = settings.get('defaultSender') or DEFAULT_EMAIL_SENDER
+                is_override = (to_email.lower() != (email or '').lower())
+                # The model.Email path needs a real people_id. When we
+                # don't have one (external rows where ts join returned
+                # NULL, even if the staffer kept the on-file email),
+                # fall through to SendEmail too.
+                use_send_email = is_override or not people_id
+                try:
+                    if use_send_email:
+                        # SendEmail with an explicit recipient. We try to
+                        # find an existing person by email first to avoid
+                        # accidentally creating a stub record; if there's
+                        # no match, fall back to passing the email string
+                        # directly (TouchPoint will route it).
+                        alt_person = None
+                        try:
+                            existing_pid = model.FindPersonId(to_email)
+                            if existing_pid:
+                                alt_person = model.GetPerson(int(existing_pid))
+                        except:
+                            alt_person = None
+                        try:
+                            if alt_person:
+                                model.SendEmail(
+                                    alt_person,
+                                    str(sender.get('sender_email', '')),
+                                    str(sender.get('sender_alias', '')),
+                                    subject,
+                                    body
+                                )
+                            else:
+                                model.SendEmail(
+                                    to_email,
+                                    str(sender.get('sender_email', '')),
+                                    str(sender.get('sender_alias', '')),
+                                    subject,
+                                    body
+                                )
+                        except Exception as se:
+                            return self.create_json_response(False, "SendEmail failed: " + str(se))
+                        if is_override and email:
+                            return self.create_json_response(True, "Custom receipt emailed to " + to_email + " (override -- email on file was " + email + ")")
+                        return self.create_json_response(True, "Custom receipt emailed to " + to_email)
+                    else:
+                        # Standard path: PM payment with a known person.
+                        model.Email(
+                            people_id,
+                            int(sender.get('sender_id') or 0),
+                            str(sender.get('sender_email', '')),
+                            str(sender.get('sender_alias', '')),
+                            subject,
+                            body
+                        )
+                        return self.create_json_response(True, "Custom receipt emailed to " + email)
+                except Exception as e:
+                    return self.create_json_response(False, "Email failed: " + str(e))
+            except Exception as e:
+                return self.create_json_response(False, "Send custom error: " + str(e))
+
+        # ==============================================================
+        # SETTINGS -- save/load via UI
+        # ==============================================================
+        def process_save_settings(self):
+            try:
+                raw = str(getattr(model.Data, 'settings_json', '') or '')
+                if not raw:
+                    return self.create_json_response(False, "Missing settings payload")
+                # ASP.NET request validation may have rejected HTML in
+                # the senders dict; the client URL-encodes when there's
+                # any HTML risk.
+                if str(getattr(model.Data, 'encoded', '') or '') == 'urlc':
+                    try:
+                        import urllib
+                        raw = urllib.unquote(raw)
+                        try:
+                            raw = raw.decode('utf-8')
+                        except:
+                            pass
+                    except:
+                        pass
+                data = json.loads(raw)
+                if not isinstance(data, dict):
+                    return self.create_json_response(False, "Settings payload not a JSON object")
+                data = _pm_normalize_settings(data)
+                if not pm_save_settings(data):
+                    return self.create_json_response(False, "Could not write settings to TextContent")
+                return self.create_json_response(True, "Settings saved", {'settings': data})
+            except Exception as e:
+                return self.create_json_response(False, "Save settings failed: " + str(e))
+
+        def process_load_settings(self):
+            try:
+                s = pm_load_settings()
+                # Also pull the two HTML templates so the editor in the
+                # Settings modal can show what's actually rendering. Falls
+                # back to the built-in defaults so the editor never opens
+                # empty just because no custom HtmlContent exists yet.
+                payload = {'settings': s, 'templates': {}}
+                for key, name, fallback in [
+                    ('confirmation', s.get('paymentConfirmationTemplate') or PAYMENT_CONFIRMATION_TEMPLATE_NAME, DEFAULT_PAYMENT_CONFIRMATION_TEMPLATE),
+                    ('notification', s.get('paymentNotificationTemplate') or PAYMENT_NOTIFICATION_TEMPLATE_NAME, DEFAULT_PAYMENT_EMAIL_TEMPLATE),
+                ]:
+                    body = None
+                    is_default = True
+                    try:
+                        body = model.HtmlContent(name)
+                    except:
+                        body = None
+                    # Treat None / empty / whitespace-only as "not there".
+                    # An admin who created the HtmlContent record but never
+                    # filled it in shouldn't get a blank editor.
+                    if not body or not str(body).strip():
+                        body = fallback
+                    else:
+                        is_default = False
+                    payload['templates'][key] = {
+                        'name': name,
+                        'body': body,
+                        'isDefault': is_default,
+                    }
+                return self.create_json_response(True, "ok", payload)
+            except Exception as e:
+                return self.create_json_response(False, "Load settings failed: " + str(e))
+
+        def process_save_template(self):
+            """Save one of the two named templates to HtmlContent."""
+            try:
+                which = str(getattr(model.Data, 'which', '')).strip().lower()
+                body  = str(getattr(model.Data, 'body', '') or '')
+                if str(getattr(model.Data, 'encoded', '') or '') == 'urlc':
+                    try:
+                        import urllib
+                        body = urllib.unquote(body)
+                        try:
+                            body = body.decode('utf-8')
+                        except:
+                            pass
+                    except:
+                        pass
+                if which not in ('confirmation', 'notification'):
+                    return self.create_json_response(False, "Unknown template key: " + which)
+                s = pm_load_settings()
+                if which == 'confirmation':
+                    name = s.get('paymentConfirmationTemplate') or PAYMENT_CONFIRMATION_TEMPLATE_NAME
+                else:
+                    name = s.get('paymentNotificationTemplate') or PAYMENT_NOTIFICATION_TEMPLATE_NAME
+                try:
+                    model.WriteContentHtml(name, body, '')
+                    return self.create_json_response(True, 'Saved template "' + name + '"', {'name': name})
+                except Exception as we:
+                    return self.create_json_response(False, "Write failed: " + str(we))
+            except Exception as e:
+                return self.create_json_response(False, "Save template failed: " + str(e))
+
+        def process_reset_template(self):
+            """Reset one template to its built-in default body."""
+            try:
+                which = str(getattr(model.Data, 'which', '')).strip().lower()
+                if which not in ('confirmation', 'notification'):
+                    return self.create_json_response(False, "Unknown template key: " + which)
+                default_body = (DEFAULT_PAYMENT_CONFIRMATION_TEMPLATE
+                                if which == 'confirmation'
+                                else DEFAULT_PAYMENT_EMAIL_TEMPLATE)
+                return self.create_json_response(True, 'ok', {'body': default_body})
+            except Exception as e:
+                return self.create_json_response(False, "Reset failed: " + str(e))
+
+        # ==============================================================
+        # AUTO-UPDATE
+        # ==============================================================
+        def process_apply_update(self):
+            try:
+                fetch_url = DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID
+                new_code = str(model.RestGet(fetch_url, {}))
+                if not new_code or len(new_code) < 500:
+                    return self.create_json_response(False, "Invalid or empty script code received")
+                target_name = pm_get_script_name() or DC_SCRIPT_ID
+                model.WriteContentPython(target_name, new_code)
+                return self.create_json_response(True, "Updated " + target_name + ". Reload the page.")
+            except Exception as e:
+                return self.create_json_response(False, "Update failed: " + str(e))
 
         def get_current_balance(self, payer_id, org_id):
             """Get current balance for payer/org"""
@@ -729,13 +1754,24 @@ try:
             )
 
         def create_json_response(self, success, message, data=None):
-            """Create JSON response for AJAX calls"""
+            """Create JSON response for AJAX calls.
+
+            The 'data' dict (if provided) is *merged into the root* of
+            the response so that JS handlers can read fields directly
+            (e.g. d.settings, d.receipts, d.diag). Earlier versions
+            nested data under response['data'], which silently broke
+            every JS callsite that expected a flat object -- diagnostic
+            zeros were just JS undefined-fallbacks, not real DB counts.
+            """
             response = {
                 'success': success,
                 'message': message
             }
             if data:
-                response['data'] = data
+                for k, v in data.items():
+                    # Don't let payload keys clobber 'success' / 'message'.
+                    if k not in response:
+                        response[k] = v
             return json.dumps(response)
 
         # View rendering methods
@@ -746,17 +1782,14 @@ try:
             html = """
             <div class="pm-container">
                 <div class="pm-header">
-                    <h3><i class="fa fa-credit-card"></i> Payment Manager - Programs Overview</h3>
+                    <h3><i class="fa fa-credit-card"></i> Payment Manager &mdash; Outstanding Balances</h3>
                     <div class="pm-actions">
-                        <button class="btn btn-secondary" onclick="history.go(-1)">
-                            <i class="fa fa-arrow-left"></i> Go Back
-                        </button>
                         <button class="btn btn-primary" onclick="refreshData()">
                             <i class="fa fa-sync"></i> Refresh
                         </button>
                     </div>
                 </div>
-                
+
                 <div class="pm-content">
                     <table class="pm-table">
                         <thead>
@@ -847,7 +1880,7 @@ try:
                     <h3><i class="fa fa-sitemap"></i> {0} - Divisions & Involvements</h3>
                     <div class="pm-actions">
                         <button class="btn btn-secondary" onclick="viewPrograms()">
-                            <i class="fa fa-arrow-left"></i> Back to Programs
+                            <i class="fa fa-arrow-left"></i> Back to Outstanding Balances
                         </button>
                         <button class="btn btn-primary" onclick="refreshData()">
                             <i class="fa fa-sync"></i> Refresh
@@ -1056,21 +2089,34 @@ try:
                                         <div>{5}</div>
                                         <small class="pm-muted">{6}</small>
                                     </td>
-                                    <td class="pm-currency">{7}</td>
+                                    <td class="pm-currency">
+                                        <a href="javascript:void(0)"
+                                           onclick="pmToggleChargeDetails(this, {2}, {9})"
+                                           style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:6px;cursor:pointer;"
+                                           title="Click to see what charges produced this balance">
+                                            <i class="fa fa-caret-right pm-charge-toggle" style="color:#666;transition:transform 0.15s;"></i>
+                                            <span>{7}</span>
+                                        </a>
+                                    </td>
                                     <td class="pm-center">
                                         {8}
                                     </td>
                                     <td class="pm-center">
                                         <div class="pm-btn-group">
-                                            <button class="btn btn-sm btn-outline-info" 
+                                            <button class="btn btn-sm btn-outline-info"
                                                     onclick="viewTransactions({2})">
                                                 <i class="fa fa-history"></i> Transactions
                                             </button>
-                                            <button class="btn btn-sm btn-outline-secondary" 
+                                            <button class="btn btn-sm btn-outline-secondary"
                                                     onclick="viewEmails({2})">
                                                 <i class="fa fa-envelope"></i> Email History
                                             </button>
                                         </div>
+                                    </td>
+                                </tr>
+                                <tr class="pm-charge-row" data-payer="{2}" data-org="{9}" style="display:none;background:#f8f9fa;">
+                                    <td colspan="5" style="padding:10px 18px;">
+                                        <div class="pm-charge-body" style="font-size:12px;color:#555;">Loading charge history...</div>
                                     </td>
                                 </tr>
                     """.format(
@@ -1082,7 +2128,8 @@ try:
                         org_name,
                         division_name,
                         self.format_currency(outstanding),
-                        payment_buttons
+                        payment_buttons,
+                        org_id or 0
                     )
             except Exception as e:
                 html += "<tr><td colspan='5'>Error loading payers: {0}</td></tr>".format(str(e))
@@ -1368,6 +2415,144 @@ try:
             
             return html
 
+        # ==============================================================
+        # RECEIPTS VIEW -- date-range search of past check/cash payments
+        # with per-row Reprint (print popup) + Email (resend) buttons.
+        # All work happens client-side via the find_receipts and
+        # reprint_receipt AJAX actions.
+        # ==============================================================
+        def render_receipts_view(self):
+            today = datetime.now().strftime('%Y-%m-%d')
+            # Default to a 7-day window so the typical "what did I record
+            # this week?" lookup needs zero typing.
+            try:
+                from datetime import timedelta
+                seven_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+            except:
+                seven_ago = today
+            return """
+            <div class="pm-container">
+                <div class="pm-header">
+                    <h3><i class="fa fa-receipt"></i> Reprint Receipts</h3>
+                    <div class="pm-actions">
+                        <button class="btn btn-secondary" onclick="viewPrograms()">
+                            <i class="fa fa-arrow-left"></i> Back
+                        </button>
+                    </div>
+                </div>
+                <div class="pm-content">
+                    <p style="color:#666;font-size:13px;margin:0 0 14px;">
+                        Find past payments by date &mdash; <strong>check</strong>, <strong>cash</strong>,
+                        <strong>credit card</strong>, <strong>coupon</strong>, or <strong>other</strong>
+                        (manual entries, ACH, wire transfers, anything else that reduced a
+                        balance). Reprint a popup receipt for the church files, re-email it to
+                        the payer, or <strong>Customize</strong> to add a personal note and send
+                        to any email. Re-emailed receipts use the original template with a
+                        "Duplicate Receipt" banner so the recipient knows it isn't a new charge.
+                        <em>Email is only enabled for check / cash payments recorded through
+                        Payment Manager</em>; all others are view / print or Customize-and-send.
+                    </p>
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:end;
+                                background:#f8f9fa;border:1px solid #e0e0e0;
+                                border-radius:8px;padding:12px 14px;margin-bottom:14px;">
+                        <div>
+                            <label style="display:block;font-size:12px;color:#666;
+                                          font-weight:600;margin-bottom:3px;">From date</label>
+                            <input type="date" id="rcptFrom" value=\"""" + seven_ago + """\"
+                                   style="padding:6px 8px;border:1px solid #ccc;border-radius:4px;">
+                        </div>
+                        <div>
+                            <label style="display:block;font-size:12px;color:#666;
+                                          font-weight:600;margin-bottom:3px;">To date</label>
+                            <input type="date" id="rcptTo" value=\"""" + today + """\"
+                                   style="padding:6px 8px;border:1px solid #ccc;border-radius:4px;">
+                        </div>
+                        <div>
+                            <label style="display:block;font-size:12px;color:#666;
+                                          font-weight:600;margin-bottom:3px;">Payment type</label>
+                            <details id="rcptTypeDD" style="position:relative;display:inline-block;">
+                                <summary style="list-style:none;cursor:pointer;padding:6px 28px 6px 10px;border:1px solid #ccc;border-radius:4px;background:#fff;min-width:200px;font-size:13px;position:relative;">
+                                    <span id="rcptTypeLabel">All types</span>
+                                    <i class="fa fa-caret-down" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:#666;"></i>
+                                </summary>
+                                <div style="position:absolute;top:100%;left:0;margin-top:4px;background:#fff;border:1px solid #ccc;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.12);padding:8px 10px;z-index:1000;min-width:200px;">
+                                    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;font-weight:400;">
+                                        <input type="checkbox" class="rcpt-type-cb" value="check" checked> Check
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;font-weight:400;">
+                                        <input type="checkbox" class="rcpt-type-cb" value="cash" checked> Cash
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;font-weight:400;">
+                                        <input type="checkbox" class="rcpt-type-cb" value="credit" checked> Credit Card
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;font-weight:400;">
+                                        <input type="checkbox" class="rcpt-type-cb" value="coupon" checked> Coupon
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;font-weight:400;" title="Payments TouchPoint didn't prefix with CHK|/CSH| (manual entries, ACH, wire transfers, etc.)">
+                                        <input type="checkbox" class="rcpt-type-cb" value="other" checked> Other
+                                    </label>
+                                </div>
+                            </details>
+                        </div>
+                        <div>
+                            <label style="display:block;font-size:12px;color:#666;font-weight:600;margin-bottom:3px;">Payer (optional)</label>
+                            <input type="text" id="rcptPayer" placeholder="Name contains..." style="padding:6px 8px;border:1px solid #ccc;border-radius:4px;width:160px;" onkeydown="if(event.key==='Enter') findReceipts();">
+                        </div>
+                        <div>
+                            <label style="display:block;font-size:12px;color:#666;font-weight:600;margin-bottom:3px;">Involvement (optional)</label>
+                            <input type="text" id="rcptOrg" placeholder="Org name contains..." style="padding:6px 8px;border:1px solid #ccc;border-radius:4px;width:180px;" onkeydown="if(event.key==='Enter') findReceipts();">
+                        </div>
+                        <div>
+                            <label style="display:block;font-size:12px;color:#666;font-weight:600;margin-bottom:3px;">Last 4 (CC/ACH)</label>
+                            <input type="text" id="rcptLast4" placeholder="1234" inputmode="numeric" maxlength="4" style="padding:6px 8px;border:1px solid #ccc;border-radius:4px;width:90px;font-family:Menlo,Consolas,monospace;" onkeydown="if(event.key==='Enter') findReceipts();" title="Search by the last 4 digits of the card or bank account number stored on the transaction">
+                        </div>
+                        <button class="btn btn-primary" onclick="findReceipts()">
+                            <i class="fa fa-search"></i> Find Receipts
+                        </button>
+                        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#666;cursor:pointer;margin-left:8px;">
+                            <input type="checkbox" id="rcptIncludeExternal" checked>
+                            <span title="Include payments recorded outside this tool (TouchPoint batch entry, syncs, etc.). Email reprint is disabled for those since no original receipt was ever sent.">
+                                Include payments not recorded via Payment Manager
+                            </span>
+                        </label>
+                    </div>
+                    <div id="rcptResults" style="font-size:13px;color:#666;">
+                        Pick a date range and click <strong>Find Receipts</strong>.
+                    </div>
+                </div>
+            </div>
+            """
+
+        def _build_setup_banner_html(self):
+            """Yellow callout listing missing/incomplete settings. Renders
+            empty when everything is set up so it doesn't pollute the page."""
+            try:
+                issues = pm_setup_issues()
+            except:
+                return ''
+            if not issues:
+                return ''
+            rows = []
+            for problem, consequence in issues:
+                rows.append(
+                    '<li style="margin-bottom:4px;"><strong>' + problem + '</strong> '
+                    '<span style="color:#7a5c00;font-style:italic;">' + consequence + '</span></li>'
+                )
+            return (
+                '<div id="pmConfigBanner" style="max-width:1200px;margin:8px auto 0;padding:0 14px;">'
+                '<div style="background:#fff4ce;border:1px solid #f4d35e;border-radius:8px;padding:12px 16px;color:#5a4500;font-size:13px;">'
+                '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;">'
+                '<div style="flex:1;">'
+                '<div style="font-weight:700;margin-bottom:6px;font-size:14px;">'
+                '&#9888;&#65039; Payment Manager setup incomplete</div>'
+                '<ul style="margin:0 0 6px 22px;padding:0;font-size:13px;">' + ''.join(rows) + '</ul>'
+                '<div style="font-size:11px;color:#7a5c00;font-style:italic;">'
+                'Click <strong>Settings</strong> above to fix. The drill-down still works, but the items above are limited until configured.</div>'
+                '</div>'
+                '<button onclick="openSettings()" style="background:#1f4e79;color:#fff;border:0;padding:6px 14px;border-radius:4px;cursor:pointer;font-weight:600;white-space:nowrap;">&#9881; Open Settings</button>'
+                '</div></div></div>'
+            )
+
         def render_page_structure(self, content):
             """Render the complete page with navigation and styling"""
             return """
@@ -1424,6 +2609,714 @@ try:
                 window.location.href = url;
             }}
             
+            // --- Modernization additions: Receipts, Settings, Help, Auto-update -----
+            function viewReceipts() {{
+                showLoading();
+                window.location.href = window.location.pathname + '?action=receipts';
+            }}
+
+            function pmEsc(s) {{
+                if (s === null || s === undefined) return '';
+                return String(s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            }}
+
+            function pmFmtMoney(n) {{
+                var v = Math.abs(parseFloat(n) || 0);
+                return '$' + v.toFixed(2).replace(/\\B(?=(\\d{{3}})+(?!\\d))/g, ',');
+            }}
+
+            function pmRcptCollectTypes() {{
+                // Read multi-select dropdown -> comma-separated codes.
+                // Also keeps the summary label readable ("Check, Cash" /
+                // "All types" / "2 selected").
+                var boxes = document.querySelectorAll('.rcpt-type-cb');
+                var picked = [];
+                var labels = [];
+                var nameByVal = {{ check:'Check', cash:'Cash', credit:'Credit Card', coupon:'Coupon', other:'Other' }};
+                for (var i = 0; i < boxes.length; i++) {{
+                    if (boxes[i].checked) {{
+                        picked.push(boxes[i].value);
+                        labels.push(nameByVal[boxes[i].value] || boxes[i].value);
+                    }}
+                }}
+                var summary = document.getElementById('rcptTypeLabel');
+                if (summary) {{
+                    if (picked.length === 0) summary.textContent = 'None selected';
+                    else if (picked.length === boxes.length) summary.textContent = 'All types';
+                    else if (picked.length <= 2) summary.textContent = labels.join(', ');
+                    else summary.textContent = picked.length + ' selected';
+                }}
+                return picked.join(',');
+            }}
+
+            // Live-update the summary label whenever a checkbox flips.
+            document.addEventListener('change', function(e) {{
+                if (e.target && e.target.classList && e.target.classList.contains('rcpt-type-cb')) {{
+                    pmRcptCollectTypes();
+                }}
+            }});
+
+            function findReceipts() {{
+                var dFrom = document.getElementById('rcptFrom').value;
+                var dTo   = document.getElementById('rcptTo').value;
+                var rTypes = pmRcptCollectTypes();
+                var incExt = document.getElementById('rcptIncludeExternal');
+                var includeExternal = incExt && incExt.checked;
+                var out = document.getElementById('rcptResults');
+                if (!dFrom || !dTo) {{ showAlert('Pick both From and To dates', 'warning'); return; }}
+                if (!rTypes) {{ showAlert('Pick at least one payment type', 'warning'); return; }}
+                out.innerHTML = '<div style="padding:12px;color:#666;"><i class="fa fa-spinner fa-spin"></i> Searching...</div>';
+                var payerEl = document.getElementById('rcptPayer');
+                var orgEl   = document.getElementById('rcptOrg');
+                var last4El = document.getElementById('rcptLast4');
+                var fd = new FormData();
+                fd.append('action', 'find_receipts');
+                fd.append('date_from', dFrom);
+                fd.append('date_to', dTo);
+                fd.append('rcpt_types', rTypes);
+                fd.append('include_external', includeExternal ? 'true' : 'false');
+                if (payerEl && payerEl.value.trim()) fd.append('payer', payerEl.value.trim());
+                if (orgEl && orgEl.value.trim())     fd.append('involvement', orgEl.value.trim());
+                if (last4El && last4El.value.trim()) fd.append('last4', last4El.value.trim());
+                fetch(getPyScriptAddress(), {{ method: 'POST', body: fd }})
+                    .then(function(r) {{ return r.text(); }})
+                    .then(function(txt) {{
+                        var d; try {{ d = JSON.parse(txt); }} catch(e) {{ throw new Error('Bad JSON'); }}
+                        if (!d.success) {{ out.innerHTML = '<div class="alert alert-danger">' + pmEsc(d.message) + '</div>'; return; }}
+                        var rows = (d.receipts || []);
+                        if (!rows.length) {{
+                            // Diagnostic empty-state -- explain WHY no rows
+                            // came back so the staffer doesn't have to
+                            // guess between "no data" and "filter bug".
+                            var diag = d.diag || {{}};
+                            var total = diag.totalTxns || 0;
+                            var nonZero = diag.nonZeroAmt || 0;
+                            var chk = diag.chkCount || 0;
+                            var csh = diag.cshCount || 0;
+                            var cc  = diag.ccCount || 0;
+                            var cpn = diag.couponCount || 0;
+                            var pm  = diag.pmCount || 0;
+                            var ext = diag.extCount || 0;
+                            var latest = diag.latestTxnDate || '';
+                            var tableTotal = diag.tableTotal || 0;
+                            var probeErr = diag.tableProbeErr || '';
+                            var dfEcho = diag.dateFromEcho || '';
+                            var dtEcho = diag.dateToEcho || '';
+                            var inc = !!d.includeExternal;
+                            var msg = '<div style="padding:20px;text-align:center;color:#666;">';
+                            msg += '<div style="font-weight:600;margin-bottom:8px;">No matching receipts found in this date range.</div>';
+                            msg += '<div style="font-size:12px;line-height:1.6;text-align:left;display:inline-block;background:#f8f9fa;border:1px solid #e1e5eb;border-radius:6px;padding:10px 14px;">';
+                            msg += '<b>Diagnostic</b><br/>';
+                            msg += 'Date range searched: <b>' + pmEsc(dfEcho) + '</b> to <b>' + pmEsc(dtEcho) + '</b><br/>';
+                            if (diag.rawDateFrom !== undefined) {{
+                                msg += '<span style="color:#999;">Raw POST values: from=' + pmEsc(diag.rawDateFrom) + ' to=' + pmEsc(diag.rawDateTo) + '</span><br/>';
+                            }}
+                            msg += 'Transactions in range (any amount): <b>' + total + '</b><br/>';
+                            msg += 'With a non-zero amount: <b>' + nonZero + '</b><br/>';
+                            var oth = diag.otherCount || 0;
+                            msg += 'Check: <b>' + chk + '</b> &middot; Cash: <b>' + csh + '</b> &middot; Credit Card: <b>' + cc + '</b> &middot; Coupon: <b>' + cpn + '</b> &middot; Other: <b>' + oth + '</b><br/>';
+                            msg += 'Of CHK/CSH, Payment Manager: <b>' + pm + '</b> &middot; External: <b>' + ext + '</b><br/>';
+                            msg += 'Whole table: <b>' + tableTotal + '</b> rows';
+                            if (latest) msg += ' &middot; latest <b>' + pmEsc(latest) + '</b>';
+                            msg += '<br/>';
+                            // Decision tree -- ordered most specific to most generic.
+                            if (probeErr) {{
+                                msg += '<div style="margin-top:8px;color:#a94442;">Database probe failed: <code>' + pmEsc(probeErr) + '</code>. The script may not have permission to read [Transaction] in this environment.</div>';
+                            }} else if (tableTotal === 0) {{
+                                msg += '<div style="margin-top:8px;color:#a94442;">The [Transaction] table appears empty (0 total rows). You are likely connected to a sandbox or test database.</div>';
+                            }} else if (total === 0) {{
+                                msg += '<div style="margin-top:8px;color:#7a5c00;">No transactions exist in the searched date range. ';
+                                if (latest) {{
+                                    msg += 'The most recent transaction in the database is <b>' + pmEsc(latest) + '</b>';
+                                    msg += ' &mdash; if that is earlier than your "From date", widen the range or this DB snapshot is stale.';
+                                }} else {{
+                                    msg += 'Widen the date range to verify.';
+                                }}
+                                msg += '</div>';
+                            }} else if (nonZero === 0) {{
+                                msg += '<div style="margin-top:8px;color:#7a5c00;">' + total + ' transactions exist but none have a non-zero amount. Receipts are only shown for payments with money attached.</div>';
+                            }} else if (!inc && ext > 0) {{
+                                msg += '<div style="margin-top:8px;color:#7a5c00;">Tip: ' + ext + ' external CHK/CSH payment(s) exist -- enable <i>Include payments not recorded via Payment Manager</i> to see them.</div>';
+                            }} else if (chk + csh + cc + cpn + oth === 0) {{
+                                msg += '<div style="margin-top:8px;">Transactions exist in this range, but none match any of the payment types.</div>';
+                            }} else {{
+                                msg += '<div style="margin-top:8px;">Transactions of the requested types exist but no rows came back. Check your payment-type selection.</div>';
+                            }}
+                            msg += '</div></div>';
+                            out.innerHTML = msg;
+                            return;
+                        }}
+                        var pmCount = 0, extCount = 0;
+                        for (var c = 0; c < rows.length; c++) {{ if (rows[c].source === 'pm') pmCount++; else extCount++; }}
+                        var html = '<div style="font-size:12px;color:#666;margin-bottom:6px;">'
+                                 + rows.length + ' receipt(s) found &middot; '
+                                 + pmCount + ' from Payment Manager';
+                        if (extCount) html += ', ' + extCount + ' from elsewhere (Email disabled)';
+                        html += '.</div>';
+                        html += '<table class="pm-table"><thead><tr>';
+                        html += '<th>Date</th><th>Type</th><th>Source</th><th>Payer</th><th style="text-align:right;">Amount</th><th>Involvement</th><th>Email on file</th><th style="white-space:nowrap;">Actions</th>';
+                        html += '</tr></thead><tbody>';
+                        for (var i = 0; i < rows.length; i++) {{
+                            var r = rows[i];
+                            var hasEmail = !!r.email;
+                            var isPM = (r.source === 'pm');
+                            html += '<tr' + (isPM ? '' : ' style="background:#fffaf0;"') + '>';
+                            html += '<td>' + pmEsc(r.tranDate) + '</td>';
+                            var ptColors = {{ 'Check':'#cfe3ff', 'Cash':'#d4edda', 'Credit Card':'#ffe6cc', 'Coupon':'#f3e5f5', 'Other Payment':'#e2e3e5' }};
+                            var ptBg = ptColors[r.paymentType] || '#e9ecef';
+                            var last4 = (r.last4cc || r.last4ach || '').toString().trim();
+                            var last4Chip = '';
+                            if (last4) {{
+                                var l4Label = r.last4ach ? 'ACH ****' : '****';
+                                last4Chip = '<div style="margin-top:2px;font-family:Menlo,Consolas,monospace;font-size:10px;color:#666;">' + l4Label + ' ' + pmEsc(last4) + '</div>';
+                            }}
+                            html += '<td><span style="background:' + ptBg + ';color:#1f4e79;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;">' + pmEsc(r.paymentType) + '</span>' + last4Chip + '</td>';
+                            // Source column: PM = blue badge, External =
+                            // amber badge with tooltip explaining the
+                            // Email button limitation.
+                            if (isPM) {{
+                                html += '<td><span style="background:#deecf9;color:#1f4e79;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">Payment Manager</span></td>';
+                            }} else {{
+                                html += '<td><span title="Recorded outside Payment Manager (no original receipt was sent). Email is disabled; you can still Print for the church files." style="background:#fff4ce;color:#7a5c00;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;cursor:help;">External</span></td>';
+                            }}
+                            // Payer cell -- name on top, then a sub-line
+                            // that carries the most useful detail per
+                            // type:
+                            //   * Coupon  -> bare coupon code (TxnId)
+                            //   * Other types -> staff note from Message,
+                            //                    falls back to TxnId if
+                            //                    truly nothing else
+                            // Tooltip always carries the raw TransactionId
+                            // for forensics.
+                            var txIdShort = r.transactionId || '';
+                            var couponMatch = /^Coupon\\((.+)\\)$/.exec(txIdShort);
+                            var subLine = '';
+                            var subStyle = 'font-size:10px;color:#999;font-family:Menlo,Consolas,monospace;margin-top:1px;';
+                            if (couponMatch) {{
+                                subLine = couponMatch[1];   // bare coupon code
+                            }} else if ((r.note || '').trim()) {{
+                                // Truncate long notes so the row stays tidy.
+                                var n = r.note.trim();
+                                subLine = n.length > 80 ? n.substring(0, 78) + '...' : n;
+                                // Regular font for human-readable notes (not mono).
+                                subStyle = 'font-size:11px;color:#777;font-style:italic;margin-top:1px;';
+                            }} else {{
+                                subLine = txIdShort;
+                            }}
+                            html += '<td>' + pmEsc(r.person) + '<div style="' + subStyle + '" title="Transaction ID: ' + pmEsc(r.transactionId) + (r.note ? ' | Full note: ' + pmEsc(r.note) : '') + '">' + pmEsc(subLine) + '</div></td>';
+                            html += '<td style="text-align:right;font-weight:600;">' + pmFmtMoney(r.amount) + '</td>';
+                            // Involvement cell -- always surface who was
+                            // registered. Single name when it's just the
+                            // payer's own registration; comma-separated
+                            // list when a family registered together.
+                            var orgCell = pmEsc(r.orgName);
+                            var regs = (r.registrants || '').trim();
+                            if (regs) {{
+                                var icon = (regs.indexOf(',') >= 0) ? 'fa-users' : 'fa-user';
+                                orgCell += '<div style="font-size:11px;color:#777;margin-top:2px;"><i class="fa ' + icon + '" style="opacity:0.6;"></i> Registered: ' + pmEsc(regs) + '</div>';
+                            }}
+                            html += '<td style="font-size:12px;color:#666;">' + orgCell + '</td>';
+                            html += '<td style="font-size:12px;">' + (hasEmail ? pmEsc(r.email) : '<span style="color:#999;font-style:italic;">none</span>') + '</td>';
+                            html += '<td style="white-space:nowrap;">';
+                            var escTxId = pmEsc(r.transactionId).replace(/\\\\/g, '\\\\\\\\').replace(/\\'/g, "\\\\\\'");
+                            html += '<button class="btn btn-sm btn-secondary" onclick="reprintReceiptPrint(\\'' + escTxId + '\\')" style="padding:3px 8px;font-size:11px;"><i class="fa fa-print"></i> Print</button> ';
+                            // Email + Customize buttons: both require
+                            // PM-origin AND a valid email-on-file.
+                            var emailDisabledReason = '';
+                            if (!isPM) emailDisabledReason = 'Recorded outside Payment Manager -- no original receipt was sent';
+                            else if (!hasEmail) emailDisabledReason = 'No email on file';
+                            var emailDisabled = !!emailDisabledReason;
+                            html += '<button class="btn btn-sm btn-primary" onclick="reprintReceiptEmail(\\'' + escTxId + '\\')" style="padding:3px 8px;font-size:11px;"' + (emailDisabled ? ' disabled title="' + pmEsc(emailDisabledReason) + '"' : '') + '><i class="fa fa-envelope"></i> Email</button> ';
+                            // Customize is always enabled -- it generates
+                            // a fresh receipt the staffer edits and then
+                            // prints or sends to any email. Unlike the
+                            // direct Email button, it's not a duplicate
+                            // of an original PM send.
+                            html += '<button class="btn btn-sm" onclick="reprintReceiptCustomize(\\'' + escTxId + '\\')" style="padding:3px 8px;font-size:11px;background:#6c757d;color:#fff;border:none;" title="Edit the receipt before sending or printing -- add a personal note, change wording, send to any email."><i class="fa fa-edit"></i> Customize</button>';
+                            html += '</td>';
+                            html += '</tr>';
+                        }}
+                        html += '</tbody></table>';
+                        out.innerHTML = html;
+                    }})
+                    .catch(function(err) {{ out.innerHTML = '<div class="alert alert-danger">Search failed: ' + pmEsc(err.message) + '</div>'; }});
+            }}
+
+            function _reprintInvoke(txId, mode, onOk) {{
+                var fd = new FormData();
+                fd.append('action', 'reprint_receipt');
+                fd.append('transaction_id', txId);
+                fd.append('mode', mode);
+                fetch(getPyScriptAddress(), {{ method: 'POST', body: fd }})
+                    .then(function(r) {{ return r.text(); }})
+                    .then(function(txt) {{
+                        var d; try {{ d = JSON.parse(txt); }} catch(e) {{ showAlert('Bad response from server', 'danger'); return; }}
+                        if (!d.success) {{ showAlert(d.message || 'Failed', 'danger'); return; }}
+                        if (onOk) onOk(d);
+                    }})
+                    .catch(function(err) {{ showAlert('Network error: ' + err.message, 'danger'); }});
+            }}
+
+            function reprintReceiptEmail(txId) {{
+                if (!confirm('Re-email this receipt to the payer on file?')) return;
+                _reprintInvoke(txId, 'email', function(d) {{ showAlert(d.message || 'Sent', 'success'); }});
+            }}
+
+            function reprintReceiptPrint(txId) {{
+                _reprintInvoke(txId, 'html', function(d) {{
+                    var body = (d.html) || '';
+                    var w = window.open('', '_blank');
+                    if (!w) {{ showAlert('Popup blocked -- allow popups to print', 'warning'); return; }}
+                    w.document.write('<!DOCTYPE html><html><head><title>' + pmEsc(d.subject || 'Receipt') + '</title>');
+                    w.document.write('<style>*{{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}}body{{font-family:Segoe UI,Tahoma,sans-serif;color:#333;max-width:680px;margin:24px auto;padding:0 18px;}}</style>');
+                    w.document.write('</head><body>' + body + '</body></html>');
+                    w.document.close();
+                    w.focus();
+                    setTimeout(function(){{ w.print(); }}, 300);
+                }});
+            }}
+
+            // --- Customize-before-send: load the rendered receipt into
+            // an editable modal so the staffer can add language
+            // ("thank you for your gift", etc.) before firing it.
+            var pmCustomTxId = '';
+            var pmCustomOnFileEmail = '';  // email-on-file, used by "Use email on file"
+            var pmCustomReceiptBody = ''; // immutable receipt HTML loaded once; we never edit it,
+                                          // we just prepend the personal note on send + preview
+            function reprintReceiptCustomize(txId) {{
+                pmCustomTxId = txId;
+                pmCustomOnFileEmail = '';
+                pmCustomReceiptBody = '';
+                document.getElementById('pmCustomTo').textContent      = 'Loading...';
+                document.getElementById('pmCustomSubject').value       = '';
+                document.getElementById('pmCustomNote').value          = '';
+                document.getElementById('pmCustomToEmail').value       = '';
+                document.getElementById('pmCustomToHint').textContent  = '(loading...)';
+                document.getElementById('pmCustomPreview').innerHTML   = '<div style="padding:18px;color:#999;">Loading receipt...</div>';
+                document.getElementById('pmCustomModal').style.display = 'flex';
+                _reprintInvoke(txId, 'html', function(d) {{
+                    pmCustomOnFileEmail = d.email || '';
+                    pmCustomReceiptBody = d.html || '';
+                    document.getElementById('pmCustomTo').textContent    = d.person || '';
+                    document.getElementById('pmCustomSubject').value     = d.subject || 'Receipt (duplicate)';
+                    document.getElementById('pmCustomToEmail').value     = pmCustomOnFileEmail;
+                    pmCustomUpdateEmailHint();
+                    pmCustomRefreshPreview();
+                }});
+            }}
+            function pmCustomNoteToHtml(noteText) {{
+                // Plain-text note -> HTML: blank lines become <p>, single
+                // newlines become <br>. Escape HTML so the note never
+                // injects markup.
+                if (!noteText) return '';
+                var esc = pmEsc(noteText);
+                var paragraphs = esc.split(/\\n\\s*\\n/);
+                var html = paragraphs.map(function(p) {{
+                    return '<p style="margin:0 0 10px;">' + p.replace(/\\n/g, '<br>') + '</p>';
+                }}).join('');
+                // Wrap in a friendly callout so the note stands out
+                // visually from the rest of the receipt.
+                return '<div style="background:#eef5fb;border-left:4px solid #1f4e79;padding:12px 16px;margin:0 0 16px;border-radius:0 6px 6px 0;font-size:14px;color:#1f4e79;line-height:1.5;">' + html + '</div>';
+            }}
+            function pmCustomUpdateEmailHint() {{
+                // Show whether the current "Send to" matches the email
+                // on file, or is an override.
+                var typed = (document.getElementById('pmCustomToEmail').value || '').trim().toLowerCase();
+                var onFile = (pmCustomOnFileEmail || '').toLowerCase();
+                var hint = document.getElementById('pmCustomToHint');
+                if (!hint) return;
+                if (!typed) {{
+                    hint.textContent = onFile ? '(defaults to ' + pmCustomOnFileEmail + ')' : '(no email on file)';
+                    hint.style.color = '#999';
+                }} else if (typed === onFile) {{
+                    hint.textContent = '(using email on file)';
+                    hint.style.color = '#999';
+                }} else {{
+                    hint.textContent = '(override -- not the email on file)';
+                    hint.style.color = '#7a5c00';
+                }}
+            }}
+            function pmCustomResetEmail() {{
+                document.getElementById('pmCustomToEmail').value = pmCustomOnFileEmail;
+                pmCustomUpdateEmailHint();
+            }}
+            document.addEventListener('input', function(e) {{
+                if (e.target && e.target.id === 'pmCustomToEmail') pmCustomUpdateEmailHint();
+            }});
+            function pmCustomClose() {{
+                document.getElementById('pmCustomModal').style.display = 'none';
+                pmCustomTxId = '';
+            }}
+            function pmCustomComposedBody() {{
+                // Note (if any) prepended above the receipt body. Used
+                // by preview, print, and as the rendering reference for
+                // the server (which composes the same way).
+                var noteHtml = pmCustomNoteToHtml(document.getElementById('pmCustomNote').value || '');
+                return noteHtml + (pmCustomReceiptBody || '');
+            }}
+            function pmCustomRefreshPreview() {{
+                document.getElementById('pmCustomPreview').innerHTML = pmCustomComposedBody();
+            }}
+            function pmCustomPrint() {{
+                var body = pmCustomComposedBody();
+                var subject = document.getElementById('pmCustomSubject').value || 'Receipt';
+                if (!body.trim()) {{ showAlert('Receipt is still loading', 'warning'); return; }}
+                var w = window.open('', '_blank');
+                if (!w) {{ showAlert('Popup blocked -- allow popups to print', 'warning'); return; }}
+                w.document.write('<!DOCTYPE html><html><head><title>' + pmEsc(subject) + '</title>');
+                w.document.write('<style>*{{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}}body{{font-family:Segoe UI,Tahoma,sans-serif;color:#333;max-width:680px;margin:24px auto;padding:0 18px;}}</style>');
+                w.document.write('</head><body>' + body + '</body></html>');
+                w.document.close();
+                w.focus();
+                setTimeout(function(){{ w.print(); }}, 300);
+            }}
+            function pmCustomSend() {{
+                if (!pmCustomTxId) {{ showAlert('No transaction context', 'danger'); return; }}
+                var subject = document.getElementById('pmCustomSubject').value.trim();
+                var body    = pmCustomComposedBody();
+                var altEmail = document.getElementById('pmCustomToEmail').value.trim();
+                if (!altEmail) {{ showAlert('Recipient email is required', 'warning'); return; }}
+                // Basic email format check -- server validates again.
+                if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(altEmail)) {{
+                    showAlert('That doesn\\'t look like a valid email address', 'warning');
+                    return;
+                }}
+                if (!subject) {{ showAlert('Subject is required', 'warning'); return; }}
+                if (!body.trim()) {{ showAlert('Receipt is still loading', 'warning'); return; }}
+                var isOverride = altEmail.toLowerCase() !== (pmCustomOnFileEmail || '').toLowerCase();
+                var confirmMsg = 'Send this customized receipt to ' + altEmail + '?';
+                if (isOverride && pmCustomOnFileEmail) {{
+                    confirmMsg += '\\n\\nNote: this is NOT the email on file (' + pmCustomOnFileEmail + ').';
+                }}
+                if (!confirm(confirmMsg)) return;
+                var btn = document.getElementById('pmCustomSendBtn');
+                if (btn) {{ btn.disabled = true; btn.textContent = 'Sending...'; }}
+                var fd = new FormData();
+                fd.append('action', 'send_custom_receipt');
+                fd.append('transaction_id', pmCustomTxId);
+                fd.append('encoded', 'urlc');
+                fd.append('subject', encodeURIComponent(subject));
+                fd.append('body',    encodeURIComponent(body));
+                fd.append('to_email', altEmail);
+                fetch(getPyScriptAddress(), {{ method: 'POST', body: fd }})
+                    .then(function(r){{ return r.text(); }})
+                    .then(function(txt){{
+                        if (btn) {{ btn.disabled = false; btn.textContent = 'Send Customized Receipt'; }}
+                        var d; try {{ d = JSON.parse(txt); }} catch(e) {{ showAlert('Bad response', 'danger'); return; }}
+                        if (d.success) {{
+                            showAlert(d.message || 'Sent', 'success');
+                            pmCustomClose();
+                        }} else {{
+                            showAlert(d.message || 'Send failed', 'danger');
+                        }}
+                    }})
+                    .catch(function(err){{
+                        if (btn) {{ btn.disabled = false; btn.textContent = 'Send Customized Receipt'; }}
+                        showAlert('Network error: ' + err.message, 'danger');
+                    }});
+            }}
+
+            // --- Settings modal --------------------------------------------------
+            var pmSettings = null;
+            var pmTemplates = {{}};
+            function openSettings() {{
+                document.getElementById('pmSettingsModal').style.display = 'flex';
+                var fd = new FormData();
+                fd.append('action', 'load_settings');
+                fetch(getPyScriptAddress(), {{ method: 'POST', body: fd }})
+                    .then(function(r){{ return r.text(); }})
+                    .then(function(txt){{
+                        try {{
+                            var d = JSON.parse(txt);
+                            if (d.success && d.settings) {{
+                                pmSettings = d.settings;
+                                pmTemplates = d.templates || {{}};
+                                pmRenderSettings();
+                            }} else {{
+                                showAlert(d.message || 'Failed to load settings', 'danger');
+                            }}
+                        }} catch(e) {{ showAlert('Bad settings response', 'danger'); }}
+                    }});
+            }}
+            function closeSettings() {{ document.getElementById('pmSettingsModal').style.display = 'none'; }}
+
+            function pmRenderSettings() {{
+                if (!pmSettings) return;
+                var ds = pmSettings.defaultSender || {{}};
+                document.getElementById('pmSetSenderId').value     = ds.sender_id || '';
+                document.getElementById('pmSetSenderEmail').value  = ds.sender_email || '';
+                document.getElementById('pmSetSenderAlias').value  = ds.sender_alias || '';
+                document.getElementById('pmSetSenderTitle').value  = ds.email_title || '';
+                document.getElementById('pmSetSenderPhone').value  = ds.sender_phone || '';
+                document.getElementById('pmSetTplConfirm').value   = pmSettings.paymentConfirmationTemplate || '';
+                document.getElementById('pmSetTplNotify').value    = pmSettings.paymentNotificationTemplate || '';
+                document.getElementById('pmSetSubjectPrefix').value = pmSettings.emailSubjectPrefix || '';
+                // Template editor pre-fill. pmTemplates was populated by
+                // load_settings (server reads HtmlContent for each name
+                // and falls back to defaults so the editor never opens
+                // empty even before any custom template exists).
+                var conf = pmTemplates.confirmation || {{}};
+                var notif = pmTemplates.notification || {{}};
+                var ce = document.getElementById('pmTplConfirmBody');
+                var ne = document.getElementById('pmTplNotifyBody');
+                if (ce) ce.value = conf.body || '';
+                if (ne) ne.value = notif.body || '';
+                var cn = document.getElementById('pmTplConfirmName');
+                var nn = document.getElementById('pmTplNotifyName');
+                if (cn) cn.textContent = conf.name || '';
+                if (nn) nn.textContent = notif.name || '';
+                var cb = document.getElementById('pmTplConfirmBadge');
+                var nb = document.getElementById('pmTplNotifyBadge');
+                if (cb) cb.textContent = conf.isDefault ? '(using built-in default)' : '(custom HtmlContent)';
+                if (nb) nb.textContent = notif.isDefault ? '(using built-in default)' : '(custom HtmlContent)';
+                pmRenderSendersTable();
+            }}
+
+            // --- Template editor save / reset -----------------------------------
+            function pmSaveTemplate(which) {{
+                var body = document.getElementById(which === 'confirmation' ? 'pmTplConfirmBody' : 'pmTplNotifyBody').value;
+                var fd = new FormData();
+                fd.append('action', 'save_template');
+                fd.append('which', which);
+                fd.append('encoded', 'urlc');
+                fd.append('body', encodeURIComponent(body));
+                fetch(getPyScriptAddress(), {{ method: 'POST', body: fd }})
+                    .then(function(r){{ return r.text(); }})
+                    .then(function(txt){{
+                        try {{
+                            var d = JSON.parse(txt);
+                            if (d.success) {{
+                                showAlert(d.message || 'Saved', 'success');
+                                // Refresh the "(custom HtmlContent)" badge
+                                if (which === 'confirmation') {{
+                                    pmTemplates.confirmation = pmTemplates.confirmation || {{}};
+                                    pmTemplates.confirmation.isDefault = false;
+                                    var cb = document.getElementById('pmTplConfirmBadge');
+                                    if (cb) cb.textContent = '(custom HtmlContent)';
+                                }} else {{
+                                    pmTemplates.notification = pmTemplates.notification || {{}};
+                                    pmTemplates.notification.isDefault = false;
+                                    var nb = document.getElementById('pmTplNotifyBadge');
+                                    if (nb) nb.textContent = '(custom HtmlContent)';
+                                }}
+                            }} else {{
+                                showAlert(d.message || 'Save failed', 'danger');
+                            }}
+                        }} catch(e) {{ showAlert('Bad response', 'danger'); }}
+                    }});
+            }}
+
+            function pmResetTemplate(which) {{
+                if (!confirm('Restore the built-in default for this template? Your current changes will be discarded (you can still Save to keep the default as your custom template).')) return;
+                var fd = new FormData();
+                fd.append('action', 'reset_template');
+                fd.append('which', which);
+                fetch(getPyScriptAddress(), {{ method: 'POST', body: fd }})
+                    .then(function(r){{ return r.text(); }})
+                    .then(function(txt){{
+                        try {{
+                            var d = JSON.parse(txt);
+                            if (d.success && d.body !== undefined) {{
+                                document.getElementById(which === 'confirmation' ? 'pmTplConfirmBody' : 'pmTplNotifyBody').value = d.body;
+                                showAlert('Default loaded into editor -- click Save to apply', 'info');
+                            }}
+                        }} catch(e) {{}}
+                    }});
+            }}
+
+            function pmPreviewTemplate(which) {{
+                var body = document.getElementById(which === 'confirmation' ? 'pmTplConfirmBody' : 'pmTplNotifyBody').value;
+                // Sample merge values so the admin can see what the email
+                // will actually look like to a payer.
+                var sample = body
+                    .replace(/\\{{name\\}}/g, 'Sample Payer')
+                    .replace(/\\{{chargeNotes\\}}/g, '$50.00 -- Check payment on 2026-05-21<br><span style="color:#666;font-size:13px;">For: <strong>Student Summer Camp 2026</strong></span><br><span style="color:#666;font-size:13px;">Registered: <strong>Sample Kid One, Sample Kid Two</strong></span>')
+                    .replace(/\\{{orgName\\}}/g, 'Student Summer Camp 2026')
+                    .replace(/\\{{registrants\\}}/g, 'Sample Kid One, Sample Kid Two')
+                    .replace(/\\{{note\\}}/g, 'check #1234 -- spring camp deposit')
+                    .replace(/\\{{previousDue\\}}/g, '$50.00 ........ Previous Balance')
+                    .replace(/\\{{totalDue\\}}/g, '$0.00')
+                    .replace(/\\{{newTotalDue\\}}/g, '$0.00')
+                    .replace(/\\{{paylink\\}}/g, '#sample-paylink')
+                    .replace(/\\{{sender_alias\\}}/g, 'Sample Sender')
+                    .replace(/\\{{sender_phone\\}}/g, '(615) 555-1234')
+                    .replace(/\\{{sender_email\\}}/g, 'sample@church.org');
+                var w = window.open('', '_blank');
+                if (!w) {{ showAlert('Popup blocked', 'warning'); return; }}
+                w.document.write('<!DOCTYPE html><html><head><title>Template Preview</title>');
+                w.document.write('<style>body{{font-family:Segoe UI,Tahoma,sans-serif;color:#333;max-width:680px;margin:24px auto;padding:0 18px;}}</style>');
+                w.document.write('</head><body>');
+                w.document.write('<div style="background:#eef5fb;border:1px solid #cfe3ff;padding:8px 12px;border-radius:6px;font-size:12px;color:#1f4e79;margin-bottom:14px;"><strong>Preview</strong> &mdash; merge fields filled with sample values. Real sends will use the actual payer name, amount, etc.</div>');
+                w.document.write(sample);
+                w.document.write('</body></html>');
+                w.document.close();
+            }}
+
+            function pmRenderSendersTable() {{
+                var tbody = document.getElementById('pmSendersTbody');
+                var senders = (pmSettings && pmSettings.senders) || {{}};
+                var html = '';
+                var keys = Object.keys(senders);
+                if (!keys.length) {{
+                    html = '<tr><td colspan="6" style="padding:10px;color:#999;font-style:italic;text-align:center;">No per-program overrides. The Default sender above is used for every program.</td></tr>';
+                }} else {{
+                    keys.sort();
+                    for (var i = 0; i < keys.length; i++) {{
+                        var k = keys[i], s = senders[k] || {{}};
+                        html += '<tr>';
+                        html += '<td><input type="text" value="' + pmEsc(k) + '" data-key="' + pmEsc(k) + '" data-fld="_progId" style="width:70px;padding:3px 5px;"></td>';
+                        html += '<td><input type="text" value="' + pmEsc(s.sender_id || '') + '" data-key="' + pmEsc(k) + '" data-fld="sender_id" style="width:70px;padding:3px 5px;"></td>';
+                        html += '<td><input type="text" value="' + pmEsc(s.sender_email || '') + '" data-key="' + pmEsc(k) + '" data-fld="sender_email" style="width:100%;padding:3px 5px;"></td>';
+                        html += '<td><input type="text" value="' + pmEsc(s.sender_alias || '') + '" data-key="' + pmEsc(k) + '" data-fld="sender_alias" style="width:100%;padding:3px 5px;"></td>';
+                        html += '<td><input type="text" value="' + pmEsc(s.email_title || '') + '" data-key="' + pmEsc(k) + '" data-fld="email_title" style="width:100%;padding:3px 5px;"></td>';
+                        html += '<td><button class="btn btn-sm" onclick="pmRemoveSender(\\'' + pmEsc(k) + '\\')" style="padding:2px 8px;color:#d13438;">Remove</button></td>';
+                        html += '</tr>';
+                    }}
+                }}
+                tbody.innerHTML = html;
+            }}
+
+            function pmAddSender() {{
+                if (!pmSettings) return;
+                var pid = prompt('Program ID for this sender override:');
+                if (!pid) return;
+                pmSettings.senders = pmSettings.senders || {{}};
+                if (pmSettings.senders[pid]) {{ showAlert('Program ID already has an override', 'warning'); return; }}
+                pmSettings.senders[pid] = {{ sender_id:'', sender_email:'', sender_alias:'', email_title:'', sender_phone:'' }};
+                pmRenderSendersTable();
+            }}
+
+            function pmRemoveSender(key) {{
+                if (!pmSettings || !pmSettings.senders) return;
+                if (!confirm('Remove the sender override for Program ' + key + '?')) return;
+                delete pmSettings.senders[key];
+                pmRenderSendersTable();
+            }}
+
+            function pmSaveSettings() {{
+                if (!pmSettings) {{ showAlert('Settings not loaded yet -- close and reopen the dialog', 'warning'); return; }}
+                try {{
+                    // Read all inputs back into pmSettings
+                    pmSettings.defaultSender = pmSettings.defaultSender || {{}};
+                    pmSettings.defaultSender.sender_id    = document.getElementById('pmSetSenderId').value;
+                    pmSettings.defaultSender.sender_email = document.getElementById('pmSetSenderEmail').value;
+                    pmSettings.defaultSender.sender_alias = document.getElementById('pmSetSenderAlias').value;
+                    pmSettings.defaultSender.email_title  = document.getElementById('pmSetSenderTitle').value;
+                    pmSettings.defaultSender.sender_phone = document.getElementById('pmSetSenderPhone').value;
+                    pmSettings.paymentConfirmationTemplate  = document.getElementById('pmSetTplConfirm').value;
+                    pmSettings.paymentNotificationTemplate = document.getElementById('pmSetTplNotify').value;
+                    pmSettings.emailSubjectPrefix          = document.getElementById('pmSetSubjectPrefix').value;
+                    // Read per-program rows (may have renamed program IDs)
+                    var newSenders = {{}};
+                    var inputs = document.querySelectorAll('#pmSendersTbody input');
+                    var rowMap = {{}};
+                    inputs.forEach(function(inp) {{
+                        var k = inp.getAttribute('data-key'); var f = inp.getAttribute('data-fld');
+                        if (!rowMap[k]) rowMap[k] = {{}};
+                        rowMap[k][f] = inp.value;
+                    }});
+                    for (var k in rowMap) {{
+                        var row = rowMap[k]; var newKey = (row._progId || k).toString();
+                        delete row._progId;
+                        if (newKey) newSenders[newKey] = row;
+                    }}
+                    pmSettings.senders = newSenders;
+                }} catch(prepErr) {{
+                    showAlert('Could not read settings form: ' + prepErr.message, 'danger');
+                    return;
+                }}
+                var payload;
+                try {{
+                    payload = encodeURIComponent(JSON.stringify(pmSettings));
+                }} catch(e) {{
+                    showAlert('Could not serialize settings: ' + e.message, 'danger');
+                    return;
+                }}
+                // URL-encode the JSON to dodge ASP.NET request validation
+                // on any HTML the admin might put in a sender alias/title.
+                var fd = new FormData();
+                fd.append('action', 'save_settings');
+                fd.append('encoded', 'urlc');
+                fd.append('settings_json', payload);
+                var btn = document.querySelector('button[onclick="pmSaveSettings()"]');
+                if (btn) {{ btn.disabled = true; btn.textContent = 'Saving...'; }}
+                fetch(getPyScriptAddress(), {{ method: 'POST', body: fd }})
+                    .then(function(r){{
+                        if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + r.statusText);
+                        return r.text();
+                    }})
+                    .then(function(txt){{
+                        if (btn) {{ btn.disabled = false; btn.textContent = 'Save Settings'; }}
+                        if (!txt) {{ showAlert('Server returned an empty response (often means ASP.NET request validation blocked the POST). Check the templates / sender fields for raw &lt;script&gt; tags.', 'danger'); return; }}
+                        var d;
+                        try {{ d = JSON.parse(txt); }}
+                        catch(e) {{ showAlert('Server returned non-JSON (' + txt.substring(0, 120) + '...)', 'danger'); return; }}
+                        if (d.success) {{
+                            showAlert('Settings saved', 'success');
+                            closeSettings();
+                            // Reset the missing-settings banner if it was up.
+                            var b = document.getElementById('pmConfigBanner');
+                            if (b) b.style.display = 'none';
+                        }} else {{
+                            showAlert(d.message || 'Save failed (no message)', 'danger');
+                        }}
+                    }})
+                    .catch(function(err){{
+                        if (btn) {{ btn.disabled = false; btn.textContent = 'Save Settings'; }}
+                        showAlert('Save network error: ' + err.message, 'danger');
+                    }});
+            }}
+
+            // --- Help modal ------------------------------------------------------
+            function openHelp() {{ document.getElementById('pmHelpModal').style.display = 'flex'; }}
+            function closeHelp() {{ document.getElementById('pmHelpModal').style.display = 'none'; }}
+
+            // --- Auto-update check ----------------------------------------------
+            var PM_APP_VERSION = '{3}';
+            var PM_DC_SCRIPT_ID = '{4}';
+            var PM_DC_API_BASE = '{5}';
+            function pmCheckUpdate() {{
+                try {{
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('GET', PM_DC_API_BASE + '/script-versions', true);
+                    xhr.timeout = 5000;
+                    xhr.onreadystatechange = function() {{
+                        if (xhr.readyState !== 4 || xhr.status !== 200) return;
+                        try {{
+                            var v = JSON.parse(xhr.responseText)[PM_DC_SCRIPT_ID];
+                            if (v && v !== PM_APP_VERSION) {{
+                                var b = document.getElementById('pmUpdateBanner');
+                                if (b) {{
+                                    b.innerHTML = '<div style="background:#e8f0fd;border:1px solid #cfe3ff;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;">'
+                                        + '<div style="font-size:18px;">&#128640;</div>'
+                                        + '<div style="flex:1;font-size:12px;color:#0078d4;"><strong>Update available</strong> &mdash; you have <code>v' + PM_APP_VERSION + '</code>, latest is <code>v' + v + '</code>. Saved settings preserved.</div>'
+                                        + '<button onclick="pmApplyUpdate()" style="padding:6px 14px;background:#0078d4;color:#fff;border:0;border-radius:4px;cursor:pointer;">Update Now</button>'
+                                        + '</div>';
+                                }}
+                            }}
+                        }} catch(e) {{}}
+                    }};
+                    xhr.send();
+                }} catch(e) {{}}
+            }}
+            function pmApplyUpdate() {{
+                if (!confirm('Update Payment Manager to the latest version?')) return;
+                var fd = new FormData();
+                fd.append('action', 'apply_update');
+                fetch(getPyScriptAddress(), {{ method: 'POST', body: fd }})
+                    .then(function(r){{ return r.text(); }})
+                    .then(function(txt){{
+                        try {{
+                            var d = JSON.parse(txt);
+                            if (d.success) {{ alert(d.message || 'Updated'); window.location.reload(true); }}
+                            else {{ showAlert(d.message || 'Update failed', 'danger'); }}
+                        }} catch(e) {{ showAlert('Bad update response', 'danger'); }}
+                    }});
+            }}
+            window.addEventListener('load', pmCheckUpdate);
+
             function refreshData() {{
                 showLoading();
                 window.location.reload();
@@ -1548,6 +3441,104 @@ try:
             function viewTransactions(payerId) {{
                 showLoading();
                 window.location.href = window.location.pathname + '?action=transactions&PeopleId=' + payerId;
+            }}
+
+            // Inline expand on the Outstanding cell. Shows the chain of
+            // charges + payments that produced the current balance,
+            // without leaving the page.
+            function pmToggleChargeDetails(anchor, peopleId, orgId) {{
+                var row = anchor.closest('tr');
+                var detailRow = row && row.nextElementSibling;
+                var caret = anchor.querySelector('.pm-charge-toggle');
+                if (!detailRow || !detailRow.classList.contains('pm-charge-row')) return;
+                // Check current computed display state -- not just the
+                // inline style, which can be '' once we've toggled and
+                // the row inherits its default (table-row).
+                var isOpen = window.getComputedStyle(detailRow).display !== 'none';
+                if (isOpen) {{
+                    detailRow.style.display = 'none';
+                    if (caret) caret.style.transform = 'rotate(0deg)';
+                    return;
+                }}
+                detailRow.style.display = 'table-row';
+                if (caret) caret.style.transform = 'rotate(90deg)';
+                var body = detailRow.querySelector('.pm-charge-body');
+                if (!body) return;
+                // If we've already loaded for this row, leave the cache
+                // alone (toggle just shows/hides).
+                if (detailRow.getAttribute('data-loaded') === '1') return;
+                body.innerHTML = '<div style="padding:6px 0;color:#999;"><i class="fa fa-spinner fa-spin"></i> Loading charges...</div>';
+                var fd = new FormData();
+                fd.append('action', 'charge_details');
+                fd.append('people_id', peopleId);
+                fd.append('org_id', orgId);
+                fetch(getPyScriptAddress(), {{ method: 'POST', body: fd }})
+                    .then(function(r){{ return r.text(); }})
+                    .then(function(txt){{
+                        var d; try {{ d = JSON.parse(txt); }} catch(e) {{
+                            body.innerHTML = '<div style="color:#a94442;">Bad response from server.</div>';
+                            return;
+                        }}
+                        if (!d.success) {{
+                            body.innerHTML = '<div style="color:#a94442;">' + pmEsc(d.message || 'Failed') + '</div>';
+                            return;
+                        }}
+                        var rows = d.charges || [];
+                        if (!rows.length) {{
+                            body.innerHTML = '<div style="color:#999;">No transactions on file for this involvement.</div>';
+                        }} else {{
+                            // Server returns chronological so running
+                            // balances are correct. Reverse for display
+                            // so the newest activity sits at the top --
+                            // typical accounting-ledger style.
+                            rows.reverse();
+                            var html = '<table style="width:100%;font-size:12px;border-collapse:collapse;">';
+                            html += '<thead><tr style="text-align:left;color:#666;">';
+                            html += '<th style="padding:4px 8px;font-weight:600;">Date</th>';
+                            html += '<th style="padding:4px 8px;font-weight:600;">Kind</th>';
+                            html += '<th style="padding:4px 8px;font-weight:600;">Note / Description</th>';
+                            html += '<th style="padding:4px 8px;font-weight:600;text-align:right;">Charge</th>';
+                            html += '<th style="padding:4px 8px;font-weight:600;text-align:right;">Payment</th>';
+                            html += '<th style="padding:4px 8px;font-weight:600;text-align:right;">Balance after</th>';
+                            html += '</tr></thead><tbody>';
+                            for (var i = 0; i < rows.length; i++) {{
+                                var r = rows[i];
+                                var amt = Math.abs(parseFloat(r.amount) || 0);
+                                var bal = parseFloat(r.runningBalance) || 0;
+                                var balStr = (bal < 0 ? '-' : '') + pmFmtMoney(bal);
+                                var balColor = bal > 0 ? '#7a5c00' : (bal < 0 ? '#3c763d' : '#666');
+                                var kindBg = r.isPayment ? '#d4edda' : '#fff4ce';
+                                var kindFg = r.isPayment ? '#155724' : '#7a5c00';
+                                html += '<tr style="border-top:1px solid #e1e5eb;">';
+                                html += '<td style="padding:4px 8px;white-space:nowrap;">' + pmEsc(r.tranDate || '') + '</td>';
+                                html += '<td style="padding:4px 8px;"><span style="background:' + kindBg + ';color:' + kindFg + ';padding:1px 6px;border-radius:8px;font-size:11px;font-weight:600;">' + pmEsc(r.kind || '') + '</span></td>';
+                                // Description cell -- show the staff note
+                                // first (italicized), then the involvement
+                                // context underneath in a smaller dim font.
+                                // Tooltip carries the raw Message in case
+                                // someone needs to see the full string.
+                                var noteText = (r.note || '').trim();
+                                var descText = (r.description || '').trim();
+                                var noteCell = '';
+                                if (noteText) noteCell += '<div style="color:#444;font-style:italic;" title="' + pmEsc(r.message || '') + '">' + pmEsc(noteText) + '</div>';
+                                if (descText) noteCell += '<div style="font-size:11px;color:#999;margin-top:1px;">' + pmEsc(descText) + '</div>';
+                                if (!noteCell) noteCell = '<span style="color:#bbb;">&mdash;</span>';
+                                html += '<td style="padding:4px 8px;">' + noteCell + '</td>';
+                                html += '<td style="padding:4px 8px;text-align:right;color:#7a5c00;font-weight:600;">' + (r.isPayment ? '' : pmFmtMoney(amt)) + '</td>';
+                                html += '<td style="padding:4px 8px;text-align:right;color:#155724;font-weight:600;">' + (r.isPayment ? '-' + pmFmtMoney(amt) : '') + '</td>';
+                                html += '<td style="padding:4px 8px;text-align:right;font-weight:700;color:' + balColor + ';">' + balStr + '</td>';
+                                html += '</tr>';
+                            }}
+                            html += '</tbody></table>';
+                            var ending = parseFloat(d.endingBalance) || 0;
+                            html += '<div style="margin-top:6px;font-size:11px;color:#666;font-style:italic;">' + rows.length + ' transaction(s), newest first -- current balance ' + (ending < 0 ? '-' : '') + pmFmtMoney(ending) + '. Positive = the person owes the church; "Balance after" is the running total in chronological order.</div>';
+                            body.innerHTML = html;
+                        }}
+                        detailRow.setAttribute('data-loaded', '1');
+                    }})
+                    .catch(function(err){{
+                        body.innerHTML = '<div style="color:#a94442;">Network error: ' + pmEsc(err.message) + '</div>';
+                    }});
             }}
             
             function viewEmails(payerId) {{
@@ -1864,8 +3855,192 @@ try:
             
             <!-- Alert container for messages -->
             <div id="alertContainer" style="position: fixed; top: 20px; right: 20px; z-index: 10001;"></div>
-            
+
+            <!-- Auto-update banner (populated by pmCheckUpdate on load) -->
+            <div id="pmUpdateBanner" style="max-width:1200px;margin:8px auto 0;padding:0 14px;"></div>
+
+            <!-- Setup banner (server-rendered; empty when fully configured) -->
+            {6}
+
+            <!-- Toolbar -->
+            <div style="max-width:1200px;margin:8px auto 12px;padding:8px 14px;
+                        display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <div style="flex:1;font-size:13px;color:#666;">
+                    Payment Manager <span style="color:#999;font-size:11px;">v{3}</span>
+                </div>
+                <button class="btn btn-primary" onclick="viewPrograms()" style="font-size:12px;font-weight:700;" title="Home -- outstanding balances by program">
+                    <i class="fa fa-home"></i> Outstanding Balances
+                </button>
+                <button class="btn btn-secondary" onclick="viewReceipts()" style="font-size:12px;">
+                    <i class="fa fa-receipt"></i> Receipts
+                </button>
+                <button class="btn btn-secondary" onclick="openHelp()" title="What does this tool do?" style="font-size:12px;">
+                    ? Help
+                </button>
+                <button class="btn btn-secondary" onclick="openSettings()" title="Email senders, templates, defaults" style="font-size:12px;">
+                    &#9881; Settings
+                </button>
+            </div>
+
             {0}
+
+            <!-- Customize-receipt modal -->
+            <div id="pmCustomModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10003;align-items:center;justify-content:center;padding:20px;">
+                <div style="background:#fff;border-radius:10px;max-width:1100px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding:14px 22px;">
+                        <div>
+                            <h3 style="margin:0;color:#1f4e79;font-size:18px;"><i class="fa fa-edit"></i> Customize Receipt</h3>
+                            <div style="font-size:12px;color:#666;margin-top:2px;">Payer: <strong id="pmCustomTo">&mdash;</strong></div>
+                        </div>
+                        <button onclick="pmCustomClose()" style="background:none;border:0;font-size:24px;color:#999;cursor:pointer;">&times;</button>
+                    </div>
+                    <div style="padding:14px 22px 4px;border-bottom:1px solid #eee;">
+                        <div style="display:flex;gap:12px;margin-bottom:8px;align-items:flex-end;">
+                            <div style="flex:1;">
+                                <label style="display:block;font-size:12px;color:#666;font-weight:600;margin-bottom:3px;">Send to <span id="pmCustomToHint" style="font-weight:400;color:#999;">(defaults to email on file)</span></label>
+                                <input type="email" id="pmCustomToEmail" placeholder="recipient@example.com" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;">
+                            </div>
+                            <button type="button" onclick="pmCustomResetEmail()" class="btn btn-sm" style="font-size:11px;padding:5px 10px;height:fit-content;">Use email on file</button>
+                        </div>
+                        <label style="display:block;font-size:12px;color:#666;font-weight:600;margin-bottom:3px;">Subject</label>
+                        <input type="text" id="pmCustomSubject" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;">
+                    </div>
+                    <div style="display:flex;gap:14px;padding:14px 22px;flex:1;overflow:hidden;">
+                        <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                                <label style="font-size:12px;color:#666;font-weight:600;">Personal Note (optional)</label>
+                                <span style="font-size:11px;color:#999;">Plain text &mdash; appears above the receipt</span>
+                            </div>
+                            <textarea id="pmCustomNote" oninput="pmCustomRefreshPreview()" placeholder="Add a note here -- e.g., 'Thank you for your generous gift to summer camp!' Leave blank to send the standard receipt." style="flex:1;width:100%;min-height:380px;font-family:Segoe UI,Tahoma,sans-serif;font-size:13px;padding:10px;border:1px solid #ccc;border-radius:4px;resize:vertical;line-height:1.4;"></textarea>
+                            <div style="font-size:11px;color:#999;margin-top:4px;font-style:italic;">Tip: blank lines become paragraph breaks. The receipt below stays the same; your note is added above it.</div>
+                        </div>
+                        <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                                <label style="font-size:12px;color:#666;font-weight:600;">Preview</label>
+                                <span style="font-size:11px;color:#999;">Live as you type</span>
+                            </div>
+                            <div id="pmCustomPreview" style="flex:1;border:1px solid #ccc;border-radius:4px;padding:14px;overflow:auto;background:#fff;font-family:Segoe UI,Tahoma,sans-serif;font-size:13px;"></div>
+                        </div>
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 22px;border-top:1px solid #eee;background:#f8f9fa;">
+                        <button onclick="pmCustomClose()" class="btn btn-secondary">Cancel</button>
+                        <button onclick="pmCustomPrint()" class="btn"><i class="fa fa-print"></i> Print Edited</button>
+                        <button id="pmCustomSendBtn" onclick="pmCustomSend()" class="btn btn-primary"><i class="fa fa-paper-plane"></i> Send Customized Receipt</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings modal -->
+            <div id="pmSettingsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10002;align-items:center;justify-content:center;padding:20px;">
+                <div style="background:#fff;border-radius:10px;max-width:820px;width:100%;max-height:88vh;overflow-y:auto;padding:18px 22px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding-bottom:10px;margin-bottom:14px;">
+                        <h3 style="margin:0;color:#1f4e79;">&#9881; Payment Manager Settings</h3>
+                        <button onclick="closeSettings()" style="background:none;border:0;font-size:24px;color:#999;cursor:pointer;">&times;</button>
+                    </div>
+                    <div style="font-size:13px;color:#333;">
+                        <div style="font-weight:700;color:#1f4e79;margin-bottom:6px;">Default Email Sender</div>
+                        <p style="color:#666;font-size:12px;margin:0 0 8px;">Used for every program unless an override below matches. Replaces the old hardcoded values.</p>
+                        <div style="display:grid;grid-template-columns:1fr 2fr;gap:6px 12px;margin-bottom:14px;">
+                            <label>Sender PeopleId</label><input type="text" id="pmSetSenderId" style="padding:5px 8px;border:1px solid #ccc;border-radius:4px;">
+                            <label>From Email</label><input type="text" id="pmSetSenderEmail" style="padding:5px 8px;border:1px solid #ccc;border-radius:4px;">
+                            <label>From Name (Alias)</label><input type="text" id="pmSetSenderAlias" style="padding:5px 8px;border:1px solid #ccc;border-radius:4px;">
+                            <label>Email Title</label><input type="text" id="pmSetSenderTitle" style="padding:5px 8px;border:1px solid #ccc;border-radius:4px;">
+                            <label>Reply Phone</label><input type="text" id="pmSetSenderPhone" style="padding:5px 8px;border:1px solid #ccc;border-radius:4px;">
+                        </div>
+
+                        <div style="font-weight:700;color:#1f4e79;margin-bottom:6px;">Email Templates</div>
+                        <p style="color:#666;font-size:12px;margin:0 0 8px;">HTML Content names. Falls back to built-in defaults if the named template doesn't exist.</p>
+                        <div style="display:grid;grid-template-columns:1fr 2fr;gap:6px 12px;margin-bottom:14px;">
+                            <label>Payment Confirmation</label><input type="text" id="pmSetTplConfirm" style="padding:5px 8px;border:1px solid #ccc;border-radius:4px;">
+                            <label>Payment Notification</label><input type="text" id="pmSetTplNotify" style="padding:5px 8px;border:1px solid #ccc;border-radius:4px;">
+                            <label>Subject Prefix</label><input type="text" id="pmSetSubjectPrefix" style="padding:5px 8px;border:1px solid #ccc;border-radius:4px;">
+                        </div>
+
+                        <div style="font-weight:700;color:#1f4e79;margin:18px 0 6px;">Email Template Bodies</div>
+                        <p style="color:#666;font-size:12px;margin:0 0 8px;">The editors below are pre-filled with a sensible default as a starter. Edit the HTML, then click <strong>Save</strong> to write it to TouchPoint's HTML Content under the names configured above. <strong>Reset</strong> reloads the built-in default into the editor. <strong>Preview</strong> opens a popup with sample merge values.</p>
+                        <details style="margin:0 0 10px;background:#f6f8fa;border:1px solid #e0e0e0;border-radius:6px;padding:8px 12px;font-size:12px;">
+                            <summary style="cursor:pointer;font-weight:600;color:#1f4e79;">Merge fields you can use</summary>
+                            <table style="width:100%;margin-top:8px;border-collapse:collapse;">
+                                <tr><td style="padding:2px 8px 2px 0;white-space:nowrap;"><code>{{name}}</code></td><td>Payer's name</td></tr>
+                                <tr><td style="padding:2px 8px 2px 0;white-space:nowrap;"><code>{{chargeNotes}}</code></td><td>Payment details (type, amount, date) &mdash; includes the involvement + registered names</td></tr>
+                                <tr><td style="padding:2px 8px 2px 0;white-space:nowrap;"><code>{{orgName}}</code></td><td>Involvement name (separately, in case you want it on its own line)</td></tr>
+                                <tr><td style="padding:2px 8px 2px 0;white-space:nowrap;"><code>{{registrants}}</code></td><td>Comma-separated list of who was registered</td></tr>
+                                <tr><td style="padding:2px 8px 2px 0;white-space:nowrap;"><code>{{note}}</code></td><td>Staff note attached to the payment (the text after the CHK| / CSH| / FEE| / ADJ| prefix)</td></tr>
+                                <tr><td style="padding:2px 8px 2px 0;white-space:nowrap;"><code>{{previousDue}}</code></td><td>Previous balance</td></tr>
+                                <tr><td style="padding:2px 8px 2px 0;white-space:nowrap;"><code>{{totalDue}}</code></td><td>Total now due (notification template)</td></tr>
+                                <tr><td style="padding:2px 8px 2px 0;white-space:nowrap;"><code>{{newTotalDue}}</code></td><td>New balance after payment (confirmation template)</td></tr>
+                                <tr><td style="padding:2px 8px 2px 0;white-space:nowrap;"><code>{{paylink}}</code></td><td>Payment link URL (notification template)</td></tr>
+                                <tr><td style="padding:2px 8px 2px 0;white-space:nowrap;"><code>{{sender_alias}}</code></td><td>Sender display name</td></tr>
+                                <tr><td style="padding:2px 8px 2px 0;white-space:nowrap;"><code>{{sender_phone}}</code></td><td>Sender phone</td></tr>
+                                <tr><td style="padding:2px 8px 2px 0;white-space:nowrap;"><code>{{sender_email}}</code></td><td>Sender email</td></tr>
+                            </table>
+                        </details>
+
+                        <div style="margin-bottom:12px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                                <label style="font-weight:600;color:#1f4e79;">Payment Confirmation <span id="pmTplConfirmName" style="font-weight:400;color:#666;font-family:monospace;font-size:11px;"></span> <span id="pmTplConfirmBadge" style="font-weight:400;color:#999;font-size:11px;font-style:italic;"></span></label>
+                                <div>
+                                    <button class="btn btn-sm" onclick="pmPreviewTemplate('confirmation')" style="font-size:11px;padding:3px 10px;">Preview</button>
+                                    <button class="btn btn-sm" onclick="pmResetTemplate('confirmation')" style="font-size:11px;padding:3px 10px;">Reset</button>
+                                    <button class="btn btn-sm btn-primary" onclick="pmSaveTemplate('confirmation')" style="font-size:11px;padding:3px 10px;">Save</button>
+                                </div>
+                            </div>
+                            <textarea id="pmTplConfirmBody" rows="8" style="width:100%;font-family:Menlo,Consolas,monospace;font-size:12px;padding:8px;border:1px solid #ccc;border-radius:4px;"></textarea>
+                            <p style="font-size:11px;color:#666;margin:4px 0 0;font-style:italic;">Sent after a check / cash payment is recorded. Also used by the Receipts tab for duplicate reprints.</p>
+                        </div>
+
+                        <div style="margin-bottom:18px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                                <label style="font-weight:600;color:#1f4e79;">Payment Notification <span id="pmTplNotifyName" style="font-weight:400;color:#666;font-family:monospace;font-size:11px;"></span> <span id="pmTplNotifyBadge" style="font-weight:400;color:#999;font-size:11px;font-style:italic;"></span></label>
+                                <div>
+                                    <button class="btn btn-sm" onclick="pmPreviewTemplate('notification')" style="font-size:11px;padding:3px 10px;">Preview</button>
+                                    <button class="btn btn-sm" onclick="pmResetTemplate('notification')" style="font-size:11px;padding:3px 10px;">Reset</button>
+                                    <button class="btn btn-sm btn-primary" onclick="pmSaveTemplate('notification')" style="font-size:11px;padding:3px 10px;">Save</button>
+                                </div>
+                            </div>
+                            <textarea id="pmTplNotifyBody" rows="8" style="width:100%;font-family:Menlo,Consolas,monospace;font-size:12px;padding:8px;border:1px solid #ccc;border-radius:4px;"></textarea>
+                            <p style="font-size:11px;color:#666;margin:4px 0 0;font-style:italic;">Sent when a payment link is generated for someone. Recipient gets a link to pay online.</p>
+                        </div>
+
+                        <div style="font-weight:700;color:#1f4e79;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">
+                            <span>Per-Program Sender Overrides</span>
+                            <button onclick="pmAddSender()" class="btn btn-sm btn-primary" style="font-size:11px;padding:3px 10px;">+ Add Override</button>
+                        </div>
+                        <p style="color:#666;font-size:12px;margin:0 0 8px;">Optional. When set, payments from this program use these sender values instead of the Default above.</p>
+                        <table class="pm-table" style="font-size:12px;">
+                            <thead><tr><th>Program ID</th><th>Sender ID</th><th>From Email</th><th>Alias</th><th>Title</th><th></th></tr></thead>
+                            <tbody id="pmSendersTbody"></tbody>
+                        </table>
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px;padding-top:12px;border-top:1px solid #eee;">
+                        <button onclick="closeSettings()" class="btn btn-secondary">Cancel</button>
+                        <button onclick="pmSaveSettings()" class="btn btn-primary">Save Settings</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Help modal -->
+            <div id="pmHelpModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10002;align-items:center;justify-content:center;padding:20px;">
+                <div style="background:#fff;border-radius:10px;max-width:720px;width:100%;max-height:88vh;overflow-y:auto;padding:18px 22px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding-bottom:10px;margin-bottom:14px;">
+                        <h3 style="margin:0;color:#1f4e79;">Payment Manager Help</h3>
+                        <button onclick="closeHelp()" style="background:none;border:0;font-size:24px;color:#999;cursor:pointer;">&times;</button>
+                    </div>
+                    <div style="font-size:13px;color:#1e293b;line-height:1.55;">
+                        <h4 style="color:#1f4e79;margin:14px 0 6px;">Programs &rarr; Divisions &rarr; Payers</h4>
+                        <p>Drill from the top-level <strong>Outstanding Balances</strong> view into a program's divisions, then into individual payers with unpaid balances. From a payer row you can <em>Send Payment Link</em>, <em>Record Payment</em>, view <em>Emails</em>, or open the full <em>Transaction</em> history.</p>
+                        <h4 style="color:#1f4e79;margin:14px 0 6px;">&#128201; Receipts (new)</h4>
+                        <p>Find past check or cash payments by date range. For each, <strong>Print</strong> opens a popup-window receipt (good for the church files) and <strong>Email</strong> re-sends the original-template receipt to the payer with a "Duplicate Receipt" banner so it's clearly not a new charge.</p>
+                        <h4 style="color:#1f4e79;margin:14px 0 6px;">&#9881; Settings (new)</h4>
+                        <p>All the old hardcoded constants (default sender, template names, subject prefix) now live here. Per-program sender overrides replace the legacy <code>PM_EmailSenders</code> dict (which is auto-imported on first save).</p>
+                        <h4 style="color:#1f4e79;margin:14px 0 6px;">Auto-update</h4>
+                        <p>When a newer version is published a banner appears at the top of the page. One click pulls the latest code; your settings are stored separately and survive the update.</p>
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;margin-top:18px;padding-top:12px;border-top:1px solid #eee;">
+                        <button onclick="closeHelp()" class="btn btn-primary">Got it</button>
+                    </div>
+                </div>
+            </div>
             
             <!-- Payment Modal -->
             <div id="paymentModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
@@ -1970,7 +4145,7 @@ try:
                 hideLoading();
             }});
             </script>
-            """.format(content, self.program_id, PAYMENT_LINK_DESCRIPTION)
+            """.format(content, self.program_id, PAYMENT_LINK_DESCRIPTION, APP_VERSION, DC_SCRIPT_ID, DC_API_BASE, self._build_setup_banner_html())
             
         def render(self):
             """Main render method - determines which view to show and handles POST requests"""
@@ -1980,13 +4155,27 @@ try:
                     action = str(model.Data.action)
                     
                     # Check if this is a POST request for AJAX actions
-                    if action in ['send_payment_link', 'record_payment', 'resend_email']:
-                        if action == 'send_payment_link':
-                            return self.process_payment_link()
-                        elif action == 'record_payment':
-                            return self.process_payment_record()
-                        elif action == 'resend_email':
-                            return self.process_resend_email()
+                    POST_ACTIONS = [
+                        'send_payment_link', 'record_payment', 'resend_email',
+                        'find_receipts', 'reprint_receipt', 'send_custom_receipt',
+                        'charge_details',
+                        'load_settings', 'save_settings',
+                        'save_template', 'reset_template',
+                        'apply_update',
+                    ]
+                    if action in POST_ACTIONS:
+                        if action == 'send_payment_link':     return self.process_payment_link()
+                        if action == 'record_payment':        return self.process_payment_record()
+                        if action == 'resend_email':          return self.process_resend_email()
+                        if action == 'find_receipts':         return self.process_find_receipts()
+                        if action == 'reprint_receipt':       return self.process_reprint_receipt()
+                        if action == 'send_custom_receipt':   return self.process_send_custom_receipt()
+                        if action == 'charge_details':        return self.process_charge_details()
+                        if action == 'load_settings':         return self.process_load_settings()
+                        if action == 'save_settings':         return self.process_save_settings()
+                        if action == 'save_template':         return self.process_save_template()
+                        if action == 'reset_template':        return self.process_reset_template()
+                        if action == 'apply_update':          return self.process_apply_update()
                 
                 # Handle GET requests (page views)
                 content = ""
@@ -2021,6 +4210,8 @@ try:
                         content = self.render_transaction_history(people_id)
                     else:
                         content = "<div class='alert alert-warning'>People ID is required for transaction history</div>"
+                elif self.current_action == 'receipts':
+                    content = self.render_receipts_view()
                 else:
                     content = self.render_programs_view()
                 
