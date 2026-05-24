@@ -107,7 +107,7 @@ if not data:
                     "GeneralFundIds": "1",
                     "CashBundleIds": "2",
                     "CheckBundleIds": "1,33",
-                    "DepositTotalIds: "6.7",
+                    "DepositTotalIds": "6.7",
                     "NonContributionTypeIds": "99",
                     "BundleReportName": "BundleReport3"
                 },
