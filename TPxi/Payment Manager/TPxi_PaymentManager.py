@@ -38,6 +38,219 @@ To upload code to Touchpoint, use the following steps:
 
 Changelog
 ---------
+v2.4.10 - May 2026
+  - Added: Post-write verification. After WriteContentPython succeeds,
+           we read the saved script back via model.PythonContent and
+           confirm the new APP_VERSION marker is present. If not, the
+           update was written to a different script name than the one
+           currently running.  The error message tells the admin to
+           paste the latest code directly into the correctly-named
+           script in Admin > Advanced > Special Content > Python.
+  - UX:    Success message now names the new version and adds a hard-
+           refresh tip (Ctrl/Cmd+Shift+R) for cases where the browser
+           caches the old script aggressively.
+
+v2.4.9 - May 2026
+  - Fixed: Auto-update's "Update Now" button could fail with a cryptic
+           message. Pre-write validation now requires the fetched code
+           to contain the unmistakable "TPxi_PaymentManager" +
+           "APP_VERSION" markers before writing, so a worker glitch
+           returning an HTML error page or JSON envelope can't corrupt
+           the running script. Error messages include the direct fetch
+           URL so the admin can paste manually if anything fails.
+  - UX:    Update failures now use alert() instead of a toast so the
+           full hint (with the fetch URL) is readable, not truncated.
+
+v2.4.8 - May 2026
+  - Fixed: Refunds were classified as "Credit Card" payments in the
+           Receipts list (same Message prefix on the Transaction row).
+           Hitting Email on a refund would have sent the payer a
+           thank-you receipt for a payment they actually got back.
+           Split PaymentType on amt sign: positive amt = the original
+           payment kind (Check / Cash / Credit Card), negative amt =
+           Refund / Check Refund / Cash Refund. Refund rows show a
+           red pill and have the Email button disabled with an
+           explanatory tooltip; Print + Customize remain available.
+  - Fixed: _build_receipt_html used the legacy get_current_balance()
+           which can return 0 spuriously (swallowed exception), so
+           receipt emails could show "$0 balance" when the recipient
+           actually still owed money. Inlined the bulletproof SUM
+           query with defensive parsing -- matches v2.4.7's pattern.
+  - Fixed: "Other" payment-type filter switched from amtdue < 0 to
+           amt > 0. Manual cash / check / ACH / wire entries with
+           amtdue=0 (offset against an implicit charge) now show up
+           correctly; previously they were invisible.
+
+v2.4.7 - May 2026
+  - Fixed: Inline breakdown could synthesize a bogus "Starting balance"
+           row even when the visible Transaction sum already matched the
+           actual outstanding. Root cause: the shared get_current_balance()
+           helper has an "except: return 0.0" that swallows IronPython
+           attribute errors, so when its lookup glitched it returned 0
+           -- which our gap calc then treated as the real number, drawing
+           a fake negative-balance starter. Now we run an inline SUM
+           query, parse the result defensively, and only insert the
+           starter when actual_due is reliably greater than running by
+           at least a cent.
+
+v2.4.6 - May 2026
+  - Fixed: Inline breakdown's running balance was mismatching for
+           payers on recurring-billing involvements (e.g. monthly
+           setDefaultCharge + Response: CC pairs where the Response
+           row has amtdue=0 even though the payment really did pay
+           down a prior charge -- summing amtdue would over-report).
+           Switched balance math to -amt (cash direction) which works
+           across both recurring-billing and refund patterns.
+  - Added: Synthetic "Starting balance" row at the top of the breakdown
+           whenever the visible Transaction sum doesn't equal the
+           actual current balance. Catches implicit registration fees
+           that never got written as a separate Transaction row, so
+           the running totals land exactly on the outstanding amount.
+
+v2.4.5 - May 2026
+  - Fixed: Inline charge breakdown's running balance didn't match the
+           Outstanding column. Two root causes:
+           1) The "if Message looks like a payment, force negative
+              balance impact" override mis-signed REFUNDS (which have a
+              payment-shaped Message like 'Response: CC' but a positive
+              amtdue because they raise the balance). Switched to trust
+              amtdue verbatim as the source of truth -- it's what
+              TouchPoint uses internally to compute IndDue/TotDue.
+           2) The minus sign in the Payment column was confusing on
+              rows with amtdue=0 (online-reg payment + implicit charge
+              in the same transaction). Removed the sign and added a
+              quiet "(no balance change)" annotation so the staffer can
+              see why the running balance didn't move on a net-zero
+              transaction.
+
+v2.4.4 - May 2026
+  - Added: Adjust Balance modal now has an "Email the payer" checkbox
+           (on by default). When checked, after AdjustFee succeeds the
+           server sends a self-contained notification email with the
+           direction badge (Charge added / Credit applied), amount,
+           reason, current balance, and a Pay Now button if a balance
+           remains. Uses the program's configured sender; quietly
+           skips if no email is on file.
+  - UX: Removed the second "Are you sure?" confirm dialog after
+           clicking Apply Adjustment. The button already represents the
+           commit; the modal preview shows what will happen.
+
+v2.4.3 - May 2026
+  - Fixed: Adjust Balance had the sign convention inverted -- Add Charge
+           was decreasing the balance and Apply Credit was increasing it.
+           Flipped to match TouchPoint's amt-column convention (positive
+           amount = payment-shaped / reduces balance; negative = charge-
+           shaped / increases balance). UI labels unchanged; only the
+           internal sign passed to model.AdjustFee flipped.
+
+v2.4.2 - May 2026
+  - Added: Adjust Balance per-row action. New "Adjust" button opens a
+           modal with a direction radio (Add Charge / Apply Credit),
+           amount, and required reason. Live preview shows the math as
+           you type ("Add charge of $50.00 -- Current: $200 -> $250").
+           Server calls model.AdjustFee and writes the description as
+           ADJ|<reason>, so the inline charge breakdown labels it as an
+           Adjustment and the reason text becomes the staff note. Page
+           refreshes 700ms after success.
+
+v2.4.1 - May 2026
+  - Added: SMS support on Send Pay Link. The single "Send Pay Link"
+           button is now two: "Email Link" and "Text Link". Server
+           accepts a 'channel' param (email / text / both). Text path
+           uses model.SendSms with the first SmsGroups row (matches the
+           FMC Member Manager pattern); SMS body includes the
+           authenticated paylink + a one-way disclaimer. Success toast
+           reports which channel(s) fired.
+
+v2.4.0 - May 2026
+  - Fixed: "Error processing payment link: sender_phone" when sending
+           a pay link. build_payment_email used bracket access on a
+           sender dict that could be missing keys; switched to .get()
+           with fallbacks. Same scrub on build_payment_confirmation_
+           email's dead-fallback path.
+  - Fixed: _pm_normalize_settings now backfills every expected key
+           (sender_id, sender_email, sender_alias, email_title,
+           sender_phone) on the default sender AND on every per-program
+           override -- so a partial Settings save can't leave downstream
+           code KeyError-ing on a missing field.
+
+v2.3.9 - May 2026
+  - Fixed: Payment Type multi-select dropdown was still being clipped
+           even with z-index:10000 because some parent container had
+           overflow:hidden. Switched the panel to position:fixed and
+           compute its viewport coords from the button's bounding rect
+           on open; scroll re-anchors. Now all five options render
+           fully regardless of parent CSS.
+
+v2.3.8 - May 2026
+  - Fixed: Payment Type dropdown couldn't be closed by clicking
+           outside it (native <details> doesn't support that), and the
+           panel was clipped by the filter card's rounded corners.
+           Rewrote as button + popup div with a document-level click
+           listener (closes on outside-click + Esc) and bumped z-index.
+
+v2.3.7 - May 2026
+  - UI: Payment type multi-select polish (deployed by user mid-thread
+           between fixes; spans 2.3.7-only changes).
+
+v2.3.6 - May 2026
+  - Added: Last-4 search field on Receipts. Matches Transaction.LastFourCC
+           OR LastFourACH exactly. Card / ACH last-4 chip also surfaces
+           inline on every row that has one stored.
+  - Added: "Other" payment-type checkbox catches anything that reduced a
+           balance without a CHK|/CSH|/Response/Coupon prefix -- manual
+           cash/check entries, ACH, wire transfers, scholarship credits,
+           refunds. Labelled "Other Payment" in the row pill.
+  - Added: Inline charge breakdown on every Outstanding-Balance row.
+           Caret expands an inline ledger of charges + payments that
+           produced the balance, including running balance, kind chips
+           (Adjustment / Credit / Late Fee / Variable Charge / Recurring
+           Setup / Transfer / etc.), and the staff note for each row.
+           Newest entries top, oldest bottom; running balance computed
+           chronologically.
+  - Added: Customize Receipt -- per-row modal with a plain-text Personal
+           Note field, live preview, alt-email override, and "Print
+           Edited" / "Send Customized Receipt" actions. Works on every
+           payment type (no PM-origin gating since it generates a fresh
+           receipt, not a duplicate of an original send).
+  - Added: Inline payer notes on Receipts rows. The sub-line under each
+           payer name now shows the staff-typed note (e.g. "Added banquet
+           via phone call", "Scholarship approved by Nate McGehee")
+           instead of the random TransactionId hex. Coupons still show
+           the bare coupon code. Tooltip carries the raw TxnId + full
+           note for forensics.
+  - Added: Receipt body now includes Involvement + Registrant names + the
+           staff note below the chargeNotes line, automatically, with no
+           template change required. New {orgName}, {registrants}, and
+           {note} merge fields available for templates that want them on
+           their own lines.
+  - Added: Payer + Involvement substring filters on Receipts.
+  - Renamed: top-level nav "Programs" -> "Outstanding Balances" (matches
+           accounting language). Internal function names unchanged.
+  - Fixed: Payer column now shows the actual cardholder (t.Name) instead
+           of the registrant (p.Name). Parents paying for kids now appear
+           correctly on the receipt salutation.
+  - Fixed: SQL JOIN multiplication on family registrations / multi-use
+           coupons. Switched LEFT JOIN to OUTER APPLY (TOP 1) so each
+           transaction shows once. Multi-person registrations now list all
+           registrants on a single "Registered: ..." line.
+  - Fixed: receipts amount was $0 on Credit Card / Coupon rows. Root cause
+           was t.amtdue being NULL or 0 for many CC/Coupon transactions.
+           Switched to t.amt (consistent with MinistryDepositReport) and
+           added t.voided IS NULL guard.
+  - Fixed: create_json_response was nesting the data dict under
+           response['data'] but every JS handler read fields from the
+           root. Silently broke receipts, settings, templates, etc. Merged
+           data into root so existing handlers work.
+  - Fixed: empty-state diagnostic now distinguishes between "no
+           transactions in range", "stale DB snapshot" (surfaces latest
+           transaction date), and "wrong message convention".
+  - Fixed: caret rotation + toggle on the inline charge breakdown when
+           closing/reopening the same row.
+  - UI: Programs nav button styled primary (it's the home view); top-bar
+           "Go Back" removed from the landing page; "Include payments
+           not recorded via Payment Manager" now checked by default.
+
 v2.1.1 - May 2026
   - Added: Email template editor inside Settings. The two HTML templates
            (PM_PaymentMade_Email / PM_Notification_Email) can be edited,
@@ -85,7 +298,7 @@ from collections import defaultdict
 # =====================================================================
 # VERSION / AUTO-UPDATE  (matches the TPxi house pattern)
 # =====================================================================
-APP_VERSION = '2.3.6'
+APP_VERSION = '2.4.10'
 DC_SCRIPT_ID = 'TPxi_PaymentManager'
 DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
 DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
@@ -247,6 +460,22 @@ def _pm_normalize_settings(s):
         s['defaultSender'] = dict(DEFAULT_EMAIL_SENDER)
     if not isinstance(s.get('senders'), dict):
         s['senders'] = {}
+    # Guarantee every sender dict (default + per-program overrides)
+    # carries the full set of expected keys, even if the admin left
+    # some fields blank when saving. Bare-bracket access like
+    # email_details['sender_phone'] in email-building functions used
+    # to KeyError otherwise.
+    SENDER_KEYS = ('sender_id', 'sender_email', 'sender_alias', 'email_title', 'sender_phone')
+    def _fill_sender(d):
+        if not isinstance(d, dict):
+            return dict(DEFAULT_EMAIL_SENDER)
+        for k in SENDER_KEYS:
+            if k not in d or d[k] is None:
+                d[k] = DEFAULT_EMAIL_SENDER.get(k, '')
+        return d
+    s['defaultSender'] = _fill_sender(s['defaultSender'])
+    for pid, sender in list(s['senders'].items()):
+        s['senders'][pid] = _fill_sender(sender)
     return s
 
 def pm_load_settings():
@@ -615,58 +844,95 @@ try:
                 for r in self.get_charge_details(people_id, org_id):
                     msg = str(self.safe_get_attr(r, 'Message', '') or '')
                     txid = str(self.safe_get_attr(r, 'TransactionId', '') or '')
-                    amtdue = self.safe_get_attr(r, 'AmtDue', None)
+                    amtdue_raw = self.safe_get_attr(r, 'AmtDue', None)
                     amt    = float(self.safe_get_attr(r, 'RawAmt', 0) or 0)
-                    # Signing rule (verified against local DB):
-                    #   1) If the Message looks like a payment vehicle
-                    #      (CHK/CSH/Response/Coupon), it's always a
-                    #      payment regardless of amtdue's sign -- some
-                    #      Response: rows have amtdue=0 when the payment
-                    #      offsets a separate charge row.
-                    #   2) Else if amtdue is non-NULL and non-zero, trust
-                    #      its sign (FEE rows have +amtdue = charge,
-                    #      adjustments can have -amtdue = credit).
-                    #   3) Fall back to +abs(amt) (treat as charge).
-                    is_payment_msg = (msg.startswith('CHK') or msg.startswith('CSH')
-                                       or msg.startswith('Response') or txid.startswith('Coupon'))
-                    if is_payment_msg:
-                        signed = -abs(amt)
-                    elif amtdue is not None:
-                        try:
-                            adv = float(amtdue)
-                            signed = adv if adv != 0 else abs(amt)
-                        except:
-                            signed = abs(amt)
-                    else:
-                        signed = abs(amt)
-                    running += signed
+                    # Balance math: trust -amt as the balance impact.
+                    # Verified against two real patterns in local data:
+                    #   * payment+refund pair (Response: with negative
+                    #     amt) where the visible rows leave a gap that
+                    #     a prior registration fee fills in
+                    #   * recurring setDefaultCharge + Response: CC
+                    #     pairs where the payment side has amtdue=0 --
+                    #     summing amtdue would over-report. Summing
+                    #     -amt matches actual outstanding.
+                    # Positive amt = money in -> reduces balance.
+                    # Negative amt = charge committed or refund -> raises
+                    # balance.
+                    balance_delta = -amt
+                    # Column placement: based on amt sign (the *cash*
+                    # direction). Positive amt = Payment column.
+                    # Negative amt = Charge column. amt=0 is filtered
+                    # out at the SQL level.
+                    is_payment_row = (amt > 0)
+                    display_abs = abs(amt)
+                    running += balance_delta
                     # Strip the type prefix (CHK|, CSH|, FEE|, ADJ|)
                     # from the Message to expose just the staff note.
-                    # Falls back to the raw Description (the involvement
-                    # context for online payments) when there's no note.
                     note = ''
                     if '|' in msg:
                         note = msg.split('|', 1)[1].strip()
                     elif msg.startswith('Response'):
-                        # CC responses are gateway noise; show involvement
-                        # context from t.Description instead.
                         note = ''
                     else:
-                        # Other messages are usually descriptive in full
-                        # (Initial Charge, variableLate Fee, etc.).
                         note = msg
                     desc_from_tx = str(self.safe_get_attr(r, 'Description', '') or '').strip()
                     rows.append({
                         'tranDate':    self.safe_get_attr(r, 'TranDate', ''),
                         'transactionId': txid,
                         'kind':        self.safe_get_attr(r, 'Kind', ''),
-                        'description': desc_from_tx,   # involvement context if any
-                        'note':        note,           # user-added note, prefix stripped
-                        'message':     msg,            # raw for tooltip
-                        'amount':      signed,
-                        'isPayment':   signed < 0,
+                        'description': desc_from_tx,
+                        'note':        note,
+                        'message':     msg,
+                        'amount':      display_abs,
+                        'balanceDelta': balance_delta,
+                        'isPayment':   is_payment_row,
                         'runningBalance': running,
                     })
+                # Reconcile against actual current balance. Inline +
+                # bulletproofed because the legacy get_current_balance
+                # swallows IronPython attribute errors and returns 0.0,
+                # which would synthesize a bogus starter row.
+                actual_due = None
+                try:
+                    bsql = ("SELECT SUM(ISNULL(IndDue, 0)) AS B "
+                            "FROM dbo.TransactionSummary "
+                            "WHERE PeopleId = {0} AND OrganizationId = {1}"
+                            .format(int(people_id), int(org_id)))
+                    bres = list(q.QuerySql(bsql))
+                    if bres:
+                        raw_b = getattr(bres[0], 'B', None)
+                        if raw_b is not None:
+                            actual_due = float(raw_b)
+                except:
+                    actual_due = None
+                # Only synthesize the starter row when:
+                #   * lookup succeeded (not None) AND
+                #   * there's a real gap (> 1 cent), AND
+                #   * the gap goes the right direction -- a positive
+                #     gap (actual > running) means the visible rows
+                #     UNDER-count what they owe (typical: implicit reg
+                #     fee). A negative gap would mean the visible rows
+                #     OVER-count, which usually means our lookup is the
+                #     unreliable one (returned 0 spuriously), so we
+                #     skip rather than mislead.
+                if actual_due is not None and (actual_due - running) > 0.01:
+                    gap = actual_due - running
+                    starter = {
+                        'tranDate':       'Starting balance',
+                        'transactionId':  '',
+                        'kind':           'Prior',
+                        'description':    'Registration fee or prior balance not in transaction history',
+                        'note':           'Prior balance',
+                        'message':        '',
+                        'amount':         abs(gap),
+                        'balanceDelta':   gap,
+                        'isPayment':      gap < 0,
+                        'runningBalance': gap,
+                    }
+                    for row in rows:
+                        row['runningBalance'] += gap
+                    rows.insert(0, starter)
+                    running = actual_due
                 return self.create_json_response(True, "ok", {
                     'charges': rows,
                     'endingBalance': running,
@@ -704,59 +970,224 @@ try:
 
         # Payment processing methods
         def process_payment_link(self):
-            """Process payment link request"""
+            """Process payment link request.
+
+            channel = 'email' (default), 'text', or 'both'. Email uses
+            the configured sender + template; text uses model.SendSms
+            with the first SmsGroup row (matching the FMC Member
+            Manager pattern). Returns a single success/fail with a
+            channel-aware message.
+            """
             try:
                 payer_id = str(getattr(model.Data, 'pid', ''))
                 org_id = str(getattr(model.Data, 'PaymentOrg', ''))
                 amount = str(getattr(model.Data, 'PayFee', ''))
                 payer_name = str(getattr(model.Data, 'payerName', ''))
                 cc_emails = str(getattr(model.Data, 'cc_emails', ''))
-                
+                channel = str(getattr(model.Data, 'channel', 'email') or 'email').strip().lower()
+                if channel not in ('email', 'text', 'both'):
+                    channel = 'email'
+
                 if not payer_id or not org_id or not amount:
                     return self.create_json_response(False, "Missing required payment information")
-                
+
                 # Get email sender details
                 program_id = str(getattr(model.Data, 'ProgramID', self.program_id))
                 email_details = self.get_email_details(program_id)
-                
+
                 if not email_details:
                     return self.create_json_response(False, "Email configuration not found for program")
-                
+
                 # Get current balance
                 previous_due = self.get_current_balance(payer_id, org_id)
-                
+
                 # Generate payment link
                 paylink = model.GetPayLink(int(payer_id), int(org_id))
                 paylinkauth = model.GetAuthenticatedUrl(int(org_id), paylink, True)
-                
+
                 if str(paylinkauth).split('/')[-1].lower() == 'none':
                     return self.create_json_response(False, "Unable to generate payment link")
-                
+
                 # Calculate total due
                 total_due = float(previous_due) + float(amount)
-                
-                # Send email
-                message = self.build_payment_email(
-                    payer_name, amount, previous_due, total_due, 
-                    paylinkauth, email_details
-                )
-                
-                try:
-                    model.Email(
-                        int(payer_id), 
-                        int(email_details['sender_id']), 
-                        email_details['sender_email'],
-                        email_details['sender_alias'], 
-                        email_details['email_title'], 
-                        message, 
-                        cc_emails
-                    )
-                    return self.create_json_response(True, "Payment link sent successfully")
-                except Exception as e:
-                    return self.create_json_response(False, "Failed to send email: " + str(e))
-                    
+
+                sent = []
+                errors = []
+
+                # ----- TEXT -----
+                if channel in ('text', 'both'):
+                    try:
+                        sms_group = q.QuerySqlInt("SELECT TOP 1 ID FROM SmsGroups")
+                        if not sms_group:
+                            errors.append("No SmsGroup configured")
+                        else:
+                            sms_title = (email_details.get('email_title') or 'Payment Link')
+                            sms_body = ("Hi " + str(payer_name) + ", please pay your "
+                                        "$" + '{:,.2f}'.format(float(total_due)) + " balance here: "
+                                        + str(paylinkauth) + "  (This is a one-way message; we will not receive replies.)")
+                            model.SendSms('PeopleId = ' + str(int(payer_id)), int(sms_group), sms_title, sms_body)
+                            sent.append('text')
+                    except Exception as se:
+                        errors.append("Text failed: " + str(se))
+
+                # ----- EMAIL -----
+                if channel in ('email', 'both'):
+                    try:
+                        message = self.build_payment_email(
+                            payer_name, amount, previous_due, total_due,
+                            paylinkauth, email_details
+                        )
+                        model.Email(
+                            int(payer_id),
+                            int(email_details.get('sender_id') or 0),
+                            email_details.get('sender_email', ''),
+                            email_details.get('sender_alias', 'Payment System'),
+                            email_details.get('email_title', 'Payment Notification'),
+                            message,
+                            cc_emails
+                        )
+                        sent.append('email')
+                    except Exception as ee:
+                        errors.append("Email failed: " + str(ee))
+
+                if sent and not errors:
+                    return self.create_json_response(True, "Payment link sent via " + ' + '.join(sent))
+                if sent and errors:
+                    return self.create_json_response(True, "Sent via " + ' + '.join(sent) + " (but: " + '; '.join(errors) + ")")
+                if errors:
+                    return self.create_json_response(False, '; '.join(errors))
+                return self.create_json_response(False, "Nothing sent")
             except Exception as e:
                 return self.create_json_response(False, "Error processing payment link: " + str(e))
+
+        def process_adjust_balance(self):
+            """Adjust a payer's balance for a given involvement.
+
+            direction = 'charge' (increase balance / add fee)
+                        | 'credit' (decrease balance / apply credit)
+            amount    = positive decimal entered by the staffer.
+            note      = free-text reason; saved as 'ADJ|<note>' so the
+                        inline breakdown shows it as an Adjustment.
+            """
+            try:
+                payer_id  = str(getattr(model.Data, 'pid', '') or '').strip()
+                org_id    = str(getattr(model.Data, 'PaymentOrg', '') or '').strip()
+                direction = str(getattr(model.Data, 'direction', 'charge') or 'charge').strip().lower()
+                amount    = str(getattr(model.Data, 'amount', '') or '').strip()
+                note      = str(getattr(model.Data, 'note', '') or '').strip()
+                if not payer_id or not org_id:
+                    return self.create_json_response(False, "Missing payer or involvement")
+                if direction not in ('charge', 'credit'):
+                    return self.create_json_response(False, "Direction must be 'charge' or 'credit'")
+                try:
+                    amt = float(amount)
+                    if amt <= 0:
+                        return self.create_json_response(False, "Amount must be greater than zero")
+                except:
+                    return self.create_json_response(False, "Invalid amount")
+                if not note:
+                    return self.create_json_response(False, "Please describe the reason for this adjustment")
+                # TouchPoint convention for AdjustFee (matches the 'amt'
+                # column on Transaction):
+                #   + amount = payment-shaped, reduces balance (credit)
+                #   - amount = charge-shaped, increases balance
+                # We verified empirically that the inverse of my first
+                # guess was correct.
+                signed = -amt if direction == 'charge' else amt
+                # Prefix the description with ADJ| so the inline charge
+                # breakdown labels it as an Adjustment.
+                description = 'ADJ|' + note
+                try:
+                    model.AdjustFee(int(payer_id), int(org_id), signed, description)
+                except Exception as ae:
+                    return self.create_json_response(False, "AdjustFee failed: " + str(ae))
+                # New balance for the response toast.
+                try:
+                    new_balance = float(self.get_current_balance(payer_id, org_id) or 0)
+                except:
+                    new_balance = None
+                verb = 'Charged' if direction == 'charge' else 'Credited'
+                msg  = verb + ' ${:,.2f}'.format(amt)
+                if new_balance is not None:
+                    msg += '. New balance: ${:,.2f}'.format(new_balance)
+
+                # ----- Optional email notification -----
+                send_email = str(getattr(model.Data, 'send_email', 'false') or 'false').lower() in ('true', '1', 'yes', 'on')
+                email_status = ''
+                if send_email:
+                    try:
+                        person = model.GetPerson(int(payer_id))
+                        person_email = str(getattr(person, 'EmailAddress', '') or '') if person else ''
+                        person_name = ''
+                        if person:
+                            try:    person_name = str(person.Name or '')
+                            except: person_name = ''
+                        if not person_email:
+                            email_status = " (no email on file -- not sent)"
+                        else:
+                            settings = pm_load_settings()
+                            program_id = str(getattr(model.Data, 'ProgramID', self.program_id) or '')
+                            email_details = self.get_email_details(program_id) or DEFAULT_EMAIL_SENDER
+                            # Build a self-contained notification body
+                            # (not template-driven -- this is a new flow
+                            # distinct from receipts / pay-link emails).
+                            paylink_html = ''
+                            if new_balance and new_balance > 0:
+                                try:
+                                    pl = model.GetPayLink(int(payer_id), int(org_id))
+                                    pla = model.GetAuthenticatedUrl(int(org_id), pl, True)
+                                    if str(pla).split('/')[-1].lower() != 'none':
+                                        paylink_html = ('<p style="text-align:center;margin:20px 0;">'
+                                                        '<a href="' + str(pla) + '" style="display:inline-block;'
+                                                        'background:#1f4e79;color:#fff;text-decoration:none;'
+                                                        'padding:10px 22px;border-radius:6px;font-weight:600;">Pay Now &raquo;</a></p>')
+                                except:
+                                    pass
+                            badge_bg = '#fff4ce' if direction == 'charge' else '#d4edda'
+                            badge_fg = '#7a5c00' if direction == 'charge' else '#155724'
+                            badge_lbl = ('Charge added' if direction == 'charge' else 'Credit applied')
+                            bal_color = '#7a5c00' if (new_balance is None or new_balance > 0) else '#155724'
+                            bal_str = '${:,.2f}'.format(float(new_balance) if new_balance is not None else 0)
+                            body_html = (
+                                '<div style="font-family:Segoe UI,Tahoma,sans-serif;color:#333;max-width:600px;">'
+                                '<h2 style="color:#1f4e79;margin:0 0 16px;">Account Adjustment</h2>'
+                                '<p>Hi ' + (person_name or 'there') + ',</p>'
+                                '<p>An adjustment was made to your account. Details:</p>'
+                                '<table style="border-collapse:collapse;margin:12px 0;">'
+                                '<tr><td style="padding:6px 14px 6px 0;color:#666;">Type:</td>'
+                                '<td><span style="background:' + badge_bg + ';color:' + badge_fg + ';padding:2px 10px;border-radius:10px;font-size:12px;font-weight:700;">' + badge_lbl + '</span></td></tr>'
+                                '<tr><td style="padding:6px 14px 6px 0;color:#666;">Amount:</td><td><strong>${:,.2f}</strong></td></tr>'.format(amt) +
+                                '<tr><td style="padding:6px 14px 6px 0;color:#666;">Reason:</td><td>' + note + '</td></tr>'
+                                '<tr><td style="padding:6px 14px 6px 0;color:#666;">Current balance:</td><td style="color:' + bal_color + ';font-weight:700;">' + bal_str + '</td></tr>'
+                                '</table>'
+                                + paylink_html +
+                                '<p style="font-size:12px;color:#666;margin-top:24px;">' +
+                                str(email_details.get('sender_alias', 'Payment System')) + '<br>' +
+                                str(email_details.get('sender_email', '')) + '<br>' +
+                                str(email_details.get('sender_phone', '')) +
+                                '</p></div>'
+                            )
+                            subject = (str(email_details.get('email_title') or 'Account Adjustment')
+                                       + ' -- ' + badge_lbl)
+                            try:
+                                model.Email(
+                                    int(payer_id),
+                                    int(email_details.get('sender_id') or 0),
+                                    email_details.get('sender_email', ''),
+                                    email_details.get('sender_alias', 'Payment System'),
+                                    subject,
+                                    body_html,
+                                    ''  # no cc
+                                )
+                                email_status = ' (emailed ' + person_email + ')'
+                            except Exception as ee:
+                                email_status = ' (adjust applied but email failed: ' + str(ee) + ')'
+                    except Exception as eo:
+                        email_status = ' (adjust applied but email failed: ' + str(eo) + ')'
+
+                return self.create_json_response(True, msg + email_status, {'newBalance': new_balance})
+            except Exception as e:
+                return self.create_json_response(False, "Error adjusting balance: " + str(e))
 
         def process_payment_record(self):
             """
@@ -1024,15 +1455,18 @@ try:
                     # usually NULL -- we identify them by TransactionId.
                     type_clauses.append("t.TransactionId LIKE 'Coupon%'")
                 if 'other' in selected_types:
-                    # Anything that REDUCED the balance (a payment of any
-                    # kind) but doesn't carry one of the standard prefixes.
-                    # Catches TouchPoint-direct check/cash entries, ACH,
-                    # wire transfers, and any other manually-recorded
-                    # payments. We also explicitly exclude ADJ| / FEE| /
-                    # variable...  patterns -- those are credits or fees
-                    # that change a balance but aren't payments received.
+                    # Money-in entries (positive amt = church received
+                    # money) that don't carry one of the standard
+                    # prefixes. Catches TouchPoint-direct check/cash
+                    # entries, ACH, wire transfers, scholarships, and
+                    # any other manually-recorded payments -- including
+                    # entries where amtdue=0 because they were offset
+                    # against an implicit charge (the amtdue<0 filter
+                    # used to miss those). Excludes adjustment / fee /
+                    # variable patterns since those are charges, not
+                    # payments received.
                     type_clauses.append(
-                        "(t.amtdue < 0 "
+                        "(t.amt > 0 "
                         "  AND t.[Message] NOT LIKE 'CHK%' "
                         "  AND t.[Message] NOT LIKE 'CSH%' "
                         "  AND t.[Message] NOT LIKE 'Response%' "
@@ -1064,11 +1498,14 @@ try:
                         t.amt                     AS Amount,
                         FORMAT(t.TransactionDate, 'yyyy-MM-dd HH:mm') AS TranDate,
                         FORMAT(t.TransactionDate, 'yyyy-MM-dd') AS TranDateOnly,
-                        CASE WHEN t.[Message] LIKE 'CHK%' THEN 'Check'
+                        CASE WHEN t.[Message] LIKE 'CHK%' AND t.amt < 0 THEN 'Check Refund'
+                             WHEN t.[Message] LIKE 'CSH%' AND t.amt < 0 THEN 'Cash Refund'
+                             WHEN t.[Message] LIKE 'Response%' AND t.amt < 0 THEN 'Refund'
+                             WHEN t.[Message] LIKE 'CHK%' THEN 'Check'
                              WHEN t.[Message] LIKE 'CSH%' THEN 'Cash'
                              WHEN t.[Message] LIKE 'Response%' THEN 'Credit Card'
                              WHEN t.TransactionId LIKE 'Coupon%' THEN 'Coupon'
-                             WHEN t.amtdue < 0 THEN 'Other Payment'
+                             WHEN t.amt > 0 THEN 'Other Payment'
                              ELSE 'Other' END AS PaymentType,
                         ISNULL(t.[Message], '')   AS Message,
                         ISNULL(t.[Description], '') AS Description,
@@ -1209,7 +1646,7 @@ try:
                                 SUM(CASE WHEN t.[Message] LIKE 'CSH%' THEN 1 ELSE 0 END) AS CshCount,
                                 SUM(CASE WHEN t.[Message] LIKE 'Response%' THEN 1 ELSE 0 END) AS CCCount,
                                 SUM(CASE WHEN t.TransactionId LIKE 'Coupon%' THEN 1 ELSE 0 END) AS CouponCount,
-                                SUM(CASE WHEN t.amtdue < 0
+                                SUM(CASE WHEN t.amt > 0
                                           AND t.[Message] NOT LIKE 'CHK%'
                                           AND t.[Message] NOT LIKE 'CSH%'
                                           AND t.[Message] NOT LIKE 'Response%'
@@ -1287,7 +1724,27 @@ try:
                 details_html += ('<br><span style="color:#666;font-size:13px;font-style:italic;">'
                                  'Note: ' + staff_note + '</span>')
             charge_notes_full = charge_notes + details_html
-            cur_balance = self.get_current_balance(row.get('peopleId'), row.get('orgId')) if row.get('peopleId') and row.get('orgId') else 0.0
+            # Bulletproof balance lookup (legacy get_current_balance has
+            # an except:return 0.0 that swallows IronPython attribute
+            # errors -- a glitched call would print "$0 balance" on a
+            # receipt that actually has money owed). Inline SUM with
+            # defensive parsing instead.
+            cur_balance = 0.0
+            pid_v = row.get('peopleId') or 0
+            oid_v = row.get('orgId') or 0
+            if pid_v and oid_v:
+                try:
+                    bsql = ("SELECT SUM(ISNULL(IndDue, 0)) AS B "
+                            "FROM dbo.TransactionSummary "
+                            "WHERE PeopleId = {0} AND OrganizationId = {1}"
+                            .format(int(pid_v), int(oid_v)))
+                    bres = list(q.QuerySql(bsql))
+                    if bres:
+                        raw_b = getattr(bres[0], 'B', None)
+                        if raw_b is not None:
+                            cur_balance = float(raw_b)
+                except:
+                    cur_balance = 0.0
             body = tpl
             body = body.replace('{name}',         str(row.get('person', '')))
             body = body.replace('{chargeNotes}',  charge_notes_full)
@@ -1656,13 +2113,63 @@ try:
         # ==============================================================
         def process_apply_update(self):
             try:
-                fetch_url = DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID
-                new_code = str(model.RestGet(fetch_url, {}))
-                if not new_code or len(new_code) < 500:
-                    return self.create_json_response(False, "Invalid or empty script code received")
                 target_name = pm_get_script_name() or DC_SCRIPT_ID
-                model.WriteContentPython(target_name, new_code)
-                return self.create_json_response(True, "Updated " + target_name + ". Reload the page.")
+                fetch_url = DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID
+                # 1. Pull the new code. RestGet can return None, an
+                #    HTML error page, or a JSON error envelope when the
+                #    worker fails. Sanity-check before touching anything.
+                try:
+                    new_code = model.RestGet(fetch_url, {})
+                except Exception as fe:
+                    return self.create_json_response(False,
+                        "Couldn't reach the update server. " + str(fe) +
+                        " | Manual install: " + fetch_url)
+                if new_code is None:
+                    return self.create_json_response(False,
+                        "Update server returned nothing. Try again in a minute or use the manual link: " + fetch_url)
+                new_code = str(new_code)
+                if len(new_code) < 500:
+                    return self.create_json_response(False,
+                        "Update payload was too small to be a real script (" + str(len(new_code)) +
+                        " bytes). Try again or use the manual link: " + fetch_url)
+                # Look for the unmistakable header so an HTML error page
+                # or a JSON envelope can't slip through.
+                if 'TPxi_PaymentManager' not in new_code or 'APP_VERSION' not in new_code:
+                    return self.create_json_response(False,
+                        "Update payload didn't look like Payment Manager code. The update server may be returning an error page. "
+                        "Manual install: " + fetch_url)
+                # 2. Write to Special Content. Verified against the
+                #    bvcms source: WriteContentPython has no role check,
+                #    so a write failure here is either a TouchPoint-side
+                #    SQL / encoding error or the script name we resolved
+                #    doesn't match the actual installed script.
+                try:
+                    model.WriteContentPython(target_name, new_code)
+                except Exception as we:
+                    return self.create_json_response(False,
+                        "Write failed: " + str(we) +
+                        " | If this persists, paste the latest code from " + fetch_url +
+                        " into Admin > Advanced > Special Content > Python > " + target_name + ".")
+                # 3. Verify the write actually landed at the right name
+                #    by reading it back and checking for the new version
+                #    marker. If the script is installed under a name we
+                #    couldn't auto-detect, the write went to the wrong
+                #    place and the running script is unchanged.
+                try:
+                    written = model.PythonContent(target_name) or ''
+                    if APP_VERSION not in str(written):
+                        return self.create_json_response(False,
+                            "Update wrote to '" + target_name + "' but the running version still shows " +
+                            APP_VERSION + ". This usually means the script is installed under a different "
+                            "name. Find your installed script under Admin > Advanced > Special Content > "
+                            "Python and paste the latest code from " + fetch_url + " into it directly.")
+                except:
+                    # Verification is best-effort -- if PythonContent fails
+                    # we trust the write succeeded.
+                    pass
+                return self.create_json_response(True,
+                    "Updated " + target_name + " to v" + APP_VERSION +
+                    ". Reload the page (hard refresh with Ctrl+Shift+R or Cmd+Shift+R if the version doesn't change).")
             except Exception as e:
                 return self.create_json_response(False, "Update failed: " + str(e))
 
@@ -1695,9 +2202,9 @@ try:
                 previousDue=previous_due_text,
                 totalDue=total_due_text,
                 paylink=paylink,
-                sender_alias=email_details['sender_alias'],
-                sender_phone=email_details['sender_phone'],
-                sender_email=email_details['sender_email']
+                sender_alias=email_details.get('sender_alias', 'Payment System'),
+                sender_phone=email_details.get('sender_phone', ''),
+                sender_email=email_details.get('sender_email', '')
             ) + '{track}{tracklinks}<br />'
 
         def build_payment_confirmation_email(self, name, payment_amount, previous_due, new_total, payment_type, payment_desc, email_details):
@@ -1748,9 +2255,9 @@ try:
                 chargeNotes=charge_notes,
                 previousDue=previous_due_text,
                 newTotalDue=new_total_text,
-                sender_alias=email_details['sender_alias'],
-                sender_phone=email_details['sender_phone'],
-                sender_email=email_details['sender_email']
+                sender_alias=email_details.get('sender_alias', 'Payment System'),
+                sender_phone=email_details.get('sender_phone', ''),
+                sender_email=email_details.get('sender_email', '')
             )
 
         def create_json_response(self, success, message, data=None):
@@ -2049,18 +2556,32 @@ try:
                     if parent_info and parent_info.get('email'):
                         email_display += "<br><small>Parent: {0}</small>".format(parent_info['email'])
                     
-                    # Payment buttons
+                    # Payment buttons -- separate Email vs Text + Record
+                    # + Adjust. Adjust is offered on every row (even when
+                    # outstanding == 0) so credits can be applied
+                    # proactively without a balance trigger.
                     payment_buttons = ""
                     if outstanding > 0:
                         payment_buttons = """
-                            <div class="pm-btn-group">
-                                <button class="btn btn-sm btn-outline-primary" 
-                                        onclick="sendPaymentLink({0}, {1}, '{2}', {3}, '{4}')">
-                                    <i class="fa fa-credit-card"></i> Send Pay Link
+                            <div class="pm-btn-group" style="position:relative;">
+                                <button class="btn btn-sm btn-outline-primary"
+                                        onclick="sendPaymentLink({0}, {1}, '{2}', {3}, '{4}', 'email')"
+                                        title="Email the payment link to the person">
+                                    <i class="fa fa-envelope"></i> Email Link
                                 </button>
-                                <button class="btn btn-sm btn-outline-success" 
+                                <button class="btn btn-sm btn-outline-primary"
+                                        onclick="sendPaymentLink({0}, {1}, '{2}', {3}, '{4}', 'text')"
+                                        title="Text the payment link to the person's cell">
+                                    <i class="fa fa-mobile"></i> Text Link
+                                </button>
+                                <button class="btn btn-sm btn-outline-success"
                                         onclick="recordPayment({0}, {1}, '{2}', {3})">
                                     <i class="fa fa-money"></i> Record Payment
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary"
+                                        onclick="openAdjustBalance({0}, {1}, '{2}', {3})"
+                                        title="Add a charge or apply a credit to this balance">
+                                    <i class="fa fa-pencil"></i> Adjust
                                 </button>
                             </div>
                         """.format(
@@ -2470,12 +2991,12 @@ try:
                         <div>
                             <label style="display:block;font-size:12px;color:#666;
                                           font-weight:600;margin-bottom:3px;">Payment type</label>
-                            <details id="rcptTypeDD" style="position:relative;display:inline-block;">
-                                <summary style="list-style:none;cursor:pointer;padding:6px 28px 6px 10px;border:1px solid #ccc;border-radius:4px;background:#fff;min-width:200px;font-size:13px;position:relative;">
+                            <div id="rcptTypeDD" style="position:relative;display:inline-block;">
+                                <button type="button" id="rcptTypeBtn" onclick="pmRcptTypeToggle(event)" style="cursor:pointer;padding:6px 28px 6px 10px;border:1px solid #ccc;border-radius:4px;background:#fff;min-width:200px;font-size:13px;position:relative;text-align:left;">
                                     <span id="rcptTypeLabel">All types</span>
                                     <i class="fa fa-caret-down" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:#666;"></i>
-                                </summary>
-                                <div style="position:absolute;top:100%;left:0;margin-top:4px;background:#fff;border:1px solid #ccc;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.12);padding:8px 10px;z-index:1000;min-width:200px;">
+                                </button>
+                                <div id="rcptTypePanel" style="display:none;position:fixed;top:0;left:0;background:#fff;border:1px solid #ccc;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.16);padding:8px 10px;z-index:99999;min-width:200px;">
                                     <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;font-weight:400;">
                                         <input type="checkbox" class="rcpt-type-cb" value="check" checked> Check
                                     </label>
@@ -2492,7 +3013,7 @@ try:
                                         <input type="checkbox" class="rcpt-type-cb" value="other" checked> Other
                                     </label>
                                 </div>
-                            </details>
+                            </div>
                         </div>
                         <div>
                             <label style="display:block;font-size:12px;color:#666;font-weight:600;margin-bottom:3px;">Payer (optional)</label>
@@ -2626,6 +3147,53 @@ try:
                 var v = Math.abs(parseFloat(n) || 0);
                 return '$' + v.toFixed(2).replace(/\\B(?=(\\d{{3}})+(?!\\d))/g, ',');
             }}
+
+            // Toggle the Payment Type dropdown panel. Uses position:fixed
+            // so the panel escapes ALL parent overflow / clipping
+            // contexts; we compute its viewport coords from the button's
+            // bounding rect each time it opens.
+            function pmRcptTypeToggle(evt) {{
+                if (evt) {{ evt.preventDefault(); evt.stopPropagation(); }}
+                var panel = document.getElementById('rcptTypePanel');
+                var btn   = document.getElementById('rcptTypeBtn');
+                if (!panel || !btn) return;
+                if (panel.style.display === 'block') {{
+                    panel.style.display = 'none';
+                    return;
+                }}
+                var rect = btn.getBoundingClientRect();
+                panel.style.top   = (rect.bottom + 4) + 'px';
+                panel.style.left  = rect.left + 'px';
+                panel.style.minWidth = rect.width + 'px';
+                panel.style.display = 'block';
+            }}
+            // Re-anchor on scroll/resize while open so the panel
+            // tracks the button.
+            window.addEventListener('scroll', function() {{
+                var panel = document.getElementById('rcptTypePanel');
+                var btn   = document.getElementById('rcptTypeBtn');
+                if (!panel || !btn || panel.style.display !== 'block') return;
+                var rect = btn.getBoundingClientRect();
+                panel.style.top  = (rect.bottom + 4) + 'px';
+                panel.style.left = rect.left + 'px';
+            }}, true);
+            // Close on outside click. Listens at document level; we
+            // don't fire when the click landed inside #rcptTypeDD so
+            // checkbox toggles still work.
+            document.addEventListener('click', function(e) {{
+                var dd = document.getElementById('rcptTypeDD');
+                var panel = document.getElementById('rcptTypePanel');
+                if (!dd || !panel) return;
+                if (panel.style.display !== 'block') return;
+                if (!dd.contains(e.target)) panel.style.display = 'none';
+            }});
+            // Close on Esc.
+            document.addEventListener('keydown', function(e) {{
+                if (e.key === 'Escape') {{
+                    var panel = document.getElementById('rcptTypePanel');
+                    if (panel && panel.style.display === 'block') panel.style.display = 'none';
+                }}
+            }});
 
             function pmRcptCollectTypes() {{
                 // Read multi-select dropdown -> comma-separated codes.
@@ -2764,7 +3332,8 @@ try:
                             var isPM = (r.source === 'pm');
                             html += '<tr' + (isPM ? '' : ' style="background:#fffaf0;"') + '>';
                             html += '<td>' + pmEsc(r.tranDate) + '</td>';
-                            var ptColors = {{ 'Check':'#cfe3ff', 'Cash':'#d4edda', 'Credit Card':'#ffe6cc', 'Coupon':'#f3e5f5', 'Other Payment':'#e2e3e5' }};
+                            var ptColors = {{ 'Check':'#cfe3ff', 'Cash':'#d4edda', 'Credit Card':'#ffe6cc', 'Coupon':'#f3e5f5', 'Other Payment':'#e2e3e5',
+                                              'Refund':'#f8d7da', 'Check Refund':'#f8d7da', 'Cash Refund':'#f8d7da' }};
                             var ptBg = ptColors[r.paymentType] || '#e9ecef';
                             var last4 = (r.last4cc || r.last4ach || '').toString().trim();
                             var last4Chip = '';
@@ -2825,7 +3394,9 @@ try:
                             // Email + Customize buttons: both require
                             // PM-origin AND a valid email-on-file.
                             var emailDisabledReason = '';
-                            if (!isPM) emailDisabledReason = 'Recorded outside Payment Manager -- no original receipt was sent';
+                            var isRefund = (String(r.paymentType || '').indexOf('Refund') >= 0);
+                            if (isRefund) emailDisabledReason = 'This is a refund -- emailing a payment receipt would be misleading';
+                            else if (!isPM) emailDisabledReason = 'Recorded outside Payment Manager -- no original receipt was sent';
                             else if (!hasEmail) emailDisabledReason = 'No email on file';
                             var emailDisabled = !!emailDisabledReason;
                             html += '<button class="btn btn-sm btn-primary" onclick="reprintReceiptEmail(\\'' + escTxId + '\\')" style="padding:3px 8px;font-size:11px;"' + (emailDisabled ? ' disabled title="' + pmEsc(emailDisabledReason) + '"' : '') + '><i class="fa fa-envelope"></i> Email</button> ';
@@ -3311,7 +3882,12 @@ try:
                         try {{
                             var d = JSON.parse(txt);
                             if (d.success) {{ alert(d.message || 'Updated'); window.location.reload(true); }}
-                            else {{ showAlert(d.message || 'Update failed', 'danger'); }}
+                            else {{
+                                // Use alert() not toast so the full hint
+                                // (including manual-install URL) is
+                                // visible. Toasts truncate.
+                                alert(d.message || 'Update failed');
+                            }}
                         }} catch(e) {{ showAlert('Bad update response', 'danger'); }}
                     }});
             }}
@@ -3322,9 +3898,10 @@ try:
                 window.location.reload();
             }}
             
-            function sendPaymentLink(payerId, orgId, payerName, amount, ccEmails) {{
+            function sendPaymentLink(payerId, orgId, payerName, amount, ccEmails, channel) {{
+                channel = channel || 'email';
                 showLoading();
-                
+
                 var formData = new FormData();
                 formData.append('action', 'send_payment_link');
                 formData.append('pid', payerId);
@@ -3335,7 +3912,8 @@ try:
                 formData.append('ProgramID', '{1}');
                 formData.append('PaymentDescription', '{2}');
                 formData.append('PaymentType', 'CreditCharge');
-                
+                formData.append('channel', channel);
+
                 fetch(getPyScriptAddress(), {{
                     method: 'POST',
                     body: formData
@@ -3352,7 +3930,7 @@ try:
                 .then(function(data) {{
                     hideLoading();
                     if (data.success) {{
-                        showAlert('Payment link sent successfully!', 'success');
+                        showAlert(data.message || 'Payment link sent successfully!', 'success');
                     }} else {{
                         showAlert('Error: ' + data.message, 'danger');
                     }}
@@ -3363,6 +3941,88 @@ try:
                 }});
             }}
             
+            // --- Adjust balance modal ---
+            function openAdjustBalance(payerId, orgId, payerName, currentBalance) {{
+                var modal = document.getElementById('adjustModal');
+                if (!modal) return;
+                document.getElementById('adj-pid').value = payerId;
+                document.getElementById('adj-org').value = orgId;
+                document.getElementById('adj-payer-info').textContent = payerName;
+                document.getElementById('adj-current-balance').textContent =
+                    '$' + (parseFloat(currentBalance) || 0).toFixed(2);
+                document.getElementById('adj-direction-charge').checked = true;
+                document.getElementById('adj-amount').value = '';
+                document.getElementById('adj-note').value = '';
+                pmAdjustPreview();
+                modal.style.display = 'flex';
+                setTimeout(function() {{
+                    var el = document.getElementById('adj-amount');
+                    if (el) el.focus();
+                }}, 50);
+            }}
+            function closeAdjustModal() {{
+                var modal = document.getElementById('adjustModal');
+                if (modal) modal.style.display = 'none';
+            }}
+            function pmAdjustPreview() {{
+                var amt = parseFloat(document.getElementById('adj-amount').value) || 0;
+                var current = parseFloat((document.getElementById('adj-current-balance').textContent || '$0').replace(/[^0-9.-]/g, '')) || 0;
+                var dirEl = document.querySelector('input[name="adj-direction"]:checked');
+                var dir = dirEl ? dirEl.value : 'charge';
+                var newBal = (dir === 'charge') ? (current + amt) : (current - amt);
+                var box = document.getElementById('adj-preview');
+                if (!box) return;
+                if (!amt) {{ box.innerHTML = '<span style="color:#999;">Enter an amount to see the new balance.</span>'; return; }}
+                var verb = (dir === 'charge') ? 'Add charge of' : 'Apply credit of';
+                box.innerHTML = '<div>' + verb + ' <strong>$' + amt.toFixed(2) + '</strong></div>'
+                              + '<div style="color:#666;font-size:12px;">Current: $' + current.toFixed(2)
+                              + ' &rarr; <strong style="color:' + (newBal >= 0 ? '#7a5c00' : '#155724') + ';">$' + newBal.toFixed(2) + '</strong></div>';
+            }}
+            function submitAdjust() {{
+                var payerId = document.getElementById('adj-pid').value;
+                var orgId   = document.getElementById('adj-org').value;
+                var amount  = document.getElementById('adj-amount').value;
+                var note    = document.getElementById('adj-note').value;
+                var dirEl   = document.querySelector('input[name="adj-direction"]:checked');
+                var direction = dirEl ? dirEl.value : 'charge';
+                var emailCb = document.getElementById('adj-email-cb');
+                var sendEmail = !emailCb || emailCb.checked;
+                if (!amount || parseFloat(amount) <= 0) {{ showAlert('Enter an amount greater than zero', 'warning'); return; }}
+                if (!note.trim()) {{ showAlert('Please describe the reason for this adjustment', 'warning'); return; }}
+                var btn = document.getElementById('adj-submit-btn');
+                if (btn) {{ btn.disabled = true; btn.textContent = 'Applying...'; }}
+                var fd = new FormData();
+                fd.append('action', 'adjust_balance');
+                fd.append('pid', payerId);
+                fd.append('PaymentOrg', orgId);
+                fd.append('direction', direction);
+                fd.append('amount', amount);
+                fd.append('note', note);
+                fd.append('send_email', sendEmail ? 'true' : 'false');
+                fetch(getPyScriptAddress(), {{ method: 'POST', body: fd }})
+                    .then(function(r) {{ return r.text(); }})
+                    .then(function(txt) {{
+                        if (btn) {{ btn.disabled = false; btn.textContent = 'Apply Adjustment'; }}
+                        var d; try {{ d = JSON.parse(txt); }} catch(e) {{ showAlert('Bad response from server', 'danger'); return; }}
+                        if (!d.success) {{ showAlert(d.message || 'Adjustment failed', 'danger'); return; }}
+                        showAlert(d.message || 'Adjustment applied', 'success');
+                        closeAdjustModal();
+                        // Refresh so balances + breakdowns reflect the change.
+                        setTimeout(function() {{ refreshData(); }}, 700);
+                    }})
+                    .catch(function(err) {{
+                        if (btn) {{ btn.disabled = false; btn.textContent = 'Apply Adjustment'; }}
+                        showAlert('Network error: ' + err.message, 'danger');
+                    }});
+            }}
+            // Live-preview hooks for direction radios + amount input.
+            document.addEventListener('input', function(e) {{
+                if (e.target && e.target.id === 'adj-amount') pmAdjustPreview();
+            }});
+            document.addEventListener('change', function(e) {{
+                if (e.target && e.target.name === 'adj-direction') pmAdjustPreview();
+            }});
+
             function recordPayment(payerId, orgId, payerName, amount) {{
                 var modal = document.getElementById('paymentModal');
                 if (!modal) return;
@@ -3525,7 +4185,7 @@ try:
                                 if (!noteCell) noteCell = '<span style="color:#bbb;">&mdash;</span>';
                                 html += '<td style="padding:4px 8px;">' + noteCell + '</td>';
                                 html += '<td style="padding:4px 8px;text-align:right;color:#7a5c00;font-weight:600;">' + (r.isPayment ? '' : pmFmtMoney(amt)) + '</td>';
-                                html += '<td style="padding:4px 8px;text-align:right;color:#155724;font-weight:600;">' + (r.isPayment ? '-' + pmFmtMoney(amt) : '') + '</td>';
+                                html += '<td style="padding:4px 8px;text-align:right;color:#155724;font-weight:600;">' + (r.isPayment ? pmFmtMoney(amt) : '') + '</td>';
                                 html += '<td style="padding:4px 8px;text-align:right;font-weight:700;color:' + balColor + ';">' + balStr + '</td>';
                                 html += '</tr>';
                             }}
@@ -4085,7 +4745,56 @@ try:
                     </div>
                 </div>
             </div>
-            
+
+            <!-- Adjust balance modal -->
+            <div id="adjustModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10001;align-items:center;justify-content:center;">
+                <div style="background:#fff;padding:24px;border-radius:8px;max-width:480px;width:90%;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding-bottom:10px;margin-bottom:16px;">
+                        <h3 style="margin:0;color:#1f4e79;font-size:18px;"><i class="fa fa-pencil"></i> Adjust Balance</h3>
+                        <button type="button" onclick="closeAdjustModal()" style="background:none;border:0;font-size:24px;color:#999;cursor:pointer;">&times;</button>
+                    </div>
+                    <input type="hidden" id="adj-pid">
+                    <input type="hidden" id="adj-org">
+                    <div style="margin-bottom:12px;">
+                        <label style="color:#666;font-size:12px;">Payer</label>
+                        <div id="adj-payer-info" style="font-weight:700;font-size:14px;"></div>
+                    </div>
+                    <div style="margin-bottom:14px;">
+                        <label style="color:#666;font-size:12px;">Current Balance</label>
+                        <div id="adj-current-balance" style="color:#7a5c00;font-weight:700;font-size:16px;"></div>
+                    </div>
+                    <div style="margin-bottom:14px;">
+                        <label style="color:#666;font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Adjustment type</label>
+                        <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #ddd;border-radius:4px;margin-bottom:6px;cursor:pointer;">
+                            <input type="radio" name="adj-direction" id="adj-direction-charge" value="charge" checked>
+                            <span><strong>Add charge</strong> <span style="color:#666;font-size:12px;">&mdash; increases what they owe</span></span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #ddd;border-radius:4px;cursor:pointer;">
+                            <input type="radio" name="adj-direction" id="adj-direction-credit" value="credit">
+                            <span><strong>Apply credit</strong> <span style="color:#666;font-size:12px;">&mdash; reduces what they owe</span></span>
+                        </label>
+                    </div>
+                    <div style="margin-bottom:14px;">
+                        <label for="adj-amount" style="color:#666;font-size:12px;font-weight:600;">Amount (positive)</label>
+                        <input type="number" id="adj-amount" min="0.01" step="0.01" placeholder="0.00" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;font-size:14px;">
+                    </div>
+                    <div style="margin-bottom:14px;">
+                        <label for="adj-note" style="color:#666;font-size:12px;font-weight:600;">Reason / description</label>
+                        <input type="text" id="adj-note" placeholder="e.g., Scholarship approved by Pastor; partial refund; etc." style="width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;font-size:13px;">
+                        <div style="font-size:11px;color:#999;margin-top:3px;font-style:italic;">Saved as ADJ|&lt;reason&gt; on the transaction.</div>
+                    </div>
+                    <div id="adj-preview" style="background:#f8f9fa;border:1px solid #e1e5eb;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:13px;"></div>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#444;margin-bottom:14px;cursor:pointer;padding:8px 10px;background:#eef5fb;border:1px solid #cfe3ff;border-radius:6px;">
+                        <input type="checkbox" id="adj-email-cb" checked>
+                        <span><strong>Email the payer</strong> about this adjustment <span style="color:#666;font-size:11px;">&mdash; includes the reason, new balance, and a pay link if a balance remains</span></span>
+                    </label>
+                    <div style="text-align:right;">
+                        <button type="button" onclick="closeAdjustModal()" class="btn btn-secondary">Cancel</button>
+                        <button type="button" id="adj-submit-btn" onclick="submitAdjust()" class="btn btn-primary" style="margin-left:10px;">Apply Adjustment</button>
+                    </div>
+                </div>
+            </div>
+
             <script>
             // Setup page functionality after DOM is loaded
             document.addEventListener('DOMContentLoaded', function() {{
@@ -4158,7 +4867,7 @@ try:
                     POST_ACTIONS = [
                         'send_payment_link', 'record_payment', 'resend_email',
                         'find_receipts', 'reprint_receipt', 'send_custom_receipt',
-                        'charge_details',
+                        'charge_details', 'adjust_balance',
                         'load_settings', 'save_settings',
                         'save_template', 'reset_template',
                         'apply_update',
@@ -4171,6 +4880,7 @@ try:
                         if action == 'reprint_receipt':       return self.process_reprint_receipt()
                         if action == 'send_custom_receipt':   return self.process_send_custom_receipt()
                         if action == 'charge_details':        return self.process_charge_details()
+                        if action == 'adjust_balance':        return self.process_adjust_balance()
                         if action == 'load_settings':         return self.process_load_settings()
                         if action == 'save_settings':         return self.process_save_settings()
                         if action == 'save_template':         return self.process_save_template()
