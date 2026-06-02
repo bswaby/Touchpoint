@@ -1,13 +1,13 @@
 ### 🧭 [Prospect Builder](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Prospect%20Builder)
-A configurable prospect management workspace for TouchPoint that combines named configurations, multi-view person-by-person follow-up, group-based outreach tracking, and a dashboard showing outreach health at a glance. Built for staff and lay leaders who need to move people from prospect to engaged member systematically — without losing track of who has been contacted, by whom, and when.
+A configurable prospect management workspace for TouchPoint that combines named configurations, multi-view person-by-person follow-up, group-based outreach tracking, and a dashboard showing outreach health at a glance. Built for staff and lay leaders who need to move people from prospect to engaged member systematically, without losing track of who has been contacted, by whom, and when.
 
 - ⚙️ **Implementation Level:** Easy
-- 🧩 **Installation:** Paste-and-go Python script. All state lives in Special Content (no schema changes, no admin settings to flip). Configure groups, configurations, and senders from inside the tool.
+- 🧩 **Installation:** Paste-and-go Python script. All states live in Special Content (no schema changes, no admin settings to flip). Configure groups, configurations, and senders from inside the tool.
 - 🔐 **Security:** Requires Edit role.
 
 ## ✨ Highlights
 
-- **Named Configurations** – Build reusable prospect lists from an involvement, tag, or saved query. Run them as often as you want.
+- **Named Configurations** – Build reusable prospect lists from an involvement or saved query. Run them as often as you want.
 - **Group Management** – Define groups of involvements (by program, division, or hand-picked) to track outreach health across a ministry. Each group can have its own member-type, converted-attendance, and stale thresholds.
 - **Per-Person Workspace** – List / Single / Batch views for working prospects. Track contact efforts with keyword badges, log calls/visits/emails, and resume saved sessions.
 - **Prospect Sender** – Bulk-email senders with per-org tokenization, configurable role gates, and a delivery log.
@@ -81,3 +81,6 @@ No SQL schema changes. All persistence is in TouchPoint's Content table.
    ```
 
 **First run:** open the **Group Management** tab and create at least one group. The Dashboard will be empty until at least one group is configured.
+
+---
+*Written by [Ben Swaby](https://github.com/bswaby). These tools are free because they should be. If they've saved you time, consider [DisplayCache](https://displaycache.com) Church digital signage that integrates with TouchPoint or [TPxi Go](https://tpxigo.com) your church contacts in Outlook and on your phone.*
