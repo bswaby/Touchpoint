@@ -74,10 +74,10 @@ No SQL schema changes. All persistence is in TouchPoint's Content table.
 1. In TouchPoint, go to **Admin > Advanced > Special Content > Python**
 2. Click **New Python Script File**
 3. Name it `TPxi_ProspectBuilder` and paste the code
-4. Navigate to `/PyScriptForm/TPxi_ProspectBuilder` to launch
+4. Navigate to `/PyScript/TPxi_ProspectBuilder` to launch
 5. Optionally add to the menu via **CustomReports**:
    ```xml
-   <Report name="TPxi_ProspectBuilder" type="PyScriptForm" role="Edit" />
+   <Report name="TPxi_ProspectBuilder" type="PyScript" role="Edit" />
    ```
 
 **First run:** open the **Group Management** tab and create at least one group. The Dashboard will be empty until at least one group is configured.
