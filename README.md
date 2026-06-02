@@ -109,7 +109,7 @@ These are the tools churches install first and use daily:
 | [Mission Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Mission%20Dashboard) | Comprehensive view of all mission activity |
 | [Operations Checklists](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Operations%20Checklists) | Organize checks and reminders |
 | [Program Pulse](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Program%20Pulse) | Surface what's actually happening across programs |
-| [Prospector](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Prospect%20Builder) | A configurable prospect management tool |
+| [Prospector](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Prospector) | A configurable prospect management tool |
 | [Report Writer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Report%20Writer) | Build and save custom involvement & user reports |
 | [Roll Sheet](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Roll%20Sheet) | Build custom roll sheets |
 | [Task Runner](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Task%20Runner) | Self and Team Task Management |
