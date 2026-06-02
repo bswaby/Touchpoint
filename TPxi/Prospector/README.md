@@ -1,4 +1,4 @@
-### 🧭 [Prospect Builder](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Prospect%20Builder)
+### 🧭 [Prospector](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Prospect%20Builder)
 A configurable prospect management workspace for TouchPoint that combines named configurations, multi-view person-by-person follow-up, group-based outreach tracking, and a dashboard showing outreach health at a glance. Built for staff and lay leaders who need to move people from prospect to engaged member systematically, without losing track of who has been contacted, by whom, and when.
 
 - ⚙️ **Implementation Level:** Easy
