@@ -20,7 +20,7 @@ A configurable prospect management workspace for TouchPoint that combines named 
 <summary><strong>Prospect Management</strong></summary>
 <p>Run any named configuration and work prospects person-by-person. List, Single, and Batch views; contact-effort logging; save your session and resume later.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Prospect%20Builder/Pros-ProspectManagement.png" width="900" alt="Prospect Management workspace">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Prospector/Pros-ProspectManagement.png" width="900" alt="Prospect Management workspace">
 </p>
 </details>
 
@@ -28,7 +28,7 @@ A configurable prospect management workspace for TouchPoint that combines named 
 <summary><strong>Group Management</strong></summary>
 <p>Define groups of involvements (program, division, or specific orgs) and watch the per-involvement view of who is a prospect, who is stale, and who needs a touch. Each group has its own member type, converted attendance types, and freshness thresholds.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Prospect%20Builder/Pros-GroupManagement.png" width="900" alt="Group Management view">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Prospector/Pros-GroupManagement.png" width="900" alt="Group Management view">
 </p>
 </details>
 
@@ -36,7 +36,7 @@ A configurable prospect management workspace for TouchPoint that combines named 
 <summary><strong>Dashboard</strong></summary>
 <p>Outreach health at a glance: active prospects, touches (7d / 30d), new conversions, overdue prospects, 90-day conversion rate, and average involvements tried before conversion. Weekly touches and conversions, plus a 90-day rolling conversion-rate trend per group. All metrics are scoped to the groups configured in Group Management.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Prospect%20Builder/Pros-Dashboard.png" width="900" alt="Outreach Dashboard">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Prospector/Pros-Dashboard.png" width="900" alt="Outreach Dashboard">
 </p>
 </details>
 
