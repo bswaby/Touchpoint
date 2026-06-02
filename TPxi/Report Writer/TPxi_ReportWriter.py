@@ -9,22 +9,21 @@
 # specifies source (program/division or specific orgs), columns to display,
 # universal data sources (reg questions, extra values, recreg), layout, and sort options.
 #
-# Written By: Ben Swaby (TPxi Software, LLC)
-# Email: bswaby@fbchtn.org                                                                                                      
-# Website: https://tpxisoftware.com
-# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
-# ----------------------------------------------------------------                                                              
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub: https://github.com/bswaby/Touchpoint  (40+ free tools)
+# ----------------------------------------------------------------
 # These tools are free because they should be.
-# If they've saved you time or helped your team, and you want to                                                                
-# support continued development, check out:                                                                                     
+# If they've saved you time or helped your team, and you want to
+# support continued development, check out:
 #
-# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
-# https://displaycache.com                                
+# DisplayCache - church digital signage that integrates with TouchPoint
+# https://displaycache.com
 #
-# TPxi Go(TM) - your church contacts, wherever you work.
-# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
+# TPxi Go - your church contacts, wherever you work.
+# Look up anyone in TouchPoint, log calls and emails from Outlook
 # or your phone. No tab switching, no lost context.
-# https://tpxigo.com                                                                                                            
+# https://tpxigo.com
 # ----------------------------------------------------------------
 
 """
@@ -48,6 +47,31 @@ Features:
 
 
 Change Log:
+v1.5.2 - May 2026
+  - Added: Custom Document Title (template-level field). Replaces the
+           "Registration Report" cover-page heading AND the involvement
+           name (or "Selected People" in Blue Toolbar runs) shown above
+           each person. Persists with Save / Save As / Export.
+  - Added: Per-user Blue Toolbar template library. Running ReportWriter
+           from the Blue Toolbar without an involvement now saves templates
+           to the current user's PeopleExtra (RegReportTemplate) so each
+           staffer builds their own personal library. Save / Save As /
+           Rename / Delete all work without an org context.
+  - Fixed: When picking a saved template card, the Document Title input
+           now pre-fills from the saved value instead of staying blank
+           (which silently overwrote the stored title on the next save).
+  - Smart: When "One person per page" is OFF, the document title renders
+           once at the top of the report instead of repeating above each
+           person on a continuous page. When ON, per-person header stays
+           so every printed page gets its own banner.
+v1.5.1 - May 2026
+  - Fixed: CSV export missed auto-populated registration questions on Basic template
+           (and any template with empty reg-question sections). PDF render auto-populated
+           sections whose title contained "question/answer/registration" with one column
+           per available question; CSV iterated raw section['fields'] and produced zero
+           columns for those sections. Extracted the auto-populator into a shared helper
+           (auto_populate_section_fields) so PDF and CSV emit the same columns.
+  - Fixed: CSV now respects section.visible and field.visible flags (was ignoring both).
 v1.5 - May 2026
   - Added: Multi-template save - keep multiple named report layouts per involvement
            (Save / Save As / Rename / Delete) instead of a single overwriting save
@@ -108,7 +132,7 @@ import json
 import re
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.5.0'
+APP_VERSION = '1.5.2'
 DC_SCRIPT_ID = 'TPxi_ReportWriter'  # ID used on DisplayCache to identify this script
 # scripts.displaycache.com is the custom domain used for browser-side version checks.
 # workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
@@ -134,7 +158,7 @@ def get_script_name():
         pass
     return DC_SCRIPT_ID
 
-model.Header = 'Registration Report Builder'
+model.Header = 'Registration Report Builder v' + APP_VERSION
 
 # ============================================================================
 # UNICODE / ENCODING HELPERS  (IronPython 2.7 safe)
@@ -1199,6 +1223,40 @@ def fetch_extra_values(people_list, ev_names):
     except:
         pass
 
+def auto_populate_section_fields(section, questions):
+    """Return the section's fields list with auto-population applied.
+
+    Used when a template section has an empty fields list AND a title that
+    looks like a reg-question section (contains "question", "answer", or
+    "registration"). In that case we synthesize one regquestion field per
+    available question so the section renders meaningfully.
+
+    Shared by the PDF render path and the CSV export so both paths emit
+    the same set of columns.
+    """
+    fields = sorted(section.get('fields', []) or [], key=lambda f: f.get('order', 0))
+    if fields:
+        return fields
+    title_lower = (section.get('title', '') or '').lower()
+    if 'question' not in title_lower and 'answer' not in title_lower and 'registration' not in title_lower:
+        return fields
+    auto_fields = []
+    for qi, qitem in enumerate(questions or []):
+        q_key = qitem['key'] if isinstance(qitem, dict) else qitem
+        q_label = qitem['label'] if isinstance(qitem, dict) else qitem
+        auto_fields.append({
+            'fieldId': 'auto_q_' + str(qi),
+            'fieldType': 'regquestion',
+            'sourceField': q_key,
+            'label': q_label,
+            'displayFormat': 'block',
+            'order': qi + 1,
+            'visible': True,
+            'colSpan': 1
+        })
+    return auto_fields
+
+
 def render_report_html(people, template, org_name, questions, single_person_id=None):
     """Render the full report HTML from template + data"""
     opts = template.get('globalOptions', {})
@@ -1220,9 +1278,35 @@ def render_report_html(people, template, org_name, questions, single_person_id=N
         pid = safe_int(single_person_id)
         people = [p for p in people if p['PeopleId'] == pid]
 
+    # Custom document title overrides the org-name slot wherever it
+    # appears in the report (per-person header, cover page subtitle).
+    # Empty title -> fall back to org_name. This is what the user means
+    # by "I named my report, it should appear in my report."
+    custom_title = ''
+    try:
+        ct = template.get('reportTitle') if isinstance(template, dict) else None
+        custom_title = (ct or '').strip() if ct else ''
+    except:
+        custom_title = ''
+    effective_title = custom_title if custom_title else org_name
+
     parts = []
     report_class = 'rr-report' + (' rr-compact' if compact_rows else '')
     parts.append('<div class="{0}" style="font-family: {1};">'.format(report_class, html_escape(font_family)))
+
+    # Header strategy depends on one_per_page:
+    #   ON  -> show banner above EACH person (every printed page gets a
+    #          header). This was the original behavior.
+    #   OFF -> show banner ONCE at the top; repeating it above each
+    #          person on a continuous page is just noise. This matches
+    #          what feels natural when viewing the report on screen.
+    show_top_banner = bool(custom_title) and (not one_per_page)
+    show_perperson_banner = (show_org_header and effective_title
+                             and (one_per_page or not custom_title))
+
+    if show_top_banner:
+        parts.append('<h1 style="font-size:24px;color:{0};text-align:center;margin:0 0 16px;padding-bottom:8px;border-bottom:2px solid {0};">{1}</h1>'.format(
+            html_escape(heading_color), html_escape(custom_title)))
 
     for idx, person in enumerate(people):
         page_class = 'rr-person-page'
@@ -1231,9 +1315,9 @@ def render_report_html(people, template, org_name, questions, single_person_id=N
 
         parts.append('<div class="{0}">'.format(page_class))
 
-        if show_org_header and org_name:
+        if show_perperson_banner:
             parts.append('<div class="rr-org-header" style="border-bottom-color: {0};">'.format(html_escape(heading_color)))
-            parts.append('<h2 style="color: {0};">{1}</h2>'.format(html_escape(heading_color), html_escape(org_name)))
+            parts.append('<h2 style="color: {0};">{1}</h2>'.format(html_escape(heading_color), html_escape(effective_title)))
             parts.append('</div>')
 
         parts.append('<div class="rr-person-header">')
@@ -1249,27 +1333,7 @@ def render_report_html(people, template, org_name, questions, single_person_id=N
 
             sec_header_color = sec.get('headerColor', heading_color)
             layout = sec.get('layout', 'single-column')
-            fields = sorted(sec.get('fields', []), key=lambda f: f.get('order', 0))
-
-            # Auto-populate reg question sections when fields list is empty
-            if not fields:
-                title_lower = (sec.get('title', '') or '').lower()
-                if 'question' in title_lower or 'answer' in title_lower or 'registration' in title_lower:
-                    auto_fields = []
-                    for qi, qitem in enumerate(questions):
-                        q_key = qitem['key'] if isinstance(qitem, dict) else qitem
-                        q_label = qitem['label'] if isinstance(qitem, dict) else qitem
-                        auto_fields.append({
-                            'fieldId': 'auto_q_' + str(qi),
-                            'fieldType': 'regquestion',
-                            'sourceField': q_key,
-                            'label': q_label,
-                            'displayFormat': 'block',
-                            'order': qi + 1,
-                            'visible': True,
-                            'colSpan': 1
-                        })
-                    fields = auto_fields
+            fields = auto_populate_section_fields(sec, questions)
 
             if not fields:
                 continue
@@ -1408,7 +1472,16 @@ def render_cover_page(people, org_name, template):
     parts = []
     parts.append('<div class="rr-cover-page" style="page-break-after:always;padding:50px 30px;text-align:center;">')
     parts.append('<div style="position:absolute;top:20px;right:20px;color:#c53030;font-weight:bold;font-size:14px;border:2px solid #c53030;padding:4px 12px;background:#fed7d7;">CONFIDENTIAL</div>')
-    parts.append('<h1 style="font-size:32px;color:{0};margin-bottom:8px;">Registration Report</h1>'.format(heading_color))
+    # Custom title from template settings, falls back to "Registration Report".
+    custom_title = ''
+    try:
+        ct = template.get('reportTitle') if isinstance(template, dict) else None
+        custom_title = (ct or '').strip() if ct else ''
+    except:
+        custom_title = ''
+    title_text = custom_title if custom_title else 'Registration Report'
+    parts.append('<h1 style="font-size:32px;color:{0};margin-bottom:8px;">{1}</h1>'.format(
+        heading_color, html_escape(title_text)))
     if org_name:
         parts.append('<h2 style="font-size:22px;color:#4a5568;margin-bottom:30px;">{0}</h2>'.format(html_escape(org_name)))
 
@@ -1641,6 +1714,84 @@ if model.HttpMethod == "post":
         if 'templates' not in store or not isinstance(store.get('templates'), dict):
             store['templates'] = {}
         model.AddExtraValueTextOrg(org_id, 'RegReportTemplate', json.dumps(store))
+
+    # Per-user templates, used when running from Blue Toolbar with no
+    # involvement context. Same shape as the org store; lives on
+    # PeopleExtra against the running user's PeopleId so each staff
+    # member builds their own personal library without stomping on
+    # anyone else.
+    USER_TEMPLATE_FIELD = 'RegReportTemplate'
+
+    def _current_user_pid():
+        try:
+            pid = model.UserPeopleId
+            return int(pid) if pid else 0
+        except:
+            return 0
+
+    def _read_user_template_store(people_id):
+        if not people_id:
+            return {'_format': 'v2', 'templates': {}, 'currentName': None}
+        try:
+            saved = model.ExtraValueText(people_id, USER_TEMPLATE_FIELD)
+        except:
+            saved = None
+        if not saved:
+            return {'_format': 'v2', 'templates': {}, 'currentName': None}
+        try:
+            data = json.loads(saved)
+        except:
+            return {'_format': 'v2', 'templates': {}, 'currentName': None}
+        if isinstance(data, dict) and data.get('_format') == 'v2' and isinstance(data.get('templates'), dict):
+            return data
+        if isinstance(data, dict) and ('sections' in data or 'templateName' in data):
+            return {'_format': 'v2', 'templates': {'Default': data}, 'currentName': 'Default'}
+        return {'_format': 'v2', 'templates': {}, 'currentName': None}
+
+    def _write_user_template_store(people_id, store):
+        if not people_id:
+            return False
+        store['_format'] = 'v2'
+        if 'templates' not in store or not isinstance(store.get('templates'), dict):
+            store['templates'] = {}
+        try:
+            model.AddExtraValueText(people_id, USER_TEMPLATE_FIELD, json.dumps(store))
+            return True
+        except:
+            return False
+
+    def _is_user_scope(org_id_raw):
+        """Returns True when org_id is the Blue Toolbar sentinel rather
+        than a real involvement id. Lets the load/save/delete/rename
+        actions route to per-user storage in that case."""
+        if org_id_raw is None:
+            return True
+        s = str(org_id_raw).strip()
+        if not s:
+            return True
+        if s == 'bt_direct' or s == 'user' or s.startswith('user_'):
+            return True
+        # Anything not parseable as int is treated as user-scope (safer
+        # than dropping the save silently).
+        try:
+            int(s)
+            return False
+        except:
+            return True
+
+    def _load_store(org_id_raw):
+        """Pick org-store or user-store based on org_id. Returns
+        (store, scope_label) where scope_label is 'org' or 'user' for
+        diagnostics."""
+        if _is_user_scope(org_id_raw):
+            return _read_user_template_store(_current_user_pid()), 'user'
+        return _read_template_store(int(org_id_raw)), 'org'
+
+    def _save_store(org_id_raw, store):
+        if _is_user_scope(org_id_raw):
+            return _write_user_template_store(_current_user_pid(), store)
+        _write_template_store(int(org_id_raw), store)
+        return True
 
     # -------------------------------------------------------------------------
     # Search Orgs with Registration Questions
@@ -1890,32 +2041,29 @@ if model.HttpMethod == "post":
     elif action == 'load_template':
         org_id = getattr(Data, 'org_id', '')
         requested_name = getattr(Data, 'tpl_name', '') or getattr(Data, 'name', '')
-        if not org_id:
-            print json.dumps({'success': False, 'message': 'Organization ID required'})
-        else:
-            try:
-                org_id = int(org_id)
-                store = _read_template_store(org_id)
-                templates = store.get('templates', {}) or {}
-                names = sorted(templates.keys(), key=lambda s: s.lower())
-                current_name = None
-                if requested_name and str(requested_name) in templates:
-                    current_name = str(requested_name)
-                elif store.get('currentName') and store['currentName'] in templates:
-                    current_name = store['currentName']
-                elif names:
-                    current_name = names[0]
-                current_template = templates.get(current_name) if current_name else None
-                print json.dumps({
-                    'success': True,
-                    'templates': templates,
-                    'names': names,
-                    'currentName': current_name,
-                    'currentTemplate': current_template,
-                    'hasSaved': len(names) > 0
-                })
-            except Exception as e:
-                print json.dumps({'success': False, 'message': safe_str(e)})
+        try:
+            store, scope = _load_store(org_id)
+            templates = store.get('templates', {}) or {}
+            names = sorted(templates.keys(), key=lambda s: s.lower())
+            current_name = None
+            if requested_name and str(requested_name) in templates:
+                current_name = str(requested_name)
+            elif store.get('currentName') and store['currentName'] in templates:
+                current_name = store['currentName']
+            elif names:
+                current_name = names[0]
+            current_template = templates.get(current_name) if current_name else None
+            print json.dumps({
+                'success': True,
+                'templates': templates,
+                'names': names,
+                'currentName': current_name,
+                'currentTemplate': current_template,
+                'hasSaved': len(names) > 0,
+                'scope': scope
+            })
+        except Exception as e:
+            print json.dumps({'success': False, 'message': safe_str(e)})
 
     # -------------------------------------------------------------------------
     # Save Template (under a name; creates or overwrites)
@@ -1924,24 +2072,28 @@ if model.HttpMethod == "post":
         org_id = getattr(Data, 'org_id', '')
         template_json = getattr(Data, 'template_json', '')
         name = getattr(Data, 'tpl_name', '') or getattr(Data, 'name', '') or 'Default'
-        if not org_id or not template_json:
-            print json.dumps({'success': False, 'message': 'Organization ID and template required'})
+        if not template_json:
+            print json.dumps({'success': False, 'message': 'Template required'})
         else:
             try:
-                org_id = int(org_id)
                 parsed = json.loads(template_json)
-                store = _read_template_store(org_id)
+                store, scope = _load_store(org_id)
                 templates = store.get('templates', {}) or {}
                 templates[str(name)] = parsed
                 store['templates'] = templates
                 store['currentName'] = str(name)
-                _write_template_store(org_id, store)
-                print json.dumps({
-                    'success': True,
-                    'message': 'Saved as "' + str(name) + '"',
-                    'name': str(name),
-                    'names': sorted(templates.keys(), key=lambda s: s.lower())
-                })
+                ok = _save_store(org_id, store)
+                if not ok:
+                    print json.dumps({'success': False, 'message': 'Could not save -- no current user context for personal templates'})
+                else:
+                    print json.dumps({
+                        'success': True,
+                        'message': 'Saved as "' + str(name) + '"'
+                                   + (' (personal)' if scope == 'user' else ''),
+                        'name': str(name),
+                        'names': sorted(templates.keys(), key=lambda s: s.lower()),
+                        'scope': scope
+                    })
             except Exception as e:
                 print json.dumps({'success': False, 'message': safe_str(e)})
 
@@ -1951,22 +2103,22 @@ if model.HttpMethod == "post":
     elif action == 'delete_template':
         org_id = getattr(Data, 'org_id', '')
         name = getattr(Data, 'tpl_name', '') or getattr(Data, 'name', '')
-        if not org_id or not name:
-            print json.dumps({'success': False, 'message': 'Organization ID and template name required'})
+        if not name:
+            print json.dumps({'success': False, 'message': 'Template name required'})
         else:
             try:
-                org_id = int(org_id)
-                store = _read_template_store(org_id)
+                store, scope = _load_store(org_id)
                 templates = store.get('templates', {}) or {}
                 if str(name) in templates:
                     del templates[str(name)]
                     store['templates'] = templates
                     if store.get('currentName') == str(name):
                         store['currentName'] = sorted(templates.keys(), key=lambda s: s.lower())[0] if templates else None
-                    _write_template_store(org_id, store)
+                    _save_store(org_id, store)
                 print json.dumps({
                     'success': True,
-                    'names': sorted(templates.keys(), key=lambda s: s.lower())
+                    'names': sorted(templates.keys(), key=lambda s: s.lower()),
+                    'scope': scope
                 })
             except Exception as e:
                 print json.dumps({'success': False, 'message': safe_str(e)})
@@ -1978,12 +2130,11 @@ if model.HttpMethod == "post":
         org_id = getattr(Data, 'org_id', '')
         old_name = getattr(Data, 'tpl_old_name', '') or getattr(Data, 'old_name', '')
         new_name = getattr(Data, 'tpl_new_name', '') or getattr(Data, 'new_name', '')
-        if not org_id or not old_name or not new_name:
-            print json.dumps({'success': False, 'message': 'Organization ID, old name, and new name required'})
+        if not old_name or not new_name:
+            print json.dumps({'success': False, 'message': 'Old name and new name required'})
         else:
             try:
-                org_id = int(org_id)
-                store = _read_template_store(org_id)
+                store, scope = _load_store(org_id)
                 templates = store.get('templates', {}) or {}
                 old_name = str(old_name); new_name = str(new_name)
                 if old_name not in templates:
@@ -1995,11 +2146,12 @@ if model.HttpMethod == "post":
                     store['templates'] = templates
                     if store.get('currentName') == old_name:
                         store['currentName'] = new_name
-                    _write_template_store(org_id, store)
+                    _save_store(org_id, store)
                     print json.dumps({
                         'success': True,
                         'name': new_name,
-                        'names': sorted(templates.keys(), key=lambda s: s.lower())
+                        'names': sorted(templates.keys(), key=lambda s: s.lower()),
+                        'scope': scope
                     })
             except Exception as e:
                 print json.dumps({'success': False, 'message': safe_str(e)})
@@ -2107,11 +2259,20 @@ if model.HttpMethod == "post":
                 if ev_names:
                     fetch_extra_values(data['people'], ev_names)
 
-                # Build CSV headers and field definitions from template sections
+                # Build CSV headers and field definitions from template sections.
+                # Use the same auto-populate helper as the PDF render path so
+                # sections that rely on auto-populated reg questions (empty
+                # fields + "question/answer/registration" in the title) emit
+                # the same set of columns in the CSV.
+                questions = data.get('questions', [])
                 csv_headers = []
                 csv_fields = []
                 for section in template.get('sections', []):
-                    for field in section.get('fields', []):
+                    if not section.get('visible', True):
+                        continue
+                    for field in auto_populate_section_fields(section, questions):
+                        if not field.get('visible', True):
+                            continue
                         ft = field.get('fieldType', '')
                         if ft == 'static':
                             continue  # Skip separators and static text in CSV
@@ -2703,6 +2864,16 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                         <span class="rr-option-label">Heading color</span>
                         <input type="color" id="rrOptHeadingColor" value="#2c5282" onchange="updateGlobalOption('headingColor', this.value)">
                     </div>
+                    <div class="rr-option-row" style="align-items:flex-start;">
+                        <span class="rr-option-label" style="padding-top:6px;">Document title</span>
+                        <input type="text" id="rrOptReportTitle"
+                               placeholder="Registration Report"
+                               oninput="updateReportTitle(this.value)"
+                               style="flex:1;min-width:200px;padding:5px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:13px;">
+                    </div>
+                    <div class="rr-option-row" style="margin-top:-4px;">
+                        <span style="flex:1;font-size:11px;color:#718096;font-style:italic;">Title that prints on the report and the cover page. Replaces the involvement name (or "Selected People" in Blue Toolbar runs). Leave blank to use the default.</span>
+                    </div>
                 </div>
 
                 <div class="rr-card">
@@ -3043,6 +3214,13 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         var oneEl = document.getElementById('rrOnePerPage'); if (oneEl) oneEl.checked = !!ps.onePersonPerPage;
         var pgEl = document.getElementById('rrShowPageNum'); if (pgEl) pgEl.checked = !!ps.showPageNumbers;
         var orgEl = document.getElementById('rrShowOrgHeader'); if (orgEl) orgEl.checked = !!ps.showOrgHeader;
+        // Pre-fill the document title input from the saved template -- the
+        // selectTemplate sync block does this for built-in templates but
+        // selectSavedTemplate routes through here instead. Without this
+        // line, a re-save after picking a saved template overwrites the
+        // stored reportTitle with the (visibly empty) input value.
+        var rtEl = document.getElementById('rrOptReportTitle');
+        if (rtEl) rtEl.value = state.template.reportTitle || '';
         renderSections();
         refreshSaveControls();
     }
@@ -3070,6 +3248,9 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
             setChecked('rrOptPageNumbers', ps.showPageNumbers === true);
             setChecked('rrOptSplitSections', ps.allowSectionSplit === true);
             document.getElementById('rrOptHeadingColor').value = go.headingColor || '#2c5282';
+            // Document title is a template-root field; pre-fill from there.
+            var rtEl = document.getElementById('rrOptReportTitle');
+            if (rtEl) rtEl.value = state.template.reportTitle || '';
             // Supplemental page toggles
             setChecked('rrOptCoverPage', ps.showCoverPage === true);
             setChecked('rrOptMissingInfo', ps.showMissingInfoPage === true);
@@ -3088,6 +3269,13 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
     };
 
     function setChecked(id, val) { var el = document.getElementById(id); if (el) el.checked = val; }
+
+    // Lives at template root (not globalOptions) so it round-trips with
+    // export/import as a first-class field.
+    window.updateReportTitle = function(value) {
+        if (!state.template) return;
+        state.template.reportTitle = (value || '').trim();
+    };
 
     window.updateGlobalOption = function(key, value) {
         if (!state.template) return;
@@ -3588,7 +3776,7 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
 
     window.saveTemplate = function() {
         if (!state.selectedOrgId || !state.template) return;
-        if (state.selectedOrgId === 'bt_direct') { showToast('Cannot save without an involvement selected. Templates are saved per-involvement.', 'danger'); return; }
+        // bt_direct routes server-side to per-user PeopleExtra storage.
         var name = state.currentSavedName;
         if (!name) { return saveTemplateAs(); }
         ajax('save_template', { org_id: state.selectedOrgId, template_json: JSON.stringify(state.template), tpl_name: name }, function(data) {
@@ -3606,7 +3794,7 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
 
     window.saveTemplateAs = function() {
         if (!state.selectedOrgId || !state.template) return;
-        if (state.selectedOrgId === 'bt_direct') { showToast('Cannot save without an involvement selected.', 'danger'); return; }
+        // bt_direct routes server-side to per-user PeopleExtra storage.
         var name = prompt('Save as (template name):', state.currentSavedName || 'My Report');
         if (name === null) return;
         name = (name || '').trim();
@@ -4099,14 +4287,26 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                         opt.textContent = state.personList[i].name;
                         sel.appendChild(opt);
                     }
-                    state.savedTemplate = null;
-                    state.savedTemplates = {};
-                    state.savedNames = [];
-                    state.currentSavedName = null;
-                    renderSavedTemplateCards();
-                    selectTemplate('basic');
-                    showToast('People loaded! Person, family & medical fields available. Select an involvement to add registration questions.', 'success');
-                    goToStep(2);
+                    // Load this user's personal templates (PeopleExtra-
+                    // backed) so Blue Toolbar runs aren't a clean slate
+                    // every time.
+                    ajax('load_template', {org_id: 'bt_direct'}, function(tplData) {
+                        if (tplData && tplData.success) {
+                            state.savedTemplates = tplData.templates || {};
+                            state.savedNames = tplData.names || [];
+                            state.currentSavedName = tplData.currentName || null;
+                            state.savedTemplate = tplData.currentTemplate || null;
+                        } else {
+                            state.savedTemplates = {};
+                            state.savedNames = [];
+                            state.currentSavedName = null;
+                            state.savedTemplate = null;
+                        }
+                        renderSavedTemplateCards();
+                        selectTemplate('basic');
+                        showToast('People loaded! Personal templates available. Person, family & medical fields ready -- select an involvement to add registration questions.', 'success');
+                        goToStep(2);
+                    });
                 });
             }
             return;
