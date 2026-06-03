@@ -38,6 +38,20 @@ To upload code to Touchpoint, use the following steps:
 
 Changelog
 ---------
+v2.4.17 - Jun 2026
+  - Fixed: Outstanding-Balances "Program Name" row showed "None" and
+           the View Divisions / View All Payers buttons sent
+           ProgramID=None to the URL when an involvement's org had no
+           Division (or the Division had no ProgId). View Divisions
+           SQL'd to "pro.Id = None" -> error; View All Payers came up
+           blank because the filter never matched. The row now renders
+           "(No Program)", hides View Divisions (no program -> no
+           divisions to traverse), and routes View All Payers through
+           a new viewUnassignedPayers() helper that passes
+           ?action=payers&unassigned=1. Backend get_payers_with_dues
+           accepts unassigned=True which adds AND pro.Id IS NULL to
+           the where clause so the orphan payers actually show up.
+
 v2.4.16 - May 2026
   - Fixed: Multi-person family registrations weren't being flagged as
            refund-driven. Example: one parent paid the full reg total
@@ -378,7 +392,7 @@ from collections import defaultdict
 # =====================================================================
 # VERSION / AUTO-UPDATE  (matches the TPxi house pattern)
 # =====================================================================
-APP_VERSION = '2.4.16'
+APP_VERSION = '2.4.17'
 DC_SCRIPT_ID = 'TPxi_PaymentManager'
 DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
 DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
@@ -739,12 +753,16 @@ try:
             """.format(program_id, self.get_division_filter_sql())
             return q.QuerySql(sql)
             
-        def get_payers_with_dues(self, org_id=None, program_id=None):
-            """Get individual payers with outstanding dues"""
+        def get_payers_with_dues(self, org_id=None, program_id=None, unassigned=False):
+            """Get individual payers with outstanding dues.
+            unassigned=True returns payers whose org has no Program (pro.Id IS NULL)
+            -- used by the "(No Program)" row on the programs view."""
             where_clause = "ts.IndDue <> 0 AND ts.IsLatestTransaction = 1"
-            
+
             if org_id:
                 where_clause += " AND o.OrganizationId = {0}".format(org_id)
+            elif unassigned:
+                where_clause += " AND pro.Id IS NULL"
             elif program_id:
                 where_clause += " AND pro.Id = {0}".format(program_id)
                 
@@ -2592,28 +2610,45 @@ try:
                     
                     program_name = self.safe_get_attr(program, 'ProgramName', 'Unknown')
                     program_id = self.safe_get_attr(program, 'ProgramId', 0)
-                    
+
+                    # Orphan-involvement case: TransactionSummary rows whose org
+                    # has no Division (or whose Division has no ProgId) collapse
+                    # into a NULL pro.Id row. We can't link to a divisions/program
+                    # page that requires a ProgramID, so swap to the unassigned
+                    # sentinel for View All Payers and hide View Divisions.
+                    if program_id is None or program_name is None:
+                        actions_html = (
+                            '<button class="btn btn-sm btn-outline-success" '
+                            'onclick="viewUnassignedPayers()">'
+                            '<i class="fa fa-users"></i> View All Payers'
+                            '</button>'
+                        )
+                        display_name = '(No Program)'
+                    else:
+                        actions_html = (
+                            '<button class="btn btn-sm btn-outline-primary" '
+                            'onclick="viewDivisions({0})">'
+                            '<i class="fa fa-list"></i> View Divisions'
+                            '</button> '
+                            '<button class="btn btn-sm btn-outline-success" '
+                            'onclick="viewPayers(null, {0})">'
+                            '<i class="fa fa-users"></i> View All Payers'
+                            '</button>'
+                        ).format(program_id)
+                        display_name = program_name
+
                     html += """
                                 <tr>
                                     <td><strong>{0}</strong></td>
                                     <td class="pm-currency">{1}</td>
                                     <td class="pm-center">{2}</td>
-                                    <td class="pm-center">
-                                        <button class="btn btn-sm btn-outline-primary" 
-                                                onclick="viewDivisions({3})">
-                                            <i class="fa fa-list"></i> View Divisions
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-success" 
-                                                onclick="viewPayers(null, {3})">
-                                            <i class="fa fa-users"></i> View All Payers
-                                        </button>
-                                    </td>
+                                    <td class="pm-center">{3}</td>
                                 </tr>
                     """.format(
-                        program_name,
+                        display_name,
                         self.format_currency(outstanding),
                         payer_count,
-                        program_id
+                        actions_html
                     )
             except Exception as e:
                 html += "<tr><td colspan='4'>Error loading programs: {0}</td></tr>".format(str(e))
@@ -2743,14 +2778,17 @@ try:
             
             return html
             
-        def render_payers_view(self, org_id=None, program_id=None):
+        def render_payers_view(self, org_id=None, program_id=None, unassigned=False):
             """Render individual payers with payment options"""
-            payers = self.get_payers_with_dues(org_id, program_id)
-            
+            payers = self.get_payers_with_dues(org_id, program_id, unassigned=unassigned)
+
             # Get context title
-            context_title = "All Programs"
+            if unassigned:
+                context_title = "(No Program Assigned)"
+            else:
+                context_title = "All Programs"
             try:
-                if program_id:
+                if program_id and not unassigned:
                     program_data = q.QuerySql("SELECT Name FROM Program WHERE Id = {0}".format(program_id))
                     if program_data and len(program_data) > 0:
                         context_title = self.safe_get_attr(program_data[0], 'Name', 'Unknown Program')
@@ -3483,6 +3521,11 @@ try:
                 if (orgId && orgId !== 'null') url += '&OrganizationId=' + orgId;
                 if (programId && programId !== 'null') url += '&ProgramID=' + programId;
                 window.location.href = url;
+            }}
+
+            function viewUnassignedPayers() {{
+                showLoading();
+                window.location.href = window.location.pathname + '?action=payers&unassigned=1';
             }}
             
             // --- Modernization additions: Receipts, Settings, Help, Auto-update -----
@@ -5307,11 +5350,12 @@ try:
                 elif self.current_action == 'payers':
                     org_id = getattr(model.Data, 'OrganizationId', None)
                     program_id = getattr(model.Data, 'ProgramID', None)
+                    unassigned = str(getattr(model.Data, 'unassigned', '') or '').lower() in ('1', 'true', 'yes')
                     if org_id:
                         org_id = str(org_id)
                     if program_id:
                         program_id = str(program_id)
-                    content = self.render_payers_view(org_id, program_id)
+                    content = self.render_payers_view(org_id, program_id, unassigned=unassigned)
                 elif self.current_action == 'emails':
                     people_id = str(getattr(model.Data, 'PeopleId', ''))
                     if people_id:
