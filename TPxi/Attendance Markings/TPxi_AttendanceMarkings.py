@@ -1009,9 +1009,15 @@ def get_roster(org_id, meeting_id, exclude_member_types):
     rows = []
     for r in q.QuerySql(sql):
         flag = r.AttendanceFlag
+        # q.QuerySql can return SQL bit as Python bool, .NET System.Boolean, or
+        # int 0/1 depending on the interop path. .NET Boolean(true) is neither
+        # Python True nor 1, so the old (is True or == 1) check fell through to
+        # 'absent' for actually-Present rows, which broke every re-fetch (e.g.,
+        # the fresh roster returned after Add Walk-In). bool(flag) handles all
+        # three types correctly.
         if flag is None:
             state = 'unmarked'
-        elif flag is True or flag == 1:
+        elif bool(flag):
             state = 'present'
         else:
             state = 'absent'
@@ -1508,6 +1514,35 @@ else:
     # =================================================================
     # GET: render the SPA
     # =================================================================
+    # Detect /PyScript/ access -- model.Form only renders on /PyScriptForm/.
+    # When accessed via the bare /PyScript/ route (e.g. the editor's Run button),
+    # we print a redirect and skip the model.Form assignment at the bottom.
+    _url = ''
+    try:
+        _url = str(getattr(model, 'URL', '') or '')
+    except:
+        _url = ''
+    _needs_redirect = ('/PyScript/' in _url) and ('/PyScriptForm/' not in _url)
+
+    if _needs_redirect:
+        _name = 'TPxi_AttendanceMarkings'
+        _qs = ''
+        try:
+            _m = re.search(r'/PyScript/([^/?#&]+)', _url)
+            if _m:
+                _name = _m.group(1)
+            _qi = _url.find('?')
+            if _qi >= 0:
+                _qs = _url[_qi:]
+        except:
+            pass
+        _target = '/PyScriptForm/' + _name + _qs
+        print '<!DOCTYPE html><html><head><title>Loading...</title>'
+        print '<meta http-equiv="refresh" content="0;url=' + _target + '">'
+        print '<script>window.location.replace(' + json.dumps(_target) + ');</script>'
+        print '</head><body style="font-family:Segoe UI,sans-serif;padding:30px;">'
+        print 'Loading <a href="' + _target + '">Attendance Markings</a>...'
+        print '</body></html>'
 
     css = """
     <style>
@@ -2707,4 +2742,5 @@ else:
     </div>
     """
 
-    model.Form = css + body + js
+    if not _needs_redirect:
+        model.Form = css + body + js
