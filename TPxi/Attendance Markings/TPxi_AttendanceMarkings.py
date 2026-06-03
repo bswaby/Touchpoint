@@ -51,22 +51,12 @@
 #   TPxi_DayOfRegistration.py  - team coordination, polling, optimistic UI
 #----------------------------------------------------------------------
 
+
 import json
 import datetime
 import re
 
 model.Header = 'Attendance Markings'
-
-# =====================================================================
-# AUTO-UPDATE — same pattern as TPxi_OpsChecklists.py / EnterpriseReporting.py
-# Browser checks scripts.displaycache.com for the latest version. Admin can
-# click "Update Now" on the landing page to fetch + write the new code via
-# the workers.dev edge (avoids CF Bot Fight on server-side fetches).
-# =====================================================================
-APP_VERSION = '1.0.1'
-DC_SCRIPT_ID = 'TPxi_AttendanceMarkings'
-DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
-DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
 
 # =====================================================================
 # HELPERS
@@ -141,34 +131,6 @@ def safe_id(s):
     if not s:
         return ''
     return re.sub(r'[^a-zA-Z0-9_-]', '_', str(s))[:80]
-
-# --- Auto-update helpers ---------------------------------------------------
-def is_admin():
-    """True if current user has the Admin role."""
-    try:
-        return bool(model.UserIsInRole('Admin'))
-    except:
-        return False
-
-def get_script_name():
-    """Detect the actual script name. Prefers JS-posted script_name, then URL,
-    then DC_SCRIPT_ID as fallback. Lets admins rename the script and have
-    auto-update still write to the right slot."""
-    try:
-        if hasattr(Data, 'va_script_name'):
-            sn = str(Data.va_script_name).strip()
-            if sn:
-                return sn
-    except:
-        pass
-    try:
-        url = str(getattr(model, 'URL', '') or '')
-        m = re.search(r'/PyScript(?:Form)?/([^/?#&]+)', url)
-        if m:
-            return m.group(1)
-    except:
-        pass
-    return DC_SCRIPT_ID
 
 def sql_in_list(int_list):
     """Build a SQL-safe comma list from a list of ints. Returns '0' if empty."""
@@ -390,9 +352,16 @@ def handle_search_involvements():
 # RESOLVE ORGS IN SCOPE
 # =====================================================================
 
-def resolve_orgs_for_session(config, date_iso):
+def resolve_orgs_for_session(config, date_iso, fallback_time_hhmm=None):
     """Returns list of org dicts in scope: [{orgId, orgName, programName,
-    divisionName, memberCount, schedTime (HH:MM or '')}]."""
+    divisionName, memberCount, schedTime (HH:MM), schedSource}].
+
+    schedSource is one of:
+      'meeting'  - existing Meeting row for this date
+      'series'   - MeetingSeries RRULE matched
+      'schedule' - OrgSchedule entry matched
+      'default'  - none of the above; schedTime reflects fallback_time_hhmm
+    """
     src = config.get('sourceType', 'program_division')
     only_with_meeting = bool(config.get('onlyWithMeeting', True))
     exclude_set = set(safe_int(o, 0) for o in (config.get('excludeOrgIds') or []))
@@ -555,12 +524,26 @@ def resolve_orgs_for_session(config, date_iso):
         if not candidate_ids:
             return []
 
-    # Build a unified "schedule time" map preferring most-specific source
-    for oid, t in meeting_time_by_org.items():
-        sched_time_by_org[oid] = t
+    # Build a unified "schedule time" map preferring most-specific source.
+    # Track which signal won so the UI can label confidence.
+    sched_source_by_org = {}
+    for oid in sched_time_by_org.keys():
+        sched_source_by_org[oid] = 'schedule'
     for oid, t in series_time_by_org.items():
         if oid not in meeting_time_by_org:
             sched_time_by_org[oid] = t
+            sched_source_by_org[oid] = 'series'
+    for oid, t in meeting_time_by_org.items():
+        sched_time_by_org[oid] = t
+        sched_source_by_org[oid] = 'meeting'
+
+    # Parse fallback time once
+    fb_hour, fb_min = 9, 0
+    if fallback_time_hhmm and re.match(r'^\d{1,2}:\d{2}$', fallback_time_hhmm.strip()):
+        _p = fallback_time_hhmm.strip().split(':')
+        fb_hour = safe_int(_p[0], 9) % 24
+        fb_min = safe_int(_p[1], 0) % 60
+    fallback_str = '%02d:%02d' % (fb_hour, fb_min)
 
     # Step 3: hydrate org details
     sql = """
@@ -579,11 +562,42 @@ def resolve_orgs_for_session(config, date_iso):
     for r in q.QuerySql(sql):
         st = sched_time_by_org.get(r.OrganizationId)
         sched_str = ''
+        sched_src = 'default'
         if st is not None:
+            # q.QuerySql may return Python datetime, .NET System.DateTime, or
+            # SqlDateTime depending on environment. Try each attribute shape.
+            sched_hr, sched_mn = None, None
             try:
-                sched_str = st.strftime('%H:%M')
+                sched_hr = int(st.hour)
+                sched_mn = int(st.minute)
             except:
-                sched_str = ''
+                pass
+            if sched_hr is None:
+                try:
+                    sched_hr = int(st.Hour)
+                    sched_mn = int(st.Minute)
+                except:
+                    pass
+            if sched_hr is None:
+                # Last resort: parse the string form (e.g. "5/18/2026 2:00:00 PM")
+                try:
+                    m = re.search(r'(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?', str(st), re.IGNORECASE)
+                    if m:
+                        sched_hr = int(m.group(1))
+                        sched_mn = int(m.group(2))
+                        ampm = (m.group(3) or '').upper()
+                        if ampm == 'PM' and sched_hr < 12:
+                            sched_hr += 12
+                        elif ampm == 'AM' and sched_hr == 12:
+                            sched_hr = 0
+                except:
+                    pass
+            if sched_hr is not None and sched_mn is not None:
+                sched_str = '%02d:%02d' % (sched_hr, sched_mn)
+                sched_src = sched_source_by_org.get(r.OrganizationId, 'schedule')
+        if not sched_str:
+            sched_str = fallback_str
+            sched_src = 'default'
         out.append({
             'orgId': r.OrganizationId,
             'orgName': safe_str(r.OrganizationName),
@@ -591,6 +605,7 @@ def resolve_orgs_for_session(config, date_iso):
             'programName': safe_str(r.ProgramName),
             'memberCount': r.MemberCount,
             'schedTime': sched_str,
+            'schedSource': sched_src,
         })
     return out
 
@@ -706,7 +721,7 @@ def handle_init_session():
             sess.setdefault('volunteers', []).append(volunteer)
         write_session(sess)
 
-        orgs = resolve_orgs_for_session(config, date_iso)
+        orgs = resolve_orgs_for_session(config, date_iso, sess.get('globalTime'))
         print json.dumps({
             'success': True,
             'config': config,
@@ -730,11 +745,10 @@ def handle_dashboard():
             print json.dumps({'success': False, 'message': 'Config not found'})
             return
 
-        orgs = resolve_orgs_for_session(config, date_iso)
+        sess = get_session(cfg_id, date_iso)
+        orgs = resolve_orgs_for_session(config, date_iso, sess.get('globalTime'))
         org_ids = [o['orgId'] for o in orgs]
         enrolled = get_enrolled_count_for_orgs(org_ids, config.get('excludeMemberTypes', ''))
-
-        sess = get_session(cfg_id, date_iso)
         sess_orgs = sess.get('orgs', {}) or {}
 
         # Build map of meetingId -> orgId for orgs that have a meeting recorded
@@ -771,6 +785,7 @@ def handle_dashboard():
                 'absent': counts['absent'],
                 'unmarked': unmarked_n,
                 'schedTime': o['schedTime'],
+                'schedSource': o.get('schedSource', 'default'),
                 'claimedBy': sst.get('claimedBy', ''),
                 'claimedAt': sst.get('claimedAt', ''),
                 'lastTouchBy': sst.get('lastTouchBy', ''),
@@ -918,14 +933,35 @@ def resolve_meeting_for_org(cfg_id, date_iso, org_id, sess, config):
             break
 
     # 4) Session globalTime fallback
-    hour, minute = 9, 0
+    hour, minute = None, None
     if resolved_time is not None:
+        # resolved_time may be Python datetime, .NET System.DateTime, or SqlDateTime
         try:
-            hour = resolved_time.hour
-            minute = resolved_time.minute
+            hour = int(resolved_time.hour)
+            minute = int(resolved_time.minute)
         except:
             pass
-    else:
+        if hour is None:
+            try:
+                hour = int(resolved_time.Hour)
+                minute = int(resolved_time.Minute)
+            except:
+                pass
+        if hour is None:
+            try:
+                m = re.search(r'(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?', str(resolved_time), re.IGNORECASE)
+                if m:
+                    hour = int(m.group(1))
+                    minute = int(m.group(2))
+                    ampm = (m.group(3) or '').upper()
+                    if ampm == 'PM' and hour < 12:
+                        hour += 12
+                    elif ampm == 'AM' and hour == 12:
+                        hour = 0
+            except:
+                pass
+    if hour is None:
+        hour, minute = 9, 0
         gt = (sess.get('globalTime') or '09:00').strip()
         if re.match(r'^\d{1,2}:\d{2}$', gt):
             parts = gt.split(':')
@@ -1104,13 +1140,31 @@ def handle_finalize_org():
         skipped = 0
         if default_state in ('present', 'absent'):
             attended = (default_state == 'present')
-            for row in roster:
-                if row['state'] == 'unmarked':
-                    try:
-                        model.EditPersonAttendance(int(meeting_id), int(row['peopleId']), attended)
-                        applied += 1
-                    except:
-                        skipped += 1
+            # Collect unmarked candidates, then re-verify against Attend table
+            # immediately before writing. Closes the race where a per-click
+            # write committed AFTER get_roster's read but BEFORE finalize's
+            # write — without this, we'd overwrite their Present mark with the
+            # default Absent.
+            candidate_ids = [int(row['peopleId']) for row in roster if row['state'] == 'unmarked']
+            still_unmarked = set(candidate_ids)
+            if candidate_ids:
+                check_sql = """
+                    SELECT PeopleId FROM Attend WITH (NOLOCK)
+                    WHERE MeetingId = {0}
+                        AND PeopleId IN ({1})
+                        AND AttendanceFlag IS NOT NULL
+                """.format(int(meeting_id), sql_in_list(candidate_ids))
+                for r in q.QuerySql(check_sql):
+                    still_unmarked.discard(int(r.PeopleId))
+            for pid in candidate_ids:
+                if pid not in still_unmarked:
+                    skipped += 1
+                    continue
+                try:
+                    model.EditPersonAttendance(int(meeting_id), pid, attended)
+                    applied += 1
+                except:
+                    skipped += 1
 
         sess = get_session(cfg_id, date_iso)
         sst = sess.get('orgs', {}).setdefault(str(org_id), {})
@@ -1320,30 +1374,6 @@ def handle_add_walkin_existing():
     except Exception as e:
         print json.dumps({'success': False, 'message': 'Add walk-in failed: ' + str(e)})
 
-def handle_apply_update():
-    """Admin-only: fetch the latest script from DisplayCache and overwrite the
-    installed copy. Uses workers.dev edge to avoid Cloudflare Bot Fight Mode
-    which blocks server-side fetches to the public domain."""
-    if not is_admin():
-        print json.dumps({'success': False, 'message': 'Admin role required to update'})
-        return
-    new_code = ''
-    try:
-        fetch_url = DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID
-        new_code = str(model.RestGet(fetch_url, {}))
-    except Exception as fe:
-        print json.dumps({'success': False, 'message': 'Fetch failed: ' + str(fe)})
-        return
-    if not new_code or len(new_code) < 200:
-        print json.dumps({'success': False, 'message': 'Invalid or empty script content received'})
-        return
-    target_name = get_script_name() or DC_SCRIPT_ID
-    try:
-        model.WriteContentPython(target_name, new_code)
-        print json.dumps({'success': True, 'message': 'Updated ' + target_name + '. Reload the page.'})
-    except Exception as we:
-        print json.dumps({'success': False, 'message': 'Write failed: ' + str(we)})
-
 def handle_create_walkin():
     """Create a brand-new person via AddPerson + add to org + mark present."""
     try:
@@ -1471,8 +1501,6 @@ if model.HttpMethod == "post":
         handle_add_walkin_existing()
     elif action == 'create_walkin':
         handle_create_walkin()
-    elif action == 'apply_update':
-        handle_apply_update()
     else:
         print json.dumps({'success': False, 'message': 'Unknown action: ' + safe_str(action)})
 
@@ -1528,8 +1556,12 @@ else:
     .va-dashboard-row.va-completed:hover { opacity: 1; }
     .va-dashboard-row.va-claimed-other { border-left: 4px solid #e67e22; }
     .va-dashboard-row.va-claimed-self { border-left: 4px solid #1f4e79; }
-    .va-org-name { font-weight: 700; font-size: 15px; flex: 1 1 240px; }
+    .va-org-name-wrap { display: flex; align-items: center; gap: 8px; flex: 1 1 240px; flex-wrap: wrap; }
+    .va-org-name { font-weight: 700; font-size: 15px; }
     .va-org-meta { font-size: 12px; color: #666; flex: 0 0 auto; }
+    .va-time-chip { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; cursor: help; }
+    .va-time-chip.va-time-ok { background: #e3f0e6; color: #1f6b3a; border: 1px solid #b8e0c4; }
+    .va-time-chip.va-time-warn { background: #fff4e0; color: #8a5a00; border: 1px solid #f0c870; }
     .va-counts { display: flex; gap: 4px; flex-wrap: wrap; }
     .va-count-chip { padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
     .va-count-chip.va-p { background: #d4f0db; color: #1f6b3a; }
@@ -1600,8 +1632,6 @@ else:
         walkInSearch: '',     // current search term in walk-in panel
         walkInCreateOpen: false, // "create new" subform toggle
         dashboardFilter: 'all', // 'all' | 'not_started' | 'in_progress' | 'done'
-        appUpdateAvailable: false,
-        appLatestVersion: '',
       };
 
       var root = document.getElementById('vaRoot');
@@ -1705,19 +1735,6 @@ else:
           ])
         ]);
         root.appendChild(head);
-
-        // Auto-update banner — admin-only, only when an update is available
-        if (window.VA_IS_ADMIN && state.appUpdateAvailable) {
-          var banner = el('div', {style:'background:#e8f0fd;border:1px solid #cfe3ff;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;'}, [
-            el('div', {style:'font-size:18px'}, '🚀'),
-            el('div', {style:'flex:1;font-size:12px;color:#0078d4'}, [
-              el('strong', null, 'Attendance Markings update available'),
-              ' — you have v', window.VA_APP_VERSION || '', ', latest is v', state.appLatestVersion || '', '. Your configs and session data are preserved.'
-            ]),
-            el('button', {id:'va_update_btn', class:'va-btn va-sm', onclick: applyAppUpdate}, 'Update Now')
-          ]);
-          root.appendChild(banner);
-        }
 
         var card = el('div', {class:'va-card'});
         if (!state.configs.length) {
@@ -2229,16 +2246,53 @@ else:
           var meta = [];
           if (r.programName) meta.push(r.programName);
           if (r.divisionName) meta.push(r.divisionName);
-          if (r.schedTime) meta.push(r.schedTime);
           meta.push(r.enrolled + ' enrolled');
 
+          // Time chip — green when resolver found a definite source, amber when falling
+          // back to the session default (the case where staff most needs to verify).
+          var timeChip = null;
+          if (r.schedTime) {
+            var src = r.schedSource || 'default';
+            var label, klass;
+            if (src === 'meeting') {
+              label = 'Existing meeting at this time';
+              klass = 'va-time-chip va-time-ok';
+            } else if (src === 'series') {
+              label = 'From recurring schedule (Scheduler)';
+              klass = 'va-time-chip va-time-ok';
+            } else if (src === 'schedule') {
+              label = 'From weekly schedule (Settings > Attendance)';
+              klass = 'va-time-chip va-time-ok';
+            } else {
+              label = 'No schedule found — will use default. Set one on the involvement or update Global Meeting Time.';
+              klass = 'va-time-chip va-time-warn';
+            }
+            timeChip = el('span', {class:klass, title:label}, formatTime12(r.schedTime));
+          }
+
+          var nameWrap = el('div', {class:'va-org-name-wrap'}, [
+            el('span', {class:'va-org-name'}, r.orgName),
+          ]);
+          if (timeChip) nameWrap.appendChild(timeChip);
+
           var row = el('div', {class: classes.join(' '), onclick: function(){ openRoster(r); }}, [
-            el('div', {class:'va-org-name'}, r.orgName),
+            nameWrap,
             el('div', {class:'va-org-meta'}, meta.join(' · ')),
             statusPill,
             counts,
           ]);
           return row;
+        }
+
+        function formatTime12(hhmm) {
+          if (!hhmm) return '';
+          var parts = String(hhmm).split(':');
+          var h = parseInt(parts[0], 10);
+          var m = parts[1] || '00';
+          if (isNaN(h)) return hhmm;
+          var ampm = h >= 12 ? 'PM' : 'AM';
+          var h12 = h % 12; if (h12 === 0) h12 = 12;
+          return h12 + ':' + m + ' ' + ampm;
         }
 
         loadDashboard();
@@ -2344,7 +2398,7 @@ else:
           if (o.meetingId) {
             actions.appendChild(el('a', {
               class: 'va-btn va-secondary',
-              href: '/Meeting/MeetingDetails/' + o.meetingId,
+              href: '/Meeting/' + o.meetingId,
               target: '_blank',
               title: 'Set HeadCount, NumNewVisit, etc. in TouchPoint'
             }, 'Headcount in TouchPoint ↗'));
@@ -2582,6 +2636,15 @@ else:
         }
 
         function finalizeOrg() {
+          // Block finalize while any per-click writes are still in flight, or
+          // the server may read the roster before the click's Attend row commits
+          // and overwrite the mark with the default state.
+          var pendingCount = o.roster.filter(function(p){ return p._pending; }).length;
+          if (pendingCount > 0) {
+            toast('Hold on — ' + pendingCount + ' mark(s) still saving. Retrying in a moment...', 'info');
+            setTimeout(finalizeOrg, 600);
+            return;
+          }
           if (o.defaultState === 'unmarked') {
             var unmarkedCount = o.roster.filter(function(p){ return p.state === 'unmarked'; }).length;
             if (unmarkedCount > 0) {
@@ -2632,50 +2695,8 @@ else:
         render();
       }
 
-      // ----------------- auto-update check -----------------
-      function checkForAppUpdate() {
-        // Browser-side fetch — scripts.displaycache.com is whitelisted by CF
-        // for browser traffic. Server-side fetches use workers.dev to bypass CF.
-        if (!window.VA_IS_ADMIN || !window.VA_DC_API_BASE || !window.VA_DC_SCRIPT_ID) return;
-        try {
-          var xhr = new XMLHttpRequest();
-          xhr.open('GET', window.VA_DC_API_BASE + '/script-versions', true);
-          xhr.timeout = 5000;
-          xhr.onreadystatechange = function() {
-            if (xhr.readyState !== 4) return;
-            if (xhr.status !== 200) return;
-            try {
-              var versions = JSON.parse(xhr.responseText);
-              var latest = versions[window.VA_DC_SCRIPT_ID];
-              if (latest && latest !== window.VA_APP_VERSION) {
-                state.appUpdateAvailable = true;
-                state.appLatestVersion = latest;
-                if (state.view === 'landing') render();
-              }
-            } catch(e) {}
-          };
-          xhr.send();
-        } catch(e) {}
-      }
-
-      function applyAppUpdate() {
-        if (!confirm('Update Attendance Markings from v' + (window.VA_APP_VERSION || '?') + ' to v' + (state.appLatestVersion || '?') + '?\n\nYour configs, session data, and audit logs are stored separately and will be preserved.')) return;
-        var btn = document.getElementById('va_update_btn');
-        if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
-        ajax('apply_update', {}, function(err, resp){
-          if (err || !resp || !resp.success) {
-            toast('Update failed: ' + ((resp && resp.message) || err || 'unknown'), 'error');
-            if (btn) { btn.disabled = false; btn.textContent = 'Update Now'; }
-            return;
-          }
-          toast(resp.message || 'Updated. Reloading…', 'success');
-          setTimeout(function(){ window.location.reload(true); }, 1500);
-        });
-      }
-
       // ----------------- bootstrap -----------------
       loadConfigs(render);
-      checkForAppUpdate();
     })();
     </script>
     """
@@ -2686,14 +2707,4 @@ else:
     </div>
     """
 
-    # Constants injected for client-side access (auto-update, admin gating, etc.)
-    meta_script = (
-        '<script>'
-        + 'window.VA_APP_VERSION=' + json.dumps(APP_VERSION) + ';'
-        + 'window.VA_IS_ADMIN=' + ('true' if is_admin() else 'false') + ';'
-        + 'window.VA_DC_API_BASE=' + json.dumps(DC_API_BASE) + ';'
-        + 'window.VA_DC_SCRIPT_ID=' + json.dumps(DC_SCRIPT_ID) + ';'
-        + '</script>'
-    )
-
-    model.Form = css + meta_script + body + js
+    model.Form = css + body + js
