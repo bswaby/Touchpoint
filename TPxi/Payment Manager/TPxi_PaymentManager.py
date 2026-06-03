@@ -38,6 +38,86 @@ To upload code to Touchpoint, use the following steps:
 
 Changelog
 ---------
+v2.4.16 - May 2026
+  - Fixed: Multi-person family registrations weren't being flagged as
+           refund-driven. Example: one parent paid the full reg total
+           for two kids; the refund returned the full amount; each
+           kid's individual IndDue (half the reg) didn't match the
+           refund (full reg), so neither row got the flag. Detection
+           now compares the refund amount against the RegId's TOTAL
+           IndDue summed across all co-registrants. Both kids' rows
+           flag and clear together.
+  - Added: Visual connection on the Outstanding row -- when a refund
+           covers multiple people, an amber "linked: <name>, <name>"
+           chip appears under the refund-issued pill so staff see
+           exactly who's tied together.
+  - Added: Zero Out button auto-labels with the person count
+           ("Zero Out (2 people)") and the confirmation dialog lists
+           every co-registrant who will be cleared. Server-side
+           process_zero_out_refund now finds all co-registrants on
+           the shared RegId and applies an AdjustFee credit to each
+           in one call -- so no one is left dangling after the click.
+
+v2.4.15 - May 2026
+  - Fixed: SQL error "Column 'TransactionSummary.OrganizationId' is
+           invalid in the select list because it is not contained in
+           either an aggregate function or the GROUP BY clause"
+           caused by v2.4.14's IsRefundDriven subquery referencing
+           ts.OrganizationId when the outer query groups by
+           o.OrganizationId. Switched the subquery's filter to use
+           o.OrganizationId (same value via the LEFT JOIN, but
+           visible inside the GROUP BY).
+
+v2.4.14 - May 2026
+  - Added: Refund-driven Outstanding rows are now visually flagged
+           AND can be cleared with one click. SQL adds an
+           IsRefundDriven flag per row -- TRUE when the most recent
+           transaction on that (PeopleId, OrgId) is a refund whose
+           amount equals the current outstanding (within a cent).
+           When TRUE the row renders a red "refund issued" pill under
+           the dollar amount and a "Zero Out" button next to it.
+  - Added: Zero Out action posts an AdjustFee credit equal to the
+           outstanding so the person no longer appears in Outstanding
+           Balances. Description is ADJ|Refund cleared: not actually
+           due (auto-zeroed), so the Payment History breakdown still
+           shows the original payment, the refund, and the new
+           clearing adjustment for a complete audit trail. Server
+           cross-checks the client-supplied amount against actual
+           IndDue before posting -- if anything changed since the
+           page loaded (race condition), it bails out with a refresh
+           prompt instead of over-crediting.
+
+v2.4.13 - May 2026
+  - Added: "Refund" checkbox in the Receipts payment-type filter
+           (sixth option, default OFF). Behavior:
+             * Refund alone -> all refunds across CC/CHK/CSH/Coupon
+             * Refund + Check -> Check payments AND Check refunds
+             * Check alone -> only positive-amt Check rows (no refunds)
+           Other type checkboxes default to "amt > 0" when Refund is
+           unchecked so the receipt list stays pure-payments unless
+           you opt in. Refund rows render with a red pill so they're
+           hard to miss.
+
+v2.4.12 - May 2026
+  - Fixed: Refund-detection split (v2.4.8) was only applied to the
+           Receipts list, not to the inline Payment History breakdown.
+           Result: a CC payment that was later refunded still showed
+           as "Credit Card" instead of "Refund" when you expanded the
+           Outstanding row. Added the same amt-sign rule to the
+           breakdown's Kind CASE: Response: / CHK / CSH with amt<0
+           now classify as "Refund" / "Check Refund" / "Cash Refund".
+           Refund pills render in red so staff don't accidentally
+           chase a balance the church already returned.
+
+v2.4.11 - May 2026
+  - UX:    Outstanding-amount cell now has a "payment history >>"
+           sub-label and a clearer tooltip so the inline expand is
+           discoverable at a glance. Old "Transactions" button in the
+           History column renamed to "All-Org History" with a tooltip
+           explaining the scope difference -- the inline caret is the
+           per-involvement payment history, the button is the full
+           cross-involvement view (separate page).
+
 v2.4.10 - May 2026
   - Added: Post-write verification. After WriteContentPython succeeds,
            we read the saved script back via model.PythonContent and
@@ -298,7 +378,7 @@ from collections import defaultdict
 # =====================================================================
 # VERSION / AUTO-UPDATE  (matches the TPxi house pattern)
 # =====================================================================
-APP_VERSION = '2.4.10'
+APP_VERSION = '2.4.16'
 DC_SCRIPT_ID = 'TPxi_PaymentManager'
 DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
 DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
@@ -675,7 +755,7 @@ try:
                 where_clause += " AND p.LastName LIKE '{0}%'".format(self.search_filters['last_name'])
                 
             sql = """
-            SELECT 
+            SELECT
                 pro.Name AS Program,
                 pro.Id AS ProgramId,
                 d.Name AS Division,
@@ -694,14 +774,73 @@ try:
                 SUM(ts.TotPaid) AS Paid,
                 SUM(ts.TotCoupon) AS Coupons,
                 SUM(ts.IndDue) AS Outstanding,
-                ts.TranDate
+                ts.TranDate,
+                -- Refund-driven flag: TRUE when the most recent
+                -- Transaction tied to this (PeopleId, OrgId) is a
+                -- refund (Response:/CHK/CSH with amt<0) AND the
+                -- refunded amount equals the current outstanding to
+                -- within a cent. This is the "they paid then we
+                -- refunded; now they appear to owe but they don't"
+                -- pattern -- staff shouldn't be chasing these.
+                -- Refund-driven detection. Compares the refund amount
+                -- against the TOTAL IndDue across the whole RegId, not
+                -- just this person's slice. Catches both:
+                --   * single-person refund (their slice == reg total)
+                --   * multi-person family registration where one
+                --     payer covered everyone (e.g. one parent paid for
+                --     two kids, refund returned the whole amount, now
+                --     each kid's row shows $75 outstanding individually
+                --     but the RegId total matches the refund).
+                (
+                    SELECT TOP 1
+                        CASE WHEN tlast.amt < 0
+                               AND (tlast.[Message] LIKE 'CHK%'
+                                    OR tlast.[Message] LIKE 'CSH%'
+                                    OR tlast.[Message] LIKE 'Response%')
+                               AND ABS(ABS(tlast.amt) - (
+                                    SELECT SUM(ISNULL(IndDue, 0))
+                                    FROM TransactionSummary
+                                    WHERE RegId = tlast.OriginalId AND IsLatestTransaction = 1
+                               )) < 0.01
+                             THEN 1 ELSE 0 END
+                    FROM TransactionSummary tslast
+                    INNER JOIN [Transaction] tlast ON tslast.RegId = tlast.OriginalId
+                    WHERE tslast.PeopleId = ts.PeopleId
+                      AND tslast.OrganizationId = o.OrganizationId
+                      AND tslast.IsLatestTransaction = 1
+                      AND tlast.amt <> 0
+                      AND tlast.voided IS NULL
+                    ORDER BY tlast.TransactionDate DESC
+                ) AS IsRefundDriven,
+                -- Comma-separated list of OTHER people on the same
+                -- RegId who also have IndDue > 0. Empty string for
+                -- solo registrations. Lets the UI show staff the
+                -- visual connection: "this refund affects Tanner +
+                -- Sarah Krantz, both will be zeroed together".
+                ISNULL((
+                    SELECT STUFF((
+                        SELECT ', ' + p2.Name
+                        FROM TransactionSummary ts2
+                        INNER JOIN People p2 ON p2.PeopleId = ts2.PeopleId
+                        WHERE ts2.RegId IN (
+                            SELECT RegId FROM TransactionSummary
+                            WHERE PeopleId = ts.PeopleId
+                              AND OrganizationId = o.OrganizationId
+                              AND IsLatestTransaction = 1
+                        )
+                          AND ts2.IsLatestTransaction = 1
+                          AND ts2.IndDue > 0
+                          AND ts2.PeopleId <> ts.PeopleId
+                        FOR XML PATH('')
+                    ), 1, 2, '')
+                ), '') AS CoRegistrantNames
             FROM [TransactionSummary] ts
             INNER JOIN [People] p ON ts.PeopleId = p.PeopleId
             LEFT JOIN Organizations o ON o.OrganizationId = ts.OrganizationId
             LEFT JOIN Division d ON d.Id = o.DivisionId
             LEFT JOIN Program pro ON pro.Id = d.ProgId
             WHERE {0}
-            GROUP BY 
+            GROUP BY
                 d.Name, o.OrganizationName, o.OrganizationId, pro.Name, pro.Id,
                 d.Name, d.Id, ts.PeopleId, p.Name2, p.Age, p.FirstName, p.LastName,
                 p.EmailAddress, p.CellPhone, p.HomePhone, p.FamilyId, ts.TranDate
@@ -802,7 +941,15 @@ try:
                     ISNULL(t.[Description], '') AS Description,
                     t.amt                       AS RawAmt,
                     t.amtdue                    AS AmtDue,
-                    CASE WHEN t.[Message] LIKE 'CHK%'                     THEN 'Check'
+                    -- Refund rows (negative amt with a payment-shaped
+                    -- Message) must be classified BEFORE the generic
+                    -- payment patterns, otherwise a 'Response: CC' row
+                    -- with amt=-75 (the bank reversed a payment) ends
+                    -- up labeled "Credit Card" instead of "Refund".
+                    CASE WHEN t.[Message] LIKE 'CHK%' AND t.amt < 0      THEN 'Check Refund'
+                         WHEN t.[Message] LIKE 'CSH%' AND t.amt < 0      THEN 'Cash Refund'
+                         WHEN t.[Message] LIKE 'Response%' AND t.amt < 0 THEN 'Refund'
+                         WHEN t.[Message] LIKE 'CHK%'                     THEN 'Check'
                          WHEN t.[Message] LIKE 'CSH%'                     THEN 'Cash'
                          WHEN t.[Message] LIKE 'Response%'                THEN 'Credit Card'
                          WHEN t.TransactionId LIKE 'Coupon%'              THEN 'Coupon'
@@ -1059,6 +1206,100 @@ try:
                 return self.create_json_response(False, "Nothing sent")
             except Exception as e:
                 return self.create_json_response(False, "Error processing payment link: " + str(e))
+
+        def process_zero_out_refund(self):
+            """One-click clear of a refund-driven outstanding balance.
+
+            For SINGLE-person registrations: applies an AdjustFee
+            credit equal to the person's IndDue.
+
+            For MULTI-person registrations (e.g. one payer covered the
+            whole family, then everyone was refunded together): clears
+            EVERY co-registrant on the same RegId. Without this, a
+            family of four would need four separate Zero Out clicks
+            and the IsRefundDriven flag would stop firing after the
+            first one (the RegId total IndDue would no longer match
+            the refund). Single transaction, single audit-line per
+            person ('ADJ|Refund cleared: not actually due').
+
+            Original payment + refund rows are preserved in the
+            Transaction table -- only clean ADJ| audit rows are added.
+            """
+            try:
+                payer_id = str(getattr(model.Data, 'pid', '') or '').strip()
+                org_id   = str(getattr(model.Data, 'PaymentOrg', '') or '').strip()
+                amount   = str(getattr(model.Data, 'amount', '') or '').strip()
+                if not payer_id or not org_id:
+                    return self.create_json_response(False, "Missing payer or involvement")
+                try:
+                    amt = float(amount)
+                except:
+                    return self.create_json_response(False, "Invalid amount")
+                if amt <= 0:
+                    return self.create_json_response(False, "Amount must be greater than zero")
+                # Cross-check the clicked person's IndDue first.
+                try:
+                    bres = list(q.QuerySql(
+                        "SELECT SUM(ISNULL(IndDue, 0)) AS B FROM dbo.TransactionSummary "
+                        "WHERE PeopleId = {0} AND OrganizationId = {1}"
+                        .format(int(payer_id), int(org_id))
+                    ))
+                    actual_due = float(getattr(bres[0], 'B', 0) or 0) if bres else 0.0
+                except:
+                    actual_due = None
+                if actual_due is None or abs(actual_due - amt) > 0.01:
+                    return self.create_json_response(False,
+                        "Outstanding has changed since this page loaded "
+                        "(now $" + ('{:,.2f}'.format(actual_due) if actual_due is not None else '?') +
+                        " vs $" + '{:,.2f}'.format(amt) + " on screen). Refresh and try again.")
+                # Find ALL co-registrants on the same RegId(s) with
+                # IndDue > 0. A multi-person family registration will
+                # produce >1 row here; a solo registration just 1.
+                try:
+                    coreg_sql = """
+                        SELECT ts.PeopleId, ts.IndDue, ISNULL(p.Name, '') AS PersonName
+                        FROM TransactionSummary ts
+                        INNER JOIN People p ON p.PeopleId = ts.PeopleId
+                        WHERE ts.RegId IN (
+                            SELECT RegId FROM TransactionSummary
+                            WHERE PeopleId = {0} AND OrganizationId = {1}
+                              AND IsLatestTransaction = 1
+                        )
+                          AND ts.IsLatestTransaction = 1
+                          AND ts.IndDue > 0
+                    """.format(int(payer_id), int(org_id))
+                    coregs = list(q.QuerySql(coreg_sql))
+                except Exception as ce:
+                    return self.create_json_response(False, "Failed to look up co-registrants: " + str(ce))
+                if not coregs:
+                    return self.create_json_response(False, "No outstanding rows found for this registration.")
+                cleared = []
+                errors = []
+                for r in coregs:
+                    try:
+                        cpid = int(getattr(r, 'PeopleId', 0) or 0)
+                        camt = float(getattr(r, 'IndDue', 0) or 0)
+                        cname = str(getattr(r, 'PersonName', '') or '')
+                        if cpid and camt > 0:
+                            model.AdjustFee(cpid, int(org_id), camt,
+                                            'ADJ|Refund cleared: not actually due (auto-zeroed)')
+                            cleared.append(cname + ' $' + '{:,.2f}'.format(camt))
+                    except Exception as ae:
+                        errors.append(str(getattr(r, 'PersonName', '?')) + ': ' + str(ae))
+                if not cleared:
+                    return self.create_json_response(False,
+                        "Nothing cleared. " + ('; '.join(errors) if errors else ''))
+                msg = "Cleared " + str(len(cleared)) + " row(s)"
+                if len(cleared) > 1:
+                    msg += " on this registration: " + ', '.join(cleared)
+                else:
+                    msg += " (" + cleared[0] + ")"
+                if errors:
+                    msg += ". WARNING: " + '; '.join(errors)
+                msg += ". Refund audit preserved in Payment History."
+                return self.create_json_response(True, msg)
+            except Exception as e:
+                return self.create_json_response(False, "Error zeroing balance: " + str(e))
 
         def process_adjust_balance(self):
             """Adjust a payer's balance for a given involvement.
@@ -1433,38 +1674,44 @@ try:
                     last4_filter = last4_filter[-4:]
                 if not date_from or not date_to:
                     return self.create_json_response(False, "Both From and To dates are required")
-                # Build the type filter. Check/Cash respect include_external
-                # (PM signature vs all CHK/CSH). Credit Card and Coupon are
-                # never PM-originated, so they're shown whenever selected
-                # regardless of the include_external toggle.
+                # Build the type filter.
+                #
+                # "Refund" is a sixth checkbox that toggles whether
+                # negative-amt rows (money-out reversals) are included.
+                # When unchecked, every other payment-type clause adds
+                # 'AND amt > 0' so reversals are kept out -- pure
+                # payment receipts only. When checked alongside another
+                # type, both payments AND reversals of that type show.
+                # When checked alone, refunds of any type show.
+                want_refund = 'refund' in selected_types
+                # Sign filter applied to the non-refund clauses. When
+                # refund is unchecked we restrict to positive amt; when
+                # refund is checked we leave the sign open so each
+                # type's checkbox effectively means "any direction".
+                amt_sign = '' if want_refund else ' AND t.amt > 0'
                 type_clauses = []
                 if 'check' in selected_types:
                     if include_external:
-                        type_clauses.append("t.[Message] LIKE 'CHK%'")
+                        type_clauses.append("(t.[Message] LIKE 'CHK%'" + amt_sign + ")")
                     else:
-                        type_clauses.append("t.[Message] LIKE '" + pm_chk + "%'")
+                        type_clauses.append("(t.[Message] LIKE '" + pm_chk + "%'" + amt_sign + ")")
                 if 'cash' in selected_types:
                     if include_external:
-                        type_clauses.append("t.[Message] LIKE 'CSH%'")
+                        type_clauses.append("(t.[Message] LIKE 'CSH%'" + amt_sign + ")")
                     else:
-                        type_clauses.append("t.[Message] LIKE '" + pm_csh + "%'")
+                        type_clauses.append("(t.[Message] LIKE '" + pm_csh + "%'" + amt_sign + ")")
                 if 'credit' in selected_types or 'creditcard' in selected_types or 'cc' in selected_types:
-                    type_clauses.append("t.[Message] LIKE 'Response%'")
+                    type_clauses.append("(t.[Message] LIKE 'Response%'" + amt_sign + ")")
                 if 'coupon' in selected_types:
-                    # Coupons live in Transaction too, but their Message is
-                    # usually NULL -- we identify them by TransactionId.
-                    type_clauses.append("t.TransactionId LIKE 'Coupon%'")
+                    # Coupons identified by TransactionId; sign filter
+                    # applies the same way.
+                    type_clauses.append("(t.TransactionId LIKE 'Coupon%'" + amt_sign + ")")
                 if 'other' in selected_types:
-                    # Money-in entries (positive amt = church received
-                    # money) that don't carry one of the standard
-                    # prefixes. Catches TouchPoint-direct check/cash
-                    # entries, ACH, wire transfers, scholarships, and
-                    # any other manually-recorded payments -- including
-                    # entries where amtdue=0 because they were offset
-                    # against an implicit charge (the amtdue<0 filter
-                    # used to miss those). Excludes adjustment / fee /
-                    # variable patterns since those are charges, not
-                    # payments received.
+                    # Money-in entries that don't carry one of the
+                    # standard prefixes. Always amt > 0 here regardless
+                    # of refund checkbox -- refunds of unprefixed
+                    # entries are caught by the refund clause below
+                    # via the payment-shape catch-all.
                     type_clauses.append(
                         "(t.amt > 0 "
                         "  AND t.[Message] NOT LIKE 'CHK%' "
@@ -1475,6 +1722,29 @@ try:
                         "  AND ISNULL(t.[Message], '') NOT LIKE 'FEE|%' "
                         "  AND ISNULL(t.[Message], '') NOT LIKE 'variable%')"
                     )
+                if want_refund:
+                    # Refund = negative amt on a payment-shaped row.
+                    # When the user picks ONLY refund, this is the only
+                    # clause that fires; when they pick refund alongside
+                    # CC (etc.), the CC clause already has no amt sign
+                    # filter so refunds for that method are included --
+                    # but this clause also adds refunds for any payment
+                    # methods the user didn't explicitly check. Avoid
+                    # double-counting by skipping methods already
+                    # selected.
+                    refund_methods = []
+                    if 'check' not in selected_types:
+                        refund_methods.append("t.[Message] LIKE 'CHK%'")
+                    if 'cash' not in selected_types:
+                        refund_methods.append("t.[Message] LIKE 'CSH%'")
+                    if not any(k in selected_types for k in ('credit', 'creditcard', 'cc')):
+                        refund_methods.append("t.[Message] LIKE 'Response%'")
+                    if 'coupon' not in selected_types:
+                        refund_methods.append("t.TransactionId LIKE 'Coupon%'")
+                    if refund_methods:
+                        type_clauses.append(
+                            "(t.amt < 0 AND (" + " OR ".join(refund_methods) + "))"
+                        )
                 if not type_clauses:
                     return self.create_json_response(False, "Pick at least one payment type")
                 type_sql = '(' + ' OR '.join(type_clauses) + ')'
@@ -2530,7 +2800,9 @@ try:
                 for payer in payers:
                     outstanding = float(self.safe_get_attr(payer, 'Outstanding', 0) or 0)
                     total_outstanding += outstanding
-                    
+                    is_refund_driven = int(self.safe_get_attr(payer, 'IsRefundDriven', 0) or 0) == 1
+                    coregistrant_names = str(self.safe_get_attr(payer, 'CoRegistrantNames', '') or '').strip()
+
                     # Get payer details safely
                     payer_name = self.safe_get_attr(payer, 'Name2', 'Unknown')
                     payer_id = self.safe_get_attr(payer, 'PeopleId', 0)
@@ -2591,7 +2863,82 @@ try:
                             outstanding,
                             cc_emails
                         )
-                    
+
+                    # Refund-driven row: badge + one-click Zero Out.
+                    # When co-registrants share the same RegId (e.g. a
+                    # family signed up together and got refunded), show
+                    # their names so staff can SEE the connection, and
+                    # update the Zero Out button to indicate "N people"
+                    # so they know it will clear everyone in one shot.
+                    refund_badge_html = ''
+                    if is_refund_driven and outstanding > 0:
+                        esc_name = payer_name.replace("'", "\\'")
+                        coreg_list = [n.strip() for n in coregistrant_names.split(',') if n.strip()]
+                        coreg_count = len(coreg_list)
+                        # Visual link to co-registrants -- amber chip
+                        # under the refund pill listing the names.
+                        coreg_chip = ''
+                        if coreg_count > 0:
+                            others_str = ', '.join(coreg_list)
+                            coreg_chip = (
+                                '<div style="margin-top:3px;display:inline-flex;align-items:center;gap:4px;'
+                                'background:#fff4ce;color:#7a5c00;padding:2px 8px;border-radius:10px;'
+                                'font-size:10px;font-weight:600;cursor:help;border:1px solid #f4d35e;" '
+                                'title="This refund was for a multi-person registration. Zero Out will clear '
+                                'all of them together so no one is left dangling.">'
+                                '<i class="fa fa-link"></i> linked: ' + others_str +
+                                '</div>'
+                            )
+                        # Zero Out button label reflects multi-person
+                        # so staff aren't surprised when their click
+                        # clears co-registrants too.
+                        if coreg_count > 0:
+                            btn_label = 'Zero Out (' + str(coreg_count + 1) + ' people)'
+                            btn_title = ('Apply a credit to ALL ' + str(coreg_count + 1) +
+                                         ' people on this registration (' + payer_name + ' + ' +
+                                         ', '.join(coreg_list) + ') so the whole group disappears from '
+                                         'Outstanding Balances together. Audit trail preserved per person.')
+                        else:
+                            btn_label = 'Zero Out'
+                            btn_title = ('Apply a credit equal to the outstanding amount so this person '
+                                         'no longer appears in Outstanding Balances. Posts an '
+                                         'ADJ|Refund-cleared adjustment for audit.')
+                        # Build the onclick string cleanly. JS signature:
+                        # pmZeroOutRefund(payerId, orgId, payerName,
+                        # outstanding, coregCount, coregNamesStr).
+                        if coreg_count > 0:
+                            safe_others = others_str.replace("\\", "\\\\").replace("'", "\\'")
+                        else:
+                            safe_others = ''
+                        onclick_call = (
+                            "pmZeroOutRefund(" +
+                            str(payer_id) + ", " +
+                            str(org_id or 0) + ", " +
+                            "'" + esc_name + "', " +
+                            str(outstanding) + ", " +
+                            str(coreg_count) + ", " +
+                            "'" + safe_others + "'" +
+                            ")"
+                        )
+                        refund_badge_html = (
+                            '<div style="margin-top:3px;display:inline-flex;align-items:center;gap:4px;'
+                            'background:#f8d7da;color:#a8071a;padding:2px 8px;border-radius:10px;'
+                            'font-size:10px;font-weight:700;cursor:help;" '
+                            'title="The most recent activity on this registration was a refund matching the registration total. '
+                            'The person(s) were refunded -- they do not actually owe. Use Zero Out to clear the balance.">'
+                            '<i class="fa fa-undo"></i> refund issued'
+                            '</div>'
+                            + coreg_chip +
+                            '<div style="margin-top:4px;">'
+                            '<button class="btn btn-sm" '
+                            'onclick="' + onclick_call + '" '
+                            'style="padding:2px 8px;font-size:11px;background:#a8071a;color:#fff;'
+                            'border:none;border-radius:4px;cursor:pointer;font-weight:600;" '
+                            'title="' + btn_title + '">'
+                            '<i class="fa fa-eraser"></i> ' + btn_label +
+                            '</button></div>'
+                        )
+
                     html += """
                                 <tr>
                                     <td>
@@ -2614,10 +2961,12 @@ try:
                                         <a href="javascript:void(0)"
                                            onclick="pmToggleChargeDetails(this, {2}, {9})"
                                            style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:6px;cursor:pointer;"
-                                           title="Click to see what charges produced this balance">
+                                           title="Toggle payment history for this involvement -- charges, payments, adjustments, and running balance">
                                             <i class="fa fa-caret-right pm-charge-toggle" style="color:#666;transition:transform 0.15s;"></i>
                                             <span>{7}</span>
                                         </a>
+                                        {10}
+                                        <div style="font-size:10px;color:#999;margin-top:2px;line-height:1;">payment history &raquo;</div>
                                     </td>
                                     <td class="pm-center">
                                         {8}
@@ -2625,8 +2974,9 @@ try:
                                     <td class="pm-center">
                                         <div class="pm-btn-group">
                                             <button class="btn btn-sm btn-outline-info"
-                                                    onclick="viewTransactions({2})">
-                                                <i class="fa fa-history"></i> Transactions
+                                                    onclick="viewTransactions({2})"
+                                                    title="Full transaction history across ALL involvements (separate page). For just this involvement, click the caret next to Outstanding for the inline payment history.">
+                                                <i class="fa fa-history"></i> All-Org History
                                             </button>
                                             <button class="btn btn-sm btn-outline-secondary"
                                                     onclick="viewEmails({2})">
@@ -2650,7 +3000,8 @@ try:
                         division_name,
                         self.format_currency(outstanding),
                         payment_buttons,
-                        org_id or 0
+                        org_id or 0,
+                        refund_badge_html
                     )
             except Exception as e:
                 html += "<tr><td colspan='5'>Error loading payers: {0}</td></tr>".format(str(e))
@@ -3012,6 +3363,10 @@ try:
                                     <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;font-weight:400;" title="Payments TouchPoint didn't prefix with CHK|/CSH| (manual entries, ACH, wire transfers, etc.)">
                                         <input type="checkbox" class="rcpt-type-cb" value="other" checked> Other
                                     </label>
+                                    <div style="border-top:1px solid #eee;margin:4px -2px 2px;"></div>
+                                    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:13px;font-weight:400;color:#a8071a;" title="Money-out reversals (refunds). Check this with another type to see both payments AND refunds; check alone to audit refunds only; uncheck to hide all refunds.">
+                                        <input type="checkbox" class="rcpt-type-cb" value="refund"> Refund
+                                    </label>
                                 </div>
                             </div>
                         </div>
@@ -3202,7 +3557,7 @@ try:
                 var boxes = document.querySelectorAll('.rcpt-type-cb');
                 var picked = [];
                 var labels = [];
-                var nameByVal = {{ check:'Check', cash:'Cash', credit:'Credit Card', coupon:'Coupon', other:'Other' }};
+                var nameByVal = {{ check:'Check', cash:'Cash', credit:'Credit Card', coupon:'Coupon', other:'Other', refund:'Refund' }};
                 for (var i = 0; i < boxes.length; i++) {{
                     if (boxes[i].checked) {{
                         picked.push(boxes[i].value);
@@ -3334,14 +3689,16 @@ try:
                             html += '<td>' + pmEsc(r.tranDate) + '</td>';
                             var ptColors = {{ 'Check':'#cfe3ff', 'Cash':'#d4edda', 'Credit Card':'#ffe6cc', 'Coupon':'#f3e5f5', 'Other Payment':'#e2e3e5',
                                               'Refund':'#f8d7da', 'Check Refund':'#f8d7da', 'Cash Refund':'#f8d7da' }};
+                            var ptFgColors = {{ 'Refund':'#a8071a', 'Check Refund':'#a8071a', 'Cash Refund':'#a8071a' }};
                             var ptBg = ptColors[r.paymentType] || '#e9ecef';
+                            var ptFg = ptFgColors[r.paymentType] || '#1f4e79';
                             var last4 = (r.last4cc || r.last4ach || '').toString().trim();
                             var last4Chip = '';
                             if (last4) {{
                                 var l4Label = r.last4ach ? 'ACH ****' : '****';
                                 last4Chip = '<div style="margin-top:2px;font-family:Menlo,Consolas,monospace;font-size:10px;color:#666;">' + l4Label + ' ' + pmEsc(last4) + '</div>';
                             }}
-                            html += '<td><span style="background:' + ptBg + ';color:#1f4e79;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;">' + pmEsc(r.paymentType) + '</span>' + last4Chip + '</td>';
+                            html += '<td><span style="background:' + ptBg + ';color:' + ptFg + ';padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;">' + pmEsc(r.paymentType) + '</span>' + last4Chip + '</td>';
                             // Source column: PM = blue badge, External =
                             // amber badge with tooltip explaining the
                             // Email button limitation.
@@ -3942,6 +4299,50 @@ try:
             }}
             
             // --- Adjust balance modal ---
+            // Zero out a refund-driven outstanding balance with one
+            // click. Server posts an ADJ| credit equal to the
+            // outstanding so the person disappears from the
+            // Outstanding Balances list. Full audit trail in the
+            // inline Payment History (the new line shows as
+            // "Adjustment" with the reason text).
+            function pmZeroOutRefund(payerId, orgId, payerName, outstanding, coregCount, coregNames) {{
+                var amt = Math.abs(parseFloat(outstanding) || 0);
+                if (amt <= 0) return;
+                coregCount = parseInt(coregCount || 0);
+                coregNames = coregNames || '';
+                var confirmMsg;
+                if (coregCount > 0) {{
+                    confirmMsg = "Zero out this MULTI-PERSON registration?\\n\\n"
+                        + "Clicking OK will clear the outstanding balance for ALL of these "
+                        + "people (they share a registration that was refunded together):\\n\\n"
+                        + "  - " + payerName + "\\n"
+                        + "  - " + coregNames.replace(/, /g, "\\n  - ") + "\\n\\n"
+                        + "An ADJ|Refund-cleared adjustment is posted per person so each "
+                        + "row leaves the Outstanding Balances list. Original transactions "
+                        + "remain in payment history for audit.";
+                }} else {{
+                    confirmMsg = "Zero out " + payerName + "'s outstanding balance of $"
+                        + amt.toFixed(2) + "?\\n\\nThis posts an ADJ|Refund-cleared "
+                        + "adjustment so they no longer appear here. The original "
+                        + "transactions stay in the payment history for audit.";
+                }}
+                if (!confirm(confirmMsg)) return;
+                var fd = new FormData();
+                fd.append('action', 'zero_out_refund');
+                fd.append('pid', payerId);
+                fd.append('PaymentOrg', orgId);
+                fd.append('amount', amt);
+                fetch(getPyScriptAddress(), {{ method: 'POST', body: fd }})
+                    .then(function(r){{ return r.text(); }})
+                    .then(function(txt){{
+                        var d; try {{ d = JSON.parse(txt); }} catch(e) {{ showAlert('Bad response', 'danger'); return; }}
+                        if (!d.success) {{ showAlert(d.message || 'Failed', 'danger'); return; }}
+                        showAlert(d.message || 'Cleared', 'success');
+                        setTimeout(function() {{ refreshData(); }}, 700);
+                    }})
+                    .catch(function(err){{ showAlert('Network error: ' + err.message, 'danger'); }});
+            }}
+
             function openAdjustBalance(payerId, orgId, payerName, currentBalance) {{
                 var modal = document.getElementById('adjustModal');
                 if (!modal) return;
@@ -4167,8 +4568,17 @@ try:
                                 var bal = parseFloat(r.runningBalance) || 0;
                                 var balStr = (bal < 0 ? '-' : '') + pmFmtMoney(bal);
                                 var balColor = bal > 0 ? '#7a5c00' : (bal < 0 ? '#3c763d' : '#666');
-                                var kindBg = r.isPayment ? '#d4edda' : '#fff4ce';
-                                var kindFg = r.isPayment ? '#155724' : '#7a5c00';
+                                // Refunds get a red pill so they stand out --
+                                // staff often miss them and chase a balance
+                                // that was actually money returned to the
+                                // payer. Other charges = amber, payments =
+                                // green.
+                                var kindStr = String(r.kind || '');
+                                var isRefund = kindStr.indexOf('Refund') >= 0;
+                                var kindBg, kindFg;
+                                if (isRefund) {{ kindBg = '#f8d7da'; kindFg = '#a8071a'; }}
+                                else if (r.isPayment) {{ kindBg = '#d4edda'; kindFg = '#155724'; }}
+                                else {{ kindBg = '#fff4ce'; kindFg = '#7a5c00'; }}
                                 html += '<tr style="border-top:1px solid #e1e5eb;">';
                                 html += '<td style="padding:4px 8px;white-space:nowrap;">' + pmEsc(r.tranDate || '') + '</td>';
                                 html += '<td style="padding:4px 8px;"><span style="background:' + kindBg + ';color:' + kindFg + ';padding:1px 6px;border-radius:8px;font-size:11px;font-weight:600;">' + pmEsc(r.kind || '') + '</span></td>';
@@ -4867,7 +5277,7 @@ try:
                     POST_ACTIONS = [
                         'send_payment_link', 'record_payment', 'resend_email',
                         'find_receipts', 'reprint_receipt', 'send_custom_receipt',
-                        'charge_details', 'adjust_balance',
+                        'charge_details', 'adjust_balance', 'zero_out_refund',
                         'load_settings', 'save_settings',
                         'save_template', 'reset_template',
                         'apply_update',
@@ -4881,6 +5291,7 @@ try:
                         if action == 'send_custom_receipt':   return self.process_send_custom_receipt()
                         if action == 'charge_details':        return self.process_charge_details()
                         if action == 'adjust_balance':        return self.process_adjust_balance()
+                        if action == 'zero_out_refund':       return self.process_zero_out_refund()
                         if action == 'load_settings':         return self.process_load_settings()
                         if action == 'save_settings':         return self.process_save_settings()
                         if action == 'save_template':         return self.process_save_template()
