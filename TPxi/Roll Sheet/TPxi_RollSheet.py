@@ -40,6 +40,42 @@
 # Reference:
 #   TPxi_DayOfRegistration.py - SPA architecture, CRUD, search
 #   TPxi_RegistrationReportBuilder.py - print popup, HTML gen
+#
+# Changelog:
+#   1.2.1  (2026-06-04)  Apply Update reliability fixes (ported from
+#                        TPxi_PaymentManager). The old handler silently
+#                        reported success even when WriteContentPython wrote
+#                        to the wrong content slot (script installed under a
+#                        different name) or when the update server returned
+#                        an HTML error page. Now sanity-checks the payload
+#                        (size + marker strings), reads it back via
+#                        PythonContent, and confirms the new APP_VERSION is
+#                        live before reporting success. Failure paths surface
+#                        the manual install URL so staff aren't stuck.
+#                        Also fixed RSVP badge prefix leaking outside the
+#                        table (local 'parts' var shadowed the row-HTML list
+#                        after rsplit).
+#   1.2.0  (2026-06-04)  RSVP support. New 'RSVP Status' data source renders a
+#                        colored badge per person showing their Attend.Commitment
+#                        for the selected print date (Attending/Uncommitted/
+#                        Regrets/Sub-states/etc.). New rsvpFilter config option
+#                        (all / attending_only / hide_regrets_uncommitted) with
+#                        per-print override in the date picker modal. Useful
+#                        when a childcare scheduler or volunteer scheduler has
+#                        people pre-RSVP through TouchPoint's standard
+#                        Attend.MarkRegistered flow.
+#   1.1.6  (2026-06-03)  Fix accent-character crash (Latin-1 transliteration).
+#                        Spanish Program/Division/Org names (o-acute = 0xF3,
+#                        etc.) were blowing up the filter load and config save
+#                        paths with "'unknown' codec can't decode byte 0xF3".
+#                        1.1.5's safe_json approach didn't help because
+#                        unicode() still threw on raw System.String bytes
+#                        before reaching the escape logic. Now using safe_str()
+#                        at SQL-read time to transliterate via _LATIN_TO_ASCII
+#                        before any value reaches json.dumps. Same pattern
+#                        as TPxi_InvolvementProcessor.
+#   1.1.4                Floating Print button, removed write-in underline,
+#                        intercept Ctrl+P to use the popup print path.
 #----------------------------------------------------------------------
 
 import json
@@ -50,7 +86,7 @@ import re
 model.Header = 'Rollsheet Generator'
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.1.0'                              # bump on each release published
+APP_VERSION = '1.2.1'                              # bump on each release published
 DC_SCRIPT_ID = 'TPxi_RollSheet'
 # scripts.displaycache.com is the public domain for browser-side version checks.
 # workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
@@ -259,7 +295,7 @@ def _migrate_config(config):
 # =====================================================================
 # HELPER: Query all data sources efficiently
 # =====================================================================
-def _query_data_sources(data_sources, org_ids_str):
+def _query_data_sources(data_sources, org_ids_str, report_date_iso=''):
     """Process all data sources, returning {ds_id: {pid: value_text}}."""
     results = {}
     for ds in data_sources:
@@ -268,6 +304,7 @@ def _query_data_sources(data_sources, org_ids_str):
     reg_sources = [ds for ds in data_sources if ds.get('sourceType') == 'regQuestion' and ds.get('enabled', True)]
     ev_sources = [ds for ds in data_sources if ds.get('sourceType') == 'extraValue' and ds.get('enabled', True)]
     rr_sources = [ds for ds in data_sources if ds.get('sourceType') == 'recreg' and ds.get('enabled', True)]
+    rsvp_sources = [ds for ds in data_sources if ds.get('sourceType') == 'rsvp' and ds.get('enabled', True)]
 
     # --- Registration Questions (single query, distribute in Python) ---
     if reg_sources:
@@ -445,6 +482,45 @@ def _query_data_sources(data_sources, org_ids_str):
         except:
             pass
 
+    # --- RSVP Status (Attend.Commitment for the selected print date) ---
+    # Only meaningful when we have a print date to query against. Skip silently
+    # if no date provided.
+    if rsvp_sources and report_date_iso:
+        safe_iso = report_date_iso.replace("'", "")
+        # Map of commitment int -> display label. Keep in sync with
+        # AttendCommitmentCode_Constant.cs in TouchPoint core.
+        commit_labels = {
+            0: 'Regrets',
+            1: 'Attending',
+            2: 'Find Sub',
+            3: 'Sub Found',
+            4: 'Substitute',
+            99: 'Uncommitted'
+        }
+        try:
+            rsvp_sql = """
+                SELECT a.PeopleId, a.Commitment
+                FROM Attend a
+                WHERE a.OrganizationId IN ({0})
+                  AND CAST(a.MeetingDate AS DATE) = '{1}'
+                  AND a.Commitment IS NOT NULL
+            """.format(org_ids_str, safe_iso)
+            for row in q.QuerySql(rsvp_sql):
+                pid = row.PeopleId
+                try:
+                    cv = int(row.Commitment)
+                except:
+                    continue
+                label = commit_labels.get(cv, 'Commitment ' + str(cv))
+                # Encode label and raw int together so the row renderer can
+                # split on '|' to recover both pieces and pick the right
+                # semantic color per commitment value.
+                stored = label + '|' + str(cv)
+                for ds in rsvp_sources:
+                    results[ds['id']][pid] = stored
+        except:
+            pass
+
     return results
 
 # =====================================================================
@@ -479,6 +555,16 @@ def _build_table_row(student, columns, ds_results, data_sources, name_line_cols=
         name_display = name
 
     # Data source badges (replaces medical, photo, recreg)
+    # Fixed color map for RSVP commitments -- semantic, overrides ds.colorBg/colorText.
+    # Keep keys as int matching AttendCommitmentCode_Constant.cs values.
+    _RSVP_COLORS = {
+        1:  ('#d4f0db', '#1f6b3a'),   # Attending      -- green
+        99: ('#fce7c2', '#7a4a00'),   # Uncommitted    -- amber
+        0:  ('#f9d6d6', '#8a2020'),   # Regrets        -- red
+        2:  ('#fff3cd', '#e65100'),   # Find Sub       -- amber-orange
+        3:  ('#e3f2fd', '#1565c0'),   # Sub Found      -- blue
+        4:  ('#e3f2fd', '#1565c0')    # Substitute     -- blue
+    }
     ds_html = ''
     pending_inline = []  # accumulates badges for inline grouping
     for ds in data_sources:
@@ -486,15 +572,45 @@ def _build_table_row(student, columns, ds_results, data_sources, name_line_cols=
             continue
         ds_id = ds.get('id', '')
         if ds_id in ds_results and pid in ds_results[ds_id]:
-            value = html_escape(ds_results[ds_id][pid])
+            raw_value = ds_results[ds_id][pid]
             bg = ds.get('colorBg', '#f0f0f0')
             color = ds.get('colorText', '#333')
-            label = html_escape(ds.get('label', ''))
-            if ds.get('showAsWarning', False):
-                badge = '<span style="background:{0};color:{1};padding:1px 4px;border-radius:2px;font-weight:700;font-size:10px;">{2}</span>'.format(bg, color, label)
+            label_raw = ds.get('label', '')
+            label = html_escape(label_raw)
+
+            if ds.get('sourceType') == 'rsvp':
+                # Stored as "Label|commitment_int" -- split to recover both.
+                # NOTE: don't reuse 'parts' as the local name here -- the outer
+                # function uses 'parts' as the accumulating row-HTML list and
+                # shadowing it caused '<tr>...' to be appended to ['Attending','1']
+                # which then joined as 'Attending1<tr>...' (bare prefix leaked
+                # outside the table as inline text in the column).
+                commit_label = raw_value
+                commit_int = None
+                if '|' in raw_value:
+                    _rsvp_parts = raw_value.rsplit('|', 1)
+                    commit_label = _rsvp_parts[0]
+                    try:
+                        commit_int = int(_rsvp_parts[1])
+                    except:
+                        commit_int = None
+                # Override colors with semantic per-commitment map.
+                if commit_int in _RSVP_COLORS:
+                    bg, color = _RSVP_COLORS[commit_int]
+                commit_label_esc = html_escape(commit_label)
+                if ds.get('showAsWarning', False) or not label_raw:
+                    # No ds label or warning mode -- show just the commitment label.
+                    badge = '<span style="background:{0};color:{1};padding:1px 4px;font-size:10px;border-radius:2px;font-weight:700;">{2}</span>'.format(bg, color, commit_label_esc)
+                else:
+                    display_text = label + ': ' + commit_label_esc
+                    badge = '<span style="background:{0};color:{1};padding:1px 4px;font-size:10px;border-radius:2px;font-weight:700;">{2}</span>'.format(bg, color, display_text)
             else:
-                display_text = label + ': ' + value if label else value
-                badge = '<span style="background:{0};color:{1};padding:1px 4px;font-size:10px;border-radius:2px;">{2}</span>'.format(bg, color, display_text)
+                value = html_escape(raw_value)
+                if ds.get('showAsWarning', False):
+                    badge = '<span style="background:{0};color:{1};padding:1px 4px;border-radius:2px;font-weight:700;font-size:10px;">{2}</span>'.format(bg, color, label)
+                else:
+                    display_text = label + ': ' + value if label else value
+                    badge = '<span style="background:{0};color:{1};padding:1px 4px;font-size:10px;border-radius:2px;">{2}</span>'.format(bg, color, display_text)
 
             mode = ds.get('displayMode', 'own_line')
             if mode == 'append' and pending_inline:
@@ -632,11 +748,11 @@ if model.HttpMethod == "post":
 
             programs = []
             for r in q.QuerySql(prog_sql):
-                programs.append({'id': r.Id, 'name': r.Name})
+                programs.append({'id': r.Id, 'name': safe_str(r.Name)})
 
             divisions = []
             for r in q.QuerySql(div_sql):
-                divisions.append({'id': r.Id, 'name': r.Name, 'progId': r.ProgId})
+                divisions.append({'id': r.Id, 'name': safe_str(r.Name), 'progId': r.ProgId})
 
             print json.dumps({'success': True, 'programs': programs, 'divisions': divisions})
         except Exception as e:
@@ -686,9 +802,9 @@ if model.HttpMethod == "post":
             for r in results:
                 involvements.append({
                     'orgId': r.OrganizationId,
-                    'orgName': r.OrganizationName,
-                    'divisionName': r.DivisionName or '',
-                    'programName': r.ProgramName or '',
+                    'orgName': safe_str(r.OrganizationName),
+                    'divisionName': safe_str(r.DivisionName) if r.DivisionName else '',
+                    'programName': safe_str(r.ProgramName) if r.ProgramName else '',
                     'memberCount': r.MemberCount or 0
                 })
             print json.dumps({'success': True, 'involvements': involvements})
@@ -740,6 +856,12 @@ if model.HttpMethod == "post":
             report_date = str(Data.report_date) if hasattr(Data, 'report_date') and Data.report_date else ''
             report_date_iso = str(Data.report_date_iso) if hasattr(Data, 'report_date_iso') and Data.report_date_iso else ''
             only_with_meeting = config.get('onlyWithMeeting', False)
+            # RSVP filter: per-print override wins over config setting.
+            # Sanitize against allowed values to keep it safe to interpolate.
+            print_rsvp_filter = str(Data.rsvp_filter) if hasattr(Data, 'rsvp_filter') and Data.rsvp_filter else ''
+            rsvp_filter = print_rsvp_filter or config.get('rsvpFilter', 'all')
+            if rsvp_filter not in ('all', 'attending_only', 'hide_regrets_uncommitted'):
+                rsvp_filter = 'all'
             # Blank write-in rows (per org) so staff can hand-write add-ins.
             # Capped to a sane max to prevent a typo from generating a thousand-row sheet.
             add_in_rows = safe_int(config.get('addInRows', 0))
@@ -835,13 +957,33 @@ if model.HttpMethod == "post":
                 elif sort_by == 'gender':
                     sort_clause = "os.Organization, p.GenderId, p.Name2"
 
+                # RSVP filter: optionally JOIN Attend on the print date and
+                # restrict by Commitment. Only applied when we have a date.
+                rsvp_join = ''
+                rsvp_where = ''
+                if rsvp_filter != 'all' and report_date_iso:
+                    safe_iso_filter = report_date_iso.replace("'", "")
+                    if rsvp_filter == 'attending_only':
+                        # INNER join: drop members with no RSVP for this date.
+                        rsvp_join = "INNER JOIN Attend a_rsvp ON a_rsvp.PeopleId = p.PeopleId AND a_rsvp.OrganizationId = om.OrganizationId AND CAST(a_rsvp.MeetingDate AS DATE) = '" + safe_iso_filter + "'"
+                        rsvp_where = " AND a_rsvp.Commitment = 1"
+                    elif rsvp_filter == 'hide_regrets_uncommitted':
+                        # LEFT join: keep members without an RSVP row, but
+                        # drop those whose RSVP says Regrets (0) or Uncommitted (99).
+                        rsvp_join = "LEFT JOIN Attend a_rsvp ON a_rsvp.PeopleId = p.PeopleId AND a_rsvp.OrganizationId = om.OrganizationId AND CAST(a_rsvp.MeetingDate AS DATE) = '" + safe_iso_filter + "'"
+                        rsvp_where = " AND (a_rsvp.Commitment IS NULL OR a_rsvp.Commitment NOT IN (0, 99))"
+
+                join_block = '\n'.join(join_parts)
+                if rsvp_join:
+                    join_block = join_block + '\n' + rsvp_join
+
                 members_sql = """
                     SELECT DISTINCT {0}
                     FROM People p
                     {1}
-                    WHERE om.OrganizationId IN ({2})
+                    WHERE om.OrganizationId IN ({2}){4}
                     ORDER BY {3}
-                """.format(', '.join(col_parts), '\n'.join(join_parts), org_ids_str, sort_clause)
+                """.format(', '.join(col_parts), join_block, org_ids_str, sort_clause, rsvp_where)
 
                 members = q.QuerySql(members_sql)
 
@@ -868,7 +1010,7 @@ if model.HttpMethod == "post":
 
                 # Query all data sources
                 enabled_ds = [ds for ds in data_sources if ds.get('enabled', True)]
-                ds_results = _query_data_sources(enabled_ds, org_ids_str) if enabled_ds else {}
+                ds_results = _query_data_sources(enabled_ds, org_ids_str, report_date_iso) if enabled_ds else {}
 
                 # Build HTML
                 html_parts = []
@@ -1058,22 +1200,80 @@ if model.HttpMethod == "post":
     # separate content keys, so this is non-destructive.
     # -----------------------------------------------------------------
     elif action == 'apply_update':
-        new_code = ''
+        # Verified-write update flow (ported from TPxi_PaymentManager). The
+        # old version of this handler silently mis-reported success in two
+        # scenarios:
+        #   1. The script was installed under a name the auto-detector didn't
+        #      find -- we wrote to the WRONG content slot and the running
+        #      script never changed, but the response said "Updated".
+        #   2. WriteContentPython is a SQL upsert with no role check (verified
+        #      against bvcms source), so a TouchPoint-side encoding or auth
+        #      error could swallow without raising.
+        # Fix: sanity-check the payload before writing, then read it back via
+        # PythonContent() and confirm the new APP_VERSION marker is present.
         try:
+            target_name = get_script_name() or DC_SCRIPT_ID
             fetch_url = DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID
-            new_code = str(model.RestGet(fetch_url, {}))
-        except Exception as fe:
-            print json.dumps({'success': False, 'message': 'Failed to fetch update: ' + str(fe)})
-        else:
-            if not new_code or len(new_code) < 200:
-                print json.dumps({'success': False, 'message': 'Invalid or empty script code received'})
-            else:
-                target_name = get_script_name() or DC_SCRIPT_ID
-                try:
-                    model.WriteContentPython(target_name, new_code)
-                    print json.dumps({'success': True, 'message': 'Updated ' + target_name + '. Reload the page.'})
-                except Exception as we:
-                    print json.dumps({'success': False, 'message': 'Write failed: ' + str(we)})
+            # 1. Pull the new code. Surface a clear error + manual link
+            #    rather than letting an HTML error page or JSON envelope
+            #    silently become "the new script".
+            try:
+                new_code = model.RestGet(fetch_url, {})
+            except Exception as fe:
+                print json.dumps({'success': False,
+                    'message': "Couldn't reach the update server. " + str(fe) +
+                        " | Manual install: " + fetch_url})
+                raise SystemExit
+            if new_code is None:
+                print json.dumps({'success': False,
+                    'message': 'Update server returned nothing. Try again in a minute or use the manual link: ' + fetch_url})
+                raise SystemExit
+            new_code = str(new_code)
+            if len(new_code) < 500:
+                print json.dumps({'success': False,
+                    'message': 'Update payload was too small to be a real script (' + str(len(new_code)) +
+                        ' bytes). Try again or use the manual link: ' + fetch_url})
+                raise SystemExit
+            if 'TPxi_RollSheet' not in new_code or 'APP_VERSION' not in new_code:
+                print json.dumps({'success': False,
+                    'message': "Update payload didn't look like Roll Sheet code. The update server may be returning an error page. " +
+                        'Manual install: ' + fetch_url})
+                raise SystemExit
+            # 2. Write to Special Content.
+            try:
+                model.WriteContentPython(target_name, new_code)
+            except Exception as we:
+                print json.dumps({'success': False,
+                    'message': 'Write failed: ' + str(we) +
+                        ' | If this persists, paste the latest code from ' + fetch_url +
+                        ' into Admin > Advanced > Special Content > Python > ' + target_name + '.'})
+                raise SystemExit
+            # 3. Verify the write landed at the right name. If the script is
+            #    installed under a name we couldn't auto-detect, the write
+            #    went to the wrong place and the running script is unchanged.
+            try:
+                written = model.PythonContent(target_name) or ''
+                if APP_VERSION not in str(written):
+                    print json.dumps({'success': False,
+                        'message': "Update wrote to '" + target_name + "' but the running version still doesn't show v" +
+                            APP_VERSION + ". This usually means the script is installed under a different name. " +
+                            'Find your installed script under Admin > Advanced > Special Content > Python and paste the latest code from ' +
+                            fetch_url + ' into it directly.'})
+                    raise SystemExit
+            except SystemExit:
+                raise
+            except:
+                # Verification is best-effort. If PythonContent fails outright
+                # (e.g. permission), trust the write and surface success so we
+                # don't block the happy path.
+                pass
+            print json.dumps({'success': True,
+                'message': 'Updated ' + target_name + ' to v' + APP_VERSION +
+                    '. Reload the page (hard refresh with Ctrl+Shift+R or Cmd+Shift+R if the version does not change).'})
+        except SystemExit:
+            pass
+        except Exception as e:
+            print json.dumps({'success': False, 'message': 'Update failed: ' + str(e)})
 
     # -----------------------------------------------------------------
     # Unknown action
@@ -1281,7 +1481,9 @@ else:
 .rs-td-name { min-width: 120px; }
 .rs-checkbox { width: 18px; height: 18px; border: 2px solid #007bff; border-radius: 3px; margin: 0 auto; }
 .rs-name { font-weight: 700; font-size: 13px; }
-.rs-addin-line { border-bottom: 1px solid #888; min-height: 1.4em; }
+/* Write-in row: no underline -- the table cell border already
+   contains the writing area, so the extra line just looked busy. */
+.rs-addin-line { min-height: 1.4em; }
 .rs-row-addin .rs-td { background: #fcfcfc; }
 .rs-info-inline { font-weight: 400; font-size: 11px; color: #555; }
 .rs-info-line { font-size: 11px; color: #555; margin-top: 1px; }
@@ -1622,7 +1824,8 @@ else:
             title: '',
             showFooter: true,
             onlyWithMeeting: false,
-            addInRows: 0
+            addInRows: 0,
+            rsvpFilter: 'all'
         };
     }
 
@@ -1897,6 +2100,19 @@ else:
         h += '<label class="rs-toggle"><input type="checkbox" id="rsOnlyWithMeeting"' + (c.onlyWithMeeting ? ' checked' : '') + '><span class="rs-toggle-slider"></span></label>';
         h += '</div>';
 
+        // RSVP filter -- applies only when a print date is selected.
+        // Overridable per-print from the date picker modal.
+        var rsvpVal = c.rsvpFilter || 'all';
+        h += '<div class="rs-form-group" style="margin-top:12px;">';
+        h += '<label class="rs-label">RSVP Filter (when a date is selected at print time)</label>';
+        h += '<div style="display:flex;flex-direction:column;gap:6px;font-size:13px;">';
+        h += '<label><input type="radio" name="rsRsvpFilter" id="rsRsvpFilter_all" value="all"' + (rsvpVal === 'all' ? ' checked' : '') + '> Show all members (default)</label>';
+        h += '<label><input type="radio" name="rsRsvpFilter" id="rsRsvpFilter_attending" value="attending_only"' + (rsvpVal === 'attending_only' ? ' checked' : '') + '> Only people RSVPed Attending</label>';
+        h += '<label><input type="radio" name="rsRsvpFilter" id="rsRsvpFilter_hide" value="hide_regrets_uncommitted"' + (rsvpVal === 'hide_regrets_uncommitted' ? ' checked' : '') + '> Hide Regrets and Uncommitted</label>';
+        h += '</div>';
+        h += '<div class="rs-help-text">Uses Attend.Commitment for the meeting on the print date. Has no effect when generating without a date.</div>';
+        h += '</div>';
+
         h += '</div></div>';
 
         // Save button
@@ -1943,9 +2159,14 @@ else:
     // =====================================================================
     function renderGeneratePreview() {
         var h = '<button class="rs-back-btn" onclick="RSApp.goGenerate()">&#8592; Back to Config Selection</button>';
+        // In-flow title row -- the Print button moved to a fixed
+        // floating element at top-right (see below) so it's always
+        // visible. position:sticky doesn't work here because a parent
+        // in TouchPoint's admin chrome has overflow:hidden, which
+        // silently kills sticky positioning.
         h += '<div class="rs-flex rs-items-center rs-justify-between rs-mb-16">';
-        h += '<h2>Rollsheet Preview</h2>';
-        h += '<button class="rs-btn rs-btn-primary" onclick="RSApp.printRollsheets()">Print Rollsheets</button>';
+        h += '<h2 style="margin:0;">Rollsheet Preview</h2>';
+        h += '<span style="font-size:11px;color:#999;">Use the floating <i class="fa fa-print"></i> Print button (top-right) or press Ctrl+P.</span>';
         h += '</div>';
 
         // Stats
@@ -1956,6 +2177,17 @@ else:
 
         // Preview
         h += '<div class="rs-preview-area">' + state.previewHtml + '</div>';
+
+        // Floating Print button -- fixed at top-right of viewport so
+        // it stays visible regardless of scroll position. position:
+        // fixed escapes any ancestor's overflow:hidden (unlike
+        // sticky). Mirrors the bottom-right pattern that previously
+        // worked, just placed at the top per user request.
+        h += '<button id="rsFloatingPrint" class="rs-btn rs-btn-primary" onclick="RSApp.printRollsheets()" '
+           + 'style="position:fixed;top:90px;right:24px;z-index:9999;padding:10px 20px;font-size:14px;'
+           + 'font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,0.25);border-radius:30px;display:inline-flex;'
+           + 'align-items:center;gap:8px;" title="Open the print-ready popup for this rollsheet (or press Ctrl+P)">'
+           + '<i class="fa fa-print"></i> Print Rollsheets</button>';
 
         return h;
     }
@@ -2003,11 +2235,15 @@ else:
         var bg = ds.colorBg || '#f0f0f0';
         var color = ds.colorText || '#333';
         var label = escHtml(ds.label || '');
-        var typeLabel = ds.sourceType === 'regQuestion' ? 'Reg Question' : ds.sourceType === 'extraValue' ? 'Extra Value' : 'RecReg';
+        var typeLabel = 'RecReg';
+        if (ds.sourceType === 'regQuestion') typeLabel = 'Reg Question';
+        else if (ds.sourceType === 'extraValue') typeLabel = 'Extra Value';
+        else if (ds.sourceType === 'rsvp') typeLabel = 'RSVP Status';
         var detail = '';
         if (ds.sourceType === 'regQuestion') detail = 'Pattern: ' + escHtml(ds.questionPattern || '');
         else if (ds.sourceType === 'extraValue') detail = 'Field: ' + escHtml(ds.evField || '') + ' (' + escHtml(ds.evType || 'text') + ')';
         else if (ds.sourceType === 'recreg') detail = 'Group: ' + escHtml(ds.recregGroup || '');
+        else if (ds.sourceType === 'rsvp') detail = 'Uses print date (fixed colors per commitment)';
 
         var modeLabel = ds.displayMode === 'append' ? ' [+append]' : '';
 
@@ -2043,6 +2279,7 @@ else:
         h += '<option value="regQuestion"' + (ds.sourceType === 'regQuestion' ? ' selected' : '') + '>Registration Question</option>';
         h += '<option value="extraValue"' + (ds.sourceType === 'extraValue' ? ' selected' : '') + '>Extra Value</option>';
         h += '<option value="recreg"' + (ds.sourceType === 'recreg' ? ' selected' : '') + '>RecReg Built-in</option>';
+        h += '<option value="rsvp"' + (ds.sourceType === 'rsvp' ? ' selected' : '') + '>RSVP Status</option>';
         h += '</select>';
         h += '</div>';
         h += '</div>';
@@ -2136,6 +2373,12 @@ else:
             }
             h += '</select>';
             h += '</div>';
+        } else if (ds.sourceType === 'rsvp') {
+            // RSVP only needs Label + Display Mode (handled below). No field,
+            // no pattern, no group. Colors above are ignored at render time.
+            h += '<div class="rs-form-group rs-mb-8" style="background:#f8f9fa;padding:10px;border-radius:4px;border-left:3px solid #1565c0;">';
+            h += '<div style="font-size:12px;color:#555;">Status shown reflects the person\\'s RSVP for the selected print date. Colors are fixed by commitment value (Attending=green, Uncommitted=amber, Regrets=red, Sub states=blue) and override the color pickers above.</div>';
+            h += '</div>';
         }
         return h;
     }
@@ -2172,6 +2415,11 @@ else:
         h += '<option value="recreg|medicalAllergies|Allergies">Allergies & Medical</option>';
         h += '<option value="recreg|doctor|Dr">Doctor</option>';
         h += '<option value="recreg|insurance|Ins">Insurance</option>';
+        h += '</optgroup>';
+
+        // RSVP / Commitment status (Attend.Commitment for the print date)
+        h += '<optgroup label="RSVP / Commitment">';
+        h += '<option value="rsvp|status|RSVP">RSVP Status (uses print date)</option>';
         h += '</optgroup>';
 
         // Custom pattern options
@@ -2284,6 +2532,15 @@ else:
             newDs.sourceType = 'recreg';
             newDs.recregGroup = parts[1] || 'emergencyContact';
             newDs.label = parts[2] || 'RR';
+        } else if (parts[0] === 'rsvp') {
+            newDs.sourceType = 'rsvp';
+            newDs.label = parts[2] || 'RSVP';
+            newDs.showAsWarning = false;
+            // Colors here are placeholders -- render time overrides them with
+            // a fixed semantic palette keyed on the commitment value. Pick
+            // something neutral so the editor preview still looks sane.
+            newDs.colorBg = '#e3f2fd';
+            newDs.colorText = '#1565c0';
         } else if (parts[0] === 'custom') {
             newDs.sourceType = parts[1] || 'regQuestion';
             newDs.label = '';
@@ -2328,6 +2585,8 @@ else:
             ds.evType = (document.getElementById('rsDsEvType') || {}).value || 'text';
         } else if (ds.sourceType === 'recreg') {
             ds.recregGroup = (document.getElementById('rsDsRecregGroup') || {}).value || 'emergencyContact';
+        } else if (ds.sourceType === 'rsvp') {
+            // Nothing extra to capture -- label + displayMode handled above.
         }
 
         state.editingDsIndex = -1;
@@ -2418,7 +2677,7 @@ else:
         printHtml += '.rs-td-check{text-align:center;}';
         printHtml += '.rs-checkbox{width:18px;height:18px;border:2px solid #007bff;border-radius:3px;margin:0 auto;}';
         printHtml += '.rs-name{font-weight:700;font-size:13px;}';
-        printHtml += '.rs-addin-line{border-bottom:1px solid #888;min-height:1.4em;}';
+        printHtml += '.rs-addin-line{min-height:1.4em;}';
         printHtml += '.rs-row-addin .rs-td{background:#fcfcfc;}';
         printHtml += '.rs-info-inline{font-weight:400;font-size:11px;color:#555;}';
         printHtml += '.rs-info-line{font-size:11px;color:#555;margin-top:1px;}';
@@ -2439,6 +2698,18 @@ else:
             showToast('Pop-up blocked. Please allow pop-ups for this site.', 'danger');
         }
     }
+
+    // Intercept Ctrl+P / Cmd+P while on the preview page and route to
+    // the print popup instead. Browser's native print would render the
+    // whole admin UI (toolbar, sidebar, etc.) which staff don't want.
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
+            if (state && state.mode === 'generate_preview') {
+                e.preventDefault();
+                printRollsheets();
+            }
+        }
+    });
 
     // =====================================================================
     // EVENT HANDLERS
@@ -2610,6 +2881,17 @@ else:
         if (isNaN(addInVal) || addInVal < 0) addInVal = 0;
         if (addInVal > 100) addInVal = 100;
         c.addInRows = addInVal;
+
+        // RSVP filter radio group
+        var rsvpRadios = document.getElementsByName('rsRsvpFilter');
+        var rsvpChosen = 'all';
+        for (var rri = 0; rri < rsvpRadios.length; rri++) {
+            if (rsvpRadios[rri].checked) { rsvpChosen = rsvpRadios[rri].value; break; }
+        }
+        if (rsvpChosen !== 'all' && rsvpChosen !== 'attending_only' && rsvpChosen !== 'hide_regrets_uncommitted') {
+            rsvpChosen = 'all';
+        }
+        c.rsvpFilter = rsvpChosen;
 
         return c;
     }
@@ -2798,6 +3080,17 @@ else:
         var h = '<div class="rs-modal-overlay" onclick="RSApp.closeDatePicker()">';
         h += '<div class="rs-modal" onclick="event.stopPropagation()">';
         h += '<h3>Select Report Date</h3>';
+        // RSVP filter override (blank = use config setting). Placed above the
+        // date buttons so users see it before they click a date and ship.
+        h += '<div class="rs-form-group" style="margin-bottom:12px;">';
+        h += '<label class="rs-label">RSVP Filter (overrides config for this print)</label>';
+        h += '<select class="rs-select" id="rsPrintRsvpFilter">';
+        h += '<option value="">(use config setting)</option>';
+        h += '<option value="all">Show all members</option>';
+        h += '<option value="attending_only">Only RSVPed Attending</option>';
+        h += '<option value="hide_regrets_uncommitted">Hide Regrets and Uncommitted</option>';
+        h += '</select>';
+        h += '</div>';
         h += '<div class="rs-date-grid">';
         h += '<div class="rs-date-btn" onclick="RSApp.pickDate(\\'today\\')"><strong>Today</strong><span>' + _formatDate(today) + '</span></div>';
         h += '<div class="rs-date-btn" onclick="RSApp.pickDate(\\'this_sun\\')"><strong>Coming Sunday</strong><span>' + _formatDate(thisSun) + '</span></div>';
@@ -2857,6 +3150,9 @@ else:
         isoStr = _isoDate(d);
         state.reportDate = dateStr;
         state.reportDateIso = isoStr;
+        // Capture per-print RSVP filter override (empty string = "use config").
+        var rsvpSel = document.getElementById('rsPrintRsvpFilter');
+        state.printRsvpFilter = rsvpSel ? (rsvpSel.value || '') : '';
         state.showDatePicker = false;
         doGenerate();
     }
@@ -2874,7 +3170,7 @@ else:
             return;
         }
         showLoading();
-        ajax('generate_rollsheet', {config_json: JSON.stringify(config), report_date: state.reportDate, report_date_iso: state.reportDateIso}, function(err, data) {
+        ajax('generate_rollsheet', {config_json: JSON.stringify(config), report_date: state.reportDate, report_date_iso: state.reportDateIso, rsvp_filter: state.printRsvpFilter || ''}, function(err, data) {
             if (!err && data && data.success) {
                 state.previewHtml = data.html || '';
                 state.previewOrgCount = data.orgCount || 0;
