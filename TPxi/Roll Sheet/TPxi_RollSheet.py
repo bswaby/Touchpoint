@@ -42,6 +42,18 @@
 #   TPxi_RegistrationReportBuilder.py - print popup, HTML gen
 #
 # Changelog:
+#   1.2.2  (2026-06-04)  Specific-org picker: fix apostrophes in org names
+#                        silently breaking selection. The search-result item
+#                        was passing the org name as an inline-onclick string
+#                        arg. For "Joe's Class", escAttr correctly rendered
+#                        "Joe&#39;s Class" in the HTML, but the browser's
+#                        HTML parser decoded the entity to a literal apostrophe
+#                        BEFORE the JS parser saw the string, leaving an
+#                        unterminated string literal that silently threw.
+#                        Switched to data attributes + a small wrapper that
+#                        reads element.dataset, robust against any character
+#                        in the org name. Orgs with apostrophes now appear
+#                        in the picker and can be added.
 #   1.2.1  (2026-06-04)  Apply Update reliability fixes (ported from
 #                        TPxi_PaymentManager). The old handler silently
 #                        reported success even when WriteContentPython wrote
@@ -86,7 +98,7 @@ import re
 model.Header = 'Rollsheet Generator'
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.2.1'                              # bump on each release published
+APP_VERSION = '1.2.2'                              # bump on each release published
 DC_SCRIPT_ID = 'TPxi_RollSheet'
 # scripts.displaycache.com is the public domain for browser-side version checks.
 # workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
@@ -2979,7 +2991,18 @@ else:
                         var rh = '';
                         for (var i = 0; i < results.length; i++) {
                             var r = results[i];
-                            rh += '<div class="rs-search-result-item" onclick="RSApp.addOrg(' + r.orgId + ',\\'' + escAttr(r.orgName) + '\\',' + (r.memberCount || 0) + ')">';
+                            // Don't pass orgName as an inline-onclick arg -- if the
+                            // name contains an apostrophe (e.g. "Joe's Class"),
+                            // escAttr renders it as "Joe&#39;s Class", the browser
+                            // decodes the entity BEFORE the JS string is parsed,
+                            // and the resulting JS becomes an unterminated string
+                            // literal that silently throws. Use data attributes
+                            // instead -- robust against any character in the name.
+                            rh += '<div class="rs-search-result-item" '
+                                + 'data-org-id="' + r.orgId + '" '
+                                + 'data-org-name="' + escAttr(r.orgName) + '" '
+                                + 'data-member-count="' + (r.memberCount || 0) + '" '
+                                + 'onclick="RSApp.addOrgFromEl(this)">';
                             rh += '<div class="rs-search-result-name">' + escHtml(r.orgName) + ' (ID: ' + r.orgId + ')</div>';
                             rh += '<div class="rs-search-result-meta">' + escHtml(r.programName) + ' / ' + escHtml(r.divisionName) + ' &bull; ' + r.memberCount + ' members</div>';
                             rh += '</div>';
@@ -2990,6 +3013,14 @@ else:
                 }
             });
         }, 300);
+    }
+
+    // Called from inline onclick on the search-result div. Reads everything
+    // from data attributes so org names with apostrophes or quotes work.
+    function addOrgFromEl(el) {
+        if (!el) return;
+        var d = el.dataset || {};
+        addOrg(parseInt(d.orgId, 10) || 0, d.orgName || '', parseInt(d.memberCount, 10) || 0);
     }
 
     function addOrg(orgId, orgName, memberCount) {
@@ -3203,6 +3234,7 @@ else:
         onDivisionChange: onDivisionChange,
         onOrgSearch: onOrgSearch,
         addOrg: addOrg,
+        addOrgFromEl: addOrgFromEl,
         removeOrg: removeOrg,
         selectConfig: selectConfig,
         generateRollsheet: generateRollsheet,
