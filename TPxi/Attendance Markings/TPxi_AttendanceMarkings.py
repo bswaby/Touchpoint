@@ -14,24 +14,6 @@
 #      polls every 10 seconds. Working "down to zero" = clearing the
 #      remaining-involvements counter.
 #
-# Written By: Ben Swaby (TPxi Software, LLC)
-# Email: bswaby@fbchtn.org                                                                                                      
-# Website: https://tpxisoftware.com
-# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
-# ----------------------------------------------------------------                                                              
-# These tools are free because they should be.
-# If they've saved you time or helped your team, and you want to                                                                
-# support continued development, check out:                                                                                     
-#
-# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
-# https://displaycache.com                                
-#
-# TPxi Go(TM) - your church contacts, wherever you work.
-# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
-# or your phone. No tab switching, no lost context.
-# https://tpxigo.com                                                                                                            
-# ----------------------------------------------------------------
-#
 # Architecture:
 #   Single .py file SPA - Python AJAX handlers for POST, HTML SPA for GET.
 #   Per-click writes via model.EditPersonAttendance for live team sync.
@@ -49,12 +31,43 @@
 #   TPxi_RollSheet.py          - SPA + config CRUD + schedule filter
 #   TPxi_AttendanceBuilder.py  - SPA dispatch + filters
 #   TPxi_DayOfRegistration.py  - team coordination, polling, optimistic UI
+#
+# Changelog:
+#   1.2.0  (2026-06-04)  Trigger override + post-verify.
+#                        TouchPoint's AddAbsentsToMeeting trigger auto-creates
+#                        Attend rows with AttendanceFlag=0 for every enrolled
+#                        member when a new Meeting is created (when system
+#                        setting AttendanceAutoAbsents is on, which is the
+#                        default). That made the roster show "everyone Absent"
+#                        before staff had clicked anything. get_roster now
+#                        joins Meetings and treats AttendanceFlag=0 rows
+#                        created within 5 seconds of meeting creation as
+#                        state='unmarked' so finalize processes them and
+#                        clicks toggle them correctly. Session now tracks
+#                        touched PeopleIds per org so toggled rows aren't
+#                        re-overridden. Every EditPersonAttendance write is
+#                        post-verified by re-reading AttendanceFlag and
+#                        comparing; mismatches are logged and surfaced in the
+#                        AJAX response as verifyWarning.
+#   1.1.0                Default-time chip on dashboard (green/amber based on
+#                        OrgSchedule presence). bool(flag) fix for .NET
+#                        System.Boolean from q.QuerySql. Client-side guard on
+#                        finalize while click writes are still in flight.
+#                        Server-side re-verify of unmarked candidates before
+#                        finalize writes default. URL redirect from /PyScript/
+#                        to /PyScriptForm/ so the SPA loads from the editor's
+#                        Run button. Date-bounce fix for AttendanceType when
+#                        member type changes after attendance was taken.
+#   1.0.0                Initial SPA. Inverted attendance entry, team workflow
+#                        with claim/finalize, walk-in add (existing + new),
+#                        dashboard polling every 10s.
 #----------------------------------------------------------------------
-
 
 import json
 import datetime
 import re
+
+APP_VERSION = '1.2.0'
 
 model.Header = 'Attendance Markings'
 
@@ -981,8 +994,86 @@ def resolve_meeting_for_org(cfg_id, date_iso, org_id, sess, config):
     write_session(sess)
     return mid, None
 
-def get_roster(org_id, meeting_id, exclude_member_types):
-    """Return list of [{peopleId, name, age, memberType, attendanceFlag (or None)}]."""
+def get_org_touched_set(sess, org_id):
+    """Return set of PeopleIds the script has explicitly written for this org in
+    the current session (clicks + finalize writes + walk-in adds). Used by
+    get_roster to distinguish "volunteer-touched Absent" from "trigger-created
+    Absent that the volunteer hasn't seen yet"."""
+    sst = (sess.get('orgs') or {}).get(str(org_id), {}) or {}
+    raw = sst.get('touchedPeople', [])
+    out = set()
+    if isinstance(raw, list):
+        for x in raw:
+            try:
+                out.add(int(x))
+            except:
+                pass
+    return out
+
+def add_org_touched(sess, org_id, people_id):
+    """Record that we touched a person in this session's org. Mutates sess but
+    does NOT write -- caller is responsible for write_session(sess) afterwards."""
+    sst = (sess.get('orgs') or {}).setdefault(str(org_id), {})
+    touched = sst.get('touchedPeople')
+    if not isinstance(touched, list):
+        touched = []
+    try:
+        pid = int(people_id)
+    except:
+        return
+    if pid not in touched:
+        touched.append(pid)
+    sst['touchedPeople'] = touched
+
+def verify_attend_flag(meeting_id, people_id, expected_attended):
+    """Read the Attend row back after a write to confirm it matches what we just set.
+    Returns (matched, actual_flag_int_or_None). actual is None if no row exists."""
+    try:
+        sql = "SELECT AttendanceFlag FROM Attend WHERE MeetingId = {0} AND PeopleId = {1}".format(
+            int(meeting_id), int(people_id))
+        for r in q.QuerySql(sql):
+            f = r.AttendanceFlag
+            if f is None:
+                return False, None
+            actual = bool(f)
+            return actual == bool(expected_attended), 1 if actual else 0
+    except:
+        pass
+    return False, None
+
+def get_roster(org_id, meeting_id, exclude_member_types, touched_set=None):
+    """Return list of [{peopleId, name, age, memberType, state}].
+
+    state mapping:
+      - AttendanceFlag IS NULL                       -> 'unmarked'
+      - AttendanceFlag truthy                        -> 'present'
+      - AttendanceFlag false AND row was created by
+        TouchPoint's AddAbsentsToMeeting trigger
+        (Attend.CreatedDate <= Meeting.CreatedDate + 5s)
+        AND peopleId is NOT in touched_set           -> 'unmarked'
+      - AttendanceFlag false otherwise               -> 'absent'
+
+    Background: when GetMeetingIdByDateTime creates a new Meeting and the system
+    setting AttendanceAutoAbsents is on (the TouchPoint default), the
+    AddAbsentsToMeeting trigger fires and INSERTs an Attend row with
+    AttendanceFlag=0 for every enrolled member. That makes the roster look
+    "everyone is Absent" before staff has even clicked anyone. Override: treat
+    those bulk-trigger rows as still-unmarked so finalize processes them and
+    staff clicks toggle them correctly.
+
+    touched_set is a set/list of PeopleIds the script has explicitly written
+    for this meeting in the current session. Once a person has been touched,
+    we trust their AttendanceFlag literally (no trigger override) -- handles
+    the case where a volunteer toggled a trigger row True then back to False.
+    """
+    if touched_set is None:
+        touched_set = set()
+    else:
+        try:
+            touched_set = set(int(x) for x in touched_set)
+        except:
+            touched_set = set()
+
     excl = ''
     if exclude_member_types:
         ids = []
@@ -995,11 +1086,13 @@ def get_roster(org_id, meeting_id, exclude_member_types):
     sql = """
         SELECT p.PeopleId, p.Name2 AS Name, p.Age,
                ISNULL(mt.Description, '') AS MemberType,
-               a.AttendanceFlag
+               a.AttendanceFlag,
+               DATEDIFF(second, m.CreatedDate, a.CreatedDate) AS SecSinceMeetingCreated
         FROM OrganizationMembers om
         JOIN People p ON p.PeopleId = om.PeopleId
         LEFT JOIN lookup.MemberType mt ON mt.Id = om.MemberTypeId
         LEFT JOIN Attend a ON a.PeopleId = p.PeopleId AND a.MeetingId = {1}
+        LEFT JOIN Meetings m ON m.MeetingId = {1}
         WHERE om.OrganizationId = {0}
             AND p.IsDeceased = 0
             AND p.ArchivedFlag = 0
@@ -1009,18 +1102,33 @@ def get_roster(org_id, meeting_id, exclude_member_types):
     rows = []
     for r in q.QuerySql(sql):
         flag = r.AttendanceFlag
-        # q.QuerySql can return SQL bit as Python bool, .NET System.Boolean, or
-        # int 0/1 depending on the interop path. .NET Boolean(true) is neither
-        # Python True nor 1, so the old (is True or == 1) check fell through to
-        # 'absent' for actually-Present rows, which broke every re-fetch (e.g.,
-        # the fresh roster returned after Add Walk-In). bool(flag) handles all
-        # three types correctly.
+        # bool(flag) handles Python bool, .NET System.Boolean, and int 0/1.
         if flag is None:
             state = 'unmarked'
         elif bool(flag):
             state = 'present'
         else:
-            state = 'absent'
+            # AttendanceFlag is False. Check if this is a trigger-created row
+            # that the volunteer hasn't touched yet -- in which case treat it
+            # as still-unmarked so the bulk trigger doesn't poison the roster.
+            try:
+                pid = int(r.PeopleId)
+            except:
+                pid = 0
+            if pid not in touched_set:
+                try:
+                    secs = r.SecSinceMeetingCreated
+                    # Threshold: 5 seconds. Trigger inserts within the same
+                    # transaction as the meeting INSERT, so usually 0-1 seconds.
+                    # Service Broker async path may stretch this a bit, hence 5.
+                    if secs is not None and int(secs) <= 5:
+                        state = 'unmarked'
+                    else:
+                        state = 'absent'
+                except:
+                    state = 'absent'
+            else:
+                state = 'absent'
         rows.append({
             'peopleId': r.PeopleId,
             'name': safe_str(r.Name),
@@ -1058,7 +1166,8 @@ def handle_open_roster():
         sst['lastTouchAt'] = now_iso()
         write_session(sess)
 
-        roster = get_roster(org_id, mid, config.get('excludeMemberTypes', ''))
+        roster = get_roster(org_id, mid, config.get('excludeMemberTypes', ''),
+                            touched_set=get_org_touched_set(sess, org_id))
         # Org name
         org_name = ''
         for r in q.QuerySql("SELECT OrganizationName FROM Organizations WHERE OrganizationId = " + str(int(org_id))):
@@ -1102,20 +1211,32 @@ def handle_mark_attendance():
             print json.dumps({'success': False, 'message': 'Write failed: ' + str(e)})
             return
 
-        # Update session touch stamp
+        # Post-verify: read the row back and confirm AttendanceFlag matches.
+        # If a write silently no-ops (e.g., interop issue), we want the UI to
+        # know and not optimistically claim success.
+        verified, actual = verify_attend_flag(meeting_id, people_id, attended)
+
+        # Update session: touch stamp + record this peopleId as touched so
+        # get_roster trusts the AttendanceFlag instead of trigger-overriding.
         sess = get_session(cfg_id, date_iso)
         sst = sess.get('orgs', {}).setdefault(str(org_id), {})
         sst['lastTouchBy'] = volunteer or sst.get('lastTouchBy', '')
         sst['lastTouchAt'] = now_iso()
+        add_org_touched(sess, org_id, people_id)
         write_session(sess)
         append_log(cfg_id, date_iso, {
             'action': 'mark', 'orgId': org_id, 'peopleId': people_id,
-            'state': new_state, 'by': volunteer
+            'state': new_state, 'by': volunteer,
+            'verified': verified, 'actualFlag': actual
         })
 
         # Return fresh counts for the dashboard widget
         counts = get_attend_counts_for_meetings([meeting_id]).get(meeting_id, {'present': 0, 'absent': 0})
-        print json.dumps({'success': True, 'present': counts['present'], 'absent': counts['absent']})
+        resp = {'success': True, 'present': counts['present'], 'absent': counts['absent']}
+        if not verified:
+            resp['verifyWarning'] = 'DB read-back did not match the requested state'
+            resp['actualFlag'] = actual
+        print json.dumps(resp)
     except Exception as e:
         print json.dumps({'success': False, 'message': 'Mark failed: ' + str(e)})
 
@@ -1141,38 +1262,69 @@ def handle_finalize_org():
         # 'unmarked' default means we DON'T auto-write; user must have marked everyone explicitly.
         # In that case, we just mark complete without touching DB.
 
-        roster = get_roster(org_id, meeting_id, config.get('excludeMemberTypes', ''))
+        # Load session first so we can pass touched_set into get_roster.
+        sess = get_session(cfg_id, date_iso)
+        roster = get_roster(org_id, meeting_id, config.get('excludeMemberTypes', ''),
+                            touched_set=get_org_touched_set(sess, org_id))
         applied = 0
         skipped = 0
+        verify_failures = []
         if default_state in ('present', 'absent'):
             attended = (default_state == 'present')
-            # Collect unmarked candidates, then re-verify against Attend table
-            # immediately before writing. Closes the race where a per-click
-            # write committed AFTER get_roster's read but BEFORE finalize's
-            # write — without this, we'd overwrite their Present mark with the
-            # default Absent.
+            # Collect unmarked candidates. With the trigger override in
+            # get_roster, this now correctly includes rows TouchPoint's
+            # AddAbsentsToMeeting trigger pre-populated as Absent. The re-verify
+            # against Attend.AttendanceFlag below is now ABOUT NULL ONLY (race
+            # check) -- trigger-created Absent rows have AttendanceFlag=0 (NOT
+            # NULL), so the old "IS NOT NULL" check would have skipped them.
+            # Switch to checking that the row's existence is via the trigger:
+            # if the row exists, was created at meeting-create time, and the
+            # volunteer hasn't touched it, it's safe to overwrite with the
+            # default state.
             candidate_ids = [int(row['peopleId']) for row in roster if row['state'] == 'unmarked']
-            still_unmarked = set(candidate_ids)
+            still_writable = set(candidate_ids)
+            touched_now = get_org_touched_set(sess, org_id)
             if candidate_ids:
+                # Skip if a real (post-trigger) Attend row exists AND the
+                # volunteer hasn't touched it -- that means another path wrote
+                # to it between roster read and finalize write.
                 check_sql = """
-                    SELECT PeopleId FROM Attend WITH (NOLOCK)
-                    WHERE MeetingId = {0}
-                        AND PeopleId IN ({1})
-                        AND AttendanceFlag IS NOT NULL
+                    SELECT a.PeopleId,
+                           DATEDIFF(second, m.CreatedDate, a.CreatedDate) AS SecSinceMeetingCreated
+                    FROM Attend a WITH (NOLOCK)
+                    JOIN Meetings m WITH (NOLOCK) ON m.MeetingId = a.MeetingId
+                    WHERE a.MeetingId = {0}
+                        AND a.PeopleId IN ({1})
+                        AND a.AttendanceFlag IS NOT NULL
                 """.format(int(meeting_id), sql_in_list(candidate_ids))
                 for r in q.QuerySql(check_sql):
-                    still_unmarked.discard(int(r.PeopleId))
+                    pid = int(r.PeopleId)
+                    try:
+                        secs = r.SecSinceMeetingCreated
+                    except:
+                        secs = None
+                    # Trigger-created row (created within 5s of meeting) AND
+                    # volunteer hasn't touched it -> safe to overwrite at
+                    # finalize. Otherwise (real touched row, or post-trigger
+                    # write from elsewhere), skip.
+                    if secs is not None and int(secs) <= 5 and pid not in touched_now:
+                        continue  # leave in still_writable
+                    still_writable.discard(pid)
             for pid in candidate_ids:
-                if pid not in still_unmarked:
+                if pid not in still_writable:
                     skipped += 1
                     continue
                 try:
                     model.EditPersonAttendance(int(meeting_id), pid, attended)
+                    # Post-verify each write
+                    ok, actual = verify_attend_flag(meeting_id, pid, attended)
+                    if not ok:
+                        verify_failures.append({'peopleId': pid, 'actualFlag': actual})
+                    add_org_touched(sess, org_id, pid)
                     applied += 1
                 except:
                     skipped += 1
 
-        sess = get_session(cfg_id, date_iso)
         sst = sess.get('orgs', {}).setdefault(str(org_id), {})
         sst['completed'] = True
         sst['completedBy'] = volunteer or sst.get('completedBy', '')
@@ -1184,14 +1336,19 @@ def handle_finalize_org():
         sst['claimedAt'] = ''
         write_session(sess)
         append_log(cfg_id, date_iso, {
-            'action': 'finalize', 'orgId': org_id, 'applied': applied, 'skipped': skipped, 'by': volunteer
+            'action': 'finalize', 'orgId': org_id, 'applied': applied, 'skipped': skipped,
+            'verifyFailures': len(verify_failures), 'by': volunteer
         })
 
         counts = get_attend_counts_for_meetings([meeting_id]).get(meeting_id, {'present': 0, 'absent': 0})
-        print json.dumps({
+        resp = {
             'success': True, 'applied': applied, 'skipped': skipped,
             'present': counts['present'], 'absent': counts['absent']
-        })
+        }
+        if verify_failures:
+            resp['verifyWarning'] = '{0} write(s) did not read back as expected'.format(len(verify_failures))
+            resp['verifyFailures'] = verify_failures
+        print json.dumps(resp)
     except Exception as e:
         print json.dumps({'success': False, 'message': 'Finalize failed: ' + str(e)})
 
@@ -1359,24 +1516,32 @@ def handle_add_walkin_existing():
         except Exception as e:
             print json.dumps({'success': False, 'message': 'Mark attended failed: ' + str(e)})
             return
+        verified, actual = verify_attend_flag(meeting_id, people_id, True)
 
         sess = get_session(cfg_id, date_iso)
         sst = sess.get('orgs', {}).setdefault(str(org_id), {})
         sst['lastTouchBy'] = volunteer or sst.get('lastTouchBy', '')
         sst['lastTouchAt'] = now_iso()
+        add_org_touched(sess, org_id, people_id)
         write_session(sess)
         append_log(cfg_id, date_iso, {
             'action': 'walkin_existing', 'orgId': org_id,
-            'peopleId': people_id, 'memberType': member_type_desc, 'by': volunteer
+            'peopleId': people_id, 'memberType': member_type_desc, 'by': volunteer,
+            'verified': verified, 'actualFlag': actual
         })
 
         # Return the fresh roster + counts so client can refresh
-        roster = get_roster(org_id, meeting_id, config.get('excludeMemberTypes', ''))
+        roster = get_roster(org_id, meeting_id, config.get('excludeMemberTypes', ''),
+                            touched_set=get_org_touched_set(sess, org_id))
         counts = get_attend_counts_for_meetings([meeting_id]).get(meeting_id, {'present': 0, 'absent': 0})
-        print json.dumps({
+        resp = {
             'success': True, 'peopleId': people_id, 'memberType': member_type_desc,
             'roster': roster, 'present': counts['present'], 'absent': counts['absent']
-        })
+        }
+        if not verified:
+            resp['verifyWarning'] = 'Walk-in marked but DB read-back did not match'
+            resp['actualFlag'] = actual
+        print json.dumps(resp)
     except Exception as e:
         print json.dumps({'success': False, 'message': 'Add walk-in failed: ' + str(e)})
 
@@ -1448,24 +1613,32 @@ def handle_create_walkin():
         except Exception as e:
             print json.dumps({'success': False, 'message': 'Mark attended failed: ' + str(e)})
             return
+        verified, actual = verify_attend_flag(meeting_id, people_id, True)
 
         sess = get_session(cfg_id, date_iso)
         sst = sess.get('orgs', {}).setdefault(str(org_id), {})
         sst['lastTouchBy'] = volunteer or sst.get('lastTouchBy', '')
         sst['lastTouchAt'] = now_iso()
+        add_org_touched(sess, org_id, people_id)
         write_session(sess)
         append_log(cfg_id, date_iso, {
             'action': 'walkin_create', 'orgId': org_id,
             'peopleId': people_id, 'name': first_name + ' ' + last_name,
-            'memberType': member_type_desc, 'by': volunteer
+            'memberType': member_type_desc, 'by': volunteer,
+            'verified': verified, 'actualFlag': actual
         })
 
-        roster = get_roster(org_id, meeting_id, config.get('excludeMemberTypes', ''))
+        roster = get_roster(org_id, meeting_id, config.get('excludeMemberTypes', ''),
+                            touched_set=get_org_touched_set(sess, org_id))
         counts = get_attend_counts_for_meetings([meeting_id]).get(meeting_id, {'present': 0, 'absent': 0})
-        print json.dumps({
+        resp = {
             'success': True, 'peopleId': people_id, 'memberType': member_type_desc,
             'roster': roster, 'present': counts['present'], 'absent': counts['absent']
-        })
+        }
+        if not verified:
+            resp['verifyWarning'] = 'Walk-in marked but DB read-back did not match'
+            resp['actualFlag'] = actual
+        print json.dumps(resp)
     except Exception as e:
         print json.dumps({'success': False, 'message': 'Create walk-in failed: ' + str(e)})
 
@@ -1762,7 +1935,10 @@ else:
       function renderLanding() {
         var head = el('div', {class:'va-toolbar'}, [
           el('div', null, [
-            el('div', {class:'va-h1'}, 'Attendance Markings'),
+            el('div', {class:'va-h1'}, [
+              'Attendance Markings ',
+              el('span', {style:'font-size:13px;color:#888;font-weight:400;'}, 'v__APP_VERSION__')
+            ]),
             el('div', {class:'va-sub'}, 'Pick a saved config to start a session, or create a new one.'),
           ]),
           el('div', {class:'va-actions'}, [
@@ -2743,4 +2919,7 @@ else:
     """
 
     if not _needs_redirect:
+        # Inject Python APP_VERSION into the JS via placeholder substitution.
+        # The JS lives in r"""...""" so we can't break out for inline concat.
+        js = js.replace('__APP_VERSION__', APP_VERSION)
         model.Form = css + body + js
