@@ -49,7 +49,7 @@ Open the tool folder, copy the contents of the `.py` (or `.html`) file.
 In TouchPoint®, go to **Admin → Advanced → Special Content → Python**, click **Add New**, name it (e.g., `TPxi_LiveSearch`), paste, save.
 
 ### 3. Surface it in your UI with **[Menu Editor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Menu%20Editor)**
-This is the step most installs skip — a script in Special Content is **invisible to your staff** until you put it on a menu. Install Menu Editor once and it becomes the gateway for every other tool.
+A script in Special Content is **invisible to your staff** until you put it on a menu. Install Menu Editor once and it becomes the gateway for every other tool.
 
 **With Menu Editor you can, without touching raw XML:**
 - 🧭 Add scripts to the **Blue Toolbar** (the menu that appears when you select people from a search)
@@ -61,7 +61,7 @@ This is the step most installs skip — a script in Special Content is **invisib
 Install Menu Editor first, then every other tool in this repo is one menu entry away from your staff.
 
 ### 4. Configure it
-Most newer tools have a **built-in admin UI** — open the script, click into its settings, and you're done. No editing the source.
+Most newer tools have a **built-in admin UI**. Open the script, click into its settings, and you're done. No editing the source.
 
 A few older scripts still use an inline `# CONFIGURATION` block near the top of the file (org IDs, role names, defaults). If the tool's README says "configure these variables," that's the spot. You only need the values listed in the block; leave everything else alone.
 
