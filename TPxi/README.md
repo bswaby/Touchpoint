@@ -60,18 +60,10 @@ This is the step most installs skip — a script in Special Content is **invisib
 
 Install Menu Editor first, then every other tool in this repo is one menu entry away from your staff.
 
-### 4. Configure the variables
-Every script has a clearly marked configuration block near the top:
+### 4. Configure it
+Most newer tools have a **built-in admin UI** — open the script, click into its settings, and you're done. No editing the source.
 
-```python
-# ── CONFIGURATION ──────────────────────────────────────────────
-ORG_ID = 12345          # Your organization ID
-SHOW_INACTIVE = False   # Show inactive members?
-MAX_RESULTS = 50        # Results per page
-# ───────────────────────────────────────────────────────────────
-```
-
-Adjust those values to match your church. You don't need to touch anything else.
+A few older scripts still use an inline `# CONFIGURATION` block near the top of the file (org IDs, role names, defaults). If the tool's README says "configure these variables," that's the spot. You only need the values listed in the block; leave everything else alone.
 
 ---
 
@@ -81,13 +73,13 @@ The tools churches install first and use daily:
 
 | Tool | What It Does in Practice |
 |------|--------------------------|
-| 🏆 [Menu Editor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Menu%20Editor) | The gateway tool — visually wire every other script into your menus |
 | 🏆 [Live Search](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Live%20Search) | Type a name, see full history, log a note or task in under 10 seconds |
-| 🏆 [Weekly Attendance (WAAG 2.0)](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Weekly%20Attendance) | Groups track and own their own attendance. Leaders actually use it |
+| 🏆 [Involvement Processor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Processor) | Full registrant processing workflow in one place. Replaces several disconnected steps |
+| 🏆 [Report Writer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Report%20Writer) | Build and save custom involvement and user reports without writing SQL |
+| 🏆 [Roll Sheet](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Roll%20Sheet) | Build printable roll sheets exactly the way your teachers want them |
+| 🏆 [TechStatus](https://github.com/bswaby/Touchpoint/blob/main/Python%20Scripts/TechStatus/TechStatus) | System health and performance monitoring for your TouchPoint® instance |
+| 🏆 [Enterprise Reporting](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Enterprise%20Reporting) | 100+ reports accessible from a single dashboard. Replaces a stack of bookmarks |
 | 🏆 [Ministry Structure](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Ministry%20Structure) | See your entire involvement hierarchy at a glance |
-| 🏆 [Weekly Contribution Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Contribution%20Report) | The financial processing and reconciliation workflow churches standardize on |
-| 🏆 [Communication Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Communication%20Dashboard) | Know exactly who's being reached, how, and when, across every ministry team |
-| 🏆 [API Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/API%20Explorer) | Explore and test TouchPoint® API queries without writing a full script |
 
 ---
 
