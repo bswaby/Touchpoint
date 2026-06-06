@@ -20,10 +20,10 @@ One-way sync from Planning Center Online into TouchPoint: people, rosters, teams
   - One-click install adds a managed block to TouchPoint's `ScheduledTasks` special content (matches ProspectBuilder's pattern). Per-mapping schedule editor is gated on global install — both client- and server-side
   - Per-mapping: Daily or Weekly, day-of-week + hour, notify a TouchPoint user (typeahead picker by name / username / email), include-issues toggle
   - Scheduler runner walks all mappings every invocation, fires anything whose day/hour match now and hasn't run this hour. Each fire syncs fully server-side and emails the configured user: summary counts (joined, already, subgroup writes, members removed, stale subgroups removed), optional issues list (unmatched, ambiguous matches, PCO API warnings), and a link back to PCO Sync
-- **Person Data Sync (per-field, opt-in):** for each TP field (FirstName, LastName, EmailAddress, CellPhone, etc.) pick the direction (PCO → TP) and behavior (off, auto-apply, or queue-for-review). Defaults off — TouchPoint stays authoritative until you opt in. Queued changes appear in a review queue with side-by-side diff
+- **Person Data Sync (per-field, opt-in):** for each TP field (FirstName, LastName, EmailAddress, CellPhone, etc.) pick the direction (PCO → TP) and behavior (off, auto-apply, or queue-for-review). Defaults off. TouchPoint stays authoritative until you opt in. Queued changes appear in a review queue with side-by-side diff
 - **Verify-After-Write:** every settings save, mapping save, and scheduler install reads back from storage and confirms the change persisted. Silent permission failures surface immediately with a clear error message
 - **Diagnostics On Every Mapping:**
-  - Team Mappings have a "Check PCO positions" button that walks PCO and reports exactly what's there — `5 position(s) [Lead Vocal, Backup, ...], 12 assignment(s) across 8 people. Subgroups will sync.` Or the matching red state when positions exist but nobody's assigned in PCO
+  - Team Mappings have a "Check PCO positions" button that walks PCO and reports exactly what's there. `5 position(s) [Lead Vocal, Backup, ...], 12 assignment(s) across 8 people. Subgroups will sync.` Or the matching red state when positions exist but nobody's assigned in PCO
   - Dashboard health panel surfaces broken mappings (deleted PCO resource, archived TP org) before staff hit Sync
   - Audit log in `PCOSync_Log_YYYYMM` captures per-sync counters (joined, dropped, subgroup adds/drops, failures, scheduler runs, mapping edits, link write/unlink, email send/fail)
 - **Last-Sync + Next-Run Pills:** dashboard cards show `Synced 3h ago` (green) and, when scheduled, `Next: Sun 6:00 AM` (blue) so you always know the state at a glance
@@ -55,7 +55,7 @@ One-way sync from Planning Center Online into TouchPoint: people, rosters, teams
 </p>
 
 <summary><strong>Scheduled-Sync Email</strong></summary>
-<p>Every scheduled run emails the configured TouchPoint user a clean summary: joined, already member, subgroup writes, members removed (mirror), stale subgroups removed. Optionally includes the issues list — unmatched PCO records, ambiguous email matches, PCO API warnings — plus a deep link back to PCO Sync to act on them.</p>
+<p>Every scheduled run emails the configured TouchPoint user a clean summary: joined, already member, subgroup writes, members removed (mirror), stale subgroups removed. Optionally includes the issues list.  Unmatched PCO records, ambiguous email matches, PCO API warnings, plus a deep link back to PCO Sync to act on them.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/PCO%20Sync/PCO-Email.png" width="700">
 </p>
@@ -96,7 +96,7 @@ The preview modal shows a red **Mirror removal** banner with counts before you h
 - **Match the long-tail with Proposed Matches first.** Open it from any preview to scope to that preview's unmatched (faster). For ongoing maintenance, the unscoped walk processes the whole PCO directory in one shot. Bulk Apply the Strong tier — those are confident matches
 - **Use Verify Person Link when something looks off.** "Why is Alice's email wrong?" → search Alice → see her PCO record side-by-side → if red cells confirm it's the wrong PCO person, Unlink or Replace. Faster than digging through PCO and TP separately
 - **Schedule different mappings at different times.** Worship teams sync Sunday at 5 AM (catches Saturday rehearsal changes). All People can run nightly. Each mapping has its own day/time, so you don't have to compromise on one schedule
-- **Check PCO Positions diagnostic** is the fastest way to tell apart "subgroups aren't syncing because of a bug" vs "PCO has no positions assigned." Run it before opening a support thread — most "missing subgroup" reports are PCO setup gaps
+- **Check PCO Positions diagnostic** is the fastest way to tell apart "subgroups aren't syncing because of a bug" vs "PCO has no positions assigned." Run it before opening a support thread. Most "missing subgroup" reports are PCO setup gaps
 - **Person Data Sync defaults off for a reason.** TouchPoint stays authoritative on person fields unless you opt in. When you do, prefer queue-for-review over auto-apply for the first few weeks so you can spot any PCO-side dirty data before it lands in TP
 - **Email backlinks open the right tab.** The scheduled-sync email's "Open PCO Sync" link drops you on the Dashboard. Click any failed mapping's card to see why
 
