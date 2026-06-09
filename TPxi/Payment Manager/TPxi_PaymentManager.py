@@ -38,6 +38,37 @@ To upload code to Touchpoint, use the following steps:
 
 Changelog
 ---------
+v2.5.0 - Jun 2026
+  - Added:  Mission-trip supporter contributions now flow into PM.
+            Hayley McClanahan's 2026 Philippines trip is the canonical
+            test case: registration fee $2,000, college scholarship
+            credit $700, dad Mike paid $1,300 as a supporter -> trip
+            is fully covered.  Before v2.5, PM only read TransactionSummary
+            / Transaction, missed the supporter side, and showed her
+            still owing $1,300.
+            * Per-payer expand panel now folds GoerSenderAmounts rows
+              into the chronological transaction list as Payment-side
+              entries with a blue "Supporter" pill ("Supporter: Mike
+              McClanahan"), so staff see who covered the trip and when.
+            * Outstanding Balances list (programs / divisions / payers)
+              now nets supporter dollars against IndDue per (Goer, Org).
+              Goers whose supporters fully covered them drop off the
+              list entirely.  Goers partially covered show only the
+              remaining shortfall.  Self-support (SupporterId=GoerId)
+              is excluded because that cash is already on the Transaction
+              ledger -- including it would double-count.
+            * Behavioral change vs TouchPoint's own UI: TP itself does
+              NOT auto-credit supporter dollars against the registration
+              balance (Hayley shows $1,300 outstanding in TP even after
+              Mike paid).  PM is now more aggressive: supporter money =
+              trip credit.  If your trip-leader process doesn't treat
+              supporter dollars as auto-credit, this is a behavior
+              change worth knowing.
+            * Per-row helper get_supporter_total(people_id, org_id)
+              powers get_current_balance + the charge-detail reconciler
+              so the starter "Prior balance" math stays correct after
+              the supporter rows are folded in.
+
 v2.4.17 - Jun 2026
   - Fixed: Outstanding-Balances "Program Name" row showed "None" and
            the View Divisions / View All Payers buttons sent
@@ -392,7 +423,7 @@ from collections import defaultdict
 # =====================================================================
 # VERSION / AUTO-UPDATE  (matches the TPxi house pattern)
 # =====================================================================
-APP_VERSION = '2.4.17'
+APP_VERSION = '2.5.0'
 DC_SCRIPT_ID = 'TPxi_PaymentManager'
 DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
 DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
@@ -654,6 +685,11 @@ try:
             self.program_id = self.get_program_id()
             self.current_action = self.get_current_action()
             self.division_filter = getattr(model.Data, 'divFilter', '')
+            # By default only show involvements whose OrganizationStatusId = 30
+            # (Active). Setting ?show_inactive=1 in the URL widens the filter to
+            # include inactive orgs (status 40), which is useful for finance
+            # cleanup on closed events that still have dangling IndDue.
+            self.show_inactive = str(getattr(model.Data, 'show_inactive', '') or '').lower() in ('1', 'true', 'yes')
             self.search_filters = self.get_search_filters()
             
         def get_program_id(self):
@@ -705,50 +741,82 @@ try:
         
         # Data retrieval methods
         def get_programs_with_dues(self):
-            """Get all programs that have outstanding dues"""
+            """Get all programs that have outstanding dues.
+            v1.8: nets out mission-trip supporter contributions per
+            (Goer, Org) before summing. Goers whose supporters have
+            fully covered their trip no longer appear here -- they
+            don't owe anything. Self-support (SupporterId=GoerId) is
+            excluded because that cash is already on the Transaction
+            ledger and would double-count."""
             sql = """
-            SELECT 
+            SELECT
                 pro.Name AS ProgramName,
                 pro.Id AS ProgramId,
-                SUM(ts.IndDue) AS Outstanding,
-                COUNT(DISTINCT ts.PeopleId) AS PayerCount
+                SUM(CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0
+                         THEN ts.IndDue - ISNULL(sup.SupSum, 0)
+                         ELSE 0 END) AS Outstanding,
+                COUNT(DISTINCT CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0.01
+                                    THEN ts.PeopleId END) AS PayerCount
             FROM [TransactionSummary] ts
             INNER JOIN [People] p ON ts.PeopleId = p.PeopleId
             LEFT JOIN Organizations o ON o.OrganizationId = ts.OrganizationId
             LEFT JOIN Division d ON d.Id = o.DivisionId
             LEFT JOIN Program pro ON pro.Id = d.ProgId
-            WHERE 
-                ts.IndDue <> 0
+            LEFT JOIN (
+                SELECT GoerId, OrgId, SUM(Amount) AS SupSum
+                FROM dbo.GoerSenderAmounts
+                WHERE ISNULL(InActive, 0) = 0 AND SupporterId <> GoerId
+                GROUP BY GoerId, OrgId
+            ) sup ON sup.GoerId = ts.PeopleId AND sup.OrgId = ts.OrganizationId
+            WHERE
+                ts.IndDue - ISNULL(sup.SupSum, 0) > 0.01
                 AND ts.IsLatestTransaction = 1
                 --AND pro.Id <> 1152
-            GROUP BY 
+            GROUP BY
                 pro.Name, pro.Id
+            HAVING SUM(CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0
+                            THEN ts.IndDue - ISNULL(sup.SupSum, 0)
+                            ELSE 0 END) > 0.01
             ORDER BY pro.Name
             """
             return q.QuerySql(sql)
             
         def get_divisions_with_dues(self, program_id):
-            """Get divisions within a program that have outstanding dues"""
+            """Get divisions within a program that have outstanding dues.
+            v1.8: nets out mission-trip supporter contributions per
+            (Goer, Org); see get_programs_with_dues for rationale."""
             sql = """
-            SELECT 
+            SELECT
                 d.Name AS DivisionName,
                 d.Id AS DivisionId,
                 o.OrganizationName,
                 o.OrganizationId,
-                SUM(ts.IndDue) AS Outstanding,
-                COUNT(DISTINCT ts.PeopleId) AS PayerCount
+                SUM(CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0
+                         THEN ts.IndDue - ISNULL(sup.SupSum, 0)
+                         ELSE 0 END) AS Outstanding,
+                COUNT(DISTINCT CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0.01
+                                    THEN ts.PeopleId END) AS PayerCount
             FROM [TransactionSummary] ts
             INNER JOIN [People] p ON ts.PeopleId = p.PeopleId
             LEFT JOIN Organizations o ON o.OrganizationId = ts.OrganizationId
             LEFT JOIN Division d ON d.Id = o.DivisionId
             LEFT JOIN Program pro ON pro.Id = d.ProgId
-            WHERE 
-                ts.IndDue <> 0
+            LEFT JOIN (
+                SELECT GoerId, OrgId, SUM(Amount) AS SupSum
+                FROM dbo.GoerSenderAmounts
+                WHERE ISNULL(InActive, 0) = 0 AND SupporterId <> GoerId
+                GROUP BY GoerId, OrgId
+            ) sup ON sup.GoerId = ts.PeopleId AND sup.OrgId = ts.OrganizationId
+            WHERE
+                ts.IndDue - ISNULL(sup.SupSum, 0) > 0.01
                 AND ts.IsLatestTransaction = 1
                 AND pro.Id = {0}
                 {1}
-            GROUP BY 
+            GROUP BY
                 d.Name, d.Id, o.OrganizationName, o.OrganizationId
+            HAVING SUM(CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0
+                            THEN ts.IndDue - ISNULL(sup.SupSum, 0)
+                            ELSE 0 END) > 0.01
             ORDER BY d.Name, o.OrganizationName
             """.format(program_id, self.get_division_filter_sql())
             return q.QuerySql(sql)
@@ -756,8 +824,12 @@ try:
         def get_payers_with_dues(self, org_id=None, program_id=None, unassigned=False):
             """Get individual payers with outstanding dues.
             unassigned=True returns payers whose org has no Program (pro.Id IS NULL)
-            -- used by the "(No Program)" row on the programs view."""
-            where_clause = "ts.IndDue <> 0 AND ts.IsLatestTransaction = 1"
+            -- used by the "(No Program)" row on the programs view.
+
+            v1.8: filters on EFFECTIVE due (IndDue minus mission-trip
+            supporter contributions). Goers whose supporters covered
+            the full trip drop out of this list entirely."""
+            where_clause = "ts.IndDue - ISNULL(sup.SupSum, 0) > 0.01 AND ts.IsLatestTransaction = 1"
 
             if org_id:
                 where_clause += " AND o.OrganizationId = {0}".format(org_id)
@@ -791,7 +863,13 @@ try:
                 p.FamilyId,
                 SUM(ts.TotPaid) AS Paid,
                 SUM(ts.TotCoupon) AS Coupons,
-                SUM(ts.IndDue) AS Outstanding,
+                -- v1.8: Outstanding nets out supporter contributions;
+                -- SupporterTotal is surfaced separately so the UI can
+                -- show "$X supporter credit" next to the payer.
+                SUM(CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0
+                         THEN ts.IndDue - ISNULL(sup.SupSum, 0)
+                         ELSE 0 END) AS Outstanding,
+                ISNULL(MAX(sup.SupSum), 0) AS SupporterTotal,
                 ts.TranDate,
                 -- Refund-driven flag: TRUE when the most recent
                 -- Transaction tied to this (PeopleId, OrgId) is a
@@ -857,11 +935,21 @@ try:
             LEFT JOIN Organizations o ON o.OrganizationId = ts.OrganizationId
             LEFT JOIN Division d ON d.Id = o.DivisionId
             LEFT JOIN Program pro ON pro.Id = d.ProgId
+            -- v1.8: mission-trip supporter contributions per (Goer, Org).
+            LEFT JOIN (
+                SELECT GoerId, OrgId, SUM(Amount) AS SupSum
+                FROM dbo.GoerSenderAmounts
+                WHERE ISNULL(InActive, 0) = 0 AND SupporterId <> GoerId
+                GROUP BY GoerId, OrgId
+            ) sup ON sup.GoerId = ts.PeopleId AND sup.OrgId = ts.OrganizationId
             WHERE {0}
             GROUP BY
                 d.Name, o.OrganizationName, o.OrganizationId, pro.Name, pro.Id,
                 d.Name, d.Id, ts.PeopleId, p.Name2, p.Age, p.FirstName, p.LastName,
                 p.EmailAddress, p.CellPhone, p.HomePhone, p.FamilyId, ts.TranDate
+            HAVING SUM(CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0
+                            THEN ts.IndDue - ISNULL(sup.SupSum, 0)
+                            ELSE 0 END) > 0.01
             ORDER BY o.OrganizationName, p.Name2
             """.format(where_clause)
             return q.QuerySql(sql)
@@ -938,6 +1026,71 @@ try:
             '''.format(people_id)
             return q.QuerySql(sql)
 
+        def get_supporter_contributions(self, people_id, org_id):
+            """Return mission-trip supporter contributions where this
+            person is the GOER for this org. Excludes self-support
+            (SupporterId == GoerId) because those land as cash in the
+            Transaction table already -- counting both would double-up.
+
+            Source: GoerSenderAmounts is the canonical trip-supporter
+            mapping. Each row = one supporter contribution for this
+            goer's trip. Inactive rows are filtered.
+
+            Each returned row plugs into the same shape as a Transaction
+            row in get_charge_details: positive amt (money in -> reduces
+            balance) with Kind='Supporter' so the renderer can flag it
+            distinctly."""
+            try:
+                pid = int(people_id)
+                oid = int(org_id)
+            except:
+                return []
+            sql = """
+                SELECT
+                    FORMAT(g.Created, 'yyyy-MM-dd HH:mm') AS TranDate,
+                    g.SupporterId,
+                    ISNULL(p.Name, '(Unknown)') AS SupporterName,
+                    g.Amount AS RawAmt
+                FROM dbo.GoerSenderAmounts g
+                LEFT JOIN People p ON p.PeopleId = g.SupporterId
+                WHERE g.GoerId = {0}
+                  AND g.OrgId = {1}
+                  AND ISNULL(g.InActive, 0) = 0
+                  AND g.SupporterId <> g.GoerId
+                ORDER BY g.Created ASC
+            """.format(pid, oid)
+            try:
+                return q.QuerySql(sql)
+            except:
+                return []
+
+        def get_supporter_total(self, people_id, org_id):
+            """Sum of supporter contributions for a (goer, org) pair.
+            Used by balance helpers and the outstanding aggregations
+            to auto-credit supporter money against the goer's IndDue.
+            Same exclusion rule as get_supporter_contributions."""
+            try:
+                pid = int(people_id)
+                oid = int(org_id)
+            except:
+                return 0.0
+            sql = """
+                SELECT ISNULL(SUM(g.Amount), 0) AS SupSum
+                FROM dbo.GoerSenderAmounts g
+                WHERE g.GoerId = {0}
+                  AND g.OrgId = {1}
+                  AND ISNULL(g.InActive, 0) = 0
+                  AND g.SupporterId <> g.GoerId
+            """.format(pid, oid)
+            try:
+                result = q.QuerySql(sql)
+                if result:
+                    raw = self.safe_get_attr(result[0], 'SupSum', 0)
+                    return float(raw) if raw is not None else 0.0
+            except:
+                pass
+            return 0.0
+
         def get_charge_details(self, people_id, org_id):
             """Return the underlying transactions for a single
             (PeopleId, OrgId) pair, oldest first so a running balance
@@ -1004,13 +1157,47 @@ try:
                 org_id    = str(getattr(model.Data, 'org_id', '') or '').strip()
                 if not people_id or not org_id:
                     return self.create_json_response(False, "people_id and org_id are required")
+                # Build the unified row list: regular transactions +
+                # mission-trip supporter contributions. Supporter rows
+                # are merged in by TranDate so the running balance and
+                # display order are chronological.
+                raw_tx_rows = []
+                for r in self.get_charge_details(people_id, org_id):
+                    raw_tx_rows.append({
+                        'TranDate':      self.safe_get_attr(r, 'TranDate', ''),
+                        'TransactionId': self.safe_get_attr(r, 'TransactionId', ''),
+                        'Message':       self.safe_get_attr(r, 'Message', ''),
+                        'Description':   self.safe_get_attr(r, 'Description', ''),
+                        'RawAmt':        self.safe_get_attr(r, 'RawAmt', 0),
+                        'AmtDue':        self.safe_get_attr(r, 'AmtDue', None),
+                        'Kind':          self.safe_get_attr(r, 'Kind', ''),
+                        '_isSupporter':  False,
+                        '_supporterName': '',
+                    })
+                for r in self.get_supporter_contributions(people_id, org_id):
+                    supporter_name = str(self.safe_get_attr(r, 'SupporterName', '') or '(Unknown)')
+                    raw_tx_rows.append({
+                        'TranDate':      self.safe_get_attr(r, 'TranDate', ''),
+                        'TransactionId': '',
+                        'Message':       '',
+                        'Description':   'Supporter: ' + supporter_name,
+                        'RawAmt':        self.safe_get_attr(r, 'RawAmt', 0),
+                        'AmtDue':        None,
+                        'Kind':          'Supporter',
+                        '_isSupporter':  True,
+                        '_supporterName': supporter_name,
+                    })
+                # Stable chronological sort. TranDate is 'YYYY-MM-DD HH:mm'
+                # so string sort matches chronological order.
+                raw_tx_rows.sort(key=lambda x: (str(x.get('TranDate') or ''),
+                                                str(x.get('TransactionId') or '')))
                 rows = []
                 running = 0.0
-                for r in self.get_charge_details(people_id, org_id):
-                    msg = str(self.safe_get_attr(r, 'Message', '') or '')
-                    txid = str(self.safe_get_attr(r, 'TransactionId', '') or '')
-                    amtdue_raw = self.safe_get_attr(r, 'AmtDue', None)
-                    amt    = float(self.safe_get_attr(r, 'RawAmt', 0) or 0)
+                for r in raw_tx_rows:
+                    msg = str(r.get('Message', '') or '')
+                    txid = str(r.get('TransactionId', '') or '')
+                    amtdue_raw = r.get('AmtDue', None)
+                    amt    = float(r.get('RawAmt', 0) or 0)
                     # Balance math: trust -amt as the balance impact.
                     # Verified against two real patterns in local data:
                     #   * payment+refund pair (Response: with negative
@@ -1040,11 +1227,11 @@ try:
                         note = ''
                     else:
                         note = msg
-                    desc_from_tx = str(self.safe_get_attr(r, 'Description', '') or '').strip()
+                    desc_from_tx = str(r.get('Description', '') or '').strip()
                     rows.append({
-                        'tranDate':    self.safe_get_attr(r, 'TranDate', ''),
+                        'tranDate':    r.get('TranDate', ''),
                         'transactionId': txid,
-                        'kind':        self.safe_get_attr(r, 'Kind', ''),
+                        'kind':        r.get('Kind', ''),
                         'description': desc_from_tx,
                         'note':        note,
                         'message':     msg,
@@ -1052,11 +1239,20 @@ try:
                         'balanceDelta': balance_delta,
                         'isPayment':   is_payment_row,
                         'runningBalance': running,
+                        # v1.8: flag supporter rows so the renderer can
+                        # show them in a different visual style.
+                        'isSupporter':   bool(r.get('_isSupporter', False)),
+                        'supporterName': r.get('_supporterName', ''),
                     })
                 # Reconcile against actual current balance. Inline +
                 # bulletproofed because the legacy get_current_balance
                 # swallows IronPython attribute errors and returns 0.0,
                 # which would synthesize a bogus starter row.
+                # v1.8: actual_due now nets out supporter contributions
+                # so the starter row math lines up with the supporter
+                # rows we just folded in. Without this, IndDue would
+                # appear higher than running and we'd synthesize a fake
+                # "Starting balance" gap equal to the supporter total.
                 actual_due = None
                 try:
                     bsql = ("SELECT SUM(ISNULL(IndDue, 0)) AS B "
@@ -1068,6 +1264,9 @@ try:
                         raw_b = getattr(bres[0], 'B', None)
                         if raw_b is not None:
                             actual_due = float(raw_b)
+                            # Net out supporter credit to match running
+                            # (which already includes supporter rows).
+                            actual_due -= self.get_supporter_total(people_id, org_id)
                 except:
                     actual_due = None
                 # Only synthesize the starter row when:
@@ -2462,13 +2661,19 @@ try:
                 return self.create_json_response(False, "Update failed: " + str(e))
 
         def get_current_balance(self, payer_id, org_id):
-            """Get current balance for payer/org"""
+            """Get current balance for payer/org.
+            v1.8: nets out mission-trip supporter contributions
+            (GoerSenderAmounts) so the balance matches what's actually
+            owed after supporter help. Self-support is excluded to
+            avoid double-counting cash already on the Transaction
+            ledger."""
             try:
                 sql = "SELECT Sum(IndDue) as IndDue FROM dbo.TransactionSummary WHERE PeopleId = {0} AND OrganizationId = {1}".format(payer_id, org_id)
                 result = q.QuerySql(sql)
                 if result and len(result) > 0:
                     balance = self.safe_get_attr(result[0], 'IndDue', 0)
-                    return float(balance) if balance is not None else 0.0
+                    raw_balance = float(balance) if balance is not None else 0.0
+                    return raw_balance - self.get_supporter_total(payer_id, org_id)
                 return 0.0
             except:
                 return 0.0
@@ -4620,6 +4825,7 @@ try:
                                 var isRefund = kindStr.indexOf('Refund') >= 0;
                                 var kindBg, kindFg;
                                 if (isRefund) {{ kindBg = '#f8d7da'; kindFg = '#a8071a'; }}
+                                else if (r.isSupporter) {{ kindBg = '#d6e4f5'; kindFg = '#1f4e79'; }}
                                 else if (r.isPayment) {{ kindBg = '#d4edda'; kindFg = '#155724'; }}
                                 else {{ kindBg = '#fff4ce'; kindFg = '#7a5c00'; }}
                                 html += '<tr style="border-top:1px solid #e1e5eb;">';
