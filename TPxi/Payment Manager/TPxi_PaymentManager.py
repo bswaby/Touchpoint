@@ -38,6 +38,36 @@ To upload code to Touchpoint, use the following steps:
 
 Changelog
 ---------
+v2.6.1 - Jun 2026
+  - Added: Payers view now visually groups by involvement. Each
+           involvement gets a dark-blue header row showing the
+           involvement name, subtotal, and payer count, with that
+           involvement's payers listed under it in alphabetical
+           order (by Name2 = "Last, First"). The query already
+           ordered the rows that way -- this just adds the header
+           rows so the grouping is obvious at a glance. Applies to
+           both Outstanding Balances and Payment History payers.
+
+v2.6.0 - Jun 2026
+  - Added: Payment History view -- new top-level nav next to
+           Outstanding Balances and Receipts. Same Programs ->
+           Divisions -> Payers drill-down as Outstanding, but:
+             * Date range filter at the top of each level (defaults
+               to last 90 days, filters on last transaction OR
+               supporter activity date).
+             * Includes $0-balance rows so staff can find paid-in-
+               full payers for receipt lookup / "did Mike pay yet?"
+               questions that Outstanding hides by design.
+             * Drill-down preserves the date range across every link
+               so navigating Programs -> Divisions -> Payers doesn't
+               lose the window.
+             * Same per-payer expand panel as Outstanding so the
+               supporter row breakdown + chronological history is one
+               click away from any History row.
+           Routes: ?action=history_programs / history_divisions /
+           history_payers. Existing Outstanding routes unchanged so
+           anyone with a bookmark / saved URL keeps the old behavior.
+
 v2.5.0 - Jun 2026
   - Added:  Mission-trip supporter contributions now flow into PM.
             Hayley McClanahan's 2026 Philippines trip is the canonical
@@ -423,7 +453,7 @@ from collections import defaultdict
 # =====================================================================
 # VERSION / AUTO-UPDATE  (matches the TPxi house pattern)
 # =====================================================================
-APP_VERSION = '2.5.0'
+APP_VERSION = '2.6.1'
 DC_SCRIPT_ID = 'TPxi_PaymentManager'
 DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
 DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
@@ -740,14 +770,57 @@ try:
                 return default
         
         # Data retrieval methods
-        def get_programs_with_dues(self):
+        def _activity_window_clause(self, date_from, date_to):
+            """v2.6: build a SQL EXISTS clause that limits the rolled-up
+            row to payers with ANY transaction or supporter contribution
+            inside the [date_from, date_to] window. Empty string when
+            either bound is missing (no filter). Dates expected as
+            'YYYY-MM-DD'. We add a single day to date_to so the upper
+            bound is exclusive-of-next-day, capturing the full final
+            day (e.g., '2026-06-09 23:59:59')."""
+            if not date_from or not date_to:
+                return ""
+            safe_from = str(date_from).replace("'", "''")
+            safe_to   = str(date_to).replace("'", "''")
+            return """ AND (
+                EXISTS (
+                    SELECT 1 FROM [Transaction] tx
+                    WHERE tx.OriginalId = ts.RegId
+                      AND tx.TransactionDate >= '{0}'
+                      AND tx.TransactionDate <  DATEADD(day, 1, '{1}')
+                      AND tx.voided IS NULL
+                      AND tx.amt <> 0
+                )
+                OR EXISTS (
+                    SELECT 1 FROM dbo.GoerSenderAmounts g
+                    WHERE g.GoerId = ts.PeopleId
+                      AND g.OrgId  = ts.OrganizationId
+                      AND g.Created >= '{0}'
+                      AND g.Created <  DATEADD(day, 1, '{1}')
+                      AND ISNULL(g.InActive, 0) = 0
+                )
+            )""".format(safe_from, safe_to)
+
+        def get_programs_with_dues(self, date_from=None, date_to=None, include_zero=False):
             """Get all programs that have outstanding dues.
             v1.8: nets out mission-trip supporter contributions per
             (Goer, Org) before summing. Goers whose supporters have
             fully covered their trip no longer appear here -- they
             don't owe anything. Self-support (SupporterId=GoerId) is
             excluded because that cash is already on the Transaction
-            ledger and would double-count."""
+            ledger and would double-count.
+
+            v2.6: optional date_from/date_to + include_zero powers the
+            Payment History view. When include_zero=True, zero-balance
+            rows pass through (so staff can find paid-in-full payers
+            for receipt lookup). When date_from/date_to are set, only
+            payers with activity in the window appear."""
+            sql_window = self._activity_window_clause(date_from, date_to)
+            having_clause = "" if include_zero else """
+            HAVING SUM(CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0
+                            THEN ts.IndDue - ISNULL(sup.SupSum, 0)
+                            ELSE 0 END) > 0.01"""
+            where_floor = "" if include_zero else "ts.IndDue - ISNULL(sup.SupSum, 0) > 0.01 AND "
             sql = """
             SELECT
                 pro.Name AS ProgramName,
@@ -769,22 +842,26 @@ try:
                 GROUP BY GoerId, OrgId
             ) sup ON sup.GoerId = ts.PeopleId AND sup.OrgId = ts.OrganizationId
             WHERE
-                ts.IndDue - ISNULL(sup.SupSum, 0) > 0.01
-                AND ts.IsLatestTransaction = 1
+                {2}ts.IsLatestTransaction = 1
                 --AND pro.Id <> 1152
+                {3}
             GROUP BY
-                pro.Name, pro.Id
-            HAVING SUM(CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0
-                            THEN ts.IndDue - ISNULL(sup.SupSum, 0)
-                            ELSE 0 END) > 0.01
+                pro.Name, pro.Id{4}
             ORDER BY pro.Name
-            """
+            """.format('', '', where_floor, sql_window, having_clause)
             return q.QuerySql(sql)
             
-        def get_divisions_with_dues(self, program_id):
+        def get_divisions_with_dues(self, program_id, date_from=None, date_to=None, include_zero=False):
             """Get divisions within a program that have outstanding dues.
             v1.8: nets out mission-trip supporter contributions per
-            (Goer, Org); see get_programs_with_dues for rationale."""
+            (Goer, Org); see get_programs_with_dues for rationale.
+            v2.6: optional date range + include_zero for History view."""
+            sql_window = self._activity_window_clause(date_from, date_to)
+            having_clause = "" if include_zero else """
+            HAVING SUM(CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0
+                            THEN ts.IndDue - ISNULL(sup.SupSum, 0)
+                            ELSE 0 END) > 0.01"""
+            where_floor = "" if include_zero else "ts.IndDue - ISNULL(sup.SupSum, 0) > 0.01 AND "
             sql = """
             SELECT
                 d.Name AS DivisionName,
@@ -808,28 +885,34 @@ try:
                 GROUP BY GoerId, OrgId
             ) sup ON sup.GoerId = ts.PeopleId AND sup.OrgId = ts.OrganizationId
             WHERE
-                ts.IndDue - ISNULL(sup.SupSum, 0) > 0.01
-                AND ts.IsLatestTransaction = 1
+                {2}ts.IsLatestTransaction = 1
                 AND pro.Id = {0}
                 {1}
+                {3}
             GROUP BY
-                d.Name, d.Id, o.OrganizationName, o.OrganizationId
-            HAVING SUM(CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0
-                            THEN ts.IndDue - ISNULL(sup.SupSum, 0)
-                            ELSE 0 END) > 0.01
+                d.Name, d.Id, o.OrganizationName, o.OrganizationId{4}
             ORDER BY d.Name, o.OrganizationName
-            """.format(program_id, self.get_division_filter_sql())
+            """.format(program_id, self.get_division_filter_sql(),
+                       where_floor, sql_window, having_clause)
             return q.QuerySql(sql)
             
-        def get_payers_with_dues(self, org_id=None, program_id=None, unassigned=False):
+        def get_payers_with_dues(self, org_id=None, program_id=None, unassigned=False,
+                                  date_from=None, date_to=None, include_zero=False):
             """Get individual payers with outstanding dues.
             unassigned=True returns payers whose org has no Program (pro.Id IS NULL)
             -- used by the "(No Program)" row on the programs view.
 
             v1.8: filters on EFFECTIVE due (IndDue minus mission-trip
             supporter contributions). Goers whose supporters covered
-            the full trip drop out of this list entirely."""
-            where_clause = "ts.IndDue - ISNULL(sup.SupSum, 0) > 0.01 AND ts.IsLatestTransaction = 1"
+            the full trip drop out of this list entirely.
+            v2.6: optional date range + include_zero for History view."""
+            if include_zero:
+                where_clause = "ts.IsLatestTransaction = 1"
+            else:
+                where_clause = "ts.IndDue - ISNULL(sup.SupSum, 0) > 0.01 AND ts.IsLatestTransaction = 1"
+            sql_window = self._activity_window_clause(date_from, date_to)
+            if sql_window:
+                where_clause += sql_window
 
             if org_id:
                 where_clause += " AND o.OrganizationId = {0}".format(org_id)
@@ -947,11 +1030,11 @@ try:
                 d.Name, o.OrganizationName, o.OrganizationId, pro.Name, pro.Id,
                 d.Name, d.Id, ts.PeopleId, p.Name2, p.Age, p.FirstName, p.LastName,
                 p.EmailAddress, p.CellPhone, p.HomePhone, p.FamilyId, ts.TranDate
-            HAVING SUM(CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0
-                            THEN ts.IndDue - ISNULL(sup.SupSum, 0)
-                            ELSE 0 END) > 0.01
+            {1}
             ORDER BY o.OrganizationName, p.Name2
-            """.format(where_clause)
+            """.format(where_clause,
+                       "" if include_zero else
+                       "HAVING SUM(CASE WHEN ts.IndDue - ISNULL(sup.SupSum, 0) > 0 THEN ts.IndDue - ISNULL(sup.SupSum, 0) ELSE 0 END) > 0.01")
             return q.QuerySql(sql)
             
         def get_division_filter_sql(self):
@@ -2775,14 +2858,76 @@ try:
             return json.dumps(response)
 
         # View rendering methods
-        def render_programs_view(self):
-            """Render the main programs overview"""
-            programs = self.get_programs_with_dues()
+        def _default_history_dates(self, date_from, date_to):
+            """v2.6: fill in last-90-days default when either bound is
+            blank. Returns (date_from, date_to) as 'YYYY-MM-DD' strings."""
+            import datetime as _dt
+            today = _dt.date.today()
+            if not date_to:
+                date_to = today.strftime('%Y-%m-%d')
+            if not date_from:
+                date_from = (today - _dt.timedelta(days=90)).strftime('%Y-%m-%d')
+            return date_from, date_to
+
+        def _history_date_form(self, action, date_from, date_to, extra_hidden=None):
+            """v2.6: shared date range form rendered at the top of every
+            History view (programs / divisions / payers). Posts back to
+            the same action with the user-selected range."""
+            hidden_html = ''
+            if extra_hidden:
+                for k, v in extra_hidden.items():
+                    if v in (None, ''):
+                        continue
+                    hidden_html += '<input type="hidden" name="{0}" value="{1}">'.format(k, v)
+            return """
+            <div style="background:#eef3fa;border:1px solid #c5d4e8;border-radius:6px;
+                        padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;
+                        gap:10px;flex-wrap:wrap;">
+                <strong style="color:#1f4e79;">Payment History</strong>
+                <form method="get" action="" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0;">
+                    <input type="hidden" name="action" value="{0}">
+                    {4}
+                    <label style="font-size:12px;color:#555;margin:0;">From
+                        <input type="date" name="from" value="{1}"
+                               style="border:1px solid #c5d4e8;border-radius:4px;padding:3px 6px;font-size:12px;">
+                    </label>
+                    <label style="font-size:12px;color:#555;margin:0;">To
+                        <input type="date" name="to" value="{2}"
+                               style="border:1px solid #c5d4e8;border-radius:4px;padding:3px 6px;font-size:12px;">
+                    </label>
+                    <button type="submit" class="btn btn-sm btn-primary" style="font-size:12px;">Apply</button>
+                </form>
+                <span style="margin-left:auto;font-size:12px;color:#555;">
+                    {3} &mdash; payers with any activity in the window. Includes paid-in-full.
+                </span>
+            </div>
+            """.format(action, date_from, date_to,
+                       '{0} to {1}'.format(date_from, date_to), hidden_html)
+
+        def render_programs_view(self, date_from=None, date_to=None, is_history=False):
+            """Render the main programs overview.
+            v2.6: is_history=True turns this into Payment History mode
+            with a date range form and $0-balance rows included."""
+            date_form_html = ''
+            title_label = 'Outstanding Balances'
+            amount_label = 'Outstanding Amount'
+            drill_action = 'divisions'
+            payers_action = 'payers'
+            if is_history:
+                date_from, date_to = self._default_history_dates(date_from, date_to)
+                date_form_html = self._history_date_form('history_programs', date_from, date_to)
+                title_label = 'Payment History'
+                amount_label = 'Balance'
+                drill_action = 'history_divisions'
+                payers_action = 'history_payers'
+            programs = self.get_programs_with_dues(date_from=date_from,
+                                                    date_to=date_to,
+                                                    include_zero=is_history)
             
-            html = """
+            html = ("""
             <div class="pm-container">
                 <div class="pm-header">
-                    <h3><i class="fa fa-credit-card"></i> Payment Manager &mdash; Outstanding Balances</h3>
+                    <h3><i class="fa fa-credit-card"></i> Payment Manager &mdash; """ + title_label + """</h3>
                     <div class="pm-actions">
                         <button class="btn btn-primary" onclick="refreshData()">
                             <i class="fa fa-sync"></i> Refresh
@@ -2791,17 +2936,18 @@ try:
                 </div>
 
                 <div class="pm-content">
+                    """ + date_form_html + """
                     <table class="pm-table">
                         <thead>
                             <tr>
                                 <th>Program Name</th>
-                                <th>Outstanding Amount</th>
+                                <th>""" + amount_label + """</th>
                                 <th>Payers Count</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-            """
+            """)
             
             total_outstanding = 0
             total_payers = 0
@@ -2821,25 +2967,36 @@ try:
                     # into a NULL pro.Id row. We can't link to a divisions/program
                     # page that requires a ProgramID, so swap to the unassigned
                     # sentinel for View All Payers and hide View Divisions.
+                    drill_fn = 'viewHistoryDivisions' if is_history else 'viewDivisions'
+                    payers_fn = 'viewHistoryPayers' if is_history else 'viewPayers'
+                    range_args = ", '{0}', '{1}'".format(date_from or '', date_to or '') if is_history else ''
                     if program_id is None or program_name is None:
-                        actions_html = (
-                            '<button class="btn btn-sm btn-outline-success" '
-                            'onclick="viewUnassignedPayers()">'
-                            '<i class="fa fa-users"></i> View All Payers'
-                            '</button>'
-                        )
+                        if is_history:
+                            actions_html = (
+                                '<button class="btn btn-sm btn-outline-success" '
+                                'onclick="viewHistoryPayers(null, null, \'{0}\', \'{1}\', true)">'
+                                '<i class="fa fa-users"></i> View All Payers'
+                                '</button>'
+                            ).format(date_from or '', date_to or '')
+                        else:
+                            actions_html = (
+                                '<button class="btn btn-sm btn-outline-success" '
+                                'onclick="viewUnassignedPayers()">'
+                                '<i class="fa fa-users"></i> View All Payers'
+                                '</button>'
+                            )
                         display_name = '(No Program)'
                     else:
                         actions_html = (
                             '<button class="btn btn-sm btn-outline-primary" '
-                            'onclick="viewDivisions({0})">'
+                            'onclick="{1}({0}{2})">'
                             '<i class="fa fa-list"></i> View Divisions'
                             '</button> '
                             '<button class="btn btn-sm btn-outline-success" '
-                            'onclick="viewPayers(null, {0})">'
+                            'onclick="{3}(null, {0}{2})">'
                             '<i class="fa fa-users"></i> View All Payers'
                             '</button>'
-                        ).format(program_id)
+                        ).format(program_id, drill_fn, range_args, payers_fn)
                         display_name = program_name
 
                     html += """
@@ -2878,9 +3035,15 @@ try:
             
             return html
             
-        def render_divisions_view(self, program_id):
-            """Render divisions/involvements within a program"""
-            divisions = self.get_divisions_with_dues(program_id)
+        def render_divisions_view(self, program_id, date_from=None, date_to=None, is_history=False):
+            """Render divisions/involvements within a program.
+            v2.6: is_history=True turns this into Payment History mode."""
+            if is_history:
+                date_from, date_to = self._default_history_dates(date_from, date_to)
+            divisions = self.get_divisions_with_dues(program_id,
+                                                      date_from=date_from,
+                                                      date_to=date_to,
+                                                      include_zero=is_history)
             program_name = "Unknown Program"
             
             # Get program name
@@ -2891,33 +3054,45 @@ try:
             except:
                 pass
             
+            date_form_html = ''
+            back_fn = 'viewPrograms'
+            back_label = 'Back to Outstanding Balances'
+            amount_label = 'Outstanding'
+            if is_history:
+                date_form_html = self._history_date_form('history_divisions',
+                                                          date_from, date_to,
+                                                          extra_hidden={'ProgramID': program_id})
+                back_fn = 'viewHistoryPrograms'
+                back_label = 'Back to Payment History'
+                amount_label = 'Balance'
             html = """
             <div class="pm-container">
                 <div class="pm-header">
                     <h3><i class="fa fa-sitemap"></i> {0} - Divisions & Involvements</h3>
                     <div class="pm-actions">
-                        <button class="btn btn-secondary" onclick="viewPrograms()">
-                            <i class="fa fa-arrow-left"></i> Back to Outstanding Balances
+                        <button class="btn btn-secondary" onclick="{1}()">
+                            <i class="fa fa-arrow-left"></i> {2}
                         </button>
                         <button class="btn btn-primary" onclick="refreshData()">
                             <i class="fa fa-sync"></i> Refresh
                         </button>
                     </div>
                 </div>
-                
+
                 <div class="pm-content">
+                    {3}
                     <table class="pm-table">
                         <thead>
                             <tr>
                                 <th>Division</th>
                                 <th>Involvement</th>
-                                <th>Outstanding</th>
+                                <th>{4}</th>
                                 <th>Payers</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-            """.format(program_name)
+            """.format(program_name, back_fn, back_label, date_form_html, amount_label)
             
             current_division = ""
             total_outstanding = 0
@@ -2946,8 +3121,8 @@ try:
                                     <td class="pm-currency">{2}</td>
                                     <td class="pm-center">{3}</td>
                                     <td class="pm-center">
-                                        <button class="btn btn-sm btn-outline-success" 
-                                                onclick="viewPayers({4}, {5})">
+                                        <button class="btn btn-sm btn-outline-success"
+                                                onclick="{6}({4}, {5}{7})">
                                             <i class="fa fa-users"></i> View Payers
                                         </button>
                                     </td>
@@ -2958,7 +3133,9 @@ try:
                         self.format_currency(outstanding),
                         payer_count,
                         org_id,
-                        program_id
+                        program_id,
+                        'viewHistoryPayers' if is_history else 'viewPayers',
+                        ", '{0}', '{1}'".format(date_from or '', date_to or '') if is_history else ''
                     )
             except Exception as e:
                 html += "<tr><td colspan='5'>Error loading divisions: {0}</td></tr>".format(str(e))
@@ -2983,9 +3160,15 @@ try:
             
             return html
             
-        def render_payers_view(self, org_id=None, program_id=None, unassigned=False):
-            """Render individual payers with payment options"""
-            payers = self.get_payers_with_dues(org_id, program_id, unassigned=unassigned)
+        def render_payers_view(self, org_id=None, program_id=None, unassigned=False,
+                                date_from=None, date_to=None, is_history=False):
+            """Render individual payers with payment options.
+            v2.6: is_history=True turns this into Payment History mode."""
+            if is_history:
+                date_from, date_to = self._default_history_dates(date_from, date_to)
+            payers = self.get_payers_with_dues(org_id, program_id, unassigned=unassigned,
+                                                 date_from=date_from, date_to=date_to,
+                                                 include_zero=is_history)
 
             # Get context title
             if unassigned:
@@ -3004,10 +3187,21 @@ try:
             except:
                 pass
             
+            date_form_html = ''
+            amount_label = 'Outstanding'
+            section_label = 'Individual Payers'
+            if is_history:
+                date_form_html = self._history_date_form(
+                    'history_payers', date_from, date_to,
+                    extra_hidden={'OrganizationId': org_id or '',
+                                  'ProgramID': program_id or '',
+                                  'unassigned': '1' if unassigned else ''})
+                amount_label = 'Balance'
+                section_label = 'Payment History'
             html = """
             <div class="pm-container">
                 <div class="pm-header">
-                    <h3><i class="fa fa-users"></i> {0} - Individual Payers</h3>
+                    <h3><i class="fa fa-users"></i> {0} - {5}</h3>
                     <div class="pm-actions">
                         <button class="btn btn-secondary" onclick="history.go(-1)">
                             <i class="fa fa-arrow-left"></i> Go Back
@@ -3017,30 +3211,51 @@ try:
                         </button>
                     </div>
                 </div>
-                
+
                 <div class="pm-search">
-                    <input type="text" id="searchInput" placeholder="Search by name, email, or phone..." 
+                    <input type="text" id="searchInput" placeholder="Search by name, email, or phone..."
                            class="form-control">
                 </div>
-                
+
                 <div class="pm-content">
+                    {1}
                     <table class="pm-table" id="payersTable">
                         <thead>
                             <tr>
                                 <th>Name & Contact</th>
                                 <th>Involvement</th>
-                                <th>Outstanding</th>
+                                <th>{4}</th>
                                 <th>Payment Options</th>
                                 <th>History</th>
                             </tr>
                         </thead>
                         <tbody>
-            """.format(context_title)
+            """.format(context_title, date_form_html, '', '', amount_label, section_label)
             
             total_outstanding = 0
-            
+
+            # v2.6.1: pre-pass to compute per-involvement totals so each
+            # group header can show the involvement's subtotal + payer
+            # count. The query already orders by OrganizationName,
+            # Name2 (so payers are alpha within each org), so we can
+            # just walk the rows once we know the totals.
+            payer_rows = list(payers)
+            org_totals = {}
+            org_counts = {}
+            org_order = []
+            for prow in payer_rows:
+                _oid = self.safe_get_attr(prow, 'OrganizationId', 0)
+                _amt = float(self.safe_get_attr(prow, 'Outstanding', 0) or 0)
+                if _oid not in org_totals:
+                    org_totals[_oid] = 0.0
+                    org_counts[_oid] = 0
+                    org_order.append(_oid)
+                org_totals[_oid] += _amt
+                org_counts[_oid] += 1
+            current_group_org_id = None
+
             try:
-                for payer in payers:
+                for payer in payer_rows:
                     outstanding = float(self.safe_get_attr(payer, 'Outstanding', 0) or 0)
                     total_outstanding += outstanding
                     is_refund_driven = int(self.safe_get_attr(payer, 'IsRefundDriven', 0) or 0) == 1
@@ -3054,6 +3269,29 @@ try:
                     org_id = self.safe_get_attr(payer, 'OrganizationId', 0)
                     division_name = self.safe_get_attr(payer, 'Division', '')
                     family_id = self.safe_get_attr(payer, 'FamilyId', 0)
+
+                    # v2.6.1: emit an involvement group header whenever
+                    # org changes. Header spans every column and shows
+                    # the involvement name + payer count + subtotal.
+                    if org_id != current_group_org_id:
+                        current_group_org_id = org_id
+                        _grp_total = org_totals.get(org_id, 0.0)
+                        _grp_count = org_counts.get(org_id, 0)
+                        html += """
+                                <tr class="pm-org-group-header" style="background:#1f4e79;color:#fff;">
+                                    <th colspan="2" style="padding:8px 12px;text-align:left;font-size:13px;">
+                                        <i class="fa fa-folder-open" style="opacity:0.7;margin-right:6px;"></i>{0}
+                                    </th>
+                                    <th style="padding:8px 12px;text-align:right;font-size:12px;color:#e7eef7;">
+                                        {1}
+                                    </th>
+                                    <th colspan="2" style="padding:8px 12px;text-align:right;font-size:12px;color:#e7eef7;">
+                                        {2} payer(s)
+                                    </th>
+                                </tr>
+                        """.format(org_name or 'Unknown',
+                                   self.format_currency(_grp_total),
+                                   _grp_count)
                     
                     # Get parent contact info
                     cc_emails, parent_info = self.get_parent_emails(family_id)
@@ -3731,6 +3969,37 @@ try:
             function viewUnassignedPayers() {{
                 showLoading();
                 window.location.href = window.location.pathname + '?action=payers&unassigned=1';
+            }}
+
+            // v2.6: Payment History navigation. Mirrors the Outstanding
+            // drill-down (Programs -> Divisions -> Payers) but passes
+            // the date range through every link so staff don't lose
+            // their window when navigating.
+            function viewHistoryPrograms(dateFrom, dateTo) {{
+                showLoading();
+                var url = window.location.pathname + '?action=history_programs';
+                if (dateFrom) url += '&from=' + encodeURIComponent(dateFrom);
+                if (dateTo)   url += '&to='   + encodeURIComponent(dateTo);
+                window.location.href = url;
+            }}
+
+            function viewHistoryDivisions(programId, dateFrom, dateTo) {{
+                showLoading();
+                var url = window.location.pathname + '?action=history_divisions&ProgramID=' + programId;
+                if (dateFrom) url += '&from=' + encodeURIComponent(dateFrom);
+                if (dateTo)   url += '&to='   + encodeURIComponent(dateTo);
+                window.location.href = url;
+            }}
+
+            function viewHistoryPayers(orgId, programId, dateFrom, dateTo, unassigned) {{
+                showLoading();
+                var url = window.location.pathname + '?action=history_payers';
+                if (orgId && orgId !== 'null')         url += '&OrganizationId=' + orgId;
+                if (programId && programId !== 'null') url += '&ProgramID='      + programId;
+                if (unassigned)                          url += '&unassigned=1';
+                if (dateFrom) url += '&from=' + encodeURIComponent(dateFrom);
+                if (dateTo)   url += '&to='   + encodeURIComponent(dateTo);
+                window.location.href = url;
             }}
             
             // --- Modernization additions: Receipts, Settings, Help, Auto-update -----
@@ -5190,6 +5459,9 @@ try:
                 <button class="btn btn-primary" onclick="viewPrograms()" style="font-size:12px;font-weight:700;" title="Home -- outstanding balances by program">
                     <i class="fa fa-home"></i> Outstanding Balances
                 </button>
+                <button class="btn btn-secondary" onclick="viewHistoryPrograms()" style="font-size:12px;" title="Payment history by program -- includes paid-in-full for receipt lookup">
+                    <i class="fa fa-history"></i> Payment History
+                </button>
                 <button class="btn btn-secondary" onclick="viewReceipts()" style="font-size:12px;">
                     <i class="fa fa-receipt"></i> Receipts
                 </button>
@@ -5550,6 +5822,11 @@ try:
                 # Handle GET requests (page views)
                 content = ""
                 
+                # v2.6: read date range from query string for History
+                # mode. Empty strings get defaulted later inside the
+                # render methods.
+                date_from = str(getattr(model.Data, 'from', '') or '').strip()
+                date_to   = str(getattr(model.Data, 'to', '') or '').strip()
                 if self.current_action == 'divisions':
                     program_id = str(getattr(model.Data, 'ProgramID', self.program_id))
                     content = self.render_divisions_view(program_id)
@@ -5562,6 +5839,21 @@ try:
                     if program_id:
                         program_id = str(program_id)
                     content = self.render_payers_view(org_id, program_id, unassigned=unassigned)
+                # v2.6: Payment History mirrors of the same three views.
+                elif self.current_action == 'history_programs':
+                    content = self.render_programs_view(date_from=date_from, date_to=date_to, is_history=True)
+                elif self.current_action == 'history_divisions':
+                    program_id = str(getattr(model.Data, 'ProgramID', self.program_id))
+                    content = self.render_divisions_view(program_id, date_from=date_from, date_to=date_to, is_history=True)
+                elif self.current_action == 'history_payers':
+                    org_id = getattr(model.Data, 'OrganizationId', None)
+                    program_id = getattr(model.Data, 'ProgramID', None)
+                    unassigned = str(getattr(model.Data, 'unassigned', '') or '').lower() in ('1', 'true', 'yes')
+                    if org_id: org_id = str(org_id)
+                    if program_id: program_id = str(program_id)
+                    content = self.render_payers_view(org_id, program_id, unassigned=unassigned,
+                                                       date_from=date_from, date_to=date_to,
+                                                       is_history=True)
                 elif self.current_action == 'emails':
                     people_id = str(getattr(model.Data, 'PeopleId', ''))
                     if people_id:
