@@ -4,11 +4,6 @@
 # Shows the last Background Check and last Training entry (date +
 # status) for each person selected from a Blue Toolbar search.
 #
-# In TouchPoint, BG checks and training rows BOTH live in the
-# dbo.BackgroundChecks table; they are distinguished by ReportTypeID:
-#   ReportTypeID = 3   -> Training      (BackgroundCheckCode.ReportTypeTraining)
-#   ReportTypeID <> 3  -> Background Check
-#
 # ApprovalStatus values (lookup.BackGroundCheckApprovalCodes):
 #   Pending, Approved, Not Approved
 # Some BG vendors (Protect My Ministry, MinistrySafe) may also write
