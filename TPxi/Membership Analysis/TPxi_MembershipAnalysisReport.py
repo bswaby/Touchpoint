@@ -28,12 +28,6 @@
 #
 # CHANGELOG:
 #   v2.1 - 2026-06-15
-#     - FIX: Cohort underreporting for the most recent year.
-#       MemberCohorts CTE had `AND JoinDate <= DATEADD(year, -1, GETDATE())`
-#       which silently dropped anyone who joined in the last 12 months
-#       from the cohort itself, not just the retention rate. A 2025
-#       cohort of 96 was rendering as 37. Removed the cap; cohort size
-#       now equals "everyone who joined that year, period."
 #     - FIX: Retention rate gating. With the cohort cap removed, the 1/3/5
 #       year retention % could show misleadingly low values (early joiners
 #       had a year, late joiners had a week). Added get_cohort_year_end_sql()
