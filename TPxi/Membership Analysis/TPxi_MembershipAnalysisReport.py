@@ -12,7 +12,7 @@
 
 
 #####################################################################
-# TPxi Membership Analysis Report  v2.1
+# TPxi Membership Analysis Report  v2.1.2
 #####################################################################
 #
 # SETUP (paste and go):
@@ -27,6 +27,24 @@
 #   Settings: /PyScriptForm/TPxi_MembershipAnalysisReport?settings=1
 #
 # CHANGELOG:
+#   v2.1.2 - 2026-06-15
+#     - DOC: added a "What these rates actually measure" footnote to the
+#       Retention legend. The current SQL measures snapshot retention
+#       (still a Member today AND N years passed since join), not
+#       point-in-time retention (still a Member at the N-year mark).
+#       For older cohorts where everyone who was going to leave has
+#       already left, 1Y / 3Y / 5Y collapse to the same number. The
+#       footnote names the limitation explicitly so staff don't read
+#       into identical adjacent percentages.
+#   v2.1.1 - 2026-06-15
+#     - FIX: retention showing 100% across every cohort. The cohort CTE
+#       filtered `WHERE MemberStatusId = MEMBER`, then the retention CASE
+#       checked the same MemberStatusId condition -- so by construction
+#       every cohort row was "retained." Removed the cohort-side status
+#       and IsDeceased filters; cohort is now "everyone with a JoinDate
+#       in the year," and the retention CASE measures `CurrentStatus =
+#       MEMBER AND IsDeceased = 0` to find who actually stayed. Real
+#       attrition now shows in the rates.
 #   v2.1 - 2026-06-15
 #     - FIX: Retention rate gating. With the cohort cap removed, the 1/3/5
 #       year retention % could show misleadingly low values (early joiners
@@ -1378,6 +1396,15 @@ def get_retention_metrics(start_date, end_date):
     undercounting the most recent cohort (e.g. a 96-member 2025 cohort
     showed as 37 when run on 2026-06-15). Bug found 2026-06-15.
 
+    CRITICAL (added 2026-06-15 round 2): The cohort CTE must NOT filter
+    on MemberStatusId or IsDeceased. The earlier version filtered the
+    cohort to currently-Members-and-alive, then the retention CASE
+    counted "still a Member" -- the same condition on both sides made
+    retention 100% by construction across every row. The cohort is
+    "everyone who joined in that year," irrespective of where they are
+    today. Retention then measures what fraction is STILL a Member and
+    still alive.
+
     Retention 1Y / 3Y / 5Y rates are only shown once the FULL cohort
     has had at least N years to mature -- i.e. (cohort year-end + N)
     is in the past. Otherwise they'd be apples-to-oranges (early
@@ -1388,37 +1415,44 @@ def get_retention_metrics(start_date, end_date):
 
     sql = """
     WITH MemberCohorts AS (
+        -- Everyone with a JoinDate in the year, REGARDLESS of current
+        -- MemberStatusId or IsDeceased. We carry both forward so the
+        -- retention CASE can measure attrition (left-the-church AND
+        -- died-since count as not-retained). Campus filter still applies.
         SELECT
             {0} AS CohortYear,
             PeopleId,
-            JoinDate
+            JoinDate,
+            MemberStatusId AS CurrentStatus,
+            IsDeceased
         FROM People WITH (NOLOCK)
-        WHERE MemberStatusId = {1}
+        WHERE JoinDate IS NOT NULL
           AND JoinDate >= '{2}'
-          AND JoinDate <= GETDATE()
-          AND IsDeceased = 0{3}
+          AND JoinDate <= GETDATE(){3}
     ),
     RetentionData AS (
         SELECT
             mc.CohortYear,
             COUNT(DISTINCT mc.PeopleId) AS CohortSize,
-            -- 1 year retention -- count people still members whose 1Y anniversary has passed
+            -- 1 year retention: still a Member, still alive, 1Y anniversary passed
             COUNT(DISTINCT CASE
-                WHEN p.MemberStatusId = {1}
+                WHEN mc.CurrentStatus = {1}
+                AND mc.IsDeceased = 0
                 AND DATEADD(year, 1, mc.JoinDate) <= GETDATE()
                 THEN mc.PeopleId END) AS RetainedYear1,
             -- 3 year retention
             COUNT(DISTINCT CASE
-                WHEN p.MemberStatusId = {1}
+                WHEN mc.CurrentStatus = {1}
+                AND mc.IsDeceased = 0
                 AND DATEADD(year, 3, mc.JoinDate) <= GETDATE()
                 THEN mc.PeopleId END) AS RetainedYear3,
             -- 5 year retention
             COUNT(DISTINCT CASE
-                WHEN p.MemberStatusId = {1}
+                WHEN mc.CurrentStatus = {1}
+                AND mc.IsDeceased = 0
                 AND DATEADD(year, 5, mc.JoinDate) <= GETDATE()
                 THEN mc.PeopleId END) AS RetainedYear5
         FROM MemberCohorts mc
-        INNER JOIN People p ON mc.PeopleId = p.PeopleId
         GROUP BY mc.CohortYear
     )
     SELECT
@@ -2866,6 +2900,20 @@ def render_retention_metrics(retention_data):
                     <li>Dashes (-) indicate not enough time has passed for the whole cohort to mature for that metric</li>
                 </ul>
                 <p><em>Example: If 100 people joined in {1} and 85 are still members in {2}, the 1-year retention is 85%</em></p>
+                <hr style="border-color:#a6cdef;margin:8px 0;">
+                <p style="margin-bottom:4px;"><strong>What these rates actually measure (and what they don't):</strong></p>
+                <p style="margin-bottom:0;font-size:0.95em;">
+                    These columns measure <strong>snapshot retention</strong>, whether each cohort member
+                    is <em>still a Member today</em>, gated by how many years have passed since they joined.
+                    They do <strong>not</strong> measure point-in-time retention (i.e. whether someone was
+                    still a Member exactly at the 1-year mark vs. the 3-year mark). That distinction matters
+                    for older cohorts: if everyone who was going to leave has already left, the 1Y / 3Y / 5Y
+                    columns will collapse to the same number. A 2020 cohort showing
+                    <code>87% / 87% / 87%</code> means "of the people who joined in 2020, 87% are still
+                    Members today".  The math can't distinguish whether the 13% who left did so in
+                    year 1 or year 4. For true per-anniversary retention we'd need to mine
+                    <code>ChangeLog</code> for historical status changes (not yet implemented).
+                </p>
             </div>
             <div class="table-responsive">
                 <table class="table table-striped">
