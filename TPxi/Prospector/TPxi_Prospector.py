@@ -43,10 +43,48 @@ CONTENT STORAGE
   ProspectBuilder_Sessions  - Saved work sessions
 
 Written By: Ben Swaby
-Version: 1.2
+Version: 1.2.2
 Date: June 2026
 
 CHANGELOG
+- 1.2.2 (June 2026): UX -- Action menu now shows "as <MemberType>" next to
+        each involvement (green) or "no role set" (red) when no role is
+        configured. Label-derived value preferred over the cached id so
+        the indicator matches what the server actually does, even on
+        churches with customized lookup.MemberType ids.
+- 1.2.1 (June 2026): ROOT-CAUSE FIX -- "as Prospect" target actions were
+        landing people as the WRONG member type on churches that
+        customized lookup.MemberType. Three converging bugs, fixed
+        together:
+          a) HTML template hardcoded
+             <option value="230">Prospect</option> (and similar for
+             Group Management). 230 is the default-seed id for Prospect
+             but on FBCH (and any church that renamed lookup rows) 230
+             is "InActive" and Prospect lives at 311.
+             FIX: dropped the hardcoded options; both dropdowns start
+             with "Loading..." and get rebuilt from lookup.MemberType.
+          b) pbLoadMemberTypes() skipped the rebuild on its cached path
+             (modal re-open), so the hardcoded options came back.
+             FIX: always call pbUpdateActionMemberTypeDropdown(),
+             cached or not.
+          c) Server `process_action` was calling
+             `model.SetMemberType(pid, target_org, int(mt_id))` -- but
+             SetMemberType takes a Description *string*, not an int.
+             Passing an int (e.g. 230) makes FetchOrCreateMemberType
+             match on Description="230", find nothing, and CREATE a
+             new junk MemberType row with AttendanceTypeId=Member.
+             Verified against bvcms-develop CmsData/API/PythonModel/
+             PythonModel.Organizations.cs:235 and
+             CmsData/Organization/Organization.cs:575.
+             FIX: switched to LABEL-FIRST resolution. The action label
+             (e.g. "Foo (#123) as Prospect") is what staff saw when
+             configuring -- it's the source of truth. We parse it via
+             `lookup.MemberType.Description` first and only fall back
+             to the cached `memberTypeId` if the label is unparseable.
+             Then we pass the resolved Description string (not the
+             id) to SetMemberType.
+        Diagnosis aided by PBDumpConfigs.py (read-only) which surfaces
+        per-action mismatches between memberTypeId and label.
 - 1.2 (June 2026): Dashboard polish + in-app auto-update via DisplayCache.
         * Conversion-rate trend chart switched from single-month buckets to
           90-day rolling per month-end, so the latest chart point matches the
@@ -69,7 +107,7 @@ import traceback
 # ============================================================
 # CONFIGURATION
 # ============================================================
-APP_VERSION = "1.2"
+APP_VERSION = "1.2.2"
 # --- Auto-update wiring (see TPxi/AutoUpdate/README.md) ----------------
 # DisplayCache hosts a manifest at scripts.displaycache.com that lists the
 # latest published version for each script. On every page load the browser
@@ -4679,10 +4717,68 @@ if model.HttpMethod == "post":
                         if target_org > 0:
                             if not model.InOrg(pid, target_org):
                                 model.JoinOrg(target_org, person)
-                            # Set member type if specified
-                            mt_id = target.get('memberTypeId')
+                            # MEMBER TYPE RESOLUTION (label-first, v1.3.3):
+                            # `model.SetMemberType` takes the member-type
+                            # *Description string* (e.g. "Prospect"), not an
+                            # int id. Passing the int makes FetchOrCreateMemberType
+                            # match on Description="230" -- no row exists, so a
+                            # new junk MemberType is created with AttendanceTypeId=Member.
+                            # Verified in bvcms-develop CmsData/API/PythonModel/
+                            # PythonModel.Organizations.cs:235 and
+                            # CmsData/Organization/Organization.cs:575.
+                            # We resolve via the action LABEL first because
+                            # earlier PB versions hardcoded memberTypeId=230
+                            # for "Prospect" -- correct on default-seed
+                            # installs, but on churches that renamed
+                            # lookup.MemberType (e.g. FBCH where Prospect=311
+                            # and 230='InActive') the cached id is WRONG.
+                            # The label is what staff saw and is the source
+                            # of truth.
+                            mt_id = None
+                            _label = target.get('label', '') or ''
+                            if ' as ' in _label:
+                                _trailing = _label.rsplit(' as ', 1)[-1].strip()
+                                if _trailing:
+                                    try:
+                                        _rows2 = q.QuerySql(
+                                            "SELECT TOP 1 Id FROM lookup.MemberType WITH (NOLOCK) "
+                                            "WHERE Description = '"
+                                            + _trailing.replace("'", "''") + "'"
+                                        )
+                                        for _r2 in _rows2:
+                                            mt_id = _r2.Id
+                                            break
+                                    except:
+                                        pass
+                            # Fall back to cached memberTypeId if label
+                            # is unparseable (tag actions, custom labels).
+                            if not mt_id:
+                                mt_id = target.get('memberTypeId')
                             if mt_id:
-                                model.SetMemberType(pid, target_org, int(mt_id))
+                                mt_desc = ''
+                                try:
+                                    _rows = q.QuerySql(
+                                        "SELECT TOP 1 Description "
+                                        "FROM lookup.MemberType WITH (NOLOCK) "
+                                        "WHERE Id = " + str(int(mt_id))
+                                    )
+                                    for _r in _rows:
+                                        mt_desc = safe_str(_r.Description)
+                                        break
+                                except:
+                                    mt_desc = ''
+                                if mt_desc:
+                                    model.SetMemberType(pid, target_org, mt_desc)
+                                else:
+                                    errors.append(
+                                        'Skipped SetMemberType for {0}: '
+                                        'unknown MemberTypeId {1}'.format(pid, mt_id)
+                                    )
+                            else:
+                                errors.append(
+                                    'No member type set for action -- {0} landed as default. '
+                                    'Edit the target action and re-pick the role.'.format(pid)
+                                )
                             # Also add to any selected subgroups
                             subgroups = target.get('subgroups', [])
                             for sg_name in subgroups:
@@ -7844,14 +7940,12 @@ model.CallScript("TPxi_ProspectBuilder")</pre>
                     <div id="pb-action-inv-fields" style="display:none;">
                         <p class="pb-text-muted pb-text-sm" style="margin:0 0 6px 0;">Select member type, filter by program/division, then click involvements to add.</p>
                         <div class="pb-flex pb-gap-sm pb-mb-sm" style="flex-wrap:wrap;">
+                            <!-- Hardcoded ids removed (220/230/etc were default-seed ids,
+                                 wrong on churches that renamed lookup.MemberType -- e.g. FBCH
+                                 has Prospect=311, not 230). pbUpdateActionMemberTypeDropdown()
+                                 rebuilds this from lookup.MemberType on every modal open. -->
                             <select class="pb-select" id="pb-action-member-type" style="width:auto;min-width:150px;">
-                                <option value="220">Member (default)</option>
-                                <option value="230">Prospect</option>
-                                <option value="310">Leader</option>
-                                <option value="320">Assistant Leader</option>
-                                <option value="500">Visitor</option>
-                                <option value="710">Volunteer</option>
-                                <option value="140">Leader (140)</option>
+                                <option value="" disabled selected>Loading...</option>
                             </select>
                             <select class="pb-select" id="pb-action-prog-filter" style="width:auto;min-width:140px;" onchange="pbActionProgChanged()">
                                 <option value="">All Programs</option>
@@ -7995,11 +8089,10 @@ model.CallScript("TPxi_ProspectBuilder")</pre>
                     </div>
                     <div id="pb-grp-action-inv-fields" style="display:none;">
                         <div class="pb-flex pb-gap-sm pb-mb-sm" style="flex-wrap:wrap;">
+                            <!-- Same hardcoded-id bug as the main action dropdown.
+                                 Rebuilt from lookup.MemberType via pbUpdateActionMemberTypeDropdown. -->
                             <select class="pb-select" id="pb-grp-action-member-type" style="width:auto;min-width:130px;">
-                                <option value="220">Member</option>
-                                <option value="230">Prospect</option>
-                                <option value="310">Leader</option>
-                                <option value="500">Visitor</option>
+                                <option value="" disabled selected>Loading...</option>
                             </select>
                         </div>
                         <input type="text" class="pb-input pb-mb-sm" id="pb-grp-action-inv-search" placeholder="Search involvements..." oninput="pbGrpActionSearchInv(this.value)">
@@ -10534,6 +10627,15 @@ var pbMemberTypesFromDB = [];
 function pbLoadMemberTypes(selectedIds) {
     if (pbMemberTypesFromDB.length) {
         pbRenderMemberTypeCheckboxes(selectedIds);
+        // CRITICAL: the modal HTML re-inserts hardcoded <option value="230">
+        // every time it opens. Without this call on the cached path the
+        // user picks "Prospect" from a dropdown that says value="230" --
+        // a number that means "Prospect" on default seeds but "InActive"
+        // on churches that customized lookup.MemberType. The wrong id then
+        // gets saved into the action JSON and downstream SetMemberType
+        // lands the person under the wrong member type. Bug discovered
+        // 2026-06-15 at FBCH where Prospect is id=311, not 230.
+        pbUpdateActionMemberTypeDropdown();
         return;
     }
     pbAjax({action: 'get_member_types'}, function(d) {
@@ -11736,9 +11838,31 @@ function pbBuildActionMenuSections(pid) {
                 if (hd.staleProspects > 0) healthHint += ' / ' + hd.staleProspects + 's';
                 healthHint += ' / ' + hd.totalMembers + 't';
             }
+            // Show "as <MemberType>" inline so staff can see the role this
+            // action will apply before they click. Critical signal because
+            // older saved actions cached the wrong memberTypeId on churches
+            // that customized lookup.MemberType. The label is the source of
+            // truth -- if the cached id disagrees with the label, prefer
+            // the label-derived value (matches the server's label-first
+            // resolution in process_action).
+            var _mtLabel = '';
+            var _mtFromId = (invs[v].memberTypeId && pbMemberTypeLabels && pbMemberTypeLabels[String(invs[v].memberTypeId)])
+                              ? pbMemberTypeLabels[String(invs[v].memberTypeId)] : '';
+            var _mtFromLabel = '';
+            if (invs[v].label) {
+                var _lbl = invs[v].label;
+                var _idx = _lbl.lastIndexOf(' as ');
+                if (_idx >= 0) _mtFromLabel = _lbl.substring(_idx + 4).trim();
+            }
+            // Prefer label-derived (matches what the user actually saw when
+            // configuring). Fall back to id-derived if label doesn't have "as".
+            _mtLabel = _mtFromLabel || _mtFromId;
+            var _mtSpan = _mtLabel
+                ? ' <span style="font-size:0.78em;color:#107c10;font-weight:600;">as ' + _mtLabel + '</span>'
+                : ' <span style="font-size:0.78em;color:#d13438;font-weight:600;" title="No member type configured -- person will land as default. Edit this action to set a role.">no role set</span>';
             html += '<div class="pb-action-menu-item" style="padding:0;">';
             html += '<span class="pb-ami-icon" style="color:var(--pb-success);cursor:pointer;padding:6px 4px;" onclick="event.stopPropagation();pbProcessSingle(' + pid + ',' + vi + ')" title="Assign to this group">&#10133;</span>';
-            html += '<span style="flex:1;cursor:pointer;padding:6px 4px;" onclick="event.stopPropagation();pbShowDestDetail(' + invs[v].orgId + ')">' + (invs[v].orgName || invs[v].label) + '</span>';
+            html += '<span style="flex:1;cursor:pointer;padding:6px 4px;" onclick="event.stopPropagation();pbShowDestDetail(' + invs[v].orgId + ')">' + (invs[v].orgName || invs[v].label) + _mtSpan + '</span>';
             if (healthHint) html += '<span class="pb-ami-health" style="padding:6px 4px;" title="prospects/stale/total">' + healthHint + '</span>';
             html += '</div>';
         }
