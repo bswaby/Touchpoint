@@ -1,26 +1,18 @@
 #roles=Edit
 
-# Written By: Ben Swaby (TPxi Software, LLC)
-# Email: bswaby@fbchtn.org                                                                                                      
-# Website: https://tpxisoftware.com
-# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
-# ----------------------------------------------------------------                                                              
-# These tools are free because they should be.
-# If they've saved you time or helped your team, and you want to                                                                
-# support continued development, check out:                                                                                     
-#
-# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
-# https://displaycache.com                                
-#
-# TPxi Go(TM) - your church contacts, wherever you work.
-# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
-# or your phone. No tab switching, no lost context.
-# https://tpxigo.com                                                                                                            
-# ----------------------------------------------------------------
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub:  https://github.com/bswaby/Touchpoint
+# ---------------------------------------------------------------
+# Support: These tools are free because they should be. If they've
+#          saved you time, consider DisplayCache — church digital
+#          signage that integrates with TouchPoint.
+#          https://displaycache.com
+# ---------------------------------------------------------------
 
 
 #####################################################################
-# TPxi Membership Analysis Report  v2.0
+# TPxi Membership Analysis Report  v2.1
 #####################################################################
 #
 # SETUP (paste and go):
@@ -35,6 +27,29 @@
 #   Settings: /PyScriptForm/TPxi_MembershipAnalysisReport?settings=1
 #
 # CHANGELOG:
+#   v2.1 - 2026-06-15
+#     - FIX: Cohort underreporting for the most recent year.
+#       MemberCohorts CTE had `AND JoinDate <= DATEADD(year, -1, GETDATE())`
+#       which silently dropped anyone who joined in the last 12 months
+#       from the cohort itself, not just the retention rate. A 2025
+#       cohort of 96 was rendering as 37. Removed the cap; cohort size
+#       now equals "everyone who joined that year, period."
+#     - FIX: Retention rate gating. With the cohort cap removed, the 1/3/5
+#       year retention % could show misleadingly low values (early joiners
+#       had a year, late joiners had a week). Added get_cohort_year_end_sql()
+#       so rate columns only populate once the FULL cohort has had time
+#       to mature (cohort year-end + N years has passed). Until then the
+#       rate AND the raw count both show "-".
+#     - FIX: Retention legend text said "fiscal year" even when Calendar
+#       Year was selected. Now toggles between "fiscal year" and "calendar
+#       year" based on USE_FISCAL_YEAR. Example years (FY2020 vs 2020)
+#       also flip with the setting.
+#     - FIX: Baptism age-bin drill-down modal showed "Could not parse
+#       response." for every cell. The handler printed raw stdout, but
+#       the page is served via /PyScriptForm/ which renders model.Form
+#       and ignores raw print. Wrapped handle_baptism_drilldown() in
+#       the same StringIO -> model.Form pattern the GET report uses.
+#       Now the modal populates with the actual people list.
 #   v2.0 - 2026-03-16
 #     - Routing overhaul: report is the default view, settings via ?settings=1
 #     - Campus selector dropdown in report header for inline switching
@@ -1342,68 +1357,104 @@ def get_family_trends(start_date, end_date):
     
     return q.QuerySql(sql)
 
+def get_cohort_year_end_sql(year_expr):
+    """
+    SQL expression for the END date of a given cohort year.
+    Used to gate the 1Y / 3Y / 5Y retention rate columns -- a rate is
+    only meaningful once *every* member of the cohort has had at least
+    N years to either stay or leave.
+
+    Calendar year N -> ends Dec 31, N
+    Fiscal year N (start month M, day D) -> ends day before M/D of year N
+       e.g. FY 2025 with Oct 1 start -> Sep 30, 2025
+    """
+    if not Config.USE_FISCAL_YEAR:
+        # Calendar: day before Jan 1 of next year = Dec 31 of cohort year
+        return "DATEADD(day, -1, CAST(CAST(({0})+1 AS varchar) + '-01-01' AS datetime))".format(year_expr)
+    return ("DATEADD(day, -1, CAST(CAST(({0}) AS varchar) + '-{1:02d}-{2:02d}' AS datetime))"
+            .format(year_expr, Config.FISCAL_YEAR_START_MONTH, Config.FISCAL_YEAR_START_DAY))
+
+
 def get_retention_metrics(start_date, end_date):
-    """Calculate retention and attrition metrics"""
+    """Calculate retention and attrition metrics.
+
+    Cohort size = everyone who joined in that year, period. The earlier
+    `JoinDate <= DATEADD(year, -1, GETDATE())` filter silently dropped
+    anyone who joined in the last 12 months from the cohort itself,
+    undercounting the most recent cohort (e.g. a 96-member 2025 cohort
+    showed as 37 when run on 2026-06-15). Bug found 2026-06-15.
+
+    Retention 1Y / 3Y / 5Y rates are only shown once the FULL cohort
+    has had at least N years to mature -- i.e. (cohort year-end + N)
+    is in the past. Otherwise they'd be apples-to-oranges (early
+    joiners get a year, late joiners get a week).
+    """
     fiscal_year_sql = get_fiscal_year_sql().format("JoinDate")
-    
+    cohort_end = get_cohort_year_end_sql("CohortYear")
+
     sql = """
     WITH MemberCohorts AS (
         SELECT
-            {} AS CohortYear,
+            {0} AS CohortYear,
             PeopleId,
             JoinDate
         FROM People WITH (NOLOCK)
-        WHERE MemberStatusId = {}
-          AND JoinDate >= '{}'
-          AND JoinDate <= DATEADD(year, -1, GETDATE())
-          AND IsDeceased = 0{}
+        WHERE MemberStatusId = {1}
+          AND JoinDate >= '{2}'
+          AND JoinDate <= GETDATE()
+          AND IsDeceased = 0{3}
     ),
     RetentionData AS (
-        SELECT 
+        SELECT
             mc.CohortYear,
             COUNT(DISTINCT mc.PeopleId) AS CohortSize,
-            -- 1 year retention
-            COUNT(DISTINCT CASE 
-                WHEN p.MemberStatusId = {} 
+            -- 1 year retention -- count people still members whose 1Y anniversary has passed
+            COUNT(DISTINCT CASE
+                WHEN p.MemberStatusId = {1}
                 AND DATEADD(year, 1, mc.JoinDate) <= GETDATE()
                 THEN mc.PeopleId END) AS RetainedYear1,
             -- 3 year retention
-            COUNT(DISTINCT CASE 
-                WHEN p.MemberStatusId = {} 
+            COUNT(DISTINCT CASE
+                WHEN p.MemberStatusId = {1}
                 AND DATEADD(year, 3, mc.JoinDate) <= GETDATE()
                 THEN mc.PeopleId END) AS RetainedYear3,
             -- 5 year retention
-            COUNT(DISTINCT CASE 
-                WHEN p.MemberStatusId = {} 
+            COUNT(DISTINCT CASE
+                WHEN p.MemberStatusId = {1}
                 AND DATEADD(year, 5, mc.JoinDate) <= GETDATE()
                 THEN mc.PeopleId END) AS RetainedYear5
         FROM MemberCohorts mc
         INNER JOIN People p ON mc.PeopleId = p.PeopleId
         GROUP BY mc.CohortYear
     )
-    SELECT 
+    SELECT
         CohortYear,
         CohortSize,
-        RetainedYear1,
-        CASE WHEN CohortSize > 0 THEN (RetainedYear1 * 100.0 / CohortSize) ELSE 0 END AS RetentionRate1Year,
-        RetainedYear3,
-        CASE WHEN CohortSize > 0 AND DATEADD(year, 3, CAST(CAST(CohortYear AS varchar) + '-01-01' AS datetime)) <= GETDATE() 
+        -- Rate columns are NULL until the full cohort has had time to mature.
+        -- Without this gate, the most recent cohort would show a misleadingly
+        -- low % because late joiners haven't yet crossed the 1Y / 3Y / 5Y line.
+        CASE WHEN CohortSize > 0 AND DATEADD(year, 1, {4}) <= GETDATE()
+             THEN RetainedYear1 ELSE NULL END AS RetainedYear1,
+        CASE WHEN CohortSize > 0 AND DATEADD(year, 1, {4}) <= GETDATE()
+             THEN (RetainedYear1 * 100.0 / CohortSize) ELSE NULL END AS RetentionRate1Year,
+        CASE WHEN CohortSize > 0 AND DATEADD(year, 3, {4}) <= GETDATE()
+             THEN RetainedYear3 ELSE NULL END AS RetainedYear3,
+        CASE WHEN CohortSize > 0 AND DATEADD(year, 3, {4}) <= GETDATE()
              THEN (RetainedYear3 * 100.0 / CohortSize) ELSE NULL END AS RetentionRate3Year,
-        RetainedYear5,
-        CASE WHEN CohortSize > 0 AND DATEADD(year, 5, CAST(CAST(CohortYear AS varchar) + '-01-01' AS datetime)) <= GETDATE()
+        CASE WHEN CohortSize > 0 AND DATEADD(year, 5, {4}) <= GETDATE()
+             THEN RetainedYear5 ELSE NULL END AS RetainedYear5,
+        CASE WHEN CohortSize > 0 AND DATEADD(year, 5, {4}) <= GETDATE()
              THEN (RetainedYear5 * 100.0 / CohortSize) ELSE NULL END AS RetentionRate5Year
     FROM RetentionData
     ORDER BY CohortYear DESC
     """.format(
-        fiscal_year_sql,
-        Config.MEMBER_STATUS_ID,
-        start_date,
-        campus_filter(''),
-        Config.MEMBER_STATUS_ID,
-        Config.MEMBER_STATUS_ID,
-        Config.MEMBER_STATUS_ID
+        fiscal_year_sql,         # 0
+        Config.MEMBER_STATUS_ID, # 1
+        start_date,              # 2
+        campus_filter(''),       # 3
+        cohort_end               # 4
     )
-    
+
     return q.QuerySql(sql)
 
 def get_campus_breakdown(start_date, end_date):
@@ -2802,6 +2853,11 @@ def render_retention_metrics(retention_data):
     """)
     
     # Detailed retention table
+    # Year-type label switches with USE_FISCAL_YEAR setting -- legend used to
+    # say "fiscal year" even when the user had Calendar Year selected.
+    _year_type_label = "fiscal year" if Config.USE_FISCAL_YEAR else "calendar year"
+    _example_year = "FY2020" if Config.USE_FISCAL_YEAR else "2020"
+    _example_next = "FY2021" if Config.USE_FISCAL_YEAR else "2021"
     print("""
     <div class="row">
         <div class="col-md-12">
@@ -2809,13 +2865,13 @@ def render_retention_metrics(retention_data):
             <div class="alert alert-info">
                 <p><strong>Understanding Retention Metrics:</strong></p>
                 <ul>
-                    <li><strong>Cohort Year</strong> - The fiscal year when members joined</li>
+                    <li><strong>Cohort Year</strong> - The {0} when members joined</li>
                     <li><strong>Initial Size</strong> - Number of new members who joined that year</li>
                     <li><strong>1/3/5 Year columns</strong> - How many from that cohort are still active members after that many years</li>
                     <li><strong>Percentage columns</strong> - What percentage of the original cohort remains active</li>
-                    <li>Dashes (-) indicate not enough time has passed to calculate that metric</li>
+                    <li>Dashes (-) indicate not enough time has passed for the whole cohort to mature for that metric</li>
                 </ul>
-                <p><em>Example: If 100 people joined in FY2020 and 85 are still members in FY2021, the 1-year retention is 85%</em></p>
+                <p><em>Example: If 100 people joined in {1} and 85 are still members in {2}, the 1-year retention is 85%</em></p>
             </div>
             <div class="table-responsive">
                 <table class="table table-striped">
@@ -2832,19 +2888,22 @@ def render_retention_metrics(retention_data):
                         </tr>
                     </thead>
                     <tbody>
-    """)
-    
+    """.format(_year_type_label, _example_year, _example_next))
+
     for cohort in retention_data:
         rate1 = safe_get_value(cohort, 'RetentionRate1Year', None)
         rate3 = safe_get_value(cohort, 'RetentionRate3Year', None)
         rate5 = safe_get_value(cohort, 'RetentionRate5Year', None)
-        
+        ret1 = safe_get_value(cohort, 'RetainedYear1', None)
+        ret3 = safe_get_value(cohort, 'RetainedYear3', None)
+        ret5 = safe_get_value(cohort, 'RetainedYear5', None)
+
         print("""
                         <tr>
                             <td>{}</td>
                             <td>{}</td>
                             <td>{}</td>
-                            <td>{}%</td>
+                            <td>{}</td>
                             <td>{}</td>
                             <td>{}</td>
                             <td>{}</td>
@@ -2853,11 +2912,11 @@ def render_retention_metrics(retention_data):
         """.format(
             safe_get_value(cohort, 'CohortYear', ''),
             safe_get_value(cohort, 'CohortSize', 0),
-            safe_get_value(cohort, 'RetainedYear1', 0),
-            int(round(rate1)) if rate1 is not None else "-",
-            safe_get_value(cohort, 'RetainedYear3', '-'),
+            ret1 if ret1 is not None else "-",
+            "{}%".format(int(round(rate1))) if rate1 is not None else "-",
+            ret3 if ret3 is not None else "-",
             "{}%".format(int(round(rate3))) if rate3 is not None else "-",
-            safe_get_value(cohort, 'RetainedYear5', '-'),
+            ret5 if ret5 is not None else "-",
             "{}%".format(int(round(rate5))) if rate5 is not None else "-"
         ))
     
@@ -3620,8 +3679,20 @@ except:
     pass
 
 if _baptism_drilldown:
-    # Baptism age-bin drilldown (AJAX from report page)
-    handle_baptism_drilldown()
+    # Baptism age-bin drilldown (AJAX from report page).
+    # The script is hit via /PyScriptForm/..., which renders model.Form
+    # and IGNORES raw print output. Without this stdout-to-buffer wrap
+    # the prints land in the void, the response body is empty (just the
+    # TouchPoint chrome), the client can't find the AJAX_CONTENT markers,
+    # and the modal shows "Could not parse response." Bug 2026-06-15.
+    _old_stdout = sys.stdout
+    _buffer = StringIO()
+    sys.stdout = _buffer
+    try:
+        handle_baptism_drilldown()
+    finally:
+        sys.stdout = _old_stdout
+    model.Form = _buffer.getvalue()
 elif model.HttpMethod == "post":
     action = get_form_data('action', '')
     if action:
