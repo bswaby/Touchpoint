@@ -1,26 +1,25 @@
-# Written By: Ben Swaby (TPxi Software, LLC)
-# Email: bswaby@fbchtn.org                                                                                                      
-# Website: https://tpxisoftware.com
-# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
-# ----------------------------------------------------------------                                                              
-# These tools are free because they should be.
-# If they've saved you time or helped your team, and you want to                                                                
-# support continued development, check out:                                                                                     
-#
-# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
-# https://displaycache.com                                
-#
-# TPxi Go(TM) - your church contacts, wherever you work.
-# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
-# or your phone. No tab switching, no lost context.
-# https://tpxigo.com                                                                                                            
-# ----------------------------------------------------------------
-
 # TouchPoint Unified Security Monitoring System - All-in-One Dashboard
 # 
 # Purpose: Single script that provides KPI overview and access to multiple security dashboards
 # Features: Real-time KPI summary, integrated dashboard selector, and multiple monitoring tools
 # 
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub: https://github.com/bswaby/Touchpoint  (40+ free tools)
+# ----------------------------------------------------------------
+# These tools are free because they should be.
+# If they've saved you time or helped your team, and you want to
+# support continued development, check out:
+#
+# DisplayCache - church digital signage that integrates with TouchPoint
+# https://displaycache.com
+#
+# TPxi Go - your church contacts, wherever you work.
+# Look up anyone in TouchPoint, log calls and emails from Outlook
+# or your phone. No tab switching, no lost context.
+# https://tpxigo.com
+# ----------------------------------------------------------------
+#
 # --Upload Instructions Start--
 # To upload code to Touchpoint, use the following steps:
 # 1. Click Admin ~ Advanced ~ Special Content ~ Python
@@ -29,10 +28,22 @@
 # 4. Test and optionally add to menu
 # --Upload Instructions End--
 #
-
+#written by: Ben Swaby
+#email: bswaby@fbchtn.org
 
 import traceback
 from datetime import datetime, timedelta
+
+# ::CONFIG:: Version
+# Bump APP_VERSION on user-visible changes; keep the changelog short.
+APP_VERSION = "0.3.0"
+APP_VERSION_DATE = "2026-06-16"
+# Version history:
+#   0.1.0  - Initial release: HighRisk + Enhanced dashboards
+#   0.2.0  - EnumerationMonitor: CIDR /24 aggregation, IP geo cache,
+#            targeted-people modal, breakthrough check, match-rate card
+#   0.3.0  - Cross-IP email correlation (same email probed from N IPs);
+#            APP_VERSION constant surfaced in headers
 
 # ::START:: Main Controller
 def main():
@@ -63,13 +74,29 @@ def main():
         elif view == 'enhanced':
             show_back_to_hub_button()
             dashboard = EnhancedSecurityDashboard()
-            
+
             if action == 'generate_report':
                 params = get_enhanced_params()
                 dashboard.generate_security_report(params)
             else:
                 dashboard.get_configuration_form()
-                
+
+        elif view == 'enumeration':
+            # Account enumeration detection -- catches the signals the
+            # "Failed Login" KPI misses (the activity strings don't
+            # contain "failed", and ForgotPassword on non-existent
+            # accounts looks like normal password recovery from the
+            # outside but is the most common bot-probe today).
+            show_back_to_hub_button()
+            monitor = EnumerationMonitor()
+            lookback_days = 30
+            try:
+                if hasattr(model.Data, 'lookback_days') and model.Data.lookback_days:
+                    lookback_days = int(model.Data.lookback_days)
+            except:
+                pass
+            monitor.show_dashboard(lookback_days)
+
         else:
             # Default - Show KPI overview
             hub = UnifiedSecurityHub()
@@ -146,9 +173,34 @@ class UnifiedSecurityHub:
                 HAVING COUNT(*) >= 20
                 ORDER BY Attempts DESC;
             """
-            
+
+            # ::STEP:: Enumeration KPI (7 days)
+            # Catches the four signals that "Failed Login Attempts" misses:
+            #   1. Web login with email that has no account
+            #      (Activity text doesn't contain "failed" -- not caught above)
+            #   2. Mobile login with unknown user (same)
+            #   3. ForgotPassword on a real-format email that matched no user/person
+            #      (the u0p0 path -- not n0 -- means real-looking enumeration)
+            #   4. ForgotPassword with invalid email format (n0) -- bot signature
+            sql_enum = """
+                DECLARE @StartDate DATETIME = DATEADD(DAY, -7, GETDATE());
+                SELECT
+                    SUM(CASE WHEN Activity LIKE 'attempt to login by non-user%' THEN 1 ELSE 0 END) AS WebLoginEnum,
+                    SUM(CASE WHEN Activity LIKE 'Mobile: Attempt to login by unknown user%' THEN 1 ELSE 0 END) AS MobileLoginEnum,
+                    SUM(CASE WHEN Activity LIKE 'ForgotPassword%u0p0%' AND Activity NOT LIKE '%n0%' THEN 1 ELSE 0 END) AS FpwNoMatch,
+                    SUM(CASE WHEN Activity LIKE 'ForgotPassword%n0%' THEN 1 ELSE 0 END) AS FpwInvalidFormat,
+                    COUNT(DISTINCT ClientIp) AS UniqueEnumIps
+                FROM ActivityLog WITH (NOLOCK)
+                WHERE ActivityDate >= @StartDate
+                  AND (Activity LIKE 'attempt to login by non-user%'
+                    OR Activity LIKE 'Mobile: Attempt to login by unknown user%'
+                    OR (Activity LIKE 'ForgotPassword%u0p0%'
+                       AND Activity NOT LIKE '%u+%'))
+            """
+
             kpi_data = q.QuerySql(sql_kpi)
             critical_ips = q.QuerySql(sql_critical_ips)
+            enum_data = q.QuerySql(sql_enum)
             
             # ::STEP:: Generate KPI Overview Page
             print """
@@ -352,6 +404,9 @@ class UnifiedSecurityHub:
                     <text x="206" y="105" font-family="Arial, sans-serif" font-weight="bold" font-size="14" fill="#0099FF">si</text>
                   </svg></h1>
                     <p>Real-time security overview and threat analysis for the last 7 days</p>
+                    <p style="margin-top:6px;font-size:11px;opacity:0.75;">
+                        v""" + APP_VERSION + """ &middot; """ + APP_VERSION_DATE + """
+                    </p>
                 </div>
             """
             
@@ -368,6 +423,24 @@ class UnifiedSecurityHub:
                 password_resets = getattr(kpi, 'PasswordResets', 0)
                 high_risk_users = getattr(kpi, 'HighRiskUsers', 0) or 0
                 latest_activity = getattr(kpi, 'LatestActivity', None)
+
+                # Enumeration totals (web + mobile + forgot-password no-match)
+                # All four signals lumped because they're the same intent
+                # from the worker's POV: someone probing whether emails
+                # have accounts.
+                enum_web = 0
+                enum_mobile = 0
+                enum_fpw_no_match = 0
+                enum_fpw_invalid = 0
+                enum_unique_ips = 0
+                if enum_data and len(enum_data) > 0:
+                    e = list(enum_data)[0] if hasattr(enum_data, '__iter__') else enum_data
+                    enum_web = getattr(e, 'WebLoginEnum', 0) or 0
+                    enum_mobile = getattr(e, 'MobileLoginEnum', 0) or 0
+                    enum_fpw_no_match = getattr(e, 'FpwNoMatch', 0) or 0
+                    enum_fpw_invalid = getattr(e, 'FpwInvalidFormat', 0) or 0
+                    enum_unique_ips = getattr(e, 'UniqueEnumIps', 0) or 0
+                enum_total = enum_web + enum_mobile + enum_fpw_no_match + enum_fpw_invalid
                 
                 # Display critical alert if needed
                 if critical_threats > 0 and critical_ips:
@@ -427,7 +500,13 @@ class UnifiedSecurityHub:
                         <div class="unifsec2025_kpi_value">{:,}</div>
                         <div class="unifsec2025_kpi_subtitle">User initiated</div>
                     </div>
-                    
+
+                    <div class="unifsec2025_kpi_card {}">
+                        <div class="unifsec2025_kpi_label">Enumeration Attempts</div>
+                        <div class="unifsec2025_kpi_value">{:,}</div>
+                        <div class="unifsec2025_kpi_subtitle">{:,} unique IPs &middot; web {}, mobile {}, forgot {}+{}</div>
+                    </div>
+
                     <div class="unifsec2025_kpi_card">
                         <div class="unifsec2025_kpi_label">Days with Activity</div>
                         <div class="unifsec2025_kpi_value">{}/7</div>
@@ -445,6 +524,10 @@ class UnifiedSecurityHub:
                     high_risk_users,
                     lockouts,
                     password_resets,
+                    # Enumeration KPI -- critical when >100/7d, warning >25/7d
+                    'critical' if enum_total > 100 else 'warning' if enum_total > 25 else '',
+                    enum_total,
+                    enum_unique_ips, enum_web, enum_mobile, enum_fpw_no_match, enum_fpw_invalid,
                     days_active,
                     int((float(days_active) / 7) * 100)
                 )
@@ -503,6 +586,34 @@ class UnifiedSecurityHub:
                                 <input type="hidden" name="view" value="enhanced">
                                 <button type="submit" class="unifsec2025_dashboard_btn enhanced">
                                     <i class="fa fa-arrow-right"></i> Open Enhanced Dashboard
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Account Enumeration Monitor -->
+                        <div class="unifsec2025_dashboard_card">
+                            <div style="font-size: 48px; color: #f0a000; margin-bottom: 15px;">
+                                <i class="fa fa-search"></i>
+                            </div>
+                            <h3 style="color: #212529; margin-bottom: 10px;">Account Enumeration Monitor</h3>
+                            <p style="color: #6c757d; margin-bottom: 20px;">
+                                Detect attackers probing whether emails have accounts. Surfaces
+                                signals that the "Failed Login" KPI misses: web/mobile login
+                                attempts on unknown emails AND ForgotPassword on non-existent
+                                addresses (the bot signature behind those bounce notifications).
+                            </p>
+                            <ul style="text-align: left; color: #495057; font-size: 14px; margin-bottom: 20px;">
+                                <li>Web + mobile login on unknown emails</li>
+                                <li>ForgotPassword on non-existent accounts</li>
+                                <li>Invalid-format email enumeration (bots)</li>
+                                <li>Source IPs ranked by attempt volume</li>
+                                <li>Recent attempts log with email + IP</li>
+                            </ul>
+                            <form method="post" action="#" class="unifsec2025_dashboard_form">
+                                <input type="hidden" name="view" value="enumeration">
+                                <button type="submit" class="unifsec2025_dashboard_btn"
+                                        style="background-color:#f0a000;">
+                                    <i class="fa fa-arrow-right"></i> Open Enumeration Monitor
                                 </button>
                             </form>
                         </div>
@@ -2351,10 +2462,19 @@ def format_time(dt):
         return 'N/A'
 
 def print_error(operation, exception):
-    """Print formatted error message with expandable details"""
+    """Print formatted error message with expandable details.
+
+    Latent fix (2026-06-16): the onclick previously called
+    `toggleDetails(id)`, which is only defined inside the HighRisk and
+    Enhanced dashboard HTML. If print_error fired from any other code
+    path (e.g. the hub before either dashboard rendered, or the new
+    EnumerationMonitor), the click broke with "toggleDetails is not
+    defined." Switched to a tiny inline JS block local to each error
+    so the function is always in scope.
+    """
     import random
     error_id = "error_{}".format(random.randint(1000, 9999))
-    
+
     print """
     <div class="alert alert-danger" style="margin: 20px 0;">
         <h4 style="margin-top: 0;">
@@ -2362,21 +2482,21 @@ def print_error(operation, exception):
         </h4>
         <p><strong>Error Message:</strong> {}</p>
         <p>
-            <a href="javascript:void(0);" onclick="toggleDetails('{}')" style="color: #721c24; text-decoration: underline;">
+            <a href="javascript:void(0);" onclick="(function(el){{var d=document.getElementById('{}');if(d){{d.style.display=(d.style.display==='none')?'block':'none';}}}})()" style="color: #721c24; text-decoration: underline;">
                 <i class="fa fa-chevron-down"></i> Click here for technical details
             </a>
         </p>
         <div id="{}" class="tphighrisk2025_details" style="margin-top: 15px; background-color: #f5c6cb; padding: 15px; border-radius: 4px; display: none;">
             <strong>Stack Trace:</strong>
             <pre style="background-color: #ffffff; padding: 10px; border: 1px solid #f5c6cb; border-radius: 4px; overflow-x: auto;">""".format(
-        operation, 
-        str(exception), 
+        operation,
+        str(exception),
         error_id,
         error_id
     )
-    
+
     traceback.print_exc()
-    
+
     print """</pre>
         </div>
     </div>
@@ -5800,6 +5920,1751 @@ class EnhancedSecurityDashboard:
             </div>
         </div>
         """
+
+# ============================================================
+# IP enrichment helpers (geo + known-bad networks)
+# ============================================================
+# All lookups go through a Special Content cache so a page load
+# costs <=1 batch API call. Cache TTL is intentionally long
+# (30 days) -- IP -> ASN/ISP relationships rarely change.
+import json as _json_for_ip
+import re as _re_for_ip
+
+IP_CACHE_KEY = "TPxi_AccountSecurityMonitor_IpCache"
+IP_CACHE_TTL_DAYS = 30
+
+# Networks known for bot farms / bulletproof hosting. Annotated on
+# top-IP table so staff can spot "this is a hosting provider, not a
+# member" at a glance. Match on AS number (most stable) or org name.
+# Seeded from FBCH's own ActivityLog -- additions over time are fine.
+KNOWN_ABUSE_NETWORKS = {
+    # ASN -> (label, severity)
+    "AS36352":  ("Colocrossing / Hostwinds", "high"),
+    "AS9009":   ("M247 (residential proxy)", "high"),
+    "AS197695": ("REG.RU (bulletproof)",     "high"),
+    "AS207996": ("Quadranet",                 "med"),
+    "AS46261":  ("Quadranet",                 "med"),
+    "AS22612":  ("Namecheap / Privacy.net",   "med"),
+    "AS199524": ("G-Core Labs",                "med"),
+    "AS49453":  ("Global Layer",               "med"),
+    "AS210644": ("AEZA Group",                 "high"),
+}
+
+
+def _load_ip_cache():
+    try:
+        raw = model.TextContent(IP_CACHE_KEY)
+        if raw:
+            return _json_for_ip.loads(raw)
+    except:
+        pass
+    return {}
+
+
+def _save_ip_cache(cache):
+    try:
+        model.WriteContentText(IP_CACHE_KEY, _json_for_ip.dumps(cache), "")
+    except:
+        pass
+
+
+def _cidr_24(ip):
+    """Reduce a dotted-quad IP to its /24. Returns empty string for IPv6
+    or malformed input. Aggregating by /24 collapses single-attacker
+    bot farms ('192.210.150.196', '.198', '.199') into one row."""
+    if not ip:
+        return ''
+    parts = str(ip).split('.')
+    if len(parts) != 4:
+        return ''
+    return parts[0] + '.' + parts[1] + '.' + parts[2] + '.0/24'
+
+
+def _lookup_ip_geo(ip, cache):
+    """Return a dict {country, countryCode, region, city, isp, org, as,
+    abuse_label, abuse_severity} for `ip`. Cached up to 30 days.
+    Uses ip-api.com free tier (no auth, 45 req/min). Failures return
+    empty placeholder values, never blocks render."""
+    if not ip or ':' in str(ip):   # skip IPv6 for v0.2
+        return {}
+    cache_entry = cache.get(ip)
+    if cache_entry:
+        ts = cache_entry.get('_t')
+        try:
+            ts_dt = datetime.strptime(ts[:19], '%Y-%m-%dT%H:%M:%S')
+            if (datetime.now() - ts_dt).days < IP_CACHE_TTL_DAYS:
+                return cache_entry
+        except:
+            pass
+    # Cache miss / stale -- look it up
+    info = {'country': '', 'countryCode': '', 'region': '', 'city': '',
+            'isp': '', 'org': '', 'as': '', 'abuse_label': '', 'abuse_severity': ''}
+    try:
+        url = ("http://ip-api.com/json/" + str(ip)
+               + "?fields=status,country,countryCode,regionName,city,isp,org,as")
+        resp = model.RestGet(url, {})
+        if resp:
+            data = _json_for_ip.loads(resp)
+            if data.get('status') == 'success':
+                info['country'] = data.get('country', '') or ''
+                info['countryCode'] = data.get('countryCode', '') or ''
+                info['region'] = data.get('regionName', '') or ''
+                info['city'] = data.get('city', '') or ''
+                info['isp'] = data.get('isp', '') or ''
+                info['org'] = data.get('org', '') or ''
+                info['as'] = data.get('as', '') or ''
+                # Cross-reference against known abuse networks
+                as_field = info['as'] or ''
+                asn = ''
+                m = _re_for_ip.match(r'^(AS\d+)', as_field)
+                if m:
+                    asn = m.group(1)
+                abuse = KNOWN_ABUSE_NETWORKS.get(asn)
+                if abuse:
+                    info['abuse_label'] = abuse[0]
+                    info['abuse_severity'] = abuse[1]
+                else:
+                    # Heuristic flag: ANY hosting/datacenter signature
+                    lower = (info['isp'] + ' ' + info['org']).lower()
+                    if any(k in lower for k in ('hosting', 'datacenter', 'data center',
+                                                  'cloud', 'colocation', 'colo', 'vps',
+                                                  'server hosting', 'dedicated')):
+                        info['abuse_label'] = 'Hosting provider'
+                        info['abuse_severity'] = 'med'
+    except:
+        pass
+    info['_t'] = datetime.now().isoformat()
+    cache[ip] = info
+    return info
+
+
+# Manual JSON encoder. IronPython's stdlib json.dumps fails at the
+# .NET interop boundary on non-ASCII codepoints (Latin accents raise
+# UnicodeDecodeError; smart quotes pass dumps but blow up at print).
+# Activity strings include attacker-typed emails which can contain
+# anything, so we cannot trust stdlib here. Pattern lifted from
+# CLAUDE.md / TPxi_InvolvementProcessor.py.
+def _json_escape_string(s):
+    if not isinstance(s, (str, unicode)):
+        s = unicode(s)
+    parts = ['"']
+    for ch in s:
+        try:
+            code = ord(ch)
+        except Exception:
+            parts.append('\\ufffd')
+            continue
+        if   code == 0x22: parts.append('\\"')
+        elif code == 0x5C: parts.append('\\\\')
+        elif code == 0x0A: parts.append('\\n')
+        elif code == 0x0D: parts.append('\\r')
+        elif code == 0x09: parts.append('\\t')
+        elif code < 0x20 or code >= 0x7F:
+            parts.append('\\u%04x' % code)
+        else:
+            parts.append(chr(code))
+    parts.append('"')
+    return ''.join(parts)
+
+
+def _json_encode(obj):
+    if obj is None: return 'null'
+    if obj is True: return 'true'
+    if obj is False: return 'false'
+    if isinstance(obj, (int, long)): return str(obj)
+    if isinstance(obj, float):
+        return 'null' if obj != obj else repr(obj)
+    if isinstance(obj, (str, unicode)): return _json_escape_string(obj)
+    if isinstance(obj, datetime):
+        try:
+            return _json_escape_string(obj.isoformat())
+        except:
+            return _json_escape_string(str(obj))
+    if isinstance(obj, dict):
+        return ('{' +
+                ','.join(_json_escape_string(unicode(k)) + ':' + _json_encode(v)
+                         for k, v in obj.items())
+                + '}')
+    if isinstance(obj, (list, tuple)):
+        return '[' + ','.join(_json_encode(x) for x in obj) + ']'
+    return _json_escape_string(unicode(obj))
+
+
+def safe_json(obj):
+    try:
+        return _json_encode(obj)
+    except Exception as e:
+        return ('{"_err":' + _json_escape_string('safe_json: ' + repr(e)) + '}')
+
+
+# Local helper -- the rest of this file didn't have one and we don't
+# want to risk colliding with anything elsewhere by adding it globally.
+def _safe_str(val):
+    """Best-effort string conversion. Handles None, .NET strings, and
+    unicode codepoints that IronPython's str() can choke on."""
+    if val is None:
+        return ''
+    try:
+        return str(val)
+    except UnicodeEncodeError:
+        try:
+            return val.encode('utf-8', 'replace')
+        except:
+            return ''
+    except:
+        return ''
+
+
+# ::START:: Account Enumeration Monitor
+class EnumerationMonitor:
+    """Detect account-enumeration probing.
+
+    Four signals, all four under one roof because they share intent
+    ("does this email have an account?") but are spread across
+    different ActivityLog activity strings:
+
+      1. Web login form with non-existent email
+         Activity = "attempt to login by non-user <email>"
+         -- Does NOT contain "failed", so the failed-login KPI misses it.
+
+      2. Mobile API login with unknown user
+         Activity = "Mobile: Attempt to login by unknown user <user>"
+
+      3. ForgotPassword on a real-format email that matched NO user/person
+         Activity = "ForgotPassword ('<email>', u0p0)"
+         -- This is the "send a bounce email to a random address"
+         signal -- it's what just produced your Gmail no-such-user bounce.
+
+      4. ForgotPassword with INVALID email format (the n0 path)
+         Activity = "ForgotPassword ('<garbage>', n0)"
+         -- Pure bot signature. Humans don't type "asdjkfh" then submit.
+
+    Path codes (see CmsWeb/Areas/Manage/Models/AccountModel.cs:549):
+      u+   = user found
+      u0   = no user, fell through to person lookup
+      p+   = person found (account-recovery path)
+      p0   = no person matched either
+      n0   = email format invalid
+    """
+
+    def show_dashboard(self, lookback_days=30):
+        try:
+            start = "DATEADD(DAY, -{0}, GETDATE())".format(int(lookback_days))
+
+            # Summary by signal type.
+            #
+            # Path codes (verified against bvcms-develop AccountModel.cs:614-620):
+            #   u0p0n0  = valid email format, no match, bad-email response sent
+            #             (THIS is the bounce-producing case -- the combo-list
+            #             enumeration pattern. The TouchPoint feature you
+            #             pinged me about is firing on these.)
+            #   u0p0    = INVALID email format, early return (small bot noise)
+            #   u0p+    = no User but Person exists -- account-recovery path
+            #             (matches a real human in our People table)
+            WHEN_VALID_NO_MATCH = "Activity LIKE 'ForgotPassword%u0p0n0%'"
+            WHEN_INVALID_FMT   = ("Activity LIKE 'ForgotPassword%u0p0%' "
+                                  "AND Activity NOT LIKE '%n0%'")
+            WHEN_PERSON_NO_USR = "Activity LIKE 'ForgotPassword%u0p+%'"
+            sql_summary = """
+                SELECT
+                    CASE
+                        WHEN Activity LIKE 'attempt to login by non-user%' THEN 'Web login -- unknown email'
+                        WHEN Activity LIKE 'Mobile: Attempt to login by unknown user%' THEN 'Mobile login -- unknown email'
+                        WHEN {1} THEN 'Forgot password -- valid email, NO match (combo-list probe)'
+                        WHEN {2} THEN 'Forgot password -- invalid email format'
+                        WHEN {3} THEN 'Forgot password -- person exists, no account (matched)'
+                        ELSE 'Other'
+                    END AS Signal,
+                    COUNT(*) AS Hits,
+                    COUNT(DISTINCT ClientIp) AS UniqueIps,
+                    MAX(ActivityDate) AS LastSeen
+                FROM ActivityLog WITH (NOLOCK)
+                WHERE ActivityDate >= {0}
+                  AND (Activity LIKE 'attempt to login by non-user%'
+                    OR Activity LIKE 'Mobile: Attempt to login by unknown user%'
+                    OR (({1} OR {2} OR {3}) AND Activity NOT LIKE '%u+%'))
+                GROUP BY
+                    CASE
+                        WHEN Activity LIKE 'attempt to login by non-user%' THEN 'Web login -- unknown email'
+                        WHEN Activity LIKE 'Mobile: Attempt to login by unknown user%' THEN 'Mobile login -- unknown email'
+                        WHEN {1} THEN 'Forgot password -- valid email, NO match (combo-list probe)'
+                        WHEN {2} THEN 'Forgot password -- invalid email format'
+                        WHEN {3} THEN 'Forgot password -- person exists, no account (matched)'
+                        ELSE 'Other'
+                    END
+                ORDER BY Hits DESC
+            """.format(start, WHEN_VALID_NO_MATCH, WHEN_INVALID_FMT, WHEN_PERSON_NO_USR)
+
+            # Top source IPs
+            sql_ips = """
+                SELECT TOP 20
+                    ClientIp,
+                    COUNT(*) AS Attempts,
+                    SUM(CASE WHEN Activity LIKE 'ForgotPassword%n0%' THEN 1 ELSE 0 END) AS InvalidFormat,
+                    SUM(CASE WHEN Activity LIKE 'attempt to login by non-user%' THEN 1 ELSE 0 END) AS WebLogin,
+                    SUM(CASE WHEN Activity LIKE 'Mobile: Attempt to login by unknown user%' THEN 1 ELSE 0 END) AS MobileLogin,
+                    SUM(CASE WHEN Activity LIKE 'ForgotPassword%u0p0%' AND Activity NOT LIKE '%n0%' THEN 1 ELSE 0 END) AS FpwNoMatch,
+                    MIN(ActivityDate) AS FirstSeen,
+                    MAX(ActivityDate) AS LastSeen
+                FROM ActivityLog WITH (NOLOCK)
+                WHERE ActivityDate >= {0}
+                  AND (Activity LIKE 'attempt to login by non-user%'
+                    OR Activity LIKE 'Mobile: Attempt to login by unknown user%'
+                    OR (Activity LIKE 'ForgotPassword%u0p0%' AND Activity NOT LIKE '%u+%'))
+                  AND ClientIp IS NOT NULL
+                GROUP BY ClientIp
+                HAVING COUNT(*) >= 3
+                ORDER BY Attempts DESC
+            """.format(start)
+
+            # Recent events for the table
+            sql_recent = """
+                SELECT TOP 100
+                    ActivityDate, ClientIp, Activity
+                FROM ActivityLog WITH (NOLOCK)
+                WHERE ActivityDate >= {0}
+                  AND (Activity LIKE 'attempt to login by non-user%'
+                    OR Activity LIKE 'Mobile: Attempt to login by unknown user%'
+                    OR (Activity LIKE 'ForgotPassword%u0p0%' AND Activity NOT LIKE '%u+%'))
+                ORDER BY ActivityDate DESC
+            """.format(start)
+
+            # Email-match rate -- "are the typed emails aimed at REAL
+            # people, or random garbage?" Key signal for distinguishing
+            # bot spray (low rate) from a leaked-email-list attack
+            # (high rate). Methodology:
+            #
+            #  WEB / MOBILE non-user attempts: extract the typed email
+            #    from the activity text and EXISTS-check People.EmailAddress
+            #    + EmailAddress2. Each match = "they aimed at a real
+            #    person in our database, just one without an account."
+            #
+            #  FORGOTPASSWORD attempts: TouchPoint already encodes the
+            #    answer in the path code. u0p+ = matched a Person.
+            #    u0p0 (without n0) = matched nothing. We use those
+            #    directly -- no SQL parsing needed.
+            #
+            # Invalid-format n0 attempts are excluded entirely (they're
+            # not real emails to check).
+            # Split into two queries -- SQL Server can't mix scalar
+            # subqueries alongside SUM/COUNT in the same SELECT.
+            # Two-level derived table: flag matches at row level FIRST,
+            # then aggregate. SQL Server refuses EXISTS inside SUM/CASE.
+            sql_match_typed = """
+                SELECT
+                    COUNT(*) AS TotalTyped,
+                    SUM(MatchFlag) AS MatchedToPeople
+                FROM (
+                    SELECT
+                        te.Email,
+                        CASE WHEN p.PeopleId IS NOT NULL THEN 1 ELSE 0 END AS MatchFlag
+                    FROM (
+                        SELECT LTRIM(RTRIM(SUBSTRING(Activity, 30, 200))) AS Email
+                        FROM ActivityLog WITH (NOLOCK)
+                        WHERE ActivityDate >= {0}
+                          AND Activity LIKE 'attempt to login by non-user %'
+                        UNION ALL
+                        SELECT LTRIM(RTRIM(SUBSTRING(Activity, 42, 200))) AS Email
+                        FROM ActivityLog WITH (NOLOCK)
+                        WHERE ActivityDate >= {0}
+                          AND Activity LIKE 'Mobile: Attempt to login by unknown user %'
+                    ) te
+                    OUTER APPLY (
+                        SELECT TOP 1 PeopleId
+                        FROM People WITH (NOLOCK)
+                        WHERE EmailAddress = te.Email OR EmailAddress2 = te.Email
+                    ) p
+                    WHERE te.Email LIKE '%@%'
+                ) x
+            """.format(start)
+
+            # Path-code counts. Fixed labels per AccountModel.cs:
+            #   FpwPersonNoAccount = u0p+   (matched a Person, no User account)
+            #   FpwValidNoMatch    = u0p0n0 (VALID format, no match anywhere)
+            #   FpwInvalidFmt      = u0p0   (INVALID email format, early-return)
+            sql_match_fpw = """
+                SELECT
+                    SUM(CASE WHEN Activity LIKE 'ForgotPassword%u0p+%'
+                              AND Activity NOT LIKE '%u+ %' THEN 1 ELSE 0 END) AS FpwPersonNoAccount,
+                    SUM(CASE WHEN Activity LIKE 'ForgotPassword%u0p0n0%'
+                              AND Activity NOT LIKE '%u+ %' THEN 1 ELSE 0 END) AS FpwValidNoMatch,
+                    SUM(CASE WHEN Activity LIKE 'ForgotPassword%u0p0%'
+                              AND Activity NOT LIKE '%n0%'
+                              AND Activity NOT LIKE '%u+ %' THEN 1 ELSE 0 END) AS FpwInvalidFmt
+                FROM ActivityLog WITH (NOLOCK)
+                WHERE ActivityDate >= {0}
+                  AND Activity LIKE 'ForgotPassword%'
+            """.format(start)
+
+            # Targeted People -- which specific church members in our People
+            # table got their email probed? Includes the attacking IP so we
+            # can group by attacker location in the render.
+            # Three signal sources unioned: web login, mobile login, and
+            # ForgotPassword on a matched person (u0p+). Each preserves
+            # ClientIp + ActivityDate so the People aggregation can show
+            # "hit X times from Türkiye + United States."
+            sql_targeted = """
+                ;WITH TargetedEmails AS (
+                    SELECT ClientIp, ActivityDate,
+                           LTRIM(RTRIM(SUBSTRING(Activity, 30, 200))) AS Email
+                    FROM ActivityLog WITH (NOLOCK)
+                    WHERE ActivityDate >= {0}
+                      AND Activity LIKE 'attempt to login by non-user %'
+                    UNION ALL
+                    SELECT ClientIp, ActivityDate,
+                           LTRIM(RTRIM(SUBSTRING(Activity, 42, 200))) AS Email
+                    FROM ActivityLog WITH (NOLOCK)
+                    WHERE ActivityDate >= {0}
+                      AND Activity LIKE 'Mobile: Attempt to login by unknown user %'
+                    UNION ALL
+                    -- ForgotPassword email lives between first ' and second '
+                    SELECT ClientIp, ActivityDate,
+                           SUBSTRING(Activity,
+                                     CHARINDEX('''', Activity) + 1,
+                                     CHARINDEX('''', Activity, CHARINDEX('''', Activity) + 1)
+                                       - CHARINDEX('''', Activity) - 1) AS Email
+                    FROM ActivityLog WITH (NOLOCK)
+                    WHERE ActivityDate >= {0}
+                      AND Activity LIKE 'ForgotPassword%u0p+%'
+                      AND Activity NOT LIKE '%u+ %'
+                )
+                SELECT
+                    p.PeopleId,
+                    p.Name2,
+                    p.EmailAddress,
+                    p.EmailAddress2,
+                    COUNT(*) AS AttemptCount,
+                    COUNT(DISTINCT te.ClientIp) AS UniqueIps,
+                    MIN(te.ActivityDate) AS FirstAttempt,
+                    MAX(te.ActivityDate) AS LastAttempt
+                FROM TargetedEmails te
+                INNER JOIN People p WITH (NOLOCK)
+                    ON p.EmailAddress = te.Email
+                    OR p.EmailAddress2 = te.Email
+                WHERE te.Email LIKE '%@%'
+                GROUP BY p.PeopleId, p.Name2, p.EmailAddress, p.EmailAddress2
+                ORDER BY AttemptCount DESC
+            """.format(start)
+
+            # Per-target IP list for country grouping in render
+            sql_targeted_ips = """
+                ;WITH TargetedEmails AS (
+                    SELECT ClientIp,
+                           LTRIM(RTRIM(SUBSTRING(Activity, 30, 200))) AS Email
+                    FROM ActivityLog WITH (NOLOCK)
+                    WHERE ActivityDate >= {0}
+                      AND Activity LIKE 'attempt to login by non-user %'
+                    UNION ALL
+                    SELECT ClientIp,
+                           LTRIM(RTRIM(SUBSTRING(Activity, 42, 200))) AS Email
+                    FROM ActivityLog WITH (NOLOCK)
+                    WHERE ActivityDate >= {0}
+                      AND Activity LIKE 'Mobile: Attempt to login by unknown user %'
+                    UNION ALL
+                    SELECT ClientIp,
+                           SUBSTRING(Activity,
+                                     CHARINDEX('''', Activity) + 1,
+                                     CHARINDEX('''', Activity, CHARINDEX('''', Activity) + 1)
+                                       - CHARINDEX('''', Activity) - 1) AS Email
+                    FROM ActivityLog WITH (NOLOCK)
+                    WHERE ActivityDate >= {0}
+                      AND Activity LIKE 'ForgotPassword%u0p+%'
+                      AND Activity NOT LIKE '%u+ %'
+                )
+                SELECT DISTINCT p.PeopleId, te.ClientIp
+                FROM TargetedEmails te
+                INNER JOIN People p WITH (NOLOCK)
+                    ON p.EmailAddress = te.Email OR p.EmailAddress2 = te.Email
+                WHERE te.Email LIKE '%@%'
+            """.format(start)
+
+            # Cross-IP correlation -- "same email tried from N different IPs"
+            # The smoking-gun signal of coordinated targeting. If a single
+            # email shows up across 3+ residential IPs in 3+ countries over
+            # weeks, that's not bot spray -- that's an attacker working a
+            # shared list against your specific church.
+            #
+            # We pull per-(Email, ClientIp) aggregations across all three
+            # enumeration sources, then collapse them in Python so we can
+            # compute country/CIDR diversity from the geo cache without
+            # paying for it in SQL.
+            sql_email_correlation = """
+                SELECT TOP 2000
+                    ae.Email,
+                    ae.ClientIp,
+                    COUNT(*) AS Hits,
+                    MIN(ae.ActivityDate) AS FirstSeen,
+                    MAX(ae.ActivityDate) AS LastSeen
+                FROM (
+                    SELECT ClientIp, ActivityDate,
+                           LTRIM(RTRIM(SUBSTRING(Activity, 30, 200))) AS Email
+                    FROM ActivityLog WITH (NOLOCK)
+                    WHERE ActivityDate >= {0}
+                      AND Activity LIKE 'attempt to login by non-user %'
+                    UNION ALL
+                    SELECT ClientIp, ActivityDate,
+                           LTRIM(RTRIM(SUBSTRING(Activity, 42, 200))) AS Email
+                    FROM ActivityLog WITH (NOLOCK)
+                    WHERE ActivityDate >= {0}
+                      AND Activity LIKE 'Mobile: Attempt to login by unknown user %'
+                    UNION ALL
+                    SELECT ClientIp, ActivityDate,
+                           SUBSTRING(Activity,
+                                     CHARINDEX('''', Activity) + 1,
+                                     CHARINDEX('''', Activity, CHARINDEX('''', Activity) + 1)
+                                       - CHARINDEX('''', Activity) - 1) AS Email
+                    FROM ActivityLog WITH (NOLOCK)
+                    WHERE ActivityDate >= {0}
+                      AND Activity LIKE 'ForgotPassword%u0p%'
+                      AND Activity NOT LIKE '%u+ %'
+                ) ae
+                WHERE ae.Email LIKE '%@%'
+                  AND ae.Email <> ''
+                  AND ae.ClientIp IS NOT NULL
+                GROUP BY ae.Email, ae.ClientIp
+                ORDER BY ae.Email
+            """.format(start)
+
+            # Per-CIDR drilldown -- TOP 500 enumeration events with their
+            # ClientIp/Activity/timestamp. Used to populate the "click a
+            # network row to see what was attempted" modal. Grouped
+            # client-side in JS via a CIDR-keyed map.
+            sql_cidr_attempts = """
+                SELECT TOP 500
+                    ActivityDate, ClientIp, Activity
+                FROM ActivityLog WITH (NOLOCK)
+                WHERE ActivityDate >= {0}
+                  AND (Activity LIKE 'attempt to login by non-user%'
+                    OR Activity LIKE 'Mobile: Attempt to login by unknown user%'
+                    OR (Activity LIKE 'ForgotPassword%u0p0%' AND Activity NOT LIKE '%u+%'))
+                  AND ClientIp IS NOT NULL
+                ORDER BY ActivityDate DESC
+            """.format(start)
+
+            summary = list(q.QuerySql(sql_summary))
+            ips = list(q.QuerySql(sql_ips))
+            recent = list(q.QuerySql(sql_recent))
+            cidr_attempt_rows = list(q.QuerySql(sql_cidr_attempts))
+            match_typed_rows = list(q.QuerySql(sql_match_typed))
+            match_fpw_rows = list(q.QuerySql(sql_match_fpw))
+            targeted_rows = list(q.QuerySql(sql_targeted))
+            targeted_ip_rows = list(q.QuerySql(sql_targeted_ips))
+            email_corr_rows = list(q.QuerySql(sql_email_correlation))
+
+            # Load the shared geo cache once. Both blocks below
+            # (targeted-countries + IP table enrichment) use it; we
+            # save once at the bottom of the second block so any new
+            # IPs learned along the way persist.
+            ip_cache = _load_ip_cache()
+
+            # Build People -> [countries] map for the modal.
+            targeted_countries = {}
+            for r in targeted_ip_rows:
+                pid = getattr(r, 'PeopleId', None)
+                ip_addr = _safe_str(getattr(r, 'ClientIp', ''))
+                if not pid or not ip_addr:
+                    continue
+                info = ip_cache.get(ip_addr) or _lookup_ip_geo(ip_addr, ip_cache)
+                country = info.get('country', '') or '?'
+                cc = info.get('countryCode', '') or ''
+                key = (cc + ' ' + country).strip() or country
+                bucket = targeted_countries.setdefault(int(pid), set())
+                bucket.add(key)
+
+            # Pull out match-rate components
+            web_mobile_typed = 0
+            web_mobile_matched = 0
+            fpw_person_no_acct = 0
+            fpw_valid_no_match = 0
+            fpw_invalid_fmt = 0
+            if match_typed_rows:
+                mt = match_typed_rows[0]
+                web_mobile_typed = getattr(mt, 'TotalTyped', 0) or 0
+                web_mobile_matched = getattr(mt, 'MatchedToPeople', 0) or 0
+            if match_fpw_rows:
+                mf = match_fpw_rows[0]
+                fpw_person_no_acct = getattr(mf, 'FpwPersonNoAccount', 0) or 0
+                fpw_valid_no_match = getattr(mf, 'FpwValidNoMatch', 0) or 0
+                fpw_invalid_fmt = getattr(mf, 'FpwInvalidFmt', 0) or 0
+
+            # Match rate -- numerator = real-people hits, denominator =
+            # all checkable enumeration attempts (REAL emails that could
+            # have matched). Invalid-format probes (u0p0 without n0) are
+            # excluded because they aren't real emails to check. Valid-
+            # format-no-match (u0p0n0) IS included -- those are the bulk
+            # of combo-list probing.
+            match_num = web_mobile_matched + fpw_person_no_acct
+            match_den = web_mobile_typed + fpw_person_no_acct + fpw_valid_no_match
+            if match_den > 0:
+                match_pct = (float(match_num) / match_den) * 100
+            else:
+                match_pct = 0.0
+
+            # Enrich top IPs with geo + abuse-network info. ip_cache was
+            # already loaded above for the targeted-countries pass; we
+            # just keep adding to it here, then save once.
+            ip_enrichment = {}
+            for r in ips:
+                ip_addr = _safe_str(getattr(r, 'ClientIp', ''))
+                if ip_addr and ip_addr not in ip_enrichment:
+                    ip_enrichment[ip_addr] = _lookup_ip_geo(ip_addr, ip_cache)
+
+            # Cross-IP correlation: collapse per-(email, IP) rows into one
+            # entry per email. Filter to emails seen from >= 2 unique IPs.
+            # That's the threshold where "could be one user behind CGNAT"
+            # becomes "coordinated targeting of this specific address."
+            email_to_ips = {}
+            for r in email_corr_rows:
+                email = _safe_str(getattr(r, 'Email', '')).strip()
+                ip_addr = _safe_str(getattr(r, 'ClientIp', '')).strip()
+                if not email or '@' not in email or not ip_addr:
+                    continue
+                hits = getattr(r, 'Hits', 0) or 0
+                first = getattr(r, 'FirstSeen', None)
+                last = getattr(r, 'LastSeen', None)
+                bucket = email_to_ips.setdefault(email, [])
+                bucket.append({'ip': ip_addr, 'hits': hits,
+                               'first': first, 'last': last})
+
+            # Build correlation rows -- only emails with 2+ distinct IPs.
+            # Country/CIDR enrichment uses the already-warm ip_cache where
+            # possible; new IPs trigger a lookup (and cache write) but only
+            # for the small set of correlated emails (cheap).
+            correlated_emails = []
+            for email, ip_list in email_to_ips.items():
+                if len(ip_list) < 2:
+                    continue
+                countries = set()
+                cidrs = set()
+                country_chips = {}   # country_label -> set(ip)
+                total_hits = 0
+                first = None
+                last = None
+                for entry in ip_list:
+                    ip = entry['ip']
+                    total_hits += entry['hits']
+                    if entry['first'] and (first is None or entry['first'] < first):
+                        first = entry['first']
+                    if entry['last'] and (last is None or entry['last'] > last):
+                        last = entry['last']
+                    cidr = _cidr_24(ip)
+                    if cidr:
+                        cidrs.add(cidr)
+                    info = ip_cache.get(ip) or _lookup_ip_geo(ip, ip_cache)
+                    entry['country'] = info.get('country', '') or '?'
+                    entry['country_code'] = info.get('countryCode', '') or ''
+                    entry['org'] = info.get('org', '') or info.get('isp', '') or ''
+                    entry['abuse_label'] = info.get('abuse_label', '')
+                    entry['abuse_severity'] = info.get('abuse_severity', '')
+                    if entry['country'] != '?':
+                        countries.add(entry['country'])
+                        clabel = ((entry['country_code'] + ' ' + entry['country']).strip()
+                                  if entry['country_code'] else entry['country'])
+                        country_chips.setdefault(clabel, set()).add(ip)
+                # Sort the IP list inside each email by hits desc so the
+                # modal shows the loudest first
+                ip_list.sort(key=lambda x: -x['hits'])
+                correlated_emails.append({
+                    'email': email,
+                    'ips': ip_list,
+                    'ip_count': len(ip_list),
+                    'country_count': len(countries),
+                    'cidr_count': len(cidrs),
+                    'country_chips': sorted(country_chips.items(),
+                                            key=lambda kv: -len(kv[1])),
+                    'total_hits': total_hits,
+                    'first': first,
+                    'last': last,
+                })
+
+            # Persist any new geo lookups from the correlation pass too
+            _save_ip_cache(ip_cache)
+
+            # Sort: most-distributed first (IP count), then by total hits.
+            # An email hit by 7 IPs once each is a stronger signal than
+            # an email hit by 2 IPs 50 times each.
+            correlated_emails.sort(key=lambda c: (-c['ip_count'],
+                                                  -c['country_count'],
+                                                  -c['total_hits']))
+            correlated_emails = correlated_emails[:50]  # cap rendered rows
+
+            # Check which correlated emails belong to actual church members.
+            # Members get a flagged badge + clickable Person profile link.
+            # We do ONE query with an IN-list rather than per-row joins.
+            email_to_member = {}
+            if correlated_emails:
+                escaped = []
+                for c in correlated_emails:
+                    # SQL-escape single quotes by doubling
+                    escaped.append("'" + c['email'].replace("'", "''") + "'")
+                in_clause = ', '.join(escaped)
+                sql_member_check = """
+                    SELECT EmailAddress AS Email, MIN(PeopleId) AS PeopleId,
+                           MIN(Name2) AS Name2
+                    FROM People WITH (NOLOCK)
+                    WHERE EmailAddress IN ({0})
+                    GROUP BY EmailAddress
+                    UNION
+                    SELECT EmailAddress2 AS Email, MIN(PeopleId) AS PeopleId,
+                           MIN(Name2) AS Name2
+                    FROM People WITH (NOLOCK)
+                    WHERE EmailAddress2 IN ({0})
+                    GROUP BY EmailAddress2
+                """.format(in_clause)
+                try:
+                    for r in q.QuerySql(sql_member_check):
+                        em = _safe_str(getattr(r, 'Email', '')).lower().strip()
+                        if em:
+                            email_to_member[em] = {
+                                'pid': getattr(r, 'PeopleId', 0) or 0,
+                                'name': _safe_str(getattr(r, 'Name2', '')),
+                            }
+                except:
+                    email_to_member = {}
+            for c in correlated_emails:
+                c['member'] = email_to_member.get(c['email'].lower())
+
+            # Build CIDR /24 aggregation: collapse 192.210.150.196/.198/.199
+            # into one "attacker network" row. Reveals coordinated farms.
+            cidr_buckets = {}
+            for r in ips:
+                ip_addr = _safe_str(getattr(r, 'ClientIp', ''))
+                cidr = _cidr_24(ip_addr)
+                if not cidr:
+                    continue
+                b = cidr_buckets.setdefault(cidr, {
+                    'cidr': cidr, 'ips': set(), 'attempts': 0,
+                    'invalid': 0, 'web': 0, 'mobile': 0, 'fpw': 0,
+                    'first': None, 'last': None, 'orgs': set(), 'countries': set(),
+                    'abuse_label': '', 'abuse_severity': '',
+                })
+                b['ips'].add(ip_addr)
+                b['attempts'] += getattr(r, 'Attempts', 0) or 0
+                b['invalid'] += getattr(r, 'InvalidFormat', 0) or 0
+                b['web'] += getattr(r, 'WebLogin', 0) or 0
+                b['mobile'] += getattr(r, 'MobileLogin', 0) or 0
+                b['fpw'] += getattr(r, 'FpwNoMatch', 0) or 0
+                first = getattr(r, 'FirstSeen', None)
+                last = getattr(r, 'LastSeen', None)
+                if first and (b['first'] is None or first < b['first']):
+                    b['first'] = first
+                if last and (b['last'] is None or last > b['last']):
+                    b['last'] = last
+                info = ip_enrichment.get(ip_addr, {})
+                if info.get('org'): b['orgs'].add(info['org'])
+                if info.get('country'): b['countries'].add(info['country'])
+                # Bubble the worst abuse label up to the CIDR
+                if info.get('abuse_label') and not b['abuse_label']:
+                    b['abuse_label'] = info['abuse_label']
+                    b['abuse_severity'] = info.get('abuse_severity', '')
+            cidr_rows = sorted(cidr_buckets.values(),
+                               key=lambda b: -b['attempts'])
+
+            # ::STEP:: BREAKTHROUGH CHECK -- the most critical signal
+            # "Did any of these attacker networks ALSO produce a
+            # SUCCESSFUL login?" If yes, the door has opened and the
+            # account is presumed compromised. If no, the enumeration
+            # is still just enumeration and the perimeter holds.
+            #
+            # Success signal per bvcms-develop AccountModel.cs:421
+            #   "User {Username} logged in"
+            # plus the no-role-edge-case at line 501.
+            attacker_prefixes = set()
+            for b in cidr_rows:
+                cidr = b['cidr']
+                if cidr:
+                    prefix = '.'.join(cidr.split('.')[:3])
+                    attacker_prefixes.add(prefix)
+            breakthroughs = []
+            if attacker_prefixes:
+                where_ip = " OR ".join(
+                    "al.ClientIp LIKE '" + p + ".%'"
+                    for p in sorted(attacker_prefixes)
+                )
+                sql_breakthrough = """
+                    SELECT TOP 50
+                        al.ClientIp, al.Activity, al.ActivityDate,
+                        al.UserId, u.Username, p.PeopleId, p.Name2
+                    FROM ActivityLog al WITH (NOLOCK)
+                    LEFT JOIN Users u WITH (NOLOCK) ON u.UserId = al.UserId
+                    LEFT JOIN People p WITH (NOLOCK) ON p.PeopleId = u.PeopleId
+                    WHERE al.ActivityDate >= {0}
+                      AND (al.Activity LIKE 'User % logged in%'
+                        OR al.Activity LIKE 'user % loggedin%')
+                      AND ({1})
+                    ORDER BY al.ActivityDate DESC
+                """.format(start, where_ip)
+                try:
+                    breakthroughs = list(q.QuerySql(sql_breakthrough))
+                except:
+                    breakthroughs = []
+
+            # ---- Render ----
+            print """
+            <div style="max-width:1400px;margin:0 auto;padding:20px;font-family:Arial,sans-serif;">
+                <div style="background:linear-gradient(135deg,#dd6b20 0%,#c05621 100%);
+                            color:white;padding:24px;border-radius:10px;margin-bottom:20px;">
+                    <h1 style="margin:0 0 6px 0;font-size:26px;">
+                        <i class="fa fa-search"></i> Account Enumeration Monitor
+                    </h1>
+                    <p style="margin:0;opacity:0.9;">
+                        Last {0} days &middot; surfaces probes that ask
+                        "does this email have an account?" &mdash; the four
+                        ActivityLog signals the failed-login KPI doesn't catch.
+                    </p>
+                    <p style="margin:6px 0 0 0;font-size:11px;opacity:0.7;">
+                        v""" + APP_VERSION + """ &middot; """ + APP_VERSION_DATE + """
+                    </p>
+                </div>
+
+                <form method="post" style="margin-bottom:20px;">
+                    <input type="hidden" name="view" value="enumeration">
+                    <label style="margin-right:8px;">Lookback days:</label>
+                    <select name="lookback_days" onchange="this.form.submit()">
+            """.format(int(lookback_days))
+            for d in [7, 14, 30, 60, 90, 180]:
+                sel = ' selected' if d == int(lookback_days) else ''
+                print '<option value="{0}"{1}>{0}</option>'.format(d, sel)
+            print """
+                    </select>
+                </form>
+            """
+
+            # ::STEP:: Breakthrough card -- topmost signal. Green when
+            # the perimeter holds; bright red when an attacker network
+            # has produced a successful login (presume compromise).
+            if not breakthroughs:
+                print """
+                <div style="background:#f0fff4;border-left:5px solid #107c10;
+                            padding:16px 20px;border-radius:8px;margin-bottom:14px;
+                            display:flex;align-items:center;gap:18px;">
+                    <div style="font-size:36px;color:#107c10;">&#10003;</div>
+                    <div>
+                        <div style="font-size:13px;font-weight:700;color:#22543d;
+                                    text-transform:uppercase;letter-spacing:0.5px;">
+                            No breakthrough
+                        </div>
+                        <div style="font-size:14px;color:#22543d;margin-top:3px;">
+                            Zero successful logins from the {0} attacker network(s)
+                            above in the last {1} days. Perimeter is holding.
+                        </div>
+                    </div>
+                </div>
+                """.format(len(attacker_prefixes), int(lookback_days))
+            else:
+                # COMPROMISE LIKELY -- red alert
+                print """
+                <div style="background:#fff5f5;border:3px solid #c53030;
+                            padding:18px 22px;border-radius:8px;margin-bottom:14px;">
+                    <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px;">
+                        <div style="font-size:36px;color:#c53030;">&#9888;</div>
+                        <div>
+                            <div style="font-size:14px;font-weight:800;color:#742a2a;
+                                        text-transform:uppercase;letter-spacing:0.6px;">
+                                Breakthrough detected
+                            </div>
+                            <div style="font-size:13px;color:#742a2a;margin-top:3px;">
+                                <strong>{0} successful login(s)</strong> from networks
+                                that are ALSO running enumeration attempts. These accounts
+                                are presumed compromised. <strong>Force password resets immediately.</strong>
+                            </div>
+                        </div>
+                    </div>
+                    <table style="width:100%;border-collapse:collapse;font-size:12px;
+                                  background:white;border-radius:4px;overflow:hidden;
+                                  margin-top:10px;">
+                        <thead>
+                            <tr style="background:#c53030;color:white;">
+                                <th style="text-align:left;padding:8px;">When</th>
+                                <th style="text-align:left;padding:8px;">User</th>
+                                <th style="text-align:left;padding:8px;">From IP</th>
+                                <th style="text-align:left;padding:8px;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                """.format(len(breakthroughs))
+                for r in breakthroughs:
+                    when = getattr(r, 'ActivityDate', None)
+                    ip = _safe_str(getattr(r, 'ClientIp', ''))
+                    name = _safe_str(getattr(r, 'Name2', '') or '(unknown)')
+                    user = _safe_str(getattr(r, 'Username', '') or '?')
+                    pid = getattr(r, 'PeopleId', 0) or 0
+                    print """
+                        <tr style="border-bottom:1px solid #fed7d7;">
+                            <td style="padding:8px;color:#742a2a;white-space:nowrap;">{0}</td>
+                            <td style="padding:8px;color:#742a2a;font-weight:600;">
+                                {1} <span style="font-family:Consolas,monospace;font-weight:normal;color:#666;">({2})</span>
+                            </td>
+                            <td style="padding:8px;font-family:Consolas,monospace;color:#742a2a;">{3}</td>
+                            <td style="padding:8px;">
+                                <a href="/Person2/{4}" target="_blank"
+                                   style="background:#c53030;color:white;padding:3px 10px;
+                                          border-radius:4px;font-size:11px;text-decoration:none;
+                                          font-weight:600;">Profile &rarr;</a>
+                            </td>
+                        </tr>
+                    """.format(format_datetime(when) if when else '-',
+                               name, user, ip, pid)
+                print """
+                        </tbody>
+                    </table>
+                </div>
+                """
+
+            # Email match-rate featured card -- THE attack-style signal
+            # Spray (low) vs targeted/list-leak (high).
+            if match_pct < 5:
+                rate_bg = '#f0fff4'; rate_border = '#107c10'; rate_text = '#22543d'
+                rate_label = 'PURE SPRAY'
+                rate_msg = ('Bots typing random garbage. Low risk to actual '
+                            'member accounts. Cloudflare/WAF rate-limit is enough.')
+            elif match_pct < 20:
+                rate_bg = '#fffaf0'; rate_border = '#dd6b20'; rate_text = '#9c4221'
+                rate_label = 'MIXED'
+                rate_msg = ('Some attempts hitting real church-member emails. '
+                            'Worth monitoring trend over time.')
+            else:
+                rate_bg = '#fff5f5'; rate_border = '#c53030'; rate_text = '#742a2a'
+                rate_label = 'LIST-LEAK SIGNAL'
+                rate_msg = ('Attempts are aimed at REAL emails at a high rate -- '
+                            'someone likely has a leaked church-member list. '
+                            'Consider forcing password resets for matched users '
+                            'and investigating the leak source.')
+            # Aggregate matched-people by attacking country -- "where
+            # did the 11 come from?" Counts a person once per country
+            # they were probed from (so a person hit from BOTH Türkiye
+            # and US contributes to both counts).
+            country_people = {}     # country_label -> set(PeopleId)
+            for pid, country_set in targeted_countries.items():
+                for c in country_set:
+                    country_people.setdefault(c, set()).add(pid)
+            country_summary_rows = sorted(country_people.items(),
+                                          key=lambda x: -len(x[1]))
+
+            # Click-target for the modal -- "X of Y" becomes a link that
+            # opens the targeted-people popup when matched_num > 0.
+            if match_num > 0:
+                match_count_html = ('<a href="javascript:void(0)" '
+                                    'onclick="enumShowTargeted()" '
+                                    'style="color:' + rate_text + ';font-weight:700;'
+                                    'text-decoration:underline;cursor:pointer;">'
+                                    + '{0:,}'.format(match_num) + '</a>'
+                                    ' of {0:,} aimed at real emails'.format(match_den))
+            else:
+                match_count_html = '{0:,} of {1:,} aimed at real emails'.format(match_num, match_den)
+
+            # Inline country breakdown -- shown right under the count,
+            # so the operator sees the geographic source at a glance
+            # without opening the modal.
+            country_chips = ''
+            if country_summary_rows:
+                chip_parts = []
+                for label, pset in country_summary_rows[:6]:
+                    chip_parts.append(
+                        '<span style="background:rgba(255,255,255,0.55);'
+                        'padding:2px 8px;border-radius:10px;font-size:10px;'
+                        'font-weight:700;color:' + rate_text + ';margin-right:4px;'
+                        'display:inline-block;margin-top:2px;">'
+                        + label + ' (' + str(len(pset)) + ')</span>'
+                    )
+                country_chips = ('<div style="font-size:11px;color:' + rate_text +
+                                 ';margin-top:6px;">From: ' + ''.join(chip_parts)
+                                 + '</div>')
+
+            print """
+            <div style="background:{0};border-left:5px solid {1};
+                        padding:18px 20px;border-radius:8px;margin-bottom:18px;
+                        display:grid;grid-template-columns:160px 1fr;gap:18px;align-items:center;">
+                <div style="text-align:center;">
+                    <div style="font-size:42px;font-weight:800;color:{2};line-height:1;">
+                        {3:.1f}%
+                    </div>
+                    <div style="font-size:10px;font-weight:700;color:{2};
+                                text-transform:uppercase;letter-spacing:0.5px;
+                                margin-top:6px;">Email match rate</div>
+                    <div style="font-size:11px;color:{2};margin-top:2px;">
+                        {4}
+                    </div>
+                    {7}
+                </div>
+                <div>
+                    <div style="font-size:12px;font-weight:700;color:{2};
+                                text-transform:uppercase;letter-spacing:0.6px;
+                                margin-bottom:6px;">{5}</div>
+                    <div style="font-size:13px;color:{2};line-height:1.5;">{6}</div>
+                </div>
+            </div>
+            """.format(rate_bg, rate_border, rate_text,
+                       match_pct, match_count_html, rate_label, rate_msg,
+                       country_chips)
+
+            # ::STEP:: Cross-IP correlation -- the coordinated-targeting view
+            # "Which emails are being hit from multiple IPs?" The strongest
+            # signal that the attacker has a SHARED LIST and is working
+            # through it from rotating infrastructure. A single email tried
+            # from one IP is noise; the same email tried from 5 IPs across
+            # 3 countries is a campaign.
+            print '<h3 style="margin:18px 0 10px 0;">Cross-IP correlation <span style="font-size:12px;color:#666;font-weight:normal;">&mdash; emails probed from 2+ distinct IPs (coordinated targeting signal)</span></h3>'
+            if not correlated_emails:
+                print ('<div style="background:#f0fff4;border-left:4px solid #107c10;'
+                       'padding:14px 16px;border-radius:6px;color:#22543d;margin-bottom:24px;">'
+                       'No emails were probed from multiple IPs in the last '
+                       + str(int(lookback_days)) + ' days. Each enumeration '
+                       'attempt came from a single IP &mdash; consistent with '
+                       'untargeted spray, not coordinated list-walking.'
+                       '</div>')
+            else:
+                # Count how many of the correlated rows match real members,
+                # since that's the "how bad is this" headline number.
+                member_hit_count = sum(1 for c in correlated_emails if c.get('member'))
+                summary_bg = '#fff5f5' if member_hit_count > 0 else '#fffaf0'
+                summary_border = '#c53030' if member_hit_count > 0 else '#dd6b20'
+                summary_text = '#742a2a' if member_hit_count > 0 else '#9c4221'
+                print ('<div style="background:' + summary_bg + ';border-left:4px solid '
+                       + summary_border + ';padding:12px 16px;border-radius:6px;'
+                       'margin-bottom:10px;font-size:13px;color:' + summary_text + ';">'
+                       '<strong>' + '{0:,}'.format(len(correlated_emails))
+                       + ' email(s)</strong> probed from multiple IPs. '
+                       + ('<strong>' + str(member_hit_count) + '</strong> match real church members &mdash; '
+                          'these accounts are being deliberately targeted, not randomly hit.'
+                          if member_hit_count > 0
+                          else 'None match church members; the attacker is working a generic combo list, not a member-specific list.')
+                       + '</div>')
+                print """
+                <table style="width:100%;border-collapse:collapse;font-size:13px;
+                              background:white;border-radius:6px;overflow:hidden;
+                              box-shadow:0 1px 3px rgba(0,0,0,0.06);margin-bottom:24px;">
+                    <thead>
+                        <tr style="background:#1a202c;color:white;">
+                            <th style="text-align:left;padding:10px;">Email</th>
+                            <th style="text-align:left;padding:10px;">Member?</th>
+                            <th style="text-align:right;padding:10px;">IPs</th>
+                            <th style="text-align:right;padding:10px;">Networks</th>
+                            <th style="text-align:right;padding:10px;">Countries</th>
+                            <th style="text-align:right;padding:10px;">Hits</th>
+                            <th style="text-align:left;padding:10px;">Where from</th>
+                            <th style="text-align:left;padding:10px;">First / Last</th>
+                            <th style="text-align:right;padding:10px;">&nbsp;</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                """
+                for idx, c in enumerate(correlated_emails):
+                    is_member = bool(c.get('member'))
+                    # Background tint: red for matched members (real
+                    # account targeting), amber for high-IP-count rows
+                    # (still coordinated, just not on our roster), white
+                    # for the rest.
+                    if is_member:
+                        bg = '#fff5f5'
+                    elif c['ip_count'] >= 5:
+                        bg = '#fffaf0'
+                    else:
+                        bg = 'white'
+                    # Member badge -- clickable to Person profile when matched
+                    if is_member:
+                        m = c['member']
+                        badge_html = (
+                            '<a href="/Person2/' + str(m['pid']) + '" target="_blank" '
+                            'style="background:#c53030;color:white;padding:2px 8px;'
+                            'border-radius:10px;font-size:10px;font-weight:700;'
+                            'text-transform:uppercase;text-decoration:none;'
+                            'letter-spacing:0.5px;">' + (m['name'] or 'Member') + ' &rarr;</a>')
+                    else:
+                        badge_html = ('<span style="color:#999;font-size:11px;">'
+                                      'not in People</span>')
+                    # Country chips (top 3 only; rest in modal)
+                    cchip_parts = []
+                    for clabel, ipset in c['country_chips'][:3]:
+                        cchip_parts.append(
+                            '<span style="background:#edf2f7;color:#2d3748;'
+                            'padding:1px 7px;border-radius:9px;font-size:10px;'
+                            'font-weight:600;margin-right:3px;display:inline-block;">'
+                            + clabel + ' (' + str(len(ipset)) + ')</span>'
+                        )
+                    if len(c['country_chips']) > 3:
+                        cchip_parts.append(
+                            '<span style="color:#999;font-size:10px;">+'
+                            + str(len(c['country_chips']) - 3) + ' more</span>'
+                        )
+                    chip_html = ''.join(cchip_parts) or '<span style="color:#999;">-</span>'
+                    # Truncate display email if too long (full email still in tooltip)
+                    display_email = c['email']
+                    if len(display_email) > 42:
+                        display_email = display_email[:39] + '...'
+                    print """
+                    <tr style="background:{0};border-bottom:1px solid #e5e5e5;cursor:pointer;"
+                        onclick="enumShowEmail({1})"
+                        onmouseover="this.style.filter='brightness(0.96)';"
+                        onmouseout="this.style.filter='';">
+                        <td style="padding:8px;font-family:Consolas,monospace;font-size:12px;"
+                            title="{2}">{3}</td>
+                        <td style="padding:8px;">{4}</td>
+                        <td style="text-align:right;padding:8px;font-weight:700;font-size:15px;color:#1a202c;">{5}</td>
+                        <td style="text-align:right;padding:8px;color:#4a5568;">{6}</td>
+                        <td style="text-align:right;padding:8px;color:#4a5568;">{7}</td>
+                        <td style="text-align:right;padding:8px;color:#4a5568;">{8:,}</td>
+                        <td style="padding:8px;">{9}</td>
+                        <td style="padding:8px;color:#666;font-size:11px;white-space:nowrap;">
+                            {10}<br><span style="color:#999;">{11}</span>
+                        </td>
+                        <td style="text-align:right;padding:8px;color:#999;font-size:18px;">&rsaquo;</td>
+                    </tr>
+                    """.format(bg, idx,
+                               c['email'].replace('"', '&quot;'),
+                               display_email,
+                               badge_html,
+                               c['ip_count'], c['cidr_count'], c['country_count'],
+                               c['total_hits'], chip_html,
+                               format_datetime_short(c['first']) if c['first'] else '-',
+                               format_datetime_short(c['last']) if c['last'] else '-')
+                print '</tbody></table>'
+
+            # Summary cards (one per signal type)
+            print '<h3 style="margin:18px 0 10px 0;">Signal breakdown</h3>'
+            print '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:24px;">'
+            if not summary:
+                print '<div style="grid-column:1/-1;padding:16px;background:#f0fff4;color:#22543d;border-radius:6px;">No enumeration signals found in the last {0} days. (That\'s good.)</div>'.format(lookback_days)
+            else:
+                for row in summary:
+                    label = _safe_str(getattr(row, 'Signal', ''))
+                    hits = getattr(row, 'Hits', 0) or 0
+                    uips = getattr(row, 'UniqueIps', 0) or 0
+                    last = getattr(row, 'LastSeen', None)
+                    last_str = format_datetime(last) if last else '-'
+                    # Color the card by intent
+                    if 'invalid' in label.lower():
+                        accent = '#c53030'  # red -- bot
+                    elif 'no match' in label.lower():
+                        accent = '#dd6b20'  # orange -- targeted
+                    elif 'login' in label.lower():
+                        accent = '#b7791f'  # amber -- login probe
+                    else:
+                        accent = '#4a5568'
+                    print """
+                    <div style="background:white;border-left:4px solid {0};
+                                padding:14px 16px;border-radius:6px;
+                                box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+                        <div style="font-size:12px;color:#718096;text-transform:uppercase;
+                                    letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">
+                            {1}
+                        </div>
+                        <div style="font-size:30px;font-weight:700;color:#1a202c;">
+                            {2:,}
+                        </div>
+                        <div style="font-size:12px;color:#718096;margin-top:4px;">
+                            {3:,} unique IPs &middot; last: {4}
+                        </div>
+                    </div>
+                    """.format(accent, label, hits, uips, last_str)
+            print '</div>'
+
+            # Group the attempt log two ways from the same query:
+            #   cidr_attempts_map  -> keyed by /24 prefix (network drilldown)
+            #   ip_attempts_map    -> keyed by full IP   (per-IP drilldown)
+            # Both ship to the browser as JS maps so onclick handlers can
+            # look up the right slice in O(1) without a server round-trip.
+            cidr_attempts_map = {}
+            ip_attempts_map = {}
+            for r in cidr_attempt_rows:
+                ip_addr = _safe_str(getattr(r, 'ClientIp', ''))
+                if not ip_addr:
+                    continue
+                cidr = _cidr_24(ip_addr)
+                when = getattr(r, 'ActivityDate', None)
+                act = _safe_str(getattr(r, 'Activity', ''))
+                when_str = format_datetime(when) if when else ''
+                attempt = {
+                    'when': when_str,
+                    'ip': ip_addr,
+                    'activity': act[:300],
+                }
+                if cidr:
+                    bucket = cidr_attempts_map.setdefault(cidr, [])
+                    if len(bucket) < 100:
+                        bucket.append(attempt)
+                ip_bucket = ip_attempts_map.setdefault(ip_addr, [])
+                if len(ip_bucket) < 100:
+                    ip_bucket.append(attempt)
+
+            # CIDR /24 aggregation -- shows the COORDINATED side: which
+            # /24 networks are running the bots, with geo + hosting-provider
+            # context. This is where you actually decide what to block.
+            print '<h3 style="margin:18px 0 10px 0;">Attacker networks (/24 aggregated) <span style="font-size:12px;color:#666;font-weight:normal;">&mdash; click any row for the attempt log</span></h3>'
+            if not cidr_rows:
+                print '<p style="color:#666;">No network-level patterns detected.</p>'
+            else:
+                print """
+                <table style="width:100%;border-collapse:collapse;font-size:13px;
+                              background:white;border-radius:6px;overflow:hidden;
+                              box-shadow:0 1px 3px rgba(0,0,0,0.06);margin-bottom:24px;">
+                    <thead>
+                        <tr style="background:#1a202c;color:white;">
+                            <th style="text-align:left;padding:10px;">CIDR</th>
+                            <th style="text-align:right;padding:10px;">IPs</th>
+                            <th style="text-align:right;padding:10px;">Total</th>
+                            <th style="text-align:left;padding:10px;">Country</th>
+                            <th style="text-align:left;padding:10px;">Org / Hosting</th>
+                            <th style="text-align:left;padding:10px;">Severity</th>
+                            <th style="text-align:right;padding:10px;">&nbsp;</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                """
+                for b in cidr_rows[:15]:
+                    sev_bg = '#fed7d7' if b['abuse_severity'] == 'high' else \
+                             '#feebc8' if b['abuse_severity'] == 'med' else '#f7fafc'
+                    countries = ', '.join(sorted(b['countries']))[:80] or '-'
+                    orgs = ', '.join(sorted(b['orgs']))[:120] or '-'
+                    abuse = b['abuse_label'] or 'unknown'
+                    cidr_safe = b['cidr'].replace("'", "\\'")
+                    print """
+                    <tr style="background:{0};border-bottom:1px solid #e5e5e5;cursor:pointer;"
+                        onclick="enumShowCidr('{1}')"
+                        onmouseover="this.style.filter='brightness(0.96)';"
+                        onmouseout="this.style.filter='';">
+                        <td style="padding:8px;font-family:Consolas,monospace;font-weight:600;">{1}</td>
+                        <td style="text-align:right;padding:8px;">{2}</td>
+                        <td style="text-align:right;padding:8px;font-weight:700;font-size:15px;">{3:,}</td>
+                        <td style="padding:8px;">{4}</td>
+                        <td style="padding:8px;color:#4a5568;">{5}</td>
+                        <td style="padding:8px;font-size:11px;text-transform:uppercase;font-weight:600;color:#742a2a;">{6}</td>
+                        <td style="text-align:right;padding:8px;color:#999;font-size:18px;">&rsaquo;</td>
+                    </tr>
+                    """.format(sev_bg, cidr_safe, len(b['ips']), b['attempts'],
+                               countries, orgs, abuse)
+                print '</tbody></table>'
+
+            # Top IPs table
+            print '<h3 style="margin:18px 0 10px 0;">Top source IPs (3+ attempts) <span style="font-size:12px;color:#666;font-weight:normal;">&mdash; click any row for the attempt log</span></h3>'
+            if not ips:
+                print '<p style="color:#666;">No IPs with multiple enumeration attempts.</p>'
+            else:
+                print """
+                <table style="width:100%;border-collapse:collapse;font-size:13px;
+                              background:white;border-radius:6px;overflow:hidden;
+                              box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+                    <thead>
+                        <tr style="background:#2c3e50;color:white;">
+                            <th style="text-align:left;padding:10px;">IP</th>
+                            <th style="text-align:left;padding:10px;">Location</th>
+                            <th style="text-align:left;padding:10px;">Hosting / Org</th>
+                            <th style="text-align:right;padding:10px;">Total</th>
+                            <th style="text-align:right;padding:10px;">Invalid</th>
+                            <th style="text-align:right;padding:10px;">Web</th>
+                            <th style="text-align:right;padding:10px;">Mobile</th>
+                            <th style="text-align:right;padding:10px;">FpwNM</th>
+                            <th style="text-align:left;padding:10px;">Last seen</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                """
+                for r in ips:
+                    ip = _safe_str(getattr(r, 'ClientIp', '?') or '(none)')
+                    total = getattr(r, 'Attempts', 0) or 0
+                    invfmt = getattr(r, 'InvalidFormat', 0) or 0
+                    weblog = getattr(r, 'WebLogin', 0) or 0
+                    moblog = getattr(r, 'MobileLogin', 0) or 0
+                    fpwnm = getattr(r, 'FpwNoMatch', 0) or 0
+                    last = getattr(r, 'LastSeen', None)
+                    info = ip_enrichment.get(ip, {})
+                    cc = info.get('countryCode', '') or ''
+                    country = info.get('country', '') or ''
+                    city = info.get('city', '') or ''
+                    loc_str = (cc + ' ' + city) if (cc and city) else (country or '-')
+                    org_str = (info.get('org') or info.get('isp') or '-')[:60]
+                    abuse_lbl = info.get('abuse_label', '')
+                    abuse_chip = ''
+                    if abuse_lbl:
+                        sev = info.get('abuse_severity', '')
+                        chip_bg = '#c53030' if sev == 'high' else '#dd6b20'
+                        abuse_chip = (
+                            ' <span style="background:' + chip_bg + ';color:white;'
+                            'padding:1px 6px;border-radius:8px;font-size:10px;'
+                            'font-weight:700;text-transform:uppercase;">'
+                            + abuse_lbl + '</span>'
+                        )
+                    # Background tint: red when known abuse, amber on high counts
+                    if info.get('abuse_severity') == 'high':
+                        bg = '#fff5f5'
+                    elif total > 50:
+                        bg = '#fffaf0'
+                    else:
+                        bg = 'white'
+                    # Each row click opens the per-IP modal (same shared
+                    # modal as the CIDR drilldown). IP is JS-escaped inline.
+                    ip_safe = ip.replace("'", "\\'")
+                    print """
+                    <tr style="background:{0};border-bottom:1px solid #e5e5e5;cursor:pointer;"
+                        onclick="enumShowIp('{1}')"
+                        onmouseover="this.style.filter='brightness(0.96)';"
+                        onmouseout="this.style.filter='';">
+                        <td style="padding:8px;font-family:Consolas,monospace;">{1}</td>
+                        <td style="padding:8px;color:#4a5568;">{2}</td>
+                        <td style="padding:8px;color:#4a5568;font-size:12px;">{3}{4}</td>
+                        <td style="text-align:right;padding:8px;font-weight:700;">{5:,}</td>
+                        <td style="text-align:right;padding:8px;color:#c53030;">{6:,}</td>
+                        <td style="text-align:right;padding:8px;">{7:,}</td>
+                        <td style="text-align:right;padding:8px;">{8:,}</td>
+                        <td style="text-align:right;padding:8px;color:#dd6b20;">{9:,}</td>
+                        <td style="padding:8px;color:#666;">{10} <span style="color:#999;float:right;">&rsaquo;</span></td>
+                    </tr>
+                    """.format(bg, ip_safe, loc_str, org_str, abuse_chip,
+                               total, invfmt, weblog, moblog, fpwnm,
+                               format_datetime_short(last) if last else '-')
+                print '</tbody></table>'
+                print ('<p style="color:#666;font-size:11px;margin-top:6px;">'
+                       'Location &amp; hosting data from ip-api.com (free tier, cached 30d). '
+                       'Abuse chips match against known bulletproof/hosting ASNs.</p>')
+
+            # Recent log
+            print '<h3 style="margin:18px 0 10px 0;">Recent attempts (last 100)</h3>'
+            if not recent:
+                print '<p style="color:#666;">No recent enumeration events.</p>'
+            else:
+                print """
+                <table style="width:100%;border-collapse:collapse;font-size:12px;
+                              background:white;border-radius:6px;overflow:hidden;
+                              box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+                    <thead>
+                        <tr style="background:#2c3e50;color:white;">
+                            <th style="text-align:left;padding:8px;width:170px;">When</th>
+                            <th style="text-align:left;padding:8px;width:140px;">IP</th>
+                            <th style="text-align:left;padding:8px;">Activity</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                """
+                for r in recent:
+                    when = getattr(r, 'ActivityDate', None)
+                    ip = _safe_str(getattr(r, 'ClientIp', '?') or '(none)')
+                    act = _safe_str(getattr(r, 'Activity', ''))[:200]
+                    print """
+                    <tr style="border-bottom:1px solid #f0f0f0;">
+                        <td style="padding:6px 8px;color:#666;white-space:nowrap;">{0}</td>
+                        <td style="padding:6px 8px;font-family:Consolas,monospace;">{1}</td>
+                        <td style="padding:6px 8px;">{2}</td>
+                    </tr>
+                    """.format(format_datetime(when) if when else '-', ip, act)
+                print '</tbody></table>'
+
+            # Targeted-people modal -- hidden by default; opens when the
+            # match-rate "X of Y" link is clicked. Built server-side and
+            # shipped down ready-to-display so there's no async fetch
+            # round-trip when the user clicks.
+            # CIDR drilldown modal -- one modal shared by all rows. JS
+            # populates it from a CIDR-keyed map shipped down with the
+            # page. Uses json.dumps for safe HTML/JS embedding (handles
+            # quotes, unicode in typed emails, etc.).
+            # IronPython's json.dumps explodes on non-ASCII in attacker-
+            # typed activity strings (Latin accents, smart quotes, etc.).
+            # safe_json walks the structure char-by-char and emits
+            # \uXXXX for everything >= 0x7F so we get a clean, parseable
+            # JS literal regardless of input.
+            cidr_json = safe_json(cidr_attempts_map)
+            ip_json   = safe_json(ip_attempts_map)
+
+            # Email-correlation modal payload -- list keyed by row index.
+            # We pre-format datetimes server-side (IronPython 2.7 quirks
+            # aside, this also keeps the JS dumb).
+            email_modal_data = []
+            for c in correlated_emails:
+                ips_for_js = []
+                for entry in c['ips']:
+                    ips_for_js.append({
+                        'ip': entry['ip'],
+                        'hits': entry['hits'],
+                        'country': entry['country'],
+                        'country_code': entry['country_code'],
+                        'org': entry['org'],
+                        'abuse_label': entry['abuse_label'],
+                        'abuse_severity': entry['abuse_severity'],
+                        'first': format_datetime_short(entry['first']) if entry['first'] else '',
+                        'last': format_datetime_short(entry['last']) if entry['last'] else '',
+                    })
+                member = c.get('member') or {}
+                email_modal_data.append({
+                    'email': c['email'],
+                    'ip_count': c['ip_count'],
+                    'country_count': c['country_count'],
+                    'cidr_count': c['cidr_count'],
+                    'total_hits': c['total_hits'],
+                    'first': format_datetime_short(c['first']) if c['first'] else '',
+                    'last': format_datetime_short(c['last']) if c['last'] else '',
+                    'ips': ips_for_js,
+                    'member_pid': member.get('pid', 0),
+                    'member_name': member.get('name', ''),
+                })
+            email_json = safe_json(email_modal_data)
+            print """
+            <div id="enumCidrModal"
+                 style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;
+                        background:rgba(0,0,0,0.55);z-index:9998;
+                        align-items:flex-start;justify-content:center;padding:40px 20px;
+                        overflow-y:auto;"
+                 onclick="if(event.target===this)enumHideCidr();">
+                <div style="background:white;border-radius:10px;max-width:1100px;width:100%;
+                            box-shadow:0 8px 40px rgba(0,0,0,0.3);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;
+                                padding:16px 20px;border-bottom:1px solid #e5e5e5;
+                                background:linear-gradient(135deg,#1a202c 0%,#2d3748 100%);
+                                color:white;border-radius:10px 10px 0 0;">
+                        <h3 id="enumCidrTitle" style="margin:0;font-size:18px;font-family:Consolas,monospace;">
+                            <i class="fa fa-network-wired"></i> Attacker network
+                        </h3>
+                        <button onclick="enumHideCidr()"
+                                style="background:rgba(255,255,255,0.2);border:none;
+                                       color:white;font-size:20px;width:32px;height:32px;
+                                       border-radius:6px;cursor:pointer;">&times;</button>
+                    </div>
+                    <div id="enumCidrBody" style="max-height:70vh;overflow-y:auto;padding:0;">
+                    </div>
+                </div>
+            </div>
+            <script>
+                var enumCidrAttempts = """ + cidr_json + """;
+                var enumIpAttempts   = """ + ip_json + """;
+                var enumEmailDetails = """ + email_json + """;
+
+                // Shared modal renderer -- both CIDR and per-IP drilldowns
+                // funnel through here. icon + label vary, the table format
+                // is identical.
+                function enumRenderModal(label, icon, attempts) {
+                    var title = document.getElementById('enumCidrTitle');
+                    var body = document.getElementById('enumCidrBody');
+                    if (title) {
+                        title.innerHTML = '<i class="fa ' + icon + '"></i> ' + label +
+                                          ' &mdash; ' + attempts.length + ' recent attempt' +
+                                          (attempts.length === 1 ? '' : 's') +
+                                          ' (capped at 100)';
+                    }
+                    if (body) {
+                        var html = '';
+                        if (attempts.length === 0) {
+                            html = '<p style="padding:20px;color:#666;">No attempt data available.</p>';
+                        } else {
+                            html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+                                   '<thead><tr style="background:#2c3e50;color:white;position:sticky;top:0;">' +
+                                   '<th style="text-align:left;padding:8px;width:170px;">When</th>' +
+                                   '<th style="text-align:left;padding:8px;width:140px;">IP</th>' +
+                                   '<th style="text-align:left;padding:8px;">Activity (typed email shown in quotes)</th>' +
+                                   '</tr></thead><tbody>';
+                            for (var i = 0; i < attempts.length; i++) {
+                                var a = attempts[i];
+                                var act = (a.activity || '')
+                                    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                                html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
+                                        '<td style="padding:6px 8px;color:#666;white-space:nowrap;">' + (a.when || '-') + '</td>' +
+                                        '<td style="padding:6px 8px;font-family:Consolas,monospace;color:#2c5282;">' + (a.ip || '-') + '</td>' +
+                                        '<td style="padding:6px 8px;">' + act + '</td>' +
+                                        '</tr>';
+                            }
+                            html += '</tbody></table>';
+                        }
+                        body.innerHTML = html;
+                    }
+                    document.getElementById('enumCidrModal').style.display = 'flex';
+                }
+                function enumShowCidr(cidr) {
+                    enumRenderModal(cidr, 'fa-network-wired', enumCidrAttempts[cidr] || []);
+                }
+                function enumShowIp(ip) {
+                    enumRenderModal(ip, 'fa-server', enumIpAttempts[ip] || []);
+                }
+                function enumHideCidr() {
+                    var m = document.getElementById('enumCidrModal');
+                    if (m) m.style.display = 'none';
+                }
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') enumHideCidr();
+                });
+            </script>
+            """    # END of CIDR-modal print -- NO .format() so JS braces stay literal
+
+            # ::STEP:: Cross-IP email correlation modal -- a SEPARATE modal
+            # because the data shape differs from CIDR/IP timelines. Each
+            # row shows a single IP's per-email stats (hits, country, org,
+            # abuse chip, first/last). Title shows totals + member badge.
+            # No .format() in this string -- JS braces stay literal.
+            print """
+            <div id="enumEmailModal"
+                 style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;
+                        background:rgba(0,0,0,0.55);z-index:9998;
+                        align-items:flex-start;justify-content:center;padding:40px 20px;
+                        overflow-y:auto;"
+                 onclick="if(event.target===this)enumHideEmail();">
+                <div style="background:white;border-radius:10px;max-width:1100px;width:100%;
+                            box-shadow:0 8px 40px rgba(0,0,0,0.3);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;
+                                padding:16px 20px;border-bottom:1px solid #e5e5e5;
+                                background:linear-gradient(135deg,#dd6b20 0%,#c05621 100%);
+                                color:white;border-radius:10px 10px 0 0;">
+                        <h3 id="enumEmailTitle" style="margin:0;font-size:17px;font-family:Consolas,monospace;">
+                            <i class="fa fa-envelope"></i> Targeted email
+                        </h3>
+                        <button onclick="enumHideEmail()"
+                                style="background:rgba(255,255,255,0.2);border:none;
+                                       color:white;font-size:20px;width:32px;height:32px;
+                                       border-radius:6px;cursor:pointer;">&times;</button>
+                    </div>
+                    <div id="enumEmailSummary"
+                         style="padding:14px 20px;background:#fff8f0;
+                                border-bottom:1px solid #e5e5e5;font-size:13px;color:#742a2a;">
+                    </div>
+                    <div id="enumEmailBody" style="max-height:60vh;overflow-y:auto;padding:0;">
+                    </div>
+                </div>
+            </div>
+            <script>
+                function _enumEscapeHtml(s) {
+                    if (s == null) return '';
+                    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                                    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+                }
+                function enumShowEmail(idx) {
+                    var entry = (enumEmailDetails || [])[idx];
+                    if (!entry) return;
+                    var title = document.getElementById('enumEmailTitle');
+                    var summary = document.getElementById('enumEmailSummary');
+                    var body = document.getElementById('enumEmailBody');
+
+                    if (title) {
+                        title.innerHTML = '<i class="fa fa-envelope"></i> ' +
+                                          _enumEscapeHtml(entry.email);
+                    }
+                    if (summary) {
+                        var memberHtml = '';
+                        if (entry.member_pid && entry.member_pid > 0) {
+                            memberHtml = '<a href="/Person2/' + entry.member_pid +
+                                         '" target="_blank" ' +
+                                         'style="background:#c53030;color:white;' +
+                                         'padding:3px 10px;border-radius:10px;font-size:11px;' +
+                                         'font-weight:700;text-transform:uppercase;' +
+                                         'text-decoration:none;letter-spacing:0.5px;margin-left:8px;">' +
+                                         _enumEscapeHtml(entry.member_name || 'Member') +
+                                         ' &rarr;</a>';
+                        }
+                        summary.innerHTML =
+                            '<strong>' + entry.ip_count + '</strong> distinct IPs &middot; ' +
+                            '<strong>' + entry.cidr_count + '</strong> /24 networks &middot; ' +
+                            '<strong>' + entry.country_count + '</strong> countries &middot; ' +
+                            '<strong>' + entry.total_hits + '</strong> total attempts &middot; ' +
+                            'first ' + _enumEscapeHtml(entry.first || '-') + ' &middot; ' +
+                            'last ' + _enumEscapeHtml(entry.last || '-') +
+                            memberHtml;
+                    }
+                    if (body) {
+                        var ips = entry.ips || [];
+                        var html = '';
+                        if (ips.length === 0) {
+                            html = '<p style="padding:20px;color:#666;">No IP detail available.</p>';
+                        } else {
+                            html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+                                   '<thead><tr style="background:#2c3e50;color:white;position:sticky;top:0;">' +
+                                   '<th style="text-align:left;padding:8px;width:140px;">IP</th>' +
+                                   '<th style="text-align:right;padding:8px;width:60px;">Hits</th>' +
+                                   '<th style="text-align:left;padding:8px;width:140px;">Country</th>' +
+                                   '<th style="text-align:left;padding:8px;">Org / Hosting</th>' +
+                                   '<th style="text-align:left;padding:8px;width:140px;">First seen</th>' +
+                                   '<th style="text-align:left;padding:8px;width:140px;">Last seen</th>' +
+                                   '</tr></thead><tbody>';
+                            for (var i = 0; i < ips.length; i++) {
+                                var x = ips[i];
+                                var bg = (x.abuse_severity === 'high') ? '#fff5f5' :
+                                         (x.abuse_severity === 'med')  ? '#fffaf0' : 'white';
+                                var loc = '';
+                                if (x.country_code && x.country) {
+                                    loc = _enumEscapeHtml(x.country_code) + ' ' +
+                                          _enumEscapeHtml(x.country);
+                                } else {
+                                    loc = _enumEscapeHtml(x.country || '-');
+                                }
+                                var abuseHtml = '';
+                                if (x.abuse_label) {
+                                    var chipBg = (x.abuse_severity === 'high') ? '#c53030' : '#dd6b20';
+                                    abuseHtml = ' <span style="background:' + chipBg + ';color:white;' +
+                                                'padding:1px 6px;border-radius:8px;font-size:10px;' +
+                                                'font-weight:700;text-transform:uppercase;">' +
+                                                _enumEscapeHtml(x.abuse_label) + '</span>';
+                                }
+                                html += '<tr style="background:' + bg + ';border-bottom:1px solid #f0f0f0;">' +
+                                        '<td style="padding:6px 8px;font-family:Consolas,monospace;color:#2c5282;">' +
+                                            _enumEscapeHtml(x.ip || '-') + '</td>' +
+                                        '<td style="text-align:right;padding:6px 8px;font-weight:700;">' +
+                                            (x.hits || 0) + '</td>' +
+                                        '<td style="padding:6px 8px;">' + loc + '</td>' +
+                                        '<td style="padding:6px 8px;color:#4a5568;">' +
+                                            _enumEscapeHtml((x.org || '').substring(0, 80)) +
+                                            abuseHtml + '</td>' +
+                                        '<td style="padding:6px 8px;color:#666;white-space:nowrap;">' +
+                                            _enumEscapeHtml(x.first || '-') + '</td>' +
+                                        '<td style="padding:6px 8px;color:#666;white-space:nowrap;">' +
+                                            _enumEscapeHtml(x.last || '-') + '</td>' +
+                                        '</tr>';
+                            }
+                            html += '</tbody></table>';
+                        }
+                        body.innerHTML = html;
+                    }
+                    document.getElementById('enumEmailModal').style.display = 'flex';
+                }
+                function enumHideEmail() {
+                    var m = document.getElementById('enumEmailModal');
+                    if (m) m.style.display = 'none';
+                }
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') enumHideEmail();
+                });
+            </script>
+            """    # END of email-modal print -- NO .format()
+
+            # Targeted-people modal -- separate print because it uses .format()
+            # for the {0}/{1} substitutions in the title, and JS braces in the
+            # CIDR modal above would collide if both lived in the same string.
+            print """
+            <div id="enumTargetedModal"
+                 style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;
+                        background:rgba(0,0,0,0.55);z-index:9999;
+                        align-items:flex-start;justify-content:center;padding:40px 20px;
+                        overflow-y:auto;"
+                 onclick="if(event.target===this)enumHideTargeted();">
+                <div style="background:white;border-radius:10px;max-width:1000px;width:100%;
+                            box-shadow:0 8px 40px rgba(0,0,0,0.3);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;
+                                padding:16px 20px;border-bottom:1px solid #e5e5e5;
+                                background:linear-gradient(135deg,#dd6b20 0%,#c05621 100%);
+                                color:white;border-radius:10px 10px 0 0;">
+                        <h3 style="margin:0;font-size:18px;">
+                            <i class="fa fa-users"></i> Targeted church members
+                            ({0} people in the last {1} days)
+                        </h3>
+                        <button onclick="enumHideTargeted()"
+                                style="background:rgba(255,255,255,0.2);border:none;
+                                       color:white;font-size:20px;width:32px;height:32px;
+                                       border-radius:6px;cursor:pointer;">&times;</button>
+                    </div>
+                    <div style="padding:16px 20px;background:#fff5f5;color:#742a2a;
+                                border-bottom:1px solid #e5e5e5;font-size:13px;line-height:1.5;">
+                        These are real church members in your <strong>People</strong> table
+                        whose email addresses were typed into login or forgot-password
+                        forms by attackers. <strong>Recommended actions:</strong>
+                        force a password reset on any account holders, and send a
+                        "we noticed unusual login attempts" notification to all of them
+                        so they can recognize phishing follow-ups.
+                    </div>
+                    <div style="max-height:60vh;overflow-y:auto;">
+            """.format(len(targeted_rows), int(lookback_days))
+
+            if not targeted_rows:
+                print '<p style="padding:20px;color:#666;">No targeted members yet -- match rate just hasn\'t produced any People joins.</p>'
+            else:
+                print """
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead>
+                        <tr style="background:#2c3e50;color:white;position:sticky;top:0;">
+                            <th style="text-align:left;padding:10px;">Name</th>
+                            <th style="text-align:left;padding:10px;">Email</th>
+                            <th style="text-align:right;padding:10px;">Attempts</th>
+                            <th style="text-align:right;padding:10px;">Unique IPs</th>
+                            <th style="text-align:left;padding:10px;">Attacking countries</th>
+                            <th style="text-align:left;padding:10px;">First seen</th>
+                            <th style="text-align:left;padding:10px;">Last seen</th>
+                            <th style="text-align:left;padding:10px;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                """
+                for r in targeted_rows:
+                    pid = getattr(r, 'PeopleId', 0)
+                    name = _safe_str(getattr(r, 'Name2', '') or '')
+                    email = _safe_str(getattr(r, 'EmailAddress', '') or '')
+                    email2 = _safe_str(getattr(r, 'EmailAddress2', '') or '')
+                    email_show = email or email2 or '-'
+                    attempts = getattr(r, 'AttemptCount', 0) or 0
+                    uniq = getattr(r, 'UniqueIps', 0) or 0
+                    first = getattr(r, 'FirstAttempt', None)
+                    last = getattr(r, 'LastAttempt', None)
+                    countries = sorted(targeted_countries.get(int(pid), set()))
+                    countries_str = ', '.join(countries)[:120] or '-'
+                    # Background tint if attempted many times (high-value target)
+                    if attempts >= 10:
+                        row_bg = '#fff5f5'
+                    elif attempts >= 5:
+                        row_bg = '#fffaf0'
+                    else:
+                        row_bg = 'white'
+                    print """
+                    <tr style="background:{0};border-bottom:1px solid #f0f0f0;">
+                        <td style="padding:8px 10px;">
+                            <a href="/Person2/{1}" target="_blank"
+                               style="color:#2c5282;text-decoration:none;font-weight:600;">{2}</a>
+                        </td>
+                        <td style="padding:8px 10px;font-family:Consolas,monospace;font-size:12px;color:#4a5568;">{3}</td>
+                        <td style="text-align:right;padding:8px 10px;font-weight:700;">{4}</td>
+                        <td style="text-align:right;padding:8px 10px;color:#4a5568;">{5}</td>
+                        <td style="padding:8px 10px;color:#4a5568;font-size:12px;">{6}</td>
+                        <td style="padding:8px 10px;color:#666;font-size:12px;">{7}</td>
+                        <td style="padding:8px 10px;color:#666;font-size:12px;">{8}</td>
+                        <td style="padding:8px 10px;">
+                            <a href="/Person2/{1}" target="_blank"
+                               style="background:#2c5282;color:white;padding:3px 8px;
+                                      border-radius:4px;font-size:11px;text-decoration:none;
+                                      font-weight:600;">Profile &rarr;</a>
+                        </td>
+                    </tr>
+                    """.format(row_bg, pid, name, email_show, attempts, uniq, countries_str,
+                               format_datetime_short(first) if first else '-',
+                               format_datetime_short(last) if last else '-')
+                print '</tbody></table>'
+
+            print """
+                    </div>
+                </div>
+            </div>
+            <script>
+                function enumShowTargeted() {
+                    var m = document.getElementById('enumTargetedModal');
+                    if (m) m.style.display = 'flex';
+                }
+                function enumHideTargeted() {
+                    var m = document.getElementById('enumTargetedModal');
+                    if (m) m.style.display = 'none';
+                }
+                // Esc closes the modal
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') enumHideTargeted();
+                });
+            </script>
+            """
+
+            # Mitigation guidance
+            print """
+            <div style="margin-top:24px;padding:16px;background:#f0f7ff;
+                        border-left:4px solid #2c5282;border-radius:6px;">
+                <h4 style="margin:0 0 8px 0;color:#2a4365;">Mitigation tips</h4>
+                <ul style="margin:0;color:#2c5282;">
+                    <li><strong>Concentrated IPs (50+ hits):</strong>
+                        block at Cloudflare / firewall. These are nearly
+                        always automated.</li>
+                    <li><strong>High invalid-format counts:</strong> pure
+                        bot. Rate-limit /Account/ForgotPassword at the
+                        WAF (e.g. 10 req/min per IP).</li>
+                    <li><strong>Real-format no-match attempts:</strong>
+                        more targeted. Worth opening a TouchPoint support
+                        ticket asking them to suppress the auto-bounce
+                        email for unknown addresses -- it confirms
+                        bouncing emails to the attacker.</li>
+                    <li><strong>Spike from a known-good IP:</strong>
+                        could be a staff typo loop. Cross-check with
+                        the Enhanced Security Dashboard's user view.</li>
+                </ul>
+            </div>
+            </div>
+            """
+
+        except Exception as e:
+            print_error("Enumeration Monitor", e)
+
 
 # Execute main
 if __name__ == "__main__":
