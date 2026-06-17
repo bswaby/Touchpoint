@@ -36,7 +36,7 @@ from datetime import datetime, timedelta
 
 # ::CONFIG:: Version
 # Bump APP_VERSION on user-visible changes; keep the changelog short.
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 APP_VERSION_DATE = "2026-06-16"
 # Version history:
 #   0.1.0  - Initial release: HighRisk + Enhanced dashboards
@@ -44,6 +44,27 @@ APP_VERSION_DATE = "2026-06-16"
 #            targeted-people modal, breakthrough check, match-rate card
 #   0.3.0  - Cross-IP email correlation (same email probed from N IPs);
 #            APP_VERSION constant surfaced in headers
+#   0.3.1  - Defensive int coercion on SQL-result KPI values
+#            (some installs return Decimal/str for SUM/COUNT, which
+#            broke '{:,}'.format and crashed the KPI overview)
+
+
+def _to_int(v, default=0):
+    """Coerce a SQL-result value to int.
+
+    Some TouchPoint installs surface SUM/COUNT results as
+    System.Decimal or even strings depending on the SQL Server
+    driver. Bare {:,} format specs then explode with
+    "Cannot specify ',' with 's'."  This is the one chokepoint."""
+    if v is None:
+        return default
+    try:
+        return int(v)
+    except (ValueError, TypeError):
+        try:
+            return int(float(v))
+        except (ValueError, TypeError):
+            return default
 
 # ::START:: Main Controller
 def main():
@@ -414,14 +435,17 @@ class UnifiedSecurityHub:
             if kpi_data and len(kpi_data) > 0:
                 kpi = list(kpi_data)[0] if hasattr(kpi_data, '__iter__') else kpi_data
                 
-                total_attempts = getattr(kpi, 'TotalFailedAttempts', 0)
-                unique_threats = getattr(kpi, 'UniqueThreats', 0)
-                users_affected = getattr(kpi, 'UsersAffected', 0)
-                days_active = getattr(kpi, 'DaysWithActivity', 0)
-                critical_threats = getattr(kpi, 'CriticalThreats', 0) or 0
-                lockouts = getattr(kpi, 'AccountLockouts', 0)
-                password_resets = getattr(kpi, 'PasswordResets', 0)
-                high_risk_users = getattr(kpi, 'HighRiskUsers', 0) or 0
+                # Coerce every numeric SQL result through _to_int so that
+                # any install returning Decimal/str doesn't blow up the
+                # downstream {:,} format specs. (v0.3.1 fix.)
+                total_attempts = _to_int(getattr(kpi, 'TotalFailedAttempts', 0))
+                unique_threats = _to_int(getattr(kpi, 'UniqueThreats', 0))
+                users_affected = _to_int(getattr(kpi, 'UsersAffected', 0))
+                days_active = _to_int(getattr(kpi, 'DaysWithActivity', 0))
+                critical_threats = _to_int(getattr(kpi, 'CriticalThreats', 0))
+                lockouts = _to_int(getattr(kpi, 'AccountLockouts', 0))
+                password_resets = _to_int(getattr(kpi, 'PasswordResets', 0))
+                high_risk_users = _to_int(getattr(kpi, 'HighRiskUsers', 0))
                 latest_activity = getattr(kpi, 'LatestActivity', None)
 
                 # Enumeration totals (web + mobile + forgot-password no-match)
@@ -435,11 +459,11 @@ class UnifiedSecurityHub:
                 enum_unique_ips = 0
                 if enum_data and len(enum_data) > 0:
                     e = list(enum_data)[0] if hasattr(enum_data, '__iter__') else enum_data
-                    enum_web = getattr(e, 'WebLoginEnum', 0) or 0
-                    enum_mobile = getattr(e, 'MobileLoginEnum', 0) or 0
-                    enum_fpw_no_match = getattr(e, 'FpwNoMatch', 0) or 0
-                    enum_fpw_invalid = getattr(e, 'FpwInvalidFormat', 0) or 0
-                    enum_unique_ips = getattr(e, 'UniqueEnumIps', 0) or 0
+                    enum_web = _to_int(getattr(e, 'WebLoginEnum', 0))
+                    enum_mobile = _to_int(getattr(e, 'MobileLoginEnum', 0))
+                    enum_fpw_no_match = _to_int(getattr(e, 'FpwNoMatch', 0))
+                    enum_fpw_invalid = _to_int(getattr(e, 'FpwInvalidFormat', 0))
+                    enum_unique_ips = _to_int(getattr(e, 'UniqueEnumIps', 0))
                 enum_total = enum_web + enum_mobile + enum_fpw_no_match + enum_fpw_invalid
                 
                 # Display critical alert if needed
@@ -6479,13 +6503,13 @@ class EnumerationMonitor:
             fpw_invalid_fmt = 0
             if match_typed_rows:
                 mt = match_typed_rows[0]
-                web_mobile_typed = getattr(mt, 'TotalTyped', 0) or 0
-                web_mobile_matched = getattr(mt, 'MatchedToPeople', 0) or 0
+                web_mobile_typed = _to_int(getattr(mt, 'TotalTyped', 0))
+                web_mobile_matched = _to_int(getattr(mt, 'MatchedToPeople', 0))
             if match_fpw_rows:
                 mf = match_fpw_rows[0]
-                fpw_person_no_acct = getattr(mf, 'FpwPersonNoAccount', 0) or 0
-                fpw_valid_no_match = getattr(mf, 'FpwValidNoMatch', 0) or 0
-                fpw_invalid_fmt = getattr(mf, 'FpwInvalidFmt', 0) or 0
+                fpw_person_no_acct = _to_int(getattr(mf, 'FpwPersonNoAccount', 0))
+                fpw_valid_no_match = _to_int(getattr(mf, 'FpwValidNoMatch', 0))
+                fpw_invalid_fmt = _to_int(getattr(mf, 'FpwInvalidFmt', 0))
 
             # Match rate -- numerator = real-people hits, denominator =
             # all checkable enumeration attempts (REAL emails that could
@@ -6519,7 +6543,7 @@ class EnumerationMonitor:
                 ip_addr = _safe_str(getattr(r, 'ClientIp', '')).strip()
                 if not email or '@' not in email or not ip_addr:
                     continue
-                hits = getattr(r, 'Hits', 0) or 0
+                hits = _to_int(getattr(r, 'Hits', 0))
                 first = getattr(r, 'FirstSeen', None)
                 last = getattr(r, 'LastSeen', None)
                 bucket = email_to_ips.setdefault(email, [])
@@ -6639,11 +6663,11 @@ class EnumerationMonitor:
                     'abuse_label': '', 'abuse_severity': '',
                 })
                 b['ips'].add(ip_addr)
-                b['attempts'] += getattr(r, 'Attempts', 0) or 0
-                b['invalid'] += getattr(r, 'InvalidFormat', 0) or 0
-                b['web'] += getattr(r, 'WebLogin', 0) or 0
-                b['mobile'] += getattr(r, 'MobileLogin', 0) or 0
-                b['fpw'] += getattr(r, 'FpwNoMatch', 0) or 0
+                b['attempts'] += _to_int(getattr(r, 'Attempts', 0))
+                b['invalid'] += _to_int(getattr(r, 'InvalidFormat', 0))
+                b['web'] += _to_int(getattr(r, 'WebLogin', 0))
+                b['mobile'] += _to_int(getattr(r, 'MobileLogin', 0))
+                b['fpw'] += _to_int(getattr(r, 'FpwNoMatch', 0))
                 first = getattr(r, 'FirstSeen', None)
                 last = getattr(r, 'LastSeen', None)
                 if first and (b['first'] is None or first < b['first']):
@@ -6906,8 +6930,8 @@ class EnumerationMonitor:
             else:
                 for row in summary:
                     label = _safe_str(getattr(row, 'Signal', ''))
-                    hits = getattr(row, 'Hits', 0) or 0
-                    uips = getattr(row, 'UniqueIps', 0) or 0
+                    hits = _to_int(getattr(row, 'Hits', 0))
+                    uips = _to_int(getattr(row, 'UniqueIps', 0))
                     last = getattr(row, 'LastSeen', None)
                     last_str = format_datetime(last) if last else '-'
                     # Color the card by intent
@@ -7161,11 +7185,11 @@ class EnumerationMonitor:
                 """
                 for r in ips:
                     ip = _safe_str(getattr(r, 'ClientIp', '?') or '(none)')
-                    total = getattr(r, 'Attempts', 0) or 0
-                    invfmt = getattr(r, 'InvalidFormat', 0) or 0
-                    weblog = getattr(r, 'WebLogin', 0) or 0
-                    moblog = getattr(r, 'MobileLogin', 0) or 0
-                    fpwnm = getattr(r, 'FpwNoMatch', 0) or 0
+                    total = _to_int(getattr(r, 'Attempts', 0))
+                    invfmt = _to_int(getattr(r, 'InvalidFormat', 0))
+                    weblog = _to_int(getattr(r, 'WebLogin', 0))
+                    moblog = _to_int(getattr(r, 'MobileLogin', 0))
+                    fpwnm = _to_int(getattr(r, 'FpwNoMatch', 0))
                     last = getattr(r, 'LastSeen', None)
                     info = ip_enrichment.get(ip, {})
                     cc = info.get('countryCode', '') or ''
@@ -7580,8 +7604,8 @@ class EnumerationMonitor:
                     email = _safe_str(getattr(r, 'EmailAddress', '') or '')
                     email2 = _safe_str(getattr(r, 'EmailAddress2', '') or '')
                     email_show = email or email2 or '-'
-                    attempts = getattr(r, 'AttemptCount', 0) or 0
-                    uniq = getattr(r, 'UniqueIps', 0) or 0
+                    attempts = _to_int(getattr(r, 'AttemptCount', 0))
+                    uniq = _to_int(getattr(r, 'UniqueIps', 0))
                     first = getattr(r, 'FirstAttempt', None)
                     last = getattr(r, 'LastAttempt', None)
                     countries = sorted(targeted_countries.get(int(pid), set()))
