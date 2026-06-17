@@ -13,23 +13,23 @@
 #  don't overwrite your changes.
 # =====================================================================
 #
-# Written By: Ben Swaby (TPxi Software, LLC)
-# Email: bswaby@fbchtn.org                                                                                                      
-# Website: https://tpxisoftware.com
-# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
-# ----------------------------------------------------------------                                                              
-# These tools are free because they should be.
-# If they've saved you time or helped your team, and you want to                                                                
-# support continued development, check out:                                                                                     
-#
-# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
-# https://displaycache.com                                
-#
-# TPxi Go(TM) - your church contacts, wherever you work.
-# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
-# or your phone. No tab switching, no lost context.
-# https://tpxigo.com                                                                                                            
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub: https://github.com/bswaby/Touchpoint  (40+ free tools)
 # ----------------------------------------------------------------
+# These tools are free because they should be.
+# If they've saved you time or helped your team, and you want to
+# support continued development, check out:
+#
+# DisplayCache - church digital signage that integrates with TouchPoint
+# https://displaycache.com
+#
+# TPxi Go - your church contacts, wherever you work.
+# Look up anyone in TouchPoint, log calls and emails from Outlook
+# or your phone. No tab switching, no lost context.
+# https://tpxigo.com
+# ----------------------------------------------------------------
+#
 
 """
 Enterprise Reporting for TouchPoint
@@ -72,7 +72,7 @@ import datetime
 # CONFIGURATION & CONSTANTS
 # ============================================================================
 
-APP_VERSION = '1.1.10'
+APP_VERSION = '1.1.26'
 APP_TITLE = 'Enterprise Reporting'
 DC_SCRIPT_ID = 'EnterpriseReporting'  # ID used on DisplayCache to identify this script
 # Use workers.dev URL for server-side fetches (bypasses Cloudflare Bot Fight Mode)
@@ -98,6 +98,14 @@ DEFAULT_SETTINGS = {
         'communications': [],
         'admin':        ['Admin', 'Developer'],
         'emergency':    [],
+        'tasks':        [],
+        'transactions': [],
+    },
+    'engagement_weights': {
+        'attend_recency':   {'enabled': True, 'weight': 30},
+        'attend_frequency': {'enabled': True, 'weight': 30},
+        'group_involvement': {'enabled': True, 'weight': 20},
+        'serving':          {'enabled': True, 'weight': 20},
     }
 }
 
@@ -111,6 +119,8 @@ CATEGORIES = {
     'communications': {'name': 'Communications', 'icon': 'fa-bullhorn', 'color': '#0891b2'},
     'admin':        {'name': 'Admin',        'icon': 'fa-cog', 'color': '#d97706'},
     'emergency':    {'name': 'Emergency',    'icon': 'fa-exclamation-triangle', 'color': '#dc2626'},
+    'tasks':        {'name': 'Tasks & Notes','icon': 'fa-tasks', 'color': '#0d9488'},
+    'transactions': {'name': 'Transactions', 'icon': 'fa-receipt', 'color': '#b45309'},
 }
 
 # ============================================================================
@@ -141,6 +151,13 @@ def load_settings():
     # Per-report role overrides
     if 'report_roles' in saved:
         settings['report_roles'] = saved['report_roles']
+    # Engagement score weights
+    if saved.get('engagement_weights'):
+        ew = dict(DEFAULT_SETTINGS['engagement_weights'])
+        for k, v in saved['engagement_weights'].items():
+            if k in ew and isinstance(v, dict):
+                ew[k] = {'enabled': bool(v.get('enabled', True)), 'weight': int(v.get('weight', ew[k]['weight']))}
+        settings['engagement_weights'] = ew
     return settings
 
 def save_settings(settings):
@@ -851,27 +868,61 @@ def get_default_reports():
     reports.append({
         'id': 'fin_yoy_comparison',
         'name': 'Year-over-Year Giving',
-        'description': 'Monthly giving comparison across years',
-        'help_text': '<strong>Year-over-Year Giving</strong> compares monthly giving totals across 3 years. Use the Fund multi-select filter to focus on specific funds. The line chart makes it easy to spot seasonal patterns and year-over-year trends.',
+        'description': 'Monthly giving comparison across fiscal or calendar years',
+        'help_text': '<strong>Year-over-Year Giving</strong> compares monthly giving totals across 3 years. Use the <b>Year Type</b> dropdown to switch between calendar year (Jan-Dec) and fiscal year (uses start month from Settings). Months are ordered starting from the selected year type.',
         'category': 'financial',
         'icon': 'fa-chart-line',
         'sql_template': '''
+            WITH FiscalYears AS (
+                SELECT
+                    CASE WHEN MONTH(GETDATE()) >= {year_start}
+                        THEN YEAR(GETDATE()) ELSE YEAR(GETDATE()) - 1 END AS CurFY,
+                    CASE WHEN MONTH(GETDATE()) >= {year_start}
+                        THEN YEAR(GETDATE()) - 1 ELSE YEAR(GETDATE()) - 2 END AS PrevFY,
+                    CASE WHEN MONTH(GETDATE()) >= {year_start}
+                        THEN YEAR(GETDATE()) - 2 ELSE YEAR(GETDATE()) - 3 END AS Prev2FY
+            ),
+            FiscalMonth AS (
+                SELECT
+                    c.ContributionAmount,
+                    c.ContributionDate,
+                    c.FundId,
+                    CASE WHEN MONTH(c.ContributionDate) >= {year_start}
+                        THEN MONTH(c.ContributionDate) - {year_start} + 1
+                        ELSE MONTH(c.ContributionDate) + 12 - {year_start} + 1
+                    END AS FiscalMonthNum,
+                    CASE WHEN MONTH(c.ContributionDate) >= {year_start}
+                        THEN YEAR(c.ContributionDate)
+                        ELSE YEAR(c.ContributionDate) - 1
+                    END AS FiscalYear,
+                    DATENAME(month, c.ContributionDate) AS MonthName
+                FROM Contribution c WITH (NOLOCK)
+                WHERE c.ContributionTypeId NOT IN (6, 7, 8, 99)
+                    AND c.ContributionStatusId = 0
+                    AND c.ContributionDate >= DATEADD(year, -3,
+                        CASE WHEN MONTH(GETDATE()) >= {year_start}
+                            THEN DATEFROMPARTS(YEAR(GETDATE()) - 2, {year_start}, 1)
+                            ELSE DATEFROMPARTS(YEAR(GETDATE()) - 3, {year_start}, 1)
+                        END)
+                    {filters}
+            )
             SELECT
-                MONTH(c.ContributionDate) AS MonthNum,
-                DATENAME(month, c.ContributionDate) AS MonthName,
-                SUM(CASE WHEN YEAR(c.ContributionDate) = YEAR(GETDATE()) THEN c.ContributionAmount ELSE 0 END) AS CurrentYear,
-                SUM(CASE WHEN YEAR(c.ContributionDate) = YEAR(GETDATE())-1 THEN c.ContributionAmount ELSE 0 END) AS PriorYear,
-                SUM(CASE WHEN YEAR(c.ContributionDate) = YEAR(GETDATE())-2 THEN c.ContributionAmount ELSE 0 END) AS TwoYearsAgo
-            FROM Contribution c WITH (NOLOCK)
-            JOIN ContributionFund cf ON c.FundId = cf.FundId
-            WHERE c.ContributionTypeId NOT IN (6, 7, 8, 99)
-                AND c.ContributionStatusId = 0
-                AND c.ContributionDate >= DATEADD(year, -3, DATEFROMPARTS(YEAR(GETDATE()), 1, 1))
-                {filters}
-            GROUP BY MONTH(c.ContributionDate), DATENAME(month, c.ContributionDate)
-            ORDER BY MONTH(c.ContributionDate)
+                fm.FiscalMonthNum AS MonthNum,
+                fm.MonthName,
+                SUM(CASE WHEN fm.FiscalYear = fy.CurFY THEN fm.ContributionAmount ELSE 0 END) AS CurrentYear,
+                SUM(CASE WHEN fm.FiscalYear = fy.PrevFY THEN fm.ContributionAmount ELSE 0 END) AS PriorYear,
+                SUM(CASE WHEN fm.FiscalYear = fy.Prev2FY THEN fm.ContributionAmount ELSE 0 END) AS TwoYearsAgo
+            FROM FiscalMonth fm
+            CROSS JOIN FiscalYears fy
+            GROUP BY fm.FiscalMonthNum, fm.MonthName
+            ORDER BY fm.FiscalMonthNum
         ''',
         'parameters': [
+            {'name': 'year_type', 'label': 'Year Type', 'type': 'dropdown', 'sql_column': '',
+             'source_sql': '',
+             'options': [{'value': 'calendar', 'label': 'Calendar Year (Jan-Dec)'},
+                         {'value': 'fiscal', 'label': 'Fiscal Year (from Settings)'}],
+             'default': 'calendar'},
             {'name': 'fund_id', 'label': 'Fund', 'type': 'multi_select', 'sql_column': 'c.FundId',
              'source_sql': "SELECT FundId as value, FundName as label FROM ContributionFund WHERE FundStatusId = 1 ORDER BY FundName",
              'default': ''}
@@ -1369,7 +1420,7 @@ def get_default_reports():
     reports.append({
         'id': 'att_by_org_type',
         'name': 'Attendance by Involvement Type',
-        'description': 'Attendance broken down by organization type (Small Group, Class, Event, etc.)',
+        'description': 'Attendance broken down by involvement type (Small Group, Class, Event, etc.)',
         'help_text': '<strong>Attendance by Involvement Type</strong> groups attendance by the type of involvement (e.g., Small Groups, Classes, Events, Serve Teams). Shows unique attenders, total check-ins, org count, and average attendance per meeting. Helps identify which involvement types drive the most engagement.',
         'category': 'attendance',
         'icon': 'fa-layer-group',
@@ -1716,8 +1767,8 @@ def get_default_reports():
     reports.append({
         'id': 'mem_family_composition',
         'name': 'Family Size Trends',
-        'description': 'Family unit composition of new members by year',
-        'help_text': '<strong>Family Size Trends</strong> shows the household composition of new member cohorts by year — single person, couples, small families, large families, and with/without children.',
+        'description': 'Family unit composition of new members by year: singles, couples, small and large families',
+        'help_text': '<strong>Family Size Trends</strong> shows the household composition of new member cohorts by year. Categories: <b>Single</b> = 1 person in the household. <b>Couple</b> = 2 people, no children. <b>Small Family</b> = 3-4 people (typically a couple with 1-2 children). <b>Large Family</b> = 5+ people (couple with 3+ children or multi-generational). Tracks whether you are attracting more singles vs families over time.',
         'category': 'membership',
         'icon': 'fa-users',
         'sql_template': '''
@@ -2279,6 +2330,161 @@ def get_default_reports():
         'is_builtin': True
     })
 
+    # ---- ADMIN (continued - Security Monitoring) ----
+
+    reports.append({
+        'id': 'adm_failed_login_summary',
+        'name': 'Failed Login Summary',
+        'description': 'Daily failed login attempts with unique IPs, users affected, lockouts, and password resets',
+        'help_text': '<strong>Failed Login Summary</strong> shows daily failed authentication activity including total attempts, unique attacking IPs, users targeted, account lockouts, and password resets. Use the <b>Date Range</b> filter to focus on a specific period. A sudden spike in any metric warrants investigation.',
+        'category': 'admin',
+        'icon': 'fa-shield-alt',
+        'sql_template': '''
+            SELECT
+                CONVERT(VARCHAR, CAST(al.ActivityDate AS DATE), 101) AS EventDate,
+                COUNT(*) AS FailedAttempts,
+                COUNT(DISTINCT al.ClientIp) AS UniqueIPs,
+                COUNT(DISTINCT al.UserId) AS UsersTargeted,
+                SUM(CASE WHEN al.Activity LIKE '%locked%' THEN 1 ELSE 0 END) AS Lockouts,
+                SUM(CASE WHEN al.Activity LIKE '%ForgotPassword%' THEN 1 ELSE 0 END) AS PasswordResets,
+                COUNT(DISTINCT al.Machine) AS UniqueMachines
+            FROM ActivityLog al
+            WHERE al.Activity LIKE '%failed%'
+                {filters}
+            GROUP BY CAST(al.ActivityDate AS DATE)
+            ORDER BY CAST(al.ActivityDate AS DATE) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Date Range', 'type': 'daterange',
+             'sql_column': 'al.ActivityDate', 'default': 'last_30_days'}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'line', 'chart_label_col': 'EventDate',
+                    'chart_data_cols': ['FailedAttempts', 'UniqueIPs', 'Lockouts']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'adm_top_threat_ips',
+        'name': 'Top Threat IPs',
+        'description': 'IP addresses ranked by failed login attempts with targeting and persistence analysis',
+        'help_text': '<strong>Top Threat IPs</strong> ranks IP addresses by volume of failed authentication attempts. Shows how many users each IP targeted, how many days it was active, and the date range of activity. High attempt counts from a single IP with multiple users targeted indicates a brute force or credential stuffing attack.',
+        'category': 'admin',
+        'icon': 'fa-crosshairs',
+        'sql_template': '''
+            SELECT TOP 100
+                al.ClientIp AS IPAddress,
+                COUNT(*) AS FailedAttempts,
+                COUNT(DISTINCT al.UserId) AS UsersTargeted,
+                COUNT(DISTINCT CAST(al.ActivityDate AS DATE)) AS DaysActive,
+                CONVERT(VARCHAR, MIN(al.ActivityDate), 101) AS FirstSeen,
+                CONVERT(VARCHAR, MAX(al.ActivityDate), 101) AS LastSeen,
+                SUM(CASE WHEN al.Activity LIKE '%locked%' THEN 1 ELSE 0 END) AS CausedLockouts,
+                CASE
+                    WHEN COUNT(*) >= 100 THEN 'Critical'
+                    WHEN COUNT(*) >= 50 THEN 'High'
+                    WHEN COUNT(*) >= 20 THEN 'Medium'
+                    ELSE 'Low'
+                END AS ThreatLevel
+            FROM ActivityLog al
+            WHERE al.Activity LIKE '%failed%'
+                {filters}
+            GROUP BY al.ClientIp
+            HAVING COUNT(*) >= 5
+            ORDER BY COUNT(*) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Date Range', 'type': 'daterange',
+             'sql_column': 'al.ActivityDate', 'default': 'last_30_days'}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'IPAddress',
+                    'chart_data_cols': ['FailedAttempts']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'adm_users_under_attack',
+        'name': 'Users Under Attack',
+        'description': 'User accounts ranked by failed login attempts with source IP count and lockout status',
+        'help_text': '<strong>Users Under Attack</strong> shows which user accounts are being targeted by failed login attempts. Includes how many unique IPs attempted access, current lockout status, and whether a password reset is pending. Accounts with many failed attempts from many IPs may indicate credential stuffing. Accounts with attempts from few IPs may be targeted attacks.',
+        'category': 'admin',
+        'icon': 'fa-user-shield',
+        'sql_template': '''
+            SELECT
+                u.PeopleId,
+                u.Username,
+                u.Name2 AS Name,
+                COUNT(*) AS FailedAttempts,
+                COUNT(DISTINCT al.ClientIp) AS SourceIPs,
+                COUNT(DISTINCT CAST(al.ActivityDate AS DATE)) AS DaysTargeted,
+                CONVERT(VARCHAR, MAX(al.ActivityDate), 101) AS LastAttempt,
+                CASE WHEN u.IsLockedOut = 1 THEN 'LOCKED' ELSE 'Active' END AS AccountStatus,
+                u.FailedPasswordAttemptCount AS CurrentFailCount,
+                CASE WHEN u.MustChangePassword = 1 THEN 'Yes' ELSE 'No' END AS PendingReset,
+                CONVERT(VARCHAR, u.LastLoginDate, 101) AS LastSuccessfulLogin,
+                SUM(CASE WHEN al.Activity LIKE '%locked%' THEN 1 ELSE 0 END) AS LockoutEvents
+            FROM ActivityLog al
+            JOIN Users u ON al.UserId = u.UserId
+            WHERE al.Activity LIKE '%failed%'
+                AND u.PeopleId IS NOT NULL
+                {filters}
+            GROUP BY u.PeopleId, u.Username, u.Name2, u.IsLockedOut,
+                     u.FailedPasswordAttemptCount, u.MustChangePassword, u.LastLoginDate
+            HAVING COUNT(*) >= 3
+            ORDER BY COUNT(*) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Date Range', 'type': 'daterange',
+             'sql_column': 'al.ActivityDate', 'default': 'last_30_days'}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'adm_account_security_status',
+        'name': 'Account Security Status',
+        'description': 'All user accounts showing lock status, failed attempts, password age, and inactivity',
+        'help_text': '<strong>Account Security Status</strong> provides a security posture snapshot of all user accounts. Shows current lockout status, pending password resets, days since last password change, days since last login, and failed attempt count. Use this for periodic security audits and to identify stale or at-risk accounts.',
+        'category': 'admin',
+        'icon': 'fa-lock',
+        'sql_template': '''
+            SELECT
+                u.PeopleId,
+                u.Username,
+                u.Name2 AS Name,
+                CASE WHEN u.IsLockedOut = 1 THEN 'LOCKED' ELSE 'Active' END AS AccountStatus,
+                u.FailedPasswordAttemptCount AS FailedAttempts,
+                CASE WHEN u.MustChangePassword = 1 THEN 'Yes' ELSE 'No' END AS MustResetPw,
+                CONVERT(VARCHAR, u.LastLoginDate, 101) AS LastLogin,
+                DATEDIFF(day, u.LastLoginDate, GETDATE()) AS DaysSinceLogin,
+                CONVERT(VARCHAR, u.LastPasswordChangedDate, 101) AS LastPwChange,
+                DATEDIFF(day, u.LastPasswordChangedDate, GETDATE()) AS PwAgeDays,
+                CONVERT(VARCHAR, u.LastLockedOutDate, 101) AS LastLockout,
+                CASE
+                    WHEN u.IsLockedOut = 1 THEN 'Critical'
+                    WHEN u.FailedPasswordAttemptCount >= 3 THEN 'High'
+                    WHEN DATEDIFF(day, u.LastLoginDate, GETDATE()) > 180 THEN 'Medium'
+                    WHEN DATEDIFF(day, u.LastPasswordChangedDate, GETDATE()) > 365 THEN 'Medium'
+                    ELSE 'Normal'
+                END AS SecurityRisk
+            FROM Users u
+            WHERE u.PeopleId IS NOT NULL
+            ORDER BY
+                CASE WHEN u.IsLockedOut = 1 THEN 0 ELSE 1 END,
+                u.FailedPasswordAttemptCount DESC,
+                u.LastLoginDate ASC
+        ''',
+        'parameters': [],
+        'display': {'types': ['table', 'kpi'], 'default': 'table'},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
     # ---- ADMIN (continued - Communication Stats) ----
 
     reports.append({
@@ -2730,7 +2936,20 @@ def get_default_reports():
                     ELSE om.EnrollmentDate
                 END DESC
         ''',
-        'parameters': [],
+        'parameters': [
+            {'name': 'program_id', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'p.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''},
+            {'name': 'division_id', 'label': 'Division', 'type': 'dropdown', 'sql_column': 'd.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Division ORDER BY Name",
+             'default': ''},
+            {'name': 'org_type', 'label': 'Involvement Type', 'type': 'dropdown', 'sql_column': 'o.OrganizationTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.OrganizationType ORDER BY Description",
+             'default': ''},
+            {'name': 'member_type', 'label': 'Member Type', 'type': 'dropdown', 'sql_column': 'om.MemberTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberType ORDER BY Description",
+             'default': ''}
+        ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
         'is_builtin': True
@@ -3052,7 +3271,20 @@ def get_default_reports():
                             {filters}
             ORDER BY om.EnrollmentDate DESC
         ''',
-        'parameters': [],
+        'parameters': [
+            {'name': 'program_id', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'prog.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''},
+            {'name': 'division_id', 'label': 'Division', 'type': 'dropdown', 'sql_column': 'd.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Division ORDER BY Name",
+             'default': ''},
+            {'name': 'org_type', 'label': 'Involvement Type', 'type': 'dropdown', 'sql_column': 'o.OrganizationTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.OrganizationType ORDER BY Description",
+             'default': ''},
+            {'name': 'member_type', 'label': 'Member Type', 'type': 'dropdown', 'sql_column': 'om.MemberTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberType ORDER BY Description",
+             'default': ''}
+        ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
         'is_builtin': True
@@ -3087,7 +3319,20 @@ def get_default_reports():
                             {filters}
             ORDER BY om.InactiveDate DESC
         ''',
-        'parameters': [],
+        'parameters': [
+            {'name': 'program_id', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'prog.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''},
+            {'name': 'division_id', 'label': 'Division', 'type': 'dropdown', 'sql_column': 'd.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Division ORDER BY Name",
+             'default': ''},
+            {'name': 'org_type', 'label': 'Involvement Type', 'type': 'dropdown', 'sql_column': 'o.OrganizationTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.OrganizationType ORDER BY Description",
+             'default': ''},
+            {'name': 'member_type', 'label': 'Member Type', 'type': 'dropdown', 'sql_column': 'om.MemberTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberType ORDER BY Description",
+             'default': ''}
+        ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
         'is_builtin': True
@@ -3276,6 +3521,3045 @@ def get_default_reports():
         'is_builtin': True
     })
 
+    # ---- MEMBERSHIP (continued - Baptism & Join Type) ----
+
+    reports.append({
+        'id': 'mem_baptism_by_type',
+        'name': 'Baptism by Type',
+        'description': 'Baptisms broken down by type over the last 10 years with each type as a column',
+        'help_text': '<strong>Baptism by Type</strong> shows baptism counts by year with each baptism type as its own column. Chart view shows grouped bars so you can compare types side by side across years.',
+        'category': 'membership',
+        'icon': 'fa-water',
+        'sql_template': '''
+            SELECT
+                YEAR(p.BaptismDate) AS Year,
+                ISNULL(bt.Description, '(not specified)') AS BaptismType,
+                COUNT(*) AS BaptismCount
+            FROM People p
+            LEFT JOIN lookup.BaptismType bt ON bt.Id = p.BaptismTypeId
+            WHERE p.BaptismDate IS NOT NULL
+                AND YEAR(p.BaptismDate) >= YEAR(GETDATE()) - 9
+                {filters}
+            GROUP BY YEAR(p.BaptismDate), bt.Description
+            ORDER BY YEAR(p.BaptismDate), bt.Description
+        ''',
+        'parameters': [
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'chart',
+                    'chart_type': 'bar', 'chart_label_col': 'Year',
+                    'chart_data_cols': ['BaptismCount'], 'chart_group_col': 'BaptismType'},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'mem_join_by_type',
+        'name': 'Join Type',
+        'description': 'How people joined the church broken down by type over the last 10 years',
+        'help_text': '<strong>Join Type</strong> shows membership joins grouped by how they joined and year. Types are pulled directly from the JoinType lookup table so they always match your database.',
+        'category': 'membership',
+        'icon': 'fa-door-open',
+        'sql_template': '''
+            SELECT
+                YEAR(p.JoinDate) AS Year,
+                ISNULL(jt.Description, '(not specified)') AS JoinType,
+                COUNT(*) AS JoinCount
+            FROM People p
+            LEFT JOIN lookup.JoinType jt ON jt.Id = p.JoinCodeId
+            WHERE p.JoinDate IS NOT NULL
+                AND YEAR(p.JoinDate) >= YEAR(GETDATE()) - 9
+                {filters}
+            GROUP BY YEAR(p.JoinDate), jt.Description
+            ORDER BY YEAR(p.JoinDate), jt.Description
+        ''',
+        'parameters': [
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'chart',
+                    'chart_type': 'bar', 'chart_label_col': 'Year',
+                    'chart_data_cols': ['JoinCount'], 'chart_group_col': 'JoinType'},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    # ---- MEMBERSHIP (continued - Age Bin Analysis) ----
+
+    reports.append({
+        'id': 'mem_joined_age_bins',
+        'name': 'Joined Church by Age',
+        'description': 'Age at time of joining the church by year over the last 10 years',
+        'help_text': '<strong>Joined Church by Age</strong> shows the age people were <b>when they joined</b>, not their current age. Calculated from birth date and join date. Each row is an age bin and each column is a year.',
+        'category': 'membership',
+        'icon': 'fa-id-card-alt',
+        'sql_template': '''
+            SELECT
+                CASE
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) < 10 THEN '0-9'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 10 AND 19 THEN '10-19'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 20 AND 29 THEN '20-29'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 30 AND 39 THEN '30-39'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 40 AND 49 THEN '40-49'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 50 AND 59 THEN '50-59'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 60 AND 69 THEN '60-69'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 70 AND 79 THEN '70-79'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) >= 80 THEN '80+'
+                    ELSE 'Unknown'
+                END AS AgeBin,
+                SUM(CASE WHEN YEAR(p.JoinDate) = YEAR(GETDATE()) THEN 1 ELSE 0 END) AS [{cy}],
+                SUM(CASE WHEN YEAR(p.JoinDate) = YEAR(GETDATE())-1 THEN 1 ELSE 0 END) AS [{cy1}],
+                SUM(CASE WHEN YEAR(p.JoinDate) = YEAR(GETDATE())-2 THEN 1 ELSE 0 END) AS [{cy2}],
+                SUM(CASE WHEN YEAR(p.JoinDate) = YEAR(GETDATE())-3 THEN 1 ELSE 0 END) AS [{cy3}],
+                SUM(CASE WHEN YEAR(p.JoinDate) = YEAR(GETDATE())-4 THEN 1 ELSE 0 END) AS [{cy4}],
+                SUM(CASE WHEN YEAR(p.JoinDate) = YEAR(GETDATE())-5 THEN 1 ELSE 0 END) AS [{cy5}],
+                SUM(CASE WHEN YEAR(p.JoinDate) = YEAR(GETDATE())-6 THEN 1 ELSE 0 END) AS [{cy6}],
+                SUM(CASE WHEN YEAR(p.JoinDate) = YEAR(GETDATE())-7 THEN 1 ELSE 0 END) AS [{cy7}],
+                SUM(CASE WHEN YEAR(p.JoinDate) = YEAR(GETDATE())-8 THEN 1 ELSE 0 END) AS [{cy8}],
+                SUM(CASE WHEN YEAR(p.JoinDate) = YEAR(GETDATE())-9 THEN 1 ELSE 0 END) AS [{cy9}]
+            FROM People p
+            WHERE p.JoinDate IS NOT NULL
+                AND p.BDate IS NOT NULL
+                {filters}
+            GROUP BY
+                CASE
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) < 10 THEN '0-9'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 10 AND 19 THEN '10-19'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 20 AND 29 THEN '20-29'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 30 AND 39 THEN '30-39'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 40 AND 49 THEN '40-49'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 50 AND 59 THEN '50-59'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 60 AND 69 THEN '60-69'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) BETWEEN 70 AND 79 THEN '70-79'
+                    WHEN DATEDIFF(year, p.BDate, p.JoinDate) >= 80 THEN '80+'
+                    ELSE 'Unknown'
+                END
+            ORDER BY MIN(DATEDIFF(year, p.BDate, p.JoinDate))
+        '''.replace('{cy9}', str(datetime.datetime.now().year-9)).replace('{cy8}', str(datetime.datetime.now().year-8)).replace('{cy7}', str(datetime.datetime.now().year-7)).replace('{cy6}', str(datetime.datetime.now().year-6)).replace('{cy5}', str(datetime.datetime.now().year-5)).replace('{cy4}', str(datetime.datetime.now().year-4)).replace('{cy3}', str(datetime.datetime.now().year-3)).replace('{cy2}', str(datetime.datetime.now().year-2)).replace('{cy1}', str(datetime.datetime.now().year-1)).replace('{cy}', str(datetime.datetime.now().year)),
+        'parameters': [
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'AgeBin',
+                    'chart_data_cols': [str(datetime.datetime.now().year), str(datetime.datetime.now().year-1), str(datetime.datetime.now().year-2)]},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'mem_baptism_age_bins',
+        'name': 'Baptism by Age',
+        'description': 'Age at time of baptism by year over the last 10 years',
+        'help_text': '<strong>Baptism by Age</strong> shows the age people were <b>when they were baptized</b>, not their current age. Calculated from birth date and baptism date. Tracks whether baptisms are trending younger or older.',
+        'category': 'membership',
+        'icon': 'fa-water',
+        'sql_template': '''
+            SELECT
+                CASE
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) < 10 THEN '0-9'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 10 AND 19 THEN '10-19'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 20 AND 29 THEN '20-29'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 30 AND 39 THEN '30-39'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 40 AND 49 THEN '40-49'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 50 AND 59 THEN '50-59'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 60 AND 69 THEN '60-69'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 70 AND 79 THEN '70-79'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) >= 80 THEN '80+'
+                END AS AgeBin,
+                SUM(CASE WHEN YEAR(p.BaptismDate) = YEAR(GETDATE()) THEN 1 ELSE 0 END) AS [{cy}],
+                SUM(CASE WHEN YEAR(p.BaptismDate) = YEAR(GETDATE())-1 THEN 1 ELSE 0 END) AS [{cy1}],
+                SUM(CASE WHEN YEAR(p.BaptismDate) = YEAR(GETDATE())-2 THEN 1 ELSE 0 END) AS [{cy2}],
+                SUM(CASE WHEN YEAR(p.BaptismDate) = YEAR(GETDATE())-3 THEN 1 ELSE 0 END) AS [{cy3}],
+                SUM(CASE WHEN YEAR(p.BaptismDate) = YEAR(GETDATE())-4 THEN 1 ELSE 0 END) AS [{cy4}],
+                SUM(CASE WHEN YEAR(p.BaptismDate) = YEAR(GETDATE())-5 THEN 1 ELSE 0 END) AS [{cy5}],
+                SUM(CASE WHEN YEAR(p.BaptismDate) = YEAR(GETDATE())-6 THEN 1 ELSE 0 END) AS [{cy6}],
+                SUM(CASE WHEN YEAR(p.BaptismDate) = YEAR(GETDATE())-7 THEN 1 ELSE 0 END) AS [{cy7}],
+                SUM(CASE WHEN YEAR(p.BaptismDate) = YEAR(GETDATE())-8 THEN 1 ELSE 0 END) AS [{cy8}],
+                SUM(CASE WHEN YEAR(p.BaptismDate) = YEAR(GETDATE())-9 THEN 1 ELSE 0 END) AS [{cy9}]
+            FROM People p
+            WHERE p.BaptismDate IS NOT NULL
+                AND p.BDate IS NOT NULL
+                {filters}
+            GROUP BY
+                CASE
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) < 10 THEN '0-9'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 10 AND 19 THEN '10-19'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 20 AND 29 THEN '20-29'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 30 AND 39 THEN '30-39'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 40 AND 49 THEN '40-49'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 50 AND 59 THEN '50-59'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 60 AND 69 THEN '60-69'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) BETWEEN 70 AND 79 THEN '70-79'
+                    WHEN DATEDIFF(year, p.BDate, p.BaptismDate) >= 80 THEN '80+'
+                END
+            ORDER BY MIN(DATEDIFF(year, p.BDate, p.BaptismDate))
+        '''.replace('{cy9}', str(datetime.datetime.now().year-9)).replace('{cy8}', str(datetime.datetime.now().year-8)).replace('{cy7}', str(datetime.datetime.now().year-7)).replace('{cy6}', str(datetime.datetime.now().year-6)).replace('{cy5}', str(datetime.datetime.now().year-5)).replace('{cy4}', str(datetime.datetime.now().year-4)).replace('{cy3}', str(datetime.datetime.now().year-3)).replace('{cy2}', str(datetime.datetime.now().year-2)).replace('{cy1}', str(datetime.datetime.now().year-1)).replace('{cy}', str(datetime.datetime.now().year)),
+        'parameters': [
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'AgeBin',
+                    'chart_data_cols': [str(datetime.datetime.now().year), str(datetime.datetime.now().year-1), str(datetime.datetime.now().year-2)]},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    # ---- ENGAGEMENT (continued - Assimilation & Health) ----
+
+    reports.append({
+        'id': 'eng_assimilation_velocity',
+        'name': 'Assimilation Velocity',
+        'description': 'Average days from first visit to first group join to first serve',
+        'help_text': '<strong>Assimilation Velocity</strong> measures how quickly people move through the connection pathway: first attendance → first group enrollment → first serving role. Shows the average, median-approximation, fastest, and slowest times at each stage. Long times indicate friction in your onboarding process.',
+        'category': 'engagement',
+        'icon': 'fa-stopwatch',
+        'sql_template': '''
+            WITH PersonJourney AS (
+                SELECT
+                    p.PeopleId,
+                    (SELECT MIN(a.MeetingDate) FROM Attend a
+                     WHERE a.PeopleId = p.PeopleId AND a.AttendanceFlag = 1) AS FirstAttend,
+                    (SELECT MIN(om.EnrollmentDate) FROM OrganizationMembers om
+                     JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                     WHERE om.PeopleId = p.PeopleId AND o.OrganizationStatusId = 30) AS FirstGroup,
+                    (SELECT MIN(om.EnrollmentDate) FROM OrganizationMembers om
+                     JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                     WHERE om.PeopleId = p.PeopleId AND o.OrganizationStatusId = 30
+                     AND om.MemberTypeId IN (140, 310, 320, 710)) AS FirstServe
+                FROM People p
+                WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                    AND p.MemberStatusId IN (10, 20, 30)
+                    AND p.CreatedDate >= DATEADD(year, -3, GETDATE())
+                    {filters}
+            )
+            SELECT
+                'First Visit → First Group' AS Stage,
+                COUNT(CASE WHEN FirstAttend IS NOT NULL AND FirstGroup IS NOT NULL
+                    AND FirstGroup >= FirstAttend THEN 1 END) AS PeopleCompleted,
+                AVG(CASE WHEN FirstAttend IS NOT NULL AND FirstGroup IS NOT NULL
+                    AND FirstGroup >= FirstAttend
+                    THEN DATEDIFF(day, FirstAttend, FirstGroup) END) AS AvgDays,
+                MIN(CASE WHEN FirstAttend IS NOT NULL AND FirstGroup IS NOT NULL
+                    AND FirstGroup >= FirstAttend
+                    THEN DATEDIFF(day, FirstAttend, FirstGroup) END) AS FastestDays,
+                MAX(CASE WHEN FirstAttend IS NOT NULL AND FirstGroup IS NOT NULL
+                    AND FirstGroup >= FirstAttend
+                    THEN DATEDIFF(day, FirstAttend, FirstGroup) END) AS SlowestDays
+            FROM PersonJourney
+            UNION ALL
+            SELECT
+                'First Group → First Serve',
+                COUNT(CASE WHEN FirstGroup IS NOT NULL AND FirstServe IS NOT NULL
+                    AND FirstServe >= FirstGroup THEN 1 END),
+                AVG(CASE WHEN FirstGroup IS NOT NULL AND FirstServe IS NOT NULL
+                    AND FirstServe >= FirstGroup
+                    THEN DATEDIFF(day, FirstGroup, FirstServe) END),
+                MIN(CASE WHEN FirstGroup IS NOT NULL AND FirstServe IS NOT NULL
+                    AND FirstServe >= FirstGroup
+                    THEN DATEDIFF(day, FirstGroup, FirstServe) END),
+                MAX(CASE WHEN FirstGroup IS NOT NULL AND FirstServe IS NOT NULL
+                    AND FirstServe >= FirstGroup
+                    THEN DATEDIFF(day, FirstGroup, FirstServe) END)
+            FROM PersonJourney
+            UNION ALL
+            SELECT
+                'First Visit → First Serve (total)',
+                COUNT(CASE WHEN FirstAttend IS NOT NULL AND FirstServe IS NOT NULL
+                    AND FirstServe >= FirstAttend THEN 1 END),
+                AVG(CASE WHEN FirstAttend IS NOT NULL AND FirstServe IS NOT NULL
+                    AND FirstServe >= FirstAttend
+                    THEN DATEDIFF(day, FirstAttend, FirstServe) END),
+                MIN(CASE WHEN FirstAttend IS NOT NULL AND FirstServe IS NOT NULL
+                    AND FirstServe >= FirstAttend
+                    THEN DATEDIFF(day, FirstAttend, FirstServe) END),
+                MAX(CASE WHEN FirstAttend IS NOT NULL AND FirstServe IS NOT NULL
+                    AND FirstServe >= FirstAttend
+                    THEN DATEDIFF(day, FirstAttend, FirstServe) END)
+            FROM PersonJourney
+        ''',
+        'parameters': [
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'Stage',
+                    'chart_data_cols': ['AvgDays']},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_volunteer_burnout',
+        'name': 'Volunteer Burnout Risk',
+        'description': 'People serving in multiple involvements or attending every week for extended periods',
+        'help_text': '<strong>Volunteer Burnout Risk</strong> identifies people who may be overcommitted. Shows anyone serving (leader/volunteer roles) in 3+ active involvements, along with their total involvement count and recent attendance frequency. High serving load + high attendance frequency = burnout risk.',
+        'category': 'engagement',
+        'icon': 'fa-fire',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                p.EmailAddress AS Email,
+                p.CellPhone AS Phone,
+                ms.Description AS MemberStatus,
+                c.Description AS Campus,
+                COUNT(DISTINCT CASE WHEN om.MemberTypeId IN (140, 310, 320, 710)
+                    THEN om.OrganizationId END) AS ServingRoles,
+                COUNT(DISTINCT om.OrganizationId) AS TotalInvolvements,
+                STRING_AGG(CASE WHEN om.MemberTypeId IN (140, 310, 320, 710)
+                    THEN o.OrganizationName END, ', ') AS ServingIn,
+                (SELECT COUNT(DISTINCT a.MeetingId) FROM Attend a
+                 JOIN Meetings m ON a.MeetingId = m.MeetingId
+                 WHERE a.PeopleId = p.PeopleId AND a.AttendanceFlag = 1
+                 AND m.MeetingDate >= DATEADD(day, -90, GETDATE())) AS Attend90d
+            FROM People p
+            JOIN OrganizationMembers om ON om.PeopleId = p.PeopleId
+            JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program prog ON d.ProgId = prog.Id
+            LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+            LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+            WHERE p.IsDeceased = 0
+                AND o.OrganizationStatusId = 30
+                AND om.InactiveDate IS NULL
+                AND om.MemberTypeId IN (140, 310, 320, 710)
+                {filters}
+            GROUP BY p.PeopleId, p.Name2, p.EmailAddress, p.CellPhone,
+                     ms.Description, c.Description
+            HAVING COUNT(DISTINCT CASE WHEN om.MemberTypeId IN (140, 310, 320, 710)
+                THEN om.OrganizationId END) >= 3
+            ORDER BY COUNT(DISTINCT CASE WHEN om.MemberTypeId IN (140, 310, 320, 710)
+                THEN om.OrganizationId END) DESC
+        ''',
+        'parameters': [
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''},
+            {'name': 'program_id', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'prog.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''},
+            {'name': 'division_id', 'label': 'Division', 'type': 'dropdown', 'sql_column': 'd.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Division ORDER BY Name",
+             'default': ''},
+            {'name': 'org_type', 'label': 'Involvement Type', 'type': 'dropdown', 'sql_column': 'o.OrganizationTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.OrganizationType ORDER BY Description",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_new_person_followup_gap',
+        'name': 'New Person Follow-Up Gap',
+        'description': 'People added to the system with no subsequent task or note within 14 days',
+        'help_text': '<strong>New Person Follow-Up Gap</strong> finds people who were added to the database in the selected period but have no TaskNote created about them within 14 days of being added. These are people who fell through the cracks of your follow-up process.',
+        'category': 'engagement',
+        'icon': 'fa-user-clock',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                p.EmailAddress AS Email,
+                p.CellPhone AS Phone,
+                ms.Description AS MemberStatus,
+                c.Description AS Campus,
+                CONVERT(VARCHAR, p.CreatedDate, 101) AS AddedDate,
+                DATEDIFF(day, p.CreatedDate, GETDATE()) AS DaysAgo,
+                (SELECT COUNT(*) FROM TaskNote tn
+                 WHERE tn.AboutPersonId = p.PeopleId
+                 AND tn.CreatedDate <= DATEADD(day, 14, p.CreatedDate)) AS FollowUpsWithin14d,
+                (SELECT CONVERT(VARCHAR, MIN(tn.CreatedDate), 101) FROM TaskNote tn
+                 WHERE tn.AboutPersonId = p.PeopleId) AS FirstFollowUp
+            FROM People p
+            LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+            LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+            WHERE p.IsDeceased = 0
+                AND NOT EXISTS (
+                    SELECT 1 FROM TaskNote tn
+                    WHERE tn.AboutPersonId = p.PeopleId
+                        AND tn.CreatedDate <= DATEADD(day, 14, p.CreatedDate)
+                )
+                {filters}
+            ORDER BY p.CreatedDate DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Added Date', 'type': 'daterange',
+             'sql_column': 'p.CreatedDate', 'default': 'last_90_days'},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_yoy_snapshot',
+        'name': 'Year-over-Year Snapshot',
+        'description': 'Compare key metrics this year vs last year: attendance, new members, baptisms',
+        'help_text': '<strong>Year-over-Year Snapshot</strong> compares the current calendar year to the prior year across key metrics: total attendance, unique attenders, new members, baptisms, new people added, and active involvements. Shows raw counts and percentage change. The simplest answer to "are we growing?"',
+        'category': 'engagement',
+        'icon': 'fa-exchange-alt',
+        'sql_template': '''
+            SELECT
+                'Unique Attenders' AS Metric,
+                (SELECT COUNT(DISTINCT a.PeopleId) FROM Attend a
+                 JOIN Meetings m ON a.MeetingId = m.MeetingId
+                 WHERE a.AttendanceFlag = 1
+                 AND YEAR(m.MeetingDate) = YEAR(GETDATE()) - 1) AS LastYear,
+                (SELECT COUNT(DISTINCT a.PeopleId) FROM Attend a
+                 JOIN Meetings m ON a.MeetingId = m.MeetingId
+                 WHERE a.AttendanceFlag = 1
+                 AND YEAR(m.MeetingDate) = YEAR(GETDATE())) AS ThisYear,
+                CASE WHEN (SELECT COUNT(DISTINCT a.PeopleId) FROM Attend a
+                     JOIN Meetings m ON a.MeetingId = m.MeetingId
+                     WHERE a.AttendanceFlag = 1
+                     AND YEAR(m.MeetingDate) = YEAR(GETDATE()) - 1) > 0
+                THEN CAST(((SELECT COUNT(DISTINCT a.PeopleId) FROM Attend a
+                     JOIN Meetings m ON a.MeetingId = m.MeetingId
+                     WHERE a.AttendanceFlag = 1
+                     AND YEAR(m.MeetingDate) = YEAR(GETDATE()))
+                    - (SELECT COUNT(DISTINCT a.PeopleId) FROM Attend a
+                     JOIN Meetings m ON a.MeetingId = m.MeetingId
+                     WHERE a.AttendanceFlag = 1
+                     AND YEAR(m.MeetingDate) = YEAR(GETDATE()) - 1))
+                    * 100.0 / (SELECT COUNT(DISTINCT a.PeopleId) FROM Attend a
+                     JOIN Meetings m ON a.MeetingId = m.MeetingId
+                     WHERE a.AttendanceFlag = 1
+                     AND YEAR(m.MeetingDate) = YEAR(GETDATE()) - 1) AS DECIMAL(5,1))
+                ELSE 0 END AS ChangePct
+            UNION ALL
+            SELECT 'New Members',
+                (SELECT COUNT(*) FROM People WHERE JoinDate IS NOT NULL AND YEAR(JoinDate) = YEAR(GETDATE()) - 1 AND MemberStatusId = 10),
+                (SELECT COUNT(*) FROM People WHERE JoinDate IS NOT NULL AND YEAR(JoinDate) = YEAR(GETDATE()) AND MemberStatusId = 10),
+                CASE WHEN (SELECT COUNT(*) FROM People WHERE JoinDate IS NOT NULL AND YEAR(JoinDate) = YEAR(GETDATE()) - 1 AND MemberStatusId = 10) > 0
+                THEN CAST(((SELECT COUNT(*) FROM People WHERE JoinDate IS NOT NULL AND YEAR(JoinDate) = YEAR(GETDATE()) AND MemberStatusId = 10)
+                    - (SELECT COUNT(*) FROM People WHERE JoinDate IS NOT NULL AND YEAR(JoinDate) = YEAR(GETDATE()) - 1 AND MemberStatusId = 10))
+                    * 100.0 / (SELECT COUNT(*) FROM People WHERE JoinDate IS NOT NULL AND YEAR(JoinDate) = YEAR(GETDATE()) - 1 AND MemberStatusId = 10) AS DECIMAL(5,1))
+                ELSE 0 END
+            UNION ALL
+            SELECT 'Baptisms',
+                (SELECT COUNT(*) FROM People WHERE BaptismDate IS NOT NULL AND YEAR(BaptismDate) = YEAR(GETDATE()) - 1),
+                (SELECT COUNT(*) FROM People WHERE BaptismDate IS NOT NULL AND YEAR(BaptismDate) = YEAR(GETDATE())),
+                CASE WHEN (SELECT COUNT(*) FROM People WHERE BaptismDate IS NOT NULL AND YEAR(BaptismDate) = YEAR(GETDATE()) - 1) > 0
+                THEN CAST(((SELECT COUNT(*) FROM People WHERE BaptismDate IS NOT NULL AND YEAR(BaptismDate) = YEAR(GETDATE()))
+                    - (SELECT COUNT(*) FROM People WHERE BaptismDate IS NOT NULL AND YEAR(BaptismDate) = YEAR(GETDATE()) - 1))
+                    * 100.0 / (SELECT COUNT(*) FROM People WHERE BaptismDate IS NOT NULL AND YEAR(BaptismDate) = YEAR(GETDATE()) - 1) AS DECIMAL(5,1))
+                ELSE 0 END
+            UNION ALL
+            SELECT 'New People Added',
+                (SELECT COUNT(*) FROM People WHERE YEAR(CreatedDate) = YEAR(GETDATE()) - 1 AND IsDeceased = 0),
+                (SELECT COUNT(*) FROM People WHERE YEAR(CreatedDate) = YEAR(GETDATE()) AND IsDeceased = 0),
+                CASE WHEN (SELECT COUNT(*) FROM People WHERE YEAR(CreatedDate) = YEAR(GETDATE()) - 1 AND IsDeceased = 0) > 0
+                THEN CAST(((SELECT COUNT(*) FROM People WHERE YEAR(CreatedDate) = YEAR(GETDATE()) AND IsDeceased = 0)
+                    - (SELECT COUNT(*) FROM People WHERE YEAR(CreatedDate) = YEAR(GETDATE()) - 1 AND IsDeceased = 0))
+                    * 100.0 / (SELECT COUNT(*) FROM People WHERE YEAR(CreatedDate) = YEAR(GETDATE()) - 1 AND IsDeceased = 0) AS DECIMAL(5,1))
+                ELSE 0 END
+            UNION ALL
+            SELECT 'Active Involvements',
+                (SELECT COUNT(*) FROM Organizations WHERE OrganizationStatusId = 30
+                    AND CreatedDate < DATEFROMPARTS(YEAR(GETDATE()), 1, 1)),
+                (SELECT COUNT(*) FROM Organizations WHERE OrganizationStatusId = 30),
+                CASE WHEN (SELECT COUNT(*) FROM Organizations WHERE OrganizationStatusId = 30
+                    AND CreatedDate < DATEFROMPARTS(YEAR(GETDATE()), 1, 1)) > 0
+                THEN CAST(((SELECT COUNT(*) FROM Organizations WHERE OrganizationStatusId = 30)
+                    - (SELECT COUNT(*) FROM Organizations WHERE OrganizationStatusId = 30
+                    AND CreatedDate < DATEFROMPARTS(YEAR(GETDATE()), 1, 1)))
+                    * 100.0 / (SELECT COUNT(*) FROM Organizations WHERE OrganizationStatusId = 30
+                    AND CreatedDate < DATEFROMPARTS(YEAR(GETDATE()), 1, 1)) AS DECIMAL(5,1))
+                ELSE 0 END
+        ''',
+        'parameters': [],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'Metric',
+                    'chart_data_cols': ['LastYear', 'ThisYear']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_bg_check_compliance',
+        'name': 'Background Check Compliance',
+        'description': 'Volunteers and leaders serving without a current background check',
+        'help_text': '<strong>Background Check Compliance</strong> identifies people in leadership or volunteer roles (member types 140, 310, 320, 710) who either have no background check on file or whose last check is older than 2 years. Essential for child safety compliance.',
+        'category': 'engagement',
+        'icon': 'fa-clipboard-check',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                p.EmailAddress AS Email,
+                mt.Description AS RoleType,
+                o.OrganizationName AS Involvement,
+                ISNULL(pro.Name, 'No Program') AS Program,
+                CONVERT(VARCHAR, v.ProcessedDate, 101) AS LastBGCheck,
+                CASE
+                    WHEN v.ProcessedDate IS NULL THEN 'No Check on File'
+                    WHEN DATEDIFF(day, v.ProcessedDate, GETDATE()) > 730 THEN 'Expired (2+ years)'
+                    ELSE 'Current'
+                END AS ComplianceStatus,
+                DATEDIFF(day, v.ProcessedDate, GETDATE()) AS DaysSinceCheck
+            FROM OrganizationMembers om
+            JOIN People p ON om.PeopleId = p.PeopleId
+            JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+            LEFT JOIN lookup.MemberType mt ON om.MemberTypeId = mt.Id
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program pro ON d.ProgId = pro.Id
+            LEFT JOIN Volunteer v ON v.PeopleId = p.PeopleId
+            WHERE om.MemberTypeId IN (140, 310, 320, 710)
+                AND o.OrganizationStatusId = 30
+                AND om.InactiveDate IS NULL
+                AND p.IsDeceased = 0
+                AND (v.ProcessedDate IS NULL OR DATEDIFF(day, v.ProcessedDate, GETDATE()) > 730)
+                {filters}
+            ORDER BY
+                CASE WHEN v.ProcessedDate IS NULL THEN 0 ELSE 1 END,
+                v.ProcessedDate ASC
+        ''',
+        'parameters': [
+            {'name': 'program', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'pro.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    # ---- FINANCIAL (continued - Annual Summary with PY Comparison) ----
+
+    reports.append({
+        'id': 'fin_annual_summary',
+        'name': 'Annual Giving Summary with PY Change',
+        'description': 'Year-by-year giving totals with prior year comparison using calendar or fiscal year',
+        'help_text': '<strong>Annual Giving Summary</strong> shows a 10-year view of contribution totals including: total contributed, average gift size, gift count, unique givers, mid-range donors ($10K-$99K), and major donors ($100K+). Includes year-over-year dollar change and percentage change. Use the <b>Year Type</b> filter to switch between calendar year (Jan-Dec) and fiscal year (uses the start month configured in Settings). Filter by fund to isolate general fund vs designated giving.',
+        'category': 'financial',
+        'icon': 'fa-chart-line',
+        'sql_template': '''
+            WITH FiscalPeriods AS (
+                SELECT
+                    n.Yr,
+                    CASE WHEN {fiscal_month} = 1 THEN DATEFROMPARTS(n.Yr, 1, 1)
+                         ELSE DATEFROMPARTS(n.Yr - 1, {fiscal_month}, 1) END AS PeriodStart,
+                    CASE WHEN {fiscal_month} = 1 THEN DATEFROMPARTS(n.Yr, 12, 31)
+                         ELSE DATEADD(DAY, -1, DATEFROMPARTS(n.Yr, {fiscal_month}, 1)) END AS PeriodEnd,
+                    CASE WHEN {fiscal_month} = 1 THEN CAST(n.Yr AS VARCHAR)
+                         ELSE 'FY' + CAST(n.Yr AS VARCHAR) END AS PeriodLabel
+                FROM (
+                    SELECT YEAR(GETDATE()) - v.n AS Yr
+                    FROM (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)) v(n)
+                ) n
+            ),
+            YearlyStats AS (
+                SELECT
+                    fp.PeriodLabel AS Year,
+                    fp.Yr AS SortYear,
+                    SUM(c.ContributionAmount) AS Contributed,
+                    AVG(c.ContributionAmount) AS AvgGift,
+                    COUNT(*) AS Gifts,
+                    COUNT(DISTINCT c.PeopleId) AS UniqueGivers,
+                    COUNT(DISTINCT CASE WHEN gt.Total BETWEEN 10000 AND 99999 THEN c.PeopleId END) AS MidRange,
+                    COUNT(DISTINCT CASE WHEN gt.Total >= 100000 THEN c.PeopleId END) AS MajorDonors
+                FROM FiscalPeriods fp
+                JOIN Contribution c ON c.ContributionDate BETWEEN fp.PeriodStart AND fp.PeriodEnd
+                LEFT JOIN (
+                    SELECT c2.PeopleId, fp2.Yr, SUM(c2.ContributionAmount) AS Total
+                    FROM FiscalPeriods fp2
+                    JOIN Contribution c2 ON c2.ContributionDate BETWEEN fp2.PeriodStart AND fp2.PeriodEnd
+                    WHERE c2.ContributionTypeId NOT IN (6, 7, 8, 99) AND c2.ContributionStatusId = 0
+                    GROUP BY c2.PeopleId, fp2.Yr
+                ) gt ON c.PeopleId = gt.PeopleId AND fp.Yr = gt.Yr
+                WHERE c.ContributionTypeId NOT IN (6, 7, 8, 99)
+                    AND c.ContributionStatusId = 0
+                    {filters}
+                GROUP BY fp.PeriodLabel, fp.Yr
+            )
+            SELECT
+                cur.Year,
+                cur.Contributed,
+                cur.AvgGift,
+                cur.Gifts,
+                cur.UniqueGivers,
+                cur.MidRange AS [10k_99k],
+                cur.MajorDonors AS [100k_Plus],
+                cur.Contributed - ISNULL(py.Contributed, 0) AS PY_Change,
+                CASE WHEN ISNULL(py.Contributed, 0) > 0
+                    THEN CAST((cur.Contributed - py.Contributed) * 100.0 / py.Contributed AS DECIMAL(5,1))
+                    ELSE NULL END AS PY_ChangePct
+            FROM YearlyStats cur
+            LEFT JOIN YearlyStats py ON cur.SortYear = py.SortYear + 1
+            ORDER BY cur.SortYear DESC
+        ''',
+        'parameters': [
+            {'name': 'fund_id', 'label': 'Fund', 'type': 'multi_select', 'sql_column': 'c.FundId',
+             'source_sql': "SELECT FundId as value, FundName as label FROM ContributionFund WHERE FundStatusId = 1 ORDER BY FundName",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'Year',
+                    'chart_data_cols': ['Contributed'],
+                    'formats': {'Contributed': 'currency', 'AvgGift': 'currency', 'PY_Change': 'currency'}},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    # ---- FINANCIAL (continued - Contribution Type YoY) ----
+
+    reports.append({
+        'id': 'fin_contrib_type_yoy',
+        'name': 'Contribution Type Year-over-Year',
+        'description': 'Giving broken down by contribution type (Tax Deductible, Non-Deductible, Stock, Pledge) across years',
+        'help_text': '<strong>Contribution Type Year-over-Year</strong> shows how giving is distributed across contribution types over the last 5 years. Tracks Tax Deductible, Non-Tax Deductible, Stock, and Pledge amounts. Excludes returned checks (type 6) and reversed contributions (type 7). Useful for understanding the composition of your giving and tracking trends in non-cash gifts or pledges.',
+        'category': 'financial',
+        'icon': 'fa-layer-group',
+        'sql_template': '''
+            SELECT
+                YEAR(c.ContributionDate) AS Year,
+                ct.Description AS ContributionType,
+                COUNT(*) AS Transactions,
+                COUNT(DISTINCT c.PeopleId) AS UniqueGivers,
+                SUM(c.ContributionAmount) AS TotalAmount,
+                AVG(c.ContributionAmount) AS AvgAmount
+            FROM Contribution c
+            JOIN lookup.ContributionType ct ON c.ContributionTypeId = ct.Id
+            JOIN People p ON c.PeopleId = p.PeopleId
+            WHERE c.ContributionStatusId = 0
+                AND c.ContributionTypeId NOT IN (6, 7)
+                AND YEAR(c.ContributionDate) >= YEAR(GETDATE()) - 4
+                {filters}
+            GROUP BY YEAR(c.ContributionDate), ct.Description
+            ORDER BY YEAR(c.ContributionDate) DESC, SUM(c.ContributionAmount) DESC
+        ''',
+        'parameters': [
+            {'name': 'fund_id', 'label': 'Fund', 'type': 'multi_select', 'sql_column': 'c.FundId',
+             'source_sql': "SELECT FundId as value, FundName as label FROM ContributionFund WHERE FundStatusId = 1 ORDER BY FundName",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'chart',
+                    'chart_type': 'bar', 'chart_label_col': 'Year',
+                    'chart_data_cols': ['TotalAmount'],
+                    'chart_group_col': 'ContributionType',
+                    'formats': {'TotalAmount': 'currency', 'AvgAmount': 'currency'}},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    # ---- FINANCIAL (continued - Campus & Demographic Giving) ----
+
+    reports.append({
+        'id': 'fin_giving_by_campus',
+        'name': 'Giving by Campus',
+        'description': 'Contribution totals broken down by campus with givers, gifts, and average',
+        'help_text': '<strong>Giving by Campus</strong> shows giving rolled up by campus assignment. Essential for multi-site churches to compare campus financial health. Includes unique givers, total gifts, total given, and average gift per campus.',
+        'category': 'financial',
+        'icon': 'fa-building',
+        'sql_template': '''
+            SELECT
+                ISNULL(cp.Description, 'No Campus') AS Campus,
+                COUNT(DISTINCT c.PeopleId) AS UniqueGivers,
+                COUNT(*) AS Gifts,
+                SUM(c.ContributionAmount) AS TotalGiven,
+                AVG(c.ContributionAmount) AS AvgGift,
+                CAST(SUM(c.ContributionAmount) * 100.0 / NULLIF(SUM(SUM(c.ContributionAmount)) OVER(), 0) AS DECIMAL(5,1)) AS PctOfTotal
+            FROM Contribution c
+            JOIN People p ON c.PeopleId = p.PeopleId
+            LEFT JOIN lookup.Campus cp ON p.CampusId = cp.Id
+            WHERE c.ContributionTypeId NOT IN (6, 7, 8, 99)
+                AND c.ContributionStatusId = 0
+                AND p.IsDeceased = 0
+                {filters}
+            GROUP BY cp.Description
+            ORDER BY SUM(c.ContributionAmount) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Date Range', 'type': 'daterange',
+             'sql_column': 'c.ContributionDate', 'default': 'fiscal_ytd'},
+            {'name': 'fund_id', 'label': 'Fund', 'type': 'multi_select', 'sql_column': 'c.FundId',
+             'source_sql': "SELECT FundId as value, FundName as label FROM ContributionFund WHERE FundStatusId = 1 ORDER BY FundName",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'pie', 'chart_label_col': 'Campus',
+                    'chart_data_cols': ['TotalGiven'],
+                    'formats': {'TotalGiven': 'currency', 'AvgGift': 'currency'}},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'fin_giving_by_bundle_type',
+        'name': 'Giving by Method',
+        'description': 'How contributions are received: Online, Check, Cash, etc. from BundleHeader types',
+        'help_text': '<strong>Giving by Method</strong> shows how contributions are received based on BundleHeader type (Online, Check, Cash, etc.). Tracks the shift from physical to digital giving over time. Shows unique givers, total amount, and percentage per method.',
+        'category': 'financial',
+        'icon': 'fa-credit-card',
+        'sql_template': '''
+            SELECT
+                ISNULL(bht.Description, 'Unknown') AS GivingMethod,
+                COUNT(DISTINCT c.PeopleId) AS UniqueGivers,
+                COUNT(*) AS Gifts,
+                SUM(c.ContributionAmount) AS TotalGiven,
+                AVG(c.ContributionAmount) AS AvgGift,
+                CAST(SUM(c.ContributionAmount) * 100.0 / NULLIF(SUM(SUM(c.ContributionAmount)) OVER(), 0) AS DECIMAL(5,1)) AS PctOfTotal
+            FROM Contribution c
+            JOIN People p ON c.PeopleId = p.PeopleId
+            LEFT JOIN BundleDetail bd ON c.ContributionId = bd.ContributionId
+            LEFT JOIN BundleHeader bh ON bd.BundleHeaderId = bh.BundleHeaderId
+            LEFT JOIN lookup.BundleHeaderTypes bht ON bh.BundleHeaderTypeId = bht.Id
+            WHERE c.ContributionTypeId NOT IN (6, 7, 8, 99)
+                AND c.ContributionStatusId = 0
+                {filters}
+            GROUP BY bht.Description
+            ORDER BY SUM(c.ContributionAmount) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Date Range', 'type': 'daterange',
+             'sql_column': 'c.ContributionDate', 'default': 'fiscal_ytd'},
+            {'name': 'fund_id', 'label': 'Fund', 'type': 'multi_select', 'sql_column': 'c.FundId',
+             'source_sql': "SELECT FundId as value, FundName as label FROM ContributionFund WHERE FundStatusId = 1 ORDER BY FundName",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'chart',
+                    'chart_type': 'pie', 'chart_label_col': 'GivingMethod',
+                    'chart_data_cols': ['TotalGiven'],
+                    'formats': {'TotalGiven': 'currency', 'AvgGift': 'currency'}},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'fin_giving_by_marital',
+        'name': 'Giving by Marital Status',
+        'description': 'Contribution totals broken down by marital status with PY comparison',
+        'help_text': '<strong>Giving by Marital Status</strong> shows how giving is distributed across marital status categories. Useful for understanding which demographics drive giving. Shows current vs prior year for trend analysis.',
+        'category': 'financial',
+        'icon': 'fa-ring',
+        'sql_template': '''
+            SELECT
+                ISNULL(mar.Description, 'Unknown') AS MaritalStatus,
+                COUNT(DISTINCT c.PeopleId) AS UniqueGivers,
+                COUNT(*) AS Gifts,
+                SUM(c.ContributionAmount) AS TotalGiven,
+                AVG(c.ContributionAmount) AS AvgGift,
+                SUM(c.ContributionAmount) / NULLIF(COUNT(DISTINCT c.PeopleId), 0) AS PerGiver,
+                CAST(SUM(c.ContributionAmount) * 100.0 / NULLIF(SUM(SUM(c.ContributionAmount)) OVER(), 0) AS DECIMAL(5,1)) AS PctOfTotal
+            FROM Contribution c
+            JOIN People p ON c.PeopleId = p.PeopleId
+            LEFT JOIN lookup.MaritalStatus mar ON p.MaritalStatusId = mar.Id
+            WHERE c.ContributionTypeId NOT IN (6, 7, 8, 99)
+                AND c.ContributionStatusId = 0
+                AND p.IsDeceased = 0
+                {filters}
+            GROUP BY mar.Description
+            ORDER BY SUM(c.ContributionAmount) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Date Range', 'type': 'daterange',
+             'sql_column': 'c.ContributionDate', 'default': 'fiscal_ytd'}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'chart',
+                    'chart_type': 'pie', 'chart_label_col': 'MaritalStatus',
+                    'chart_data_cols': ['TotalGiven'],
+                    'formats': {'TotalGiven': 'currency', 'AvgGift': 'currency', 'PerGiver': 'currency'}},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'fin_giving_by_generation',
+        'name': 'Giving by Generation',
+        'description': 'Contribution totals by generation: Silent, Boomers, Gen X, Millennials, Gen Z',
+        'help_text': '<strong>Giving by Generation</strong> shows giving distribution across generational cohorts. Reveals which generations carry the financial weight and where growth or decline is happening. Includes givers, total, average, and per-giver amounts.',
+        'category': 'financial',
+        'icon': 'fa-users',
+        'sql_template': '''
+            SELECT
+                CASE
+                    WHEN p.BirthYear <= 1945 THEN 'Silent Generation'
+                    WHEN p.BirthYear BETWEEN 1946 AND 1964 THEN 'Baby Boomers'
+                    WHEN p.BirthYear BETWEEN 1965 AND 1980 THEN 'Gen X'
+                    WHEN p.BirthYear BETWEEN 1981 AND 1996 THEN 'Millennials'
+                    WHEN p.BirthYear >= 1997 THEN 'Gen Z'
+                    ELSE 'Unknown'
+                END AS Generation,
+                COUNT(DISTINCT c.PeopleId) AS UniqueGivers,
+                COUNT(*) AS Gifts,
+                SUM(c.ContributionAmount) AS TotalGiven,
+                AVG(c.ContributionAmount) AS AvgGift,
+                SUM(c.ContributionAmount) / NULLIF(COUNT(DISTINCT c.PeopleId), 0) AS PerGiver,
+                CAST(SUM(c.ContributionAmount) * 100.0 / NULLIF(SUM(SUM(c.ContributionAmount)) OVER(), 0) AS DECIMAL(5,1)) AS PctOfTotal
+            FROM Contribution c
+            JOIN People p ON c.PeopleId = p.PeopleId
+            WHERE c.ContributionTypeId NOT IN (6, 7, 8, 99)
+                AND c.ContributionStatusId = 0
+                AND p.IsDeceased = 0
+                AND p.BirthYear IS NOT NULL
+                {filters}
+            GROUP BY
+                CASE
+                    WHEN p.BirthYear <= 1945 THEN 'Silent Generation'
+                    WHEN p.BirthYear BETWEEN 1946 AND 1964 THEN 'Baby Boomers'
+                    WHEN p.BirthYear BETWEEN 1965 AND 1980 THEN 'Gen X'
+                    WHEN p.BirthYear BETWEEN 1981 AND 1996 THEN 'Millennials'
+                    WHEN p.BirthYear >= 1997 THEN 'Gen Z'
+                    ELSE 'Unknown'
+                END
+            ORDER BY MIN(ISNULL(p.BirthYear, 9999))
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Date Range', 'type': 'daterange',
+             'sql_column': 'c.ContributionDate', 'default': 'fiscal_ytd'}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'chart',
+                    'chart_type': 'bar', 'chart_label_col': 'Generation',
+                    'chart_data_cols': ['TotalGiven'],
+                    'formats': {'TotalGiven': 'currency', 'AvgGift': 'currency', 'PerGiver': 'currency'}},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    # ---- FINANCIAL (continued - Stewardship Analytics) ----
+
+    reports.append({
+        'id': 'fin_first_time_givers',
+        'name': 'First-Time Givers',
+        'description': 'People who made their very first contribution within the selected period',
+        'help_text': '<strong>First-Time Givers</strong> identifies people whose earliest-ever contribution falls within the selected date range. Essential for stewardship follow-up — first-time givers who receive a personal thank-you within 48 hours are significantly more likely to give again.',
+        'category': 'financial',
+        'icon': 'fa-star',
+        'sql_template': '''
+            WITH FirstGift AS (
+                SELECT c.PeopleId, MIN(c.ContributionDate) AS FirstDate
+                FROM Contribution c
+                WHERE c.ContributionTypeId NOT IN (6, 7, 8, 99)
+                    AND c.ContributionStatusId = 0
+                GROUP BY c.PeopleId
+            )
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                p.EmailAddress AS Email,
+                ms.Description AS MemberStatus,
+                CONVERT(VARCHAR, fg.FirstDate, 101) AS FirstGiftDate,
+                SUM(c.ContributionAmount) AS FirstDayTotal,
+                COUNT(*) AS GiftsOnFirstDay,
+                STRING_AGG(cf.FundName, ', ') AS Funds
+            FROM FirstGift fg
+            JOIN People p ON fg.PeopleId = p.PeopleId
+            JOIN Contribution c ON c.PeopleId = fg.PeopleId
+                AND c.ContributionDate = fg.FirstDate
+                AND c.ContributionTypeId NOT IN (6, 7, 8, 99)
+                AND c.ContributionStatusId = 0
+            JOIN ContributionFund cf ON c.FundId = cf.FundId
+            LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+            WHERE p.IsDeceased = 0
+                {filters}
+            GROUP BY p.PeopleId, p.Name2, p.EmailAddress, ms.Description, fg.FirstDate
+            ORDER BY fg.FirstDate DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'First Gift Date', 'type': 'daterange',
+             'sql_column': 'fg.FirstDate', 'default': 'last_30_days'},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'kpi'], 'default': 'table',
+                    'formats': {'FirstDayTotal': 'currency'}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'fin_giving_frequency',
+        'name': 'Giving Frequency',
+        'description': 'Givers categorized by how often they give: weekly, monthly, quarterly, or sporadic',
+        'help_text': '<strong>Giving Frequency</strong> classifies givers by their giving cadence over the selected period. Weekly givers (40+ gifts/year) are your most committed. Monthly (10-39) are consistent. Quarterly (4-9) may need encouragement. Sporadic (1-3) are at risk of lapsing. Use this to target stewardship communications.',
+        'category': 'financial',
+        'icon': 'fa-clock',
+        'sql_template': '''
+            WITH GiverFreq AS (
+                SELECT
+                    c.PeopleId,
+                    COUNT(*) AS GiftCount,
+                    SUM(c.ContributionAmount) AS TotalGiven,
+                    COUNT(DISTINCT MONTH(c.ContributionDate)) AS MonthsActive,
+                    MIN(c.ContributionDate) AS FirstGift,
+                    MAX(c.ContributionDate) AS LastGift
+                FROM Contribution c
+                JOIN People p ON c.PeopleId = p.PeopleId
+                WHERE c.ContributionTypeId NOT IN (6, 7, 8, 99)
+                    AND c.ContributionStatusId = 0
+                    AND p.IsDeceased = 0
+                    {filters}
+                GROUP BY c.PeopleId
+            )
+            SELECT
+                CASE
+                    WHEN GiftCount >= 40 THEN 'Weekly (40+ gifts)'
+                    WHEN GiftCount >= 10 THEN 'Monthly (10-39 gifts)'
+                    WHEN GiftCount >= 4 THEN 'Quarterly (4-9 gifts)'
+                    ELSE 'Sporadic (1-3 gifts)'
+                END AS GivingFrequency,
+                COUNT(*) AS GiverCount,
+                SUM(TotalGiven) AS TotalAmount,
+                AVG(TotalGiven) AS AvgPerGiver,
+                CAST(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0) AS DECIMAL(5,1)) AS PctOfGivers,
+                CAST(SUM(TotalGiven) * 100.0 / NULLIF(SUM(SUM(TotalGiven)) OVER(), 0) AS DECIMAL(5,1)) AS PctOfGiving
+            FROM GiverFreq
+            GROUP BY
+                CASE
+                    WHEN GiftCount >= 40 THEN 'Weekly (40+ gifts)'
+                    WHEN GiftCount >= 10 THEN 'Monthly (10-39 gifts)'
+                    WHEN GiftCount >= 4 THEN 'Quarterly (4-9 gifts)'
+                    ELSE 'Sporadic (1-3 gifts)'
+                END
+            ORDER BY MIN(GiftCount) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Date Range', 'type': 'daterange',
+             'sql_column': 'c.ContributionDate', 'default': 'fiscal_ytd'}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'pie', 'chart_label_col': 'GivingFrequency',
+                    'chart_data_cols': ['TotalAmount'],
+                    'formats': {'TotalAmount': 'currency', 'AvgPerGiver': 'currency'}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'fin_non_givers',
+        'name': 'Non-Giver Report',
+        'description': 'Active member families with no contributions in the last 90 days',
+        'help_text': '<strong>Non-Giver Report</strong> identifies current members (MemberStatusId = 10) whose <b>household</b> has zero contributions in the last 90 days. If either spouse gave, neither will appear. This prevents false positives where one spouse gives and the other shows as a non-giver. Supports Blue Toolbar for bulk stewardship outreach.',
+        'category': 'financial',
+        'icon': 'fa-user-slash',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                p.EmailAddress AS Email,
+                p.CellPhone AS Phone,
+                c.Description AS Campus,
+                DATEDIFF(day, p.JoinDate, GETDATE()) AS DaysSinceJoin,
+                (SELECT COUNT(DISTINCT om.OrganizationId)
+                 FROM OrganizationMembers om
+                 JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                 WHERE om.PeopleId = p.PeopleId AND o.OrganizationStatusId = 30
+                ) AS ActiveInvolvements,
+                (SELECT CONVERT(VARCHAR, MAX(c2.ContributionDate), 101)
+                 FROM Contribution c2
+                 JOIN People fam ON c2.PeopleId = fam.PeopleId
+                 WHERE fam.FamilyId = p.FamilyId
+                    AND c2.ContributionTypeId NOT IN (6, 7, 8, 99)
+                    AND c2.ContributionStatusId = 0
+                ) AS LastFamilyGift
+            FROM People p
+            LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+            WHERE p.MemberStatusId = 10
+                AND p.IsDeceased = 0
+                AND p.ArchivedFlag = 0
+                AND p.PositionInFamilyId = 10
+                AND NOT EXISTS (
+                    SELECT 1 FROM Contribution ct
+                    JOIN People fam ON ct.PeopleId = fam.PeopleId
+                    WHERE fam.FamilyId = p.FamilyId
+                        AND ct.ContributionTypeId NOT IN (6, 7, 8, 99)
+                        AND ct.ContributionStatusId = 0
+                        AND ct.ContributionDate >= DATEADD(day, -90, GETDATE())
+                )
+                {filters}
+            ORDER BY p.Name2
+        ''',
+        'parameters': [
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'fin_recurring_vs_onetime',
+        'name': 'Recurring vs One-Time Giving',
+        'description': 'Compare givers who give consistently each month vs those who give sporadically',
+        'help_text': '<strong>Recurring vs One-Time Giving</strong> classifies givers as Recurring (gave in 3+ distinct months) or One-Time/Sporadic (1-2 months) within the selected period. Shows the count, total amount, and percentage of giving from each group. High recurring giving = budget stability.',
+        'category': 'financial',
+        'icon': 'fa-sync-alt',
+        'sql_template': '''
+            WITH GiverPattern AS (
+                SELECT
+                    c.PeopleId,
+                    COUNT(DISTINCT DATEPART(MONTH, c.ContributionDate) + DATEPART(YEAR, c.ContributionDate) * 100) AS DistinctMonths,
+                    SUM(c.ContributionAmount) AS TotalGiven,
+                    COUNT(*) AS GiftCount
+                FROM Contribution c
+                JOIN People p ON c.PeopleId = p.PeopleId
+                WHERE c.ContributionTypeId NOT IN (6, 7, 8, 99)
+                    AND c.ContributionStatusId = 0
+                    AND p.IsDeceased = 0
+                    {filters}
+                GROUP BY c.PeopleId
+            )
+            SELECT
+                CASE WHEN DistinctMonths >= 3 THEN 'Recurring (3+ months)'
+                     ELSE 'One-Time / Sporadic' END AS GivingPattern,
+                COUNT(*) AS GiverCount,
+                SUM(TotalGiven) AS TotalAmount,
+                AVG(TotalGiven) AS AvgPerGiver,
+                CAST(SUM(TotalGiven) * 100.0 / NULLIF(SUM(SUM(TotalGiven)) OVER(), 0) AS DECIMAL(5,1)) AS PctOfTotal,
+                AVG(GiftCount) AS AvgGifts
+            FROM GiverPattern
+            GROUP BY CASE WHEN DistinctMonths >= 3 THEN 'Recurring (3+ months)'
+                          ELSE 'One-Time / Sporadic' END
+            ORDER BY SUM(TotalGiven) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Date Range', 'type': 'daterange',
+             'sql_column': 'c.ContributionDate', 'default': 'fiscal_ytd'}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'pie', 'chart_label_col': 'GivingPattern',
+                    'chart_data_cols': ['TotalAmount'],
+                    'formats': {'TotalAmount': 'currency', 'AvgPerGiver': 'currency'}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'fin_donor_retention',
+        'name': 'Donor Retention',
+        'description': 'Year-over-year donor retention: of last year givers, how many gave again this year',
+        'help_text': '<strong>Donor Retention</strong> compares the current fiscal year to the prior year. Shows how many people gave in both years (Retained), only last year (Lapsed), and only this year (New). Retention rate is the #1 metric church boards ask about for financial health.',
+        'category': 'financial',
+        'icon': 'fa-user-check',
+        'sql_template': '''
+            WITH FiscalDates AS (
+                SELECT
+                    CASE WHEN MONTH(GETDATE()) >= {fiscal_month}
+                        THEN DATEFROMPARTS(YEAR(GETDATE()), {fiscal_month}, 1)
+                        ELSE DATEFROMPARTS(YEAR(GETDATE())-1, {fiscal_month}, 1) END AS CurrentFYStart,
+                    CASE WHEN MONTH(GETDATE()) >= {fiscal_month}
+                        THEN DATEFROMPARTS(YEAR(GETDATE())-1, {fiscal_month}, 1)
+                        ELSE DATEFROMPARTS(YEAR(GETDATE())-2, {fiscal_month}, 1) END AS PriorFYStart,
+                    CASE WHEN MONTH(GETDATE()) >= {fiscal_month}
+                        THEN DATEADD(DAY, -1, DATEFROMPARTS(YEAR(GETDATE()), {fiscal_month}, 1))
+                        ELSE DATEADD(DAY, -1, DATEFROMPARTS(YEAR(GETDATE())-1, {fiscal_month}, 1)) END AS PriorFYEnd
+            ),
+            PriorYear AS (
+                SELECT DISTINCT c.PeopleId
+                FROM Contribution c, FiscalDates fd
+                WHERE c.ContributionDate BETWEEN fd.PriorFYStart AND fd.PriorFYEnd
+                    AND c.ContributionTypeId NOT IN (6, 7, 8, 99) AND c.ContributionStatusId = 0
+            ),
+            CurrentYear AS (
+                SELECT DISTINCT c.PeopleId
+                FROM Contribution c, FiscalDates fd
+                WHERE c.ContributionDate >= fd.CurrentFYStart
+                    AND c.ContributionTypeId NOT IN (6, 7, 8, 99) AND c.ContributionStatusId = 0
+            )
+            SELECT
+                'Retained (gave both years)' AS Category,
+                COUNT(*) AS GiverCount,
+                CAST(COUNT(*) * 100.0 / NULLIF((SELECT COUNT(*) FROM PriorYear), 0) AS DECIMAL(5,1)) AS PctOfPriorYear
+            FROM PriorYear py JOIN CurrentYear cy ON py.PeopleId = cy.PeopleId
+            UNION ALL
+            SELECT
+                'Lapsed (gave last year only)',
+                COUNT(*),
+                CAST(COUNT(*) * 100.0 / NULLIF((SELECT COUNT(*) FROM PriorYear), 0) AS DECIMAL(5,1))
+            FROM PriorYear py WHERE NOT EXISTS (SELECT 1 FROM CurrentYear cy WHERE cy.PeopleId = py.PeopleId)
+            UNION ALL
+            SELECT
+                'New (gave this year only)',
+                COUNT(*),
+                NULL
+            FROM CurrentYear cy WHERE NOT EXISTS (SELECT 1 FROM PriorYear py WHERE py.PeopleId = cy.PeopleId)
+        ''',
+        'parameters': [],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'pie', 'chart_label_col': 'Category',
+                    'chart_data_cols': ['GiverCount']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'fin_family_giving',
+        'name': 'Family Giving Summary',
+        'description': 'Household-level giving rolled up by family with individual breakdown',
+        'help_text': '<strong>Family Giving Summary</strong> rolls up contributions to the household level. Most churches think in "giving units" (families), not individuals. Shows head of household, family total, number of givers in the family, and average per gift.',
+        'category': 'financial',
+        'icon': 'fa-home',
+        'sql_template': '''
+            SELECT
+                f.FamilyId,
+                head.PeopleId,
+                ISNULL(head.Name2, 'Unknown') AS HeadOfHouse,
+                head.PrimaryAddress AS Address,
+                head.PrimaryCity AS City,
+                head.PrimaryState AS State,
+                head.PrimaryZip AS Zip,
+                COUNT(DISTINCT c.PeopleId) AS FamilyGivers,
+                COUNT(*) AS TotalGifts,
+                SUM(c.ContributionAmount) AS FamilyTotal,
+                AVG(c.ContributionAmount) AS AvgGift,
+                MIN(c.ContributionDate) AS FirstGift,
+                MAX(c.ContributionDate) AS LastGift
+            FROM Contribution c
+            JOIN People p ON c.PeopleId = p.PeopleId
+            JOIN Families f ON p.FamilyId = f.FamilyId
+            LEFT JOIN People head ON f.HeadOfHouseholdId = head.PeopleId
+            WHERE c.ContributionTypeId NOT IN (6, 7, 8, 99)
+                AND c.ContributionStatusId = 0
+                AND p.IsDeceased = 0
+                {filters}
+            GROUP BY f.FamilyId, head.PeopleId, head.Name2, head.PrimaryAddress,
+                     head.PrimaryCity, head.PrimaryState, head.PrimaryZip
+            ORDER BY SUM(c.ContributionAmount) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Date Range', 'type': 'daterange',
+             'sql_column': 'c.ContributionDate', 'default': 'fiscal_ytd'},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'kpi'], 'default': 'table',
+                    'formats': {'FamilyTotal': 'currency', 'AvgGift': 'currency'}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    # ---- ENGAGEMENT (continued - Connection Analytics) ----
+
+    reports.append({
+        'id': 'eng_next_steps_funnel',
+        'name': 'Next Steps Funnel',
+        'description': 'How people progress: Attended > Gave > Joined Group > Serving',
+        'help_text': '<strong>Next Steps Funnel</strong> shows how many active, non-deceased people in your database have reached each milestone: attended in the last 90 days, gave in the last 12 months, belong to at least one active involvement, and serve in a leadership or volunteer role. Reveals where people stall in their connection journey.',
+        'category': 'engagement',
+        'icon': 'fa-filter',
+        'sql_template': '''
+            SELECT
+                'Total Active People' AS FunnelStep,
+                1 AS StepOrder,
+                COUNT(*) AS PersonCount,
+                100.0 AS PctOfTotal
+            FROM People p
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 AND p.MemberStatusId IN (10, 20, 30)
+            UNION ALL
+            SELECT 'Attended (last 90 days)', 2,
+                (SELECT COUNT(DISTINCT a.PeopleId) FROM Attend a
+                 JOIN Meetings m ON a.MeetingId = m.MeetingId
+                 WHERE a.AttendanceFlag = 1 AND m.MeetingDate >= DATEADD(day, -90, GETDATE())),
+                CAST((SELECT COUNT(DISTINCT a.PeopleId) FROM Attend a
+                 JOIN Meetings m ON a.MeetingId = m.MeetingId
+                 WHERE a.AttendanceFlag = 1 AND m.MeetingDate >= DATEADD(day, -90, GETDATE())) * 100.0
+                / NULLIF((SELECT COUNT(*) FROM People WHERE IsDeceased = 0 AND ArchivedFlag = 0 AND MemberStatusId IN (10,20,30)), 0) AS DECIMAL(5,1))
+            UNION ALL
+            SELECT 'Gave (last 12 months)', 3,
+                (SELECT COUNT(DISTINCT c.PeopleId) FROM Contribution c
+                 WHERE c.ContributionTypeId NOT IN (6,7,8,99) AND c.ContributionStatusId = 0
+                 AND c.ContributionDate >= DATEADD(month, -12, GETDATE())),
+                CAST((SELECT COUNT(DISTINCT c.PeopleId) FROM Contribution c
+                 WHERE c.ContributionTypeId NOT IN (6,7,8,99) AND c.ContributionStatusId = 0
+                 AND c.ContributionDate >= DATEADD(month, -12, GETDATE())) * 100.0
+                / NULLIF((SELECT COUNT(*) FROM People WHERE IsDeceased = 0 AND ArchivedFlag = 0 AND MemberStatusId IN (10,20,30)), 0) AS DECIMAL(5,1))
+            UNION ALL
+            SELECT 'In a Group', 4,
+                (SELECT COUNT(DISTINCT om.PeopleId) FROM OrganizationMembers om
+                 JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                 JOIN People p ON om.PeopleId = p.PeopleId
+                 WHERE o.OrganizationStatusId = 30 AND p.IsDeceased = 0 AND om.InactiveDate IS NULL),
+                CAST((SELECT COUNT(DISTINCT om.PeopleId) FROM OrganizationMembers om
+                 JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                 JOIN People p ON om.PeopleId = p.PeopleId
+                 WHERE o.OrganizationStatusId = 30 AND p.IsDeceased = 0 AND om.InactiveDate IS NULL) * 100.0
+                / NULLIF((SELECT COUNT(*) FROM People WHERE IsDeceased = 0 AND ArchivedFlag = 0 AND MemberStatusId IN (10,20,30)), 0) AS DECIMAL(5,1))
+            UNION ALL
+            SELECT 'Serving (Leader/Volunteer)', 5,
+                (SELECT COUNT(DISTINCT om.PeopleId) FROM OrganizationMembers om
+                 JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                 JOIN People p ON om.PeopleId = p.PeopleId
+                 WHERE o.OrganizationStatusId = 30 AND p.IsDeceased = 0 AND om.InactiveDate IS NULL
+                 AND om.MemberTypeId IN (140, 310, 320, 710)),
+                CAST((SELECT COUNT(DISTINCT om.PeopleId) FROM OrganizationMembers om
+                 JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                 JOIN People p ON om.PeopleId = p.PeopleId
+                 WHERE o.OrganizationStatusId = 30 AND p.IsDeceased = 0 AND om.InactiveDate IS NULL
+                 AND om.MemberTypeId IN (140, 310, 320, 710)) * 100.0
+                / NULLIF((SELECT COUNT(*) FROM People WHERE IsDeceased = 0 AND ArchivedFlag = 0 AND MemberStatusId IN (10,20,30)), 0) AS DECIMAL(5,1))
+            ORDER BY StepOrder
+        ''',
+        'parameters': [],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'bar', 'chart_label_col': 'FunnelStep',
+                    'chart_data_cols': ['PersonCount']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_volunteer_participation',
+        'name': 'Volunteer Participation',
+        'description': 'Serving participation rates by program with member vs volunteer counts',
+        'help_text': '<strong>Volunteer Participation</strong> shows how many people serve in each program as leaders or volunteers (member types 140, 310, 320, 710) compared to total members. A low volunteer-to-member ratio may indicate a need for recruitment. Also shows overall serving rate across the church.',
+        'category': 'engagement',
+        'icon': 'fa-hands-helping',
+        'sql_template': '''
+            SELECT
+                ISNULL(pro.Name, 'No Program') AS Program,
+                COUNT(DISTINCT om.PeopleId) AS TotalMembers,
+                COUNT(DISTINCT CASE WHEN om.MemberTypeId IN (140, 310, 320, 710)
+                    THEN om.PeopleId END) AS Serving,
+                COUNT(DISTINCT CASE WHEN om.MemberTypeId NOT IN (140, 310, 320, 710)
+                    THEN om.PeopleId END) AS NotServing,
+                CAST(COUNT(DISTINCT CASE WHEN om.MemberTypeId IN (140, 310, 320, 710)
+                    THEN om.PeopleId END) * 100.0
+                    / NULLIF(COUNT(DISTINCT om.PeopleId), 0) AS DECIMAL(5,1)) AS ServingPct
+            FROM OrganizationMembers om
+            JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+            JOIN People p ON om.PeopleId = p.PeopleId
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program pro ON d.ProgId = pro.Id
+            WHERE o.OrganizationStatusId = 30
+                AND p.IsDeceased = 0
+                AND om.InactiveDate IS NULL
+                {filters}
+            GROUP BY pro.Name
+            ORDER BY COUNT(DISTINCT CASE WHEN om.MemberTypeId IN (140, 310, 320, 710) THEN om.PeopleId END) DESC
+        ''',
+        'parameters': [
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''},
+            {'name': 'division_id', 'label': 'Division', 'type': 'dropdown', 'sql_column': 'd.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Division ORDER BY Name",
+             'default': ''},
+            {'name': 'org_type', 'label': 'Involvement Type', 'type': 'dropdown', 'sql_column': 'o.OrganizationTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.OrganizationType ORDER BY Description",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'Program',
+                    'chart_data_cols': ['Serving', 'NotServing']},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_unconnected_members',
+        'name': 'Unconnected Members',
+        'description': 'Members who are not in any active involvement — the pastoral care gap',
+        'help_text': '<strong>Unconnected Members</strong> identifies current members who are not enrolled in any active involvement. These are people who have joined your church but are not connected to a group, class, or serving team. They are at highest risk of becoming inactive. Supports Blue Toolbar for bulk outreach. To filter to specific programs (e.g., connect groups only), configure Connection Program IDs in Settings.',
+        'category': 'engagement',
+        'icon': 'fa-unlink',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                p.EmailAddress AS Email,
+                p.CellPhone AS Phone,
+                ms.Description AS MemberStatus,
+                c.Description AS Campus,
+                CONVERT(VARCHAR, p.JoinDate, 101) AS JoinDate,
+                DATEDIFF(day, p.JoinDate, GETDATE()) AS DaysSinceJoin,
+                (SELECT CONVERT(VARCHAR, MAX(a.MeetingDate), 101)
+                 FROM Attend a WHERE a.PeopleId = p.PeopleId AND a.AttendanceFlag = 1
+                ) AS LastAttended
+            FROM People p
+            LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+            LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+            WHERE p.MemberStatusId = 10
+                AND p.IsDeceased = 0
+                AND p.ArchivedFlag = 0
+                AND NOT EXISTS (
+                    SELECT 1 FROM OrganizationMembers om
+                    JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                    WHERE om.PeopleId = p.PeopleId
+                        AND o.OrganizationStatusId = 30
+                        AND om.InactiveDate IS NULL
+                )
+                {filters}
+            ORDER BY p.JoinDate DESC
+        ''',
+        'parameters': [
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    # ---- ENGAGEMENT (continued - Engagement Scoring) ----
+
+    reports.append({
+        'id': 'eng_score_distribution',
+        'name': 'Engagement Score Distribution',
+        'description': 'Congregation-wide engagement score histogram showing how connected your people are',
+        'help_text': '<strong>Engagement Score Distribution</strong> calculates a weighted engagement score (0-100) for every active person based on: attendance recency, attendance frequency, giving consistency, group involvement, and serving. Scores use the weights configured in Settings. Shows how many people fall into each engagement tier.',
+        'category': 'engagement',
+        'icon': 'fa-chart-bar',
+        'sql_template': '''
+            WITH PersonScores AS (
+                SELECT
+                    p.PeopleId,
+                    -- Attendance Recency (0-100)
+                    CASE
+                        WHEN att.DaysSince IS NULL THEN 0
+                        WHEN att.DaysSince <= 7 THEN 100
+                        WHEN att.DaysSince <= 14 THEN 85
+                        WHEN att.DaysSince <= 30 THEN 70
+                        WHEN att.DaysSince <= 60 THEN 40
+                        WHEN att.DaysSince <= 90 THEN 20
+                        ELSE 5
+                    END AS RecencyScore,
+                    -- Attendance Frequency (0-100)
+                    CASE
+                        WHEN ISNULL(att.Attend90, 0) >= 10 THEN 100
+                        WHEN att.Attend90 >= 7 THEN 80
+                        WHEN att.Attend90 >= 4 THEN 60
+                        WHEN att.Attend90 >= 2 THEN 40
+                        WHEN att.Attend90 >= 1 THEN 20
+                        ELSE 0
+                    END AS FrequencyScore,
+                    -- Group Involvement (0-100)
+                    CASE
+                        WHEN ISNULL(grp.GroupCount, 0) >= 4 THEN 100
+                        WHEN grp.GroupCount >= 3 THEN 80
+                        WHEN grp.GroupCount >= 2 THEN 60
+                        WHEN grp.GroupCount >= 1 THEN 40
+                        ELSE 0
+                    END AS GroupScore,
+                    -- Serving (0-100)
+                    CASE
+                        WHEN ISNULL(srv.ServingCount, 0) >= 3 THEN 100
+                        WHEN srv.ServingCount >= 2 THEN 80
+                        WHEN srv.ServingCount >= 1 THEN 60
+                        ELSE 0
+                    END AS ServingScore
+                FROM People p
+                LEFT JOIN (
+                    SELECT a.PeopleId,
+                        DATEDIFF(day, MAX(a.MeetingDate), GETDATE()) AS DaysSince,
+                        SUM(CASE WHEN a.MeetingDate >= DATEADD(day, -90, GETDATE()) THEN 1 ELSE 0 END) AS Attend90
+                    FROM Attend a WHERE a.AttendanceFlag = 1
+                    GROUP BY a.PeopleId
+                ) att ON p.PeopleId = att.PeopleId
+                LEFT JOIN (
+                    SELECT om.PeopleId, COUNT(DISTINCT om.OrganizationId) AS GroupCount
+                    FROM OrganizationMembers om
+                    JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                    WHERE o.OrganizationStatusId = 30 AND om.InactiveDate IS NULL
+                    GROUP BY om.PeopleId
+                ) grp ON p.PeopleId = grp.PeopleId
+                LEFT JOIN (
+                    SELECT om.PeopleId, COUNT(DISTINCT om.OrganizationId) AS ServingCount
+                    FROM OrganizationMembers om
+                    JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                    WHERE o.OrganizationStatusId = 30 AND om.InactiveDate IS NULL
+                        AND om.MemberTypeId IN (140, 310, 320, 710)
+                    GROUP BY om.PeopleId
+                ) srv ON p.PeopleId = srv.PeopleId
+                WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                    AND p.MemberStatusId IN (10, 20, 30)
+                    {filters}
+            ),
+            Scored AS (
+                SELECT PeopleId,
+                    (RecencyScore * 30 + FrequencyScore * 30 + GroupScore * 20 + ServingScore * 20) / 100 AS EngagementScore
+                FROM PersonScores
+            )
+            SELECT
+                CASE
+                    WHEN EngagementScore >= 80 THEN 'Highly Engaged (80-100)'
+                    WHEN EngagementScore >= 60 THEN 'Engaged (60-79)'
+                    WHEN EngagementScore >= 40 THEN 'Moderate (40-59)'
+                    WHEN EngagementScore >= 20 THEN 'Low (20-39)'
+                    ELSE 'Disconnected (0-19)'
+                END AS EngagementTier,
+                COUNT(*) AS PersonCount,
+                CAST(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0) AS DECIMAL(5,1)) AS Percentage,
+                AVG(EngagementScore) AS AvgScore
+            FROM Scored
+            GROUP BY
+                CASE
+                    WHEN EngagementScore >= 80 THEN 'Highly Engaged (80-100)'
+                    WHEN EngagementScore >= 60 THEN 'Engaged (60-79)'
+                    WHEN EngagementScore >= 40 THEN 'Moderate (40-59)'
+                    WHEN EngagementScore >= 20 THEN 'Low (20-39)'
+                    ELSE 'Disconnected (0-19)'
+                END
+            ORDER BY MIN(EngagementScore) DESC
+        ''',
+        'parameters': [
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''},
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'bar', 'chart_label_col': 'EngagementTier',
+                    'chart_data_cols': ['PersonCount']},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_at_risk_members',
+        'name': 'At-Risk Members',
+        'description': 'Members with low engagement scores who may be disconnecting from the church',
+        'help_text': '<strong>At-Risk Members</strong> identifies current members whose engagement score is below 40. These are people who have low attendance, minimal giving, and few group connections. They are at highest risk of becoming fully inactive. Supports Blue Toolbar for targeted pastoral outreach.',
+        'category': 'engagement',
+        'icon': 'fa-exclamation-triangle',
+        'sql_template': '''
+            WITH PersonScores AS (
+                SELECT
+                    p.PeopleId, p.Name2, p.EmailAddress, p.CellPhone,
+                    ms.Description AS MemberStatus, c.Description AS Campus,
+                    ISNULL(att.DaysSince, 999) AS DaysSinceAttend,
+                    ISNULL(att.Attend90, 0) AS Attend90,
+                    ISNULL(grp.GroupCount, 0) AS Groups,
+                    ISNULL(srv.ServingCount, 0) AS Serving,
+                    -- Weighted score calculation (30/30/20/20)
+                    (CASE WHEN ISNULL(att.DaysSince, 999) <= 7 THEN 100 WHEN att.DaysSince <= 14 THEN 85 WHEN att.DaysSince <= 30 THEN 70 WHEN att.DaysSince <= 60 THEN 40 WHEN att.DaysSince <= 90 THEN 20 ELSE 5 END * 30
+                    + CASE WHEN ISNULL(att.Attend90,0) >= 10 THEN 100 WHEN att.Attend90 >= 7 THEN 80 WHEN att.Attend90 >= 4 THEN 60 WHEN att.Attend90 >= 2 THEN 40 WHEN att.Attend90 >= 1 THEN 20 ELSE 0 END * 30
+                    + CASE WHEN ISNULL(grp.GroupCount,0) >= 4 THEN 100 WHEN grp.GroupCount >= 3 THEN 80 WHEN grp.GroupCount >= 2 THEN 60 WHEN grp.GroupCount >= 1 THEN 40 ELSE 0 END * 20
+                    + CASE WHEN ISNULL(srv.ServingCount,0) >= 3 THEN 100 WHEN srv.ServingCount >= 2 THEN 80 WHEN srv.ServingCount >= 1 THEN 60 ELSE 0 END * 20
+                    ) / 100 AS EngagementScore
+                FROM People p
+                LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+                LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+                LEFT JOIN (
+                    SELECT a.PeopleId, DATEDIFF(day, MAX(a.MeetingDate), GETDATE()) AS DaysSince,
+                        SUM(CASE WHEN a.MeetingDate >= DATEADD(day,-90,GETDATE()) THEN 1 ELSE 0 END) AS Attend90
+                    FROM Attend a WHERE a.AttendanceFlag = 1 GROUP BY a.PeopleId
+                ) att ON p.PeopleId = att.PeopleId
+                LEFT JOIN (
+                    SELECT om.PeopleId, COUNT(DISTINCT om.OrganizationId) AS GroupCount
+                    FROM OrganizationMembers om JOIN Organizations o ON om.OrganizationId=o.OrganizationId
+                    WHERE o.OrganizationStatusId=30 AND om.InactiveDate IS NULL GROUP BY om.PeopleId
+                ) grp ON p.PeopleId = grp.PeopleId
+                LEFT JOIN (
+                    SELECT om.PeopleId, COUNT(DISTINCT om.OrganizationId) AS ServingCount
+                    FROM OrganizationMembers om JOIN Organizations o ON om.OrganizationId=o.OrganizationId
+                    WHERE o.OrganizationStatusId=30 AND om.InactiveDate IS NULL AND om.MemberTypeId IN (140,310,320,710)
+                    GROUP BY om.PeopleId
+                ) srv ON p.PeopleId = srv.PeopleId
+                WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 AND p.MemberStatusId = 10
+                    {filters}
+            )
+            SELECT TOP 200
+                PeopleId, Name2 AS Name, EmailAddress AS Email, CellPhone AS Phone,
+                MemberStatus, Campus, EngagementScore,
+                DaysSinceAttend, Attend90 AS AttendCount90d,
+                Groups, Serving
+            FROM PersonScores
+            WHERE EngagementScore < 40
+            ORDER BY EngagementScore ASC
+        ''',
+        'parameters': [
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    # ---- ENGAGEMENT (continued - Lapse Analysis) ----
+
+    reports.append({
+        'id': 'eng_lapse_rate_by_involvement',
+        'name': 'Lapse Rate by Involvement',
+        'description': 'Involvements ranked by what % of regular attenders have stopped attending',
+        'help_text': '<strong>Lapse Rate by Involvement</strong> identifies which groups are losing people. For each active involvement, it counts people who attended 3+ times in the prior 6 months but have NOT attended in the last 4 weeks. Shows lapse count, total regular attenders, and lapse percentage. Involvements with the highest lapse rates appear first. Also distinguishes people who moved to another involvement vs truly disengaged.',
+        'category': 'engagement',
+        'icon': 'fa-user-minus',
+        'sql_template': '''
+            WITH RegularAttenders AS (
+                SELECT
+                    a.OrganizationId,
+                    a.PeopleId,
+                    COUNT(DISTINCT a.MeetingId) AS PriorAttendCount,
+                    MAX(a.MeetingDate) AS LastAttendDate
+                FROM Attend a
+                JOIN Meetings m ON a.MeetingId = m.MeetingId
+                WHERE a.AttendanceFlag = 1
+                    AND m.MeetingDate >= DATEADD(month, -6, GETDATE())
+                    AND m.MeetingDate < DATEADD(week, -4, GETDATE())
+                    AND m.DidNotMeet = 0
+                GROUP BY a.OrganizationId, a.PeopleId
+                HAVING COUNT(DISTINCT a.MeetingId) >= 3
+            ),
+            RecentAttenders AS (
+                SELECT DISTINCT a.OrganizationId, a.PeopleId
+                FROM Attend a
+                JOIN Meetings m ON a.MeetingId = m.MeetingId
+                WHERE a.AttendanceFlag = 1
+                    AND m.MeetingDate >= DATEADD(week, -4, GETDATE())
+                    AND m.DidNotMeet = 0
+            ),
+            StillActiveAnywhere AS (
+                SELECT DISTINCT a.PeopleId
+                FROM Attend a
+                JOIN Meetings m ON a.MeetingId = m.MeetingId
+                WHERE a.AttendanceFlag = 1
+                    AND m.MeetingDate >= DATEADD(week, -4, GETDATE())
+                    AND m.DidNotMeet = 0
+            ),
+            OrgLapse AS (
+                SELECT
+                    ra.OrganizationId,
+                    COUNT(*) AS RegularCount,
+                    SUM(CASE WHEN rec.PeopleId IS NULL THEN 1 ELSE 0 END) AS LapsedFromOrg,
+                    SUM(CASE WHEN rec.PeopleId IS NULL AND saa.PeopleId IS NOT NULL THEN 1 ELSE 0 END) AS MovedElsewhere,
+                    SUM(CASE WHEN rec.PeopleId IS NULL AND saa.PeopleId IS NULL THEN 1 ELSE 0 END) AS TrulyDisengaged
+                FROM RegularAttenders ra
+                LEFT JOIN RecentAttenders rec ON ra.OrganizationId = rec.OrganizationId
+                    AND ra.PeopleId = rec.PeopleId
+                LEFT JOIN StillActiveAnywhere saa ON ra.PeopleId = saa.PeopleId
+                GROUP BY ra.OrganizationId
+            )
+            SELECT
+                ISNULL(pro.Name, 'No Program') AS Program,
+                d.Name AS Division,
+                o.OrganizationName AS Involvement,
+                ol.RegularCount AS RegularAttenders,
+                ol.LapsedFromOrg AS Lapsed,
+                ol.MovedElsewhere AS MovedToOther,
+                ol.TrulyDisengaged AS Disengaged,
+                CAST(ol.LapsedFromOrg * 100.0 / NULLIF(ol.RegularCount, 0) AS DECIMAL(5,1)) AS LapseRatePct,
+                CAST(ol.TrulyDisengaged * 100.0 / NULLIF(ol.RegularCount, 0) AS DECIMAL(5,1)) AS DisengagedPct
+            FROM OrgLapse ol
+            JOIN Organizations o ON ol.OrganizationId = o.OrganizationId
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program pro ON d.ProgId = pro.Id
+            WHERE o.OrganizationStatusId = 30
+                {filters}
+            ORDER BY ol.TrulyDisengaged DESC, LapseRatePct DESC
+        ''',
+        'parameters': [
+            {'name': 'program', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'pro.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''},
+            {'name': 'division_id', 'label': 'Division', 'type': 'dropdown', 'sql_column': 'd.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Division ORDER BY Name",
+             'default': ''},
+            {'name': 'org_type', 'label': 'Involvement Type', 'type': 'dropdown', 'sql_column': 'o.OrganizationTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.OrganizationType ORDER BY Description",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'Involvement',
+                    'chart_data_cols': ['Disengaged', 'MovedToOther']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    # ---- ATTENDANCE (continued - Advanced Analytics) ----
+
+    reports.append({
+        'id': 'att_seasonal_patterns',
+        'name': 'Seasonal Attendance Patterns',
+        'description': 'Monthly attendance totals averaged across years showing seasonal trends',
+        'help_text': '<strong>Seasonal Attendance Patterns</strong> sums total attendance per month, then averages across years to reveal seasonal patterns. Use the <b>Program</b> filter to focus on a specific ministry (e.g., worship services only). Shows average monthly total, plus the best and worst month for each calendar month across the data range.',
+        'category': 'attendance',
+        'icon': 'fa-calendar-alt',
+        'sql_template': '''
+            WITH MonthlyTotals AS (
+                SELECT
+                    YEAR(m.MeetingDate) AS Yr,
+                    MONTH(m.MeetingDate) AS Mo,
+                    DATENAME(MONTH, m.MeetingDate) AS MonthName,
+                    SUM(m.NumPresent) AS MonthTotal,
+                    COUNT(DISTINCT m.MeetingId) AS Meetings
+                FROM Meetings m
+                JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+                LEFT JOIN Division d ON o.DivisionId = d.Id
+                LEFT JOIN Program pro ON d.ProgId = pro.Id
+                WHERE m.NumPresent > 0
+                    AND m.DidNotMeet = 0
+                    AND m.MeetingDate >= DATEADD(year, -3, GETDATE())
+                    {filters}
+                GROUP BY YEAR(m.MeetingDate), MONTH(m.MeetingDate), DATENAME(MONTH, m.MeetingDate)
+            )
+            SELECT
+                MonthName,
+                Mo AS MonthNum,
+                COUNT(*) AS YearsOfData,
+                SUM(Meetings) AS TotalMeetings,
+                AVG(MonthTotal) AS AvgMonthlyTotal,
+                MIN(MonthTotal) AS LowestMonth,
+                MAX(MonthTotal) AS HighestMonth,
+                SUM(MonthTotal) AS GrandTotal
+            FROM MonthlyTotals
+            GROUP BY MonthName, Mo
+            ORDER BY Mo
+        ''',
+        'parameters': [
+            {'name': 'program', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'pro.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'chart',
+                    'chart_type': 'line', 'chart_label_col': 'MonthName',
+                    'chart_data_cols': ['AvgMonthlyTotal']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'att_avg_per_org',
+        'name': 'Average Attendance by Involvement',
+        'description': 'Average meeting attendance per involvement showing group health',
+        'help_text': '<strong>Average Attendance by Involvement</strong> shows the average number of attendees per meeting for each active involvement. Groups with very low averages relative to their enrollment may need attention. Groups with consistently high attendance are healthy.',
+        'category': 'attendance',
+        'icon': 'fa-chart-bar',
+        'sql_template': '''
+            SELECT
+                ISNULL(pro.Name, 'No Program') AS Program,
+                o.OrganizationName AS Organization,
+                COUNT(DISTINCT m.MeetingId) AS Meetings,
+                AVG(m.NumPresent) AS AvgAttendance,
+                MAX(m.NumPresent) AS PeakAttendance,
+                MIN(m.NumPresent) AS LowestAttendance,
+                (SELECT COUNT(*) FROM OrganizationMembers om
+                 WHERE om.OrganizationId = o.OrganizationId AND om.InactiveDate IS NULL
+                ) AS CurrentEnrollment,
+                CASE WHEN (SELECT COUNT(*) FROM OrganizationMembers om
+                     WHERE om.OrganizationId = o.OrganizationId AND om.InactiveDate IS NULL) > 0
+                    THEN CAST(AVG(m.NumPresent) * 100.0
+                        / (SELECT COUNT(*) FROM OrganizationMembers om
+                           WHERE om.OrganizationId = o.OrganizationId AND om.InactiveDate IS NULL)
+                        AS DECIMAL(5,1))
+                    ELSE 0 END AS AttendancePct
+            FROM Meetings m
+            JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program pro ON d.ProgId = pro.Id
+            WHERE m.NumPresent > 0
+                AND m.DidNotMeet = 0
+                AND o.OrganizationStatusId = 30
+                {filters}
+            GROUP BY pro.Name, o.OrganizationId, o.OrganizationName
+            HAVING COUNT(DISTINCT m.MeetingId) >= 3
+            ORDER BY AVG(m.NumPresent) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Meeting Date', 'type': 'daterange',
+             'sql_column': 'm.MeetingDate', 'default': 'last_90_days'},
+            {'name': 'program', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'pro.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'Organization',
+                    'chart_data_cols': ['AvgAttendance', 'CurrentEnrollment']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'att_family_correlation',
+        'name': 'Family Attendance Correlation',
+        'description': 'When children attend, do their parents? Shows family engagement patterns',
+        'help_text': '<strong>Family Attendance Correlation</strong> identifies families where children attended in the last 90 days but parents did not (or vice versa). Useful for children\'s ministry outreach — if a child is attending but parents are not, that\'s a connection opportunity.',
+        'category': 'attendance',
+        'icon': 'fa-people-arrows',
+        'sql_template': '''
+            WITH ChildAttendance AS (
+                SELECT DISTINCT p.FamilyId
+                FROM Attend a
+                JOIN People p ON a.PeopleId = p.PeopleId
+                JOIN Meetings m ON a.MeetingId = m.MeetingId
+                WHERE a.AttendanceFlag = 1
+                    AND p.PositionInFamilyId >= 30
+                    AND m.MeetingDate >= DATEADD(day, -90, GETDATE())
+                    AND p.IsDeceased = 0
+            ),
+            ParentAttendance AS (
+                SELECT DISTINCT p.FamilyId
+                FROM Attend a
+                JOIN People p ON a.PeopleId = p.PeopleId
+                JOIN Meetings m ON a.MeetingId = m.MeetingId
+                WHERE a.AttendanceFlag = 1
+                    AND p.PositionInFamilyId = 10
+                    AND m.MeetingDate >= DATEADD(day, -90, GETDATE())
+                    AND p.IsDeceased = 0
+            )
+            SELECT
+                'Children attend, parents do NOT' AS Pattern,
+                COUNT(*) AS FamilyCount
+            FROM ChildAttendance ca
+            WHERE NOT EXISTS (SELECT 1 FROM ParentAttendance pa WHERE pa.FamilyId = ca.FamilyId)
+            UNION ALL
+            SELECT 'Both children and parents attend',
+                (SELECT COUNT(*) FROM ChildAttendance ca
+                 JOIN ParentAttendance pa ON ca.FamilyId = pa.FamilyId)
+            UNION ALL
+            SELECT 'Parents attend, children do NOT',
+                (SELECT COUNT(*) FROM ParentAttendance pa
+                 WHERE NOT EXISTS (SELECT 1 FROM ChildAttendance ca WHERE ca.FamilyId = pa.FamilyId)
+                 AND EXISTS (SELECT 1 FROM People p WHERE p.FamilyId = pa.FamilyId
+                     AND p.PositionInFamilyId >= 30 AND p.IsDeceased = 0 AND p.Age < 18))
+        ''',
+        'parameters': [],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'bar', 'chart_label_col': 'Pattern',
+                    'chart_data_cols': ['FamilyCount']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    # ---- COMMUNICATIONS (continued - Failure Analysis) ----
+
+    reports.append({
+        'id': 'comm_failure_breakdown',
+        'name': 'Email Failure Classification',
+        'description': 'Email failures broken down by failure type: Technical, Invalid Address, Spam, Reputation, etc.',
+        'help_text': '<strong>Email Failure Classification</strong> shows why emails are failing, grouped by SendGrid failure type. Lots of "Invalid Address" = data cleanup needed. "Spam Report" = content issues. "Technical" = likely transient.',
+        'category': 'communications',
+        'icon': 'fa-exclamation-circle',
+        'sql_template': '''
+            SELECT
+                ISNULL(fe.Fail, 'Delivered') AS FailureType,
+                COUNT(*) AS EmailCount,
+                COUNT(DISTINCT eqt.PeopleId) AS PeopleAffected,
+                CAST(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0) AS DECIMAL(5,1)) AS Percentage
+            FROM EmailQueueTo eqt WITH (NOLOCK)
+            LEFT JOIN FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId
+            WHERE eqt.Sent IS NOT NULL
+                {filters}
+            GROUP BY fe.Fail
+            ORDER BY COUNT(*) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Sent Date', 'type': 'daterange',
+             'sql_column': 'eqt.Sent', 'default': 'last_30_days'}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'chart',
+                    'chart_type': 'pie', 'chart_label_col': 'FailureType',
+                    'chart_data_cols': ['EmailCount']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'comm_failure_by_person',
+        'name': 'Email Failures by Person',
+        'description': 'People with the most email failures, with failure type and email addresses',
+        'help_text': '<strong>Email Failures by Person</strong> identifies people whose emails are consistently failing. Shows failure type, count, and their email addresses for data cleanup. Blue Toolbar supported.',
+        'category': 'communications',
+        'icon': 'fa-user-times',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                fe.Fail AS FailureType,
+                COUNT(*) AS FailCount,
+                p.EmailAddress AS Email1,
+                p.EmailAddress2 AS Email2
+            FROM EmailQueueTo eqt WITH (NOLOCK)
+            JOIN FailedEmails fe ON fe.Id = eqt.Id AND fe.PeopleId = eqt.PeopleId
+            JOIN People p ON eqt.PeopleId = p.PeopleId
+            WHERE eqt.Sent IS NOT NULL
+                {filters}
+            GROUP BY p.PeopleId, p.Name2, fe.Fail, p.EmailAddress, p.EmailAddress2
+            HAVING COUNT(*) >= 2
+            ORDER BY COUNT(*) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Sent Date', 'type': 'daterange',
+             'sql_column': 'eqt.Sent', 'default': 'last_30_days'}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    # ---- ATTENDANCE (continued - Check-In Patterns) ----
+
+    reports.append({
+        'id': 'att_by_meeting_time',
+        'name': 'Attendance by Meeting Time',
+        'description': 'Attendance grouped by meeting start time showing which time slots are busiest',
+        'help_text': '<strong>Attendance by Meeting Time</strong> groups attendance by the scheduled meeting start hour. Shows which time slots draw the most people. Note: this uses scheduled meeting times from the Attend table, not physical check-in timestamps (CheckInTimes data is ephemeral).',
+        'category': 'attendance',
+        'icon': 'fa-clock',
+        'sql_template': '''
+            SELECT
+                DATEPART(HOUR, m.MeetingDate) AS Hour,
+                FORMAT(DATEADD(HOUR, DATEPART(HOUR, m.MeetingDate), 0), 'h tt') AS TimeSlot,
+                COUNT(DISTINCT a.PeopleId) AS UniqueAttenders,
+                COUNT(*) AS TotalCheckins,
+                COUNT(DISTINCT m.MeetingId) AS Meetings,
+                COUNT(*) / NULLIF(COUNT(DISTINCT m.MeetingId), 0) AS AvgPerMeeting
+            FROM Attend a
+            JOIN Meetings m ON a.MeetingId = m.MeetingId
+            JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program pro ON d.ProgId = pro.Id
+            WHERE a.AttendanceFlag = 1
+                AND m.DidNotMeet = 0
+                {filters}
+            GROUP BY DATEPART(HOUR, m.MeetingDate),
+                     FORMAT(DATEADD(HOUR, DATEPART(HOUR, m.MeetingDate), 0), 'h tt')
+            ORDER BY DATEPART(HOUR, m.MeetingDate)
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Meeting Date', 'type': 'daterange',
+             'sql_column': 'm.MeetingDate', 'default': 'last_90_days'},
+            {'name': 'program', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'pro.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'chart',
+                    'chart_type': 'bar', 'chart_label_col': 'TimeSlot',
+                    'chart_data_cols': ['AvgPerMeeting']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'att_checkin_by_dow',
+        'name': 'Attendance by Day of Week',
+        'description': 'Which days of the week have the most attendance activity',
+        'help_text': '<strong>Attendance by Day of Week</strong> shows attendance grouped by day of the week. Reveals whether your church is primarily a Sunday institution or has significant midweek activity.',
+        'category': 'attendance',
+        'icon': 'fa-calendar-week',
+        'sql_template': '''
+            WITH MeetingStats AS (
+                SELECT
+                    m.MeetingId,
+                    m.MeetingDate,
+                    m.NumPresent,
+                    DATENAME(WEEKDAY, m.MeetingDate) AS DayOfWeek,
+                    DATEPART(WEEKDAY, m.MeetingDate) AS DayNum
+                FROM Meetings m
+                JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+                LEFT JOIN Division d ON o.DivisionId = d.Id
+                LEFT JOIN Program pro ON d.ProgId = pro.Id
+                WHERE m.NumPresent > 0
+                    AND m.DidNotMeet = 0
+                    {filters}
+            )
+            SELECT
+                DayOfWeek,
+                DayNum,
+                COUNT(*) AS Meetings,
+                (SELECT COUNT(DISTINCT a.PeopleId) FROM Attend a
+                 JOIN Meetings m2 ON a.MeetingId = m2.MeetingId
+                 WHERE a.AttendanceFlag = 1
+                 AND DATEPART(WEEKDAY, m2.MeetingDate) = ms.DayNum
+                 AND m2.MeetingId IN (SELECT MeetingId FROM MeetingStats)) AS UniqueAttenders,
+                SUM(NumPresent) AS TotalAttendance,
+                AVG(NumPresent) AS AvgPerMeeting
+            FROM MeetingStats ms
+            GROUP BY DayOfWeek, DayNum
+            ORDER BY DayNum
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Meeting Date', 'type': 'daterange',
+             'sql_column': 'm.MeetingDate', 'default': 'last_90_days'},
+            {'name': 'program', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'pro.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'chart',
+                    'chart_type': 'bar', 'chart_label_col': 'DayOfWeek',
+                    'chart_data_cols': ['AvgPerMeeting']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'att_by_attend_type',
+        'name': 'Attendance by Type',
+        'description': 'Attendance broken down by attendance type (Member, Visitor, Guest, Volunteer, etc.)',
+        'help_text': '<strong>Attendance by Type</strong> groups attendance records by their AttendanceTypeId from the lookup.AttendType table. Shows how many of your attenders are members vs visitors vs volunteers. Useful for understanding the composition of who shows up.',
+        'category': 'attendance',
+        'icon': 'fa-user-tag',
+        'sql_template': '''
+            SELECT
+                ISNULL(at.Description, 'Unknown') AS AttendType,
+                COUNT(*) AS AttendCount,
+                COUNT(DISTINCT a.PeopleId) AS UniquePeople,
+                COUNT(DISTINCT a.MeetingId) AS Meetings,
+                CAST(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0) AS DECIMAL(5,1)) AS Percentage
+            FROM Attend a
+            JOIN Meetings m ON a.MeetingId = m.MeetingId
+            JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+            LEFT JOIN lookup.AttendType at ON a.AttendanceTypeId = at.Id
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program pro ON d.ProgId = pro.Id
+            WHERE a.AttendanceFlag = 1
+                AND m.DidNotMeet = 0
+                {filters}
+            GROUP BY at.Description
+            ORDER BY COUNT(*) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Meeting Date', 'type': 'daterange',
+             'sql_column': 'm.MeetingDate', 'default': 'last_90_days'},
+            {'name': 'program', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'pro.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'chart',
+                    'chart_type': 'pie', 'chart_label_col': 'AttendType',
+                    'chart_data_cols': ['AttendCount']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'att_meetings_with_roles',
+        'name': 'Meeting Attendance with Roles',
+        'description': 'Per-person meeting attendance showing their role and whether they actually checked in',
+        'help_text': '<strong>Meeting Attendance with Roles</strong> shows one row per person per meeting, with the role they held at the time of the meeting (from MemberType) and whether they actually attended (Yes/No, from AttendanceFlag). Use the <b>Attended</b> column to see who was scheduled or rostered but did not show, vs who checked in. Use <b>Role at Meeting</b> to spot leaders specifically.<br><br>Blue Toolbar lets you scope the report to a selected group of people. When invoked from an involvement page (URL includes <code>CurrentOrgId</code>), the report auto-locks to that one involvement &mdash; so you only see attendance for those people in that involvement, not every group they have ever been in.',
+        'category': 'attendance',
+        'icon': 'fa-user-shield',
+        'sql_template': '''
+            SELECT
+                m.MeetingDate,
+                o.OrganizationName,
+                pro.Name AS Program,
+                d.Name AS Division,
+                p.PeopleId,
+                p.Name2 AS PersonName,
+                ISNULL(mt.Description, '(none)') AS RoleAtMeeting,
+                CASE WHEN a.AttendanceFlag = 1 THEN 'Yes' ELSE 'No' END AS Attended,
+                CASE WHEN a.MemberTypeId IN (140, 310, 320)
+                     THEN 'Leader' ELSE 'Member' END AS LeaderOrMember,
+                a.MemberTypeId,
+                a.AttendanceFlag,
+                m.MeetingId
+            FROM Attend a
+            JOIN Meetings m ON m.MeetingId = a.MeetingId
+            JOIN Organizations o ON o.OrganizationId = m.OrganizationId
+            JOIN People p ON p.PeopleId = a.PeopleId
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program pro ON d.ProgId = pro.Id
+            LEFT JOIN lookup.MemberType mt ON mt.Id = a.MemberTypeId
+            WHERE m.DidNotMeet = 0
+                {current_org_filter}
+                {filters}
+            ORDER BY m.MeetingDate DESC, o.OrganizationName, p.Name2
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Meeting Date', 'type': 'daterange',
+             'sql_column': 'm.MeetingDate', 'default': 'last_30_days'},
+            {'name': 'program', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'pro.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''},
+            {'name': 'division', 'label': 'Division', 'type': 'dropdown', 'sql_column': 'd.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Division ORDER BY Name",
+             'default': ''},
+            {'name': 'org', 'label': 'Involvement', 'type': 'dropdown',
+             'sql_column': 'o.OrganizationId',
+             'source_sql': "SELECT OrganizationId as value, OrganizationName as label FROM Organizations WHERE OrganizationStatusId = 30 ORDER BY OrganizationName",
+             'default': ''},
+            {'name': 'attended_only', 'label': 'Attended Only', 'type': 'dropdown',
+             'sql_column': 'a.AttendanceFlag',
+             'options': [{'value': '', 'label': 'Both attended and not attended'},
+                         {'value': '1', 'label': 'Attended only'},
+                         {'value': '0', 'label': 'Did not attend only'}],
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'att_trend_weekly',
+        'name': 'Attendance Trend (Weekly)',
+        'description': 'Weekly attendance over time -- defaults to a line chart for trend spotting',
+        'help_text': '<strong>Attendance Trend (Weekly)</strong> shows total attendance grouped by week over the selected date range. Defaults to a line chart so growth, decline, holiday spikes, and summer dips are immediately visible. Filter by Program/Division/Involvement to focus on one ministry. Switch to the table view for the underlying numbers (unique attenders, meetings held, average per meeting).',
+        'category': 'attendance',
+        'icon': 'fa-chart-line',
+        'sql_template': '''
+            SELECT
+                DATEADD(week, DATEDIFF(week, 0, m.MeetingDate), 0) AS WeekStart,
+                COUNT(*) AS Attended,
+                COUNT(DISTINCT a.PeopleId) AS UniqueAttenders,
+                COUNT(DISTINCT m.MeetingId) AS Meetings,
+                CAST(COUNT(*) * 1.0 / NULLIF(COUNT(DISTINCT m.MeetingId), 0)
+                     AS DECIMAL(8,1)) AS AvgPerMeeting
+            FROM Attend a
+            JOIN Meetings m ON m.MeetingId = a.MeetingId
+            JOIN Organizations o ON o.OrganizationId = m.OrganizationId
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program pro ON d.ProgId = pro.Id
+            WHERE a.AttendanceFlag = 1
+              AND m.DidNotMeet = 0
+                {filters}
+            GROUP BY DATEADD(week, DATEDIFF(week, 0, m.MeetingDate), 0)
+            ORDER BY WeekStart
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Meeting Date', 'type': 'daterange',
+             'sql_column': 'm.MeetingDate', 'default': 'last_12_months'},
+            {'name': 'program', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'pro.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''},
+            {'name': 'division', 'label': 'Division', 'type': 'dropdown', 'sql_column': 'd.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Division ORDER BY Name",
+             'default': ''},
+            {'name': 'org', 'label': 'Involvement', 'type': 'dropdown',
+             'sql_column': 'o.OrganizationId',
+             'source_sql': "SELECT OrganizationId as value, OrganizationName as label FROM Organizations WHERE OrganizationStatusId = 30 ORDER BY OrganizationName",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'chart',
+                    'chart_type': 'line', 'chart_label_col': 'WeekStart',
+                    'chart_data_cols': ['Attended', 'UniqueAttenders']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'att_trend_monthly',
+        'name': 'Attendance Trend (Monthly)',
+        'description': 'Monthly attendance over time -- coarser-grained trend chart for multi-year views',
+        'help_text': '<strong>Attendance Trend (Monthly)</strong> rolls up attendance by calendar month over the selected date range. Better than the weekly view when you want to spot multi-year patterns without weekly noise. Defaults to a line chart. Filter by Program/Division/Involvement to scope to one ministry.',
+        'category': 'attendance',
+        'icon': 'fa-chart-line',
+        'sql_template': '''
+            SELECT
+                DATEADD(month, DATEDIFF(month, 0, m.MeetingDate), 0) AS MonthStart,
+                COUNT(*) AS Attended,
+                COUNT(DISTINCT a.PeopleId) AS UniqueAttenders,
+                COUNT(DISTINCT m.MeetingId) AS Meetings,
+                CAST(COUNT(*) * 1.0 / NULLIF(COUNT(DISTINCT m.MeetingId), 0)
+                     AS DECIMAL(8,1)) AS AvgPerMeeting
+            FROM Attend a
+            JOIN Meetings m ON m.MeetingId = a.MeetingId
+            JOIN Organizations o ON o.OrganizationId = m.OrganizationId
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program pro ON d.ProgId = pro.Id
+            WHERE a.AttendanceFlag = 1
+              AND m.DidNotMeet = 0
+                {filters}
+            GROUP BY DATEADD(month, DATEDIFF(month, 0, m.MeetingDate), 0)
+            ORDER BY MonthStart
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Meeting Date', 'type': 'daterange',
+             'sql_column': 'm.MeetingDate', 'default': 'last_12_months'},
+            {'name': 'program', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'pro.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''},
+            {'name': 'division', 'label': 'Division', 'type': 'dropdown', 'sql_column': 'd.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Division ORDER BY Name",
+             'default': ''},
+            {'name': 'org', 'label': 'Involvement', 'type': 'dropdown',
+             'sql_column': 'o.OrganizationId',
+             'source_sql': "SELECT OrganizationId as value, OrganizationName as label FROM Organizations WHERE OrganizationStatusId = 30 ORDER BY OrganizationName",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'chart',
+                    'chart_type': 'line', 'chart_label_col': 'MonthStart',
+                    'chart_data_cols': ['Attended', 'UniqueAttenders']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    # ---- ADMIN (continued - Data Quality) ----
+
+    reports.append({
+        'id': 'adm_data_quality_score',
+        'name': 'Data Quality Score',
+        'description': 'Percentage of records missing key fields: email, phone, address, birthdate, gender',
+        'help_text': '<strong>Data Quality Score</strong> shows what percentage of your active, non-deceased people are missing key data fields. A high "Missing %" indicates data cleanup is needed. Filter by member status to focus on members vs prospects. Use this to prioritize data collection efforts.',
+        'category': 'admin',
+        'icon': 'fa-clipboard-check',
+        'sql_template': '''
+            SELECT
+                'Email Address' AS Field,
+                COUNT(*) AS TotalPeople,
+                SUM(CASE WHEN p.EmailAddress IS NULL OR p.EmailAddress = '' THEN 1 ELSE 0 END) AS Missing,
+                SUM(CASE WHEN p.EmailAddress IS NOT NULL AND p.EmailAddress != '' THEN 1 ELSE 0 END) AS HasValue,
+                CAST(SUM(CASE WHEN p.EmailAddress IS NULL OR p.EmailAddress = '' THEN 1 ELSE 0 END) * 100.0
+                    / NULLIF(COUNT(*), 0) AS DECIMAL(5,1)) AS MissingPct
+            FROM People p
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                {filters}
+            UNION ALL
+            SELECT 'Cell Phone', COUNT(*),
+                SUM(CASE WHEN p.CellPhone IS NULL OR p.CellPhone = '' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN p.CellPhone IS NOT NULL AND p.CellPhone != '' THEN 1 ELSE 0 END),
+                CAST(SUM(CASE WHEN p.CellPhone IS NULL OR p.CellPhone = '' THEN 1 ELSE 0 END) * 100.0
+                    / NULLIF(COUNT(*), 0) AS DECIMAL(5,1))
+            FROM People p WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 {filters}
+            UNION ALL
+            SELECT 'Home Address', COUNT(*),
+                SUM(CASE WHEN p.PrimaryAddress IS NULL OR p.PrimaryAddress = '' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN p.PrimaryAddress IS NOT NULL AND p.PrimaryAddress != '' THEN 1 ELSE 0 END),
+                CAST(SUM(CASE WHEN p.PrimaryAddress IS NULL OR p.PrimaryAddress = '' THEN 1 ELSE 0 END) * 100.0
+                    / NULLIF(COUNT(*), 0) AS DECIMAL(5,1))
+            FROM People p WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 {filters}
+            UNION ALL
+            SELECT 'Birth Date', COUNT(*),
+                SUM(CASE WHEN p.BDate IS NULL THEN 1 ELSE 0 END),
+                SUM(CASE WHEN p.BDate IS NOT NULL THEN 1 ELSE 0 END),
+                CAST(SUM(CASE WHEN p.BDate IS NULL THEN 1 ELSE 0 END) * 100.0
+                    / NULLIF(COUNT(*), 0) AS DECIMAL(5,1))
+            FROM People p WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 {filters}
+            UNION ALL
+            SELECT 'Gender', COUNT(*),
+                SUM(CASE WHEN p.GenderId IS NULL OR p.GenderId = 0 THEN 1 ELSE 0 END),
+                SUM(CASE WHEN p.GenderId IS NOT NULL AND p.GenderId > 0 THEN 1 ELSE 0 END),
+                CAST(SUM(CASE WHEN p.GenderId IS NULL OR p.GenderId = 0 THEN 1 ELSE 0 END) * 100.0
+                    / NULLIF(COUNT(*), 0) AS DECIMAL(5,1))
+            FROM People p WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 {filters}
+            UNION ALL
+            SELECT 'Marital Status', COUNT(*),
+                SUM(CASE WHEN p.MaritalStatusId IS NULL OR p.MaritalStatusId = 0 THEN 1 ELSE 0 END),
+                SUM(CASE WHEN p.MaritalStatusId IS NOT NULL AND p.MaritalStatusId > 0 THEN 1 ELSE 0 END),
+                CAST(SUM(CASE WHEN p.MaritalStatusId IS NULL OR p.MaritalStatusId = 0 THEN 1 ELSE 0 END) * 100.0
+                    / NULLIF(COUNT(*), 0) AS DECIMAL(5,1))
+            FROM People p WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 {filters}
+            UNION ALL
+            SELECT 'Family Position', COUNT(*),
+                SUM(CASE WHEN p.PositionInFamilyId IS NULL OR p.PositionInFamilyId = 0 THEN 1 ELSE 0 END),
+                SUM(CASE WHEN p.PositionInFamilyId IS NOT NULL AND p.PositionInFamilyId > 0 THEN 1 ELSE 0 END),
+                CAST(SUM(CASE WHEN p.PositionInFamilyId IS NULL OR p.PositionInFamilyId = 0 THEN 1 ELSE 0 END) * 100.0
+                    / NULLIF(COUNT(*), 0) AS DECIMAL(5,1))
+            FROM People p WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 {filters}
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'Field',
+                    'chart_data_cols': ['MissingPct']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'adm_data_quality_people',
+        'name': 'Incomplete Records',
+        'description': 'Individual people missing 2+ key fields, ranked by how incomplete they are',
+        'help_text': '<strong>Incomplete Records</strong> lists individual people who are missing 2 or more key data fields (email, phone, address, birth date, gender). Ranked by number of missing fields so the worst records appear first. Supports Blue Toolbar for bulk data cleanup outreach.',
+        'category': 'admin',
+        'icon': 'fa-user-edit',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                ms.Description AS MemberStatus,
+                c.Description AS Campus,
+                CASE WHEN p.EmailAddress IS NULL OR p.EmailAddress = '' THEN 1 ELSE 0 END
+                + CASE WHEN p.CellPhone IS NULL OR p.CellPhone = '' THEN 1 ELSE 0 END
+                + CASE WHEN p.PrimaryAddress IS NULL OR p.PrimaryAddress = '' THEN 1 ELSE 0 END
+                + CASE WHEN p.BDate IS NULL THEN 1 ELSE 0 END
+                + CASE WHEN p.GenderId IS NULL OR p.GenderId = 0 THEN 1 ELSE 0 END
+                AS MissingFields,
+                CASE WHEN p.EmailAddress IS NULL OR p.EmailAddress = '' THEN 'No' ELSE 'Yes' END AS HasEmail,
+                CASE WHEN p.CellPhone IS NULL OR p.CellPhone = '' THEN 'No' ELSE 'Yes' END AS HasPhone,
+                CASE WHEN p.PrimaryAddress IS NULL OR p.PrimaryAddress = '' THEN 'No' ELSE 'Yes' END AS HasAddress,
+                CASE WHEN p.BDate IS NULL THEN 'No' ELSE 'Yes' END AS HasBirthDate,
+                CASE WHEN p.GenderId IS NULL OR p.GenderId = 0 THEN 'No' ELSE 'Yes' END AS HasGender
+            FROM People p
+            LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+            LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND (
+                    CASE WHEN p.EmailAddress IS NULL OR p.EmailAddress = '' THEN 1 ELSE 0 END
+                    + CASE WHEN p.CellPhone IS NULL OR p.CellPhone = '' THEN 1 ELSE 0 END
+                    + CASE WHEN p.PrimaryAddress IS NULL OR p.PrimaryAddress = '' THEN 1 ELSE 0 END
+                    + CASE WHEN p.BDate IS NULL THEN 1 ELSE 0 END
+                    + CASE WHEN p.GenderId IS NULL OR p.GenderId = 0 THEN 1 ELSE 0 END
+                ) >= 2
+                {filters}
+            ORDER BY MissingFields DESC, p.Name2
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    # ---- DEMOGRAPHICS (continued - Advanced Analytics) ----
+
+    reports.append({
+        'id': 'demo_generational',
+        'name': 'Generational Breakdown',
+        'description': 'Population by generation: Silent, Boomers, Gen X, Millennials, Gen Z, Gen Alpha',
+        'help_text': '<strong>Generational Breakdown</strong> groups people by generation based on birth year. More actionable than raw age bins for ministry planning because generations share cultural touchpoints and communication preferences.',
+        'category': 'demographics',
+        'icon': 'fa-layer-group',
+        'sql_template': '''
+            SELECT
+                CASE
+                    WHEN p.BirthYear <= 1945 THEN 'Silent Generation (1928-1945)'
+                    WHEN p.BirthYear BETWEEN 1946 AND 1964 THEN 'Baby Boomers (1946-1964)'
+                    WHEN p.BirthYear BETWEEN 1965 AND 1980 THEN 'Gen X (1965-1980)'
+                    WHEN p.BirthYear BETWEEN 1981 AND 1996 THEN 'Millennials (1981-1996)'
+                    WHEN p.BirthYear BETWEEN 1997 AND 2012 THEN 'Gen Z (1997-2012)'
+                    WHEN p.BirthYear >= 2013 THEN 'Gen Alpha (2013+)'
+                    ELSE 'Unknown'
+                END AS Generation,
+                COUNT(*) AS PersonCount,
+                CAST(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0) AS DECIMAL(5,1)) AS Percentage,
+                SUM(CASE WHEN p.MemberStatusId = 10 THEN 1 ELSE 0 END) AS Members,
+                SUM(CASE WHEN p.MemberStatusId = 20 THEN 1 ELSE 0 END) AS Prospects
+            FROM People p
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND p.BirthYear IS NOT NULL
+                {filters}
+            GROUP BY
+                CASE
+                    WHEN p.BirthYear <= 1945 THEN 'Silent Generation (1928-1945)'
+                    WHEN p.BirthYear BETWEEN 1946 AND 1964 THEN 'Baby Boomers (1946-1964)'
+                    WHEN p.BirthYear BETWEEN 1965 AND 1980 THEN 'Gen X (1965-1980)'
+                    WHEN p.BirthYear BETWEEN 1981 AND 1996 THEN 'Millennials (1981-1996)'
+                    WHEN p.BirthYear BETWEEN 1997 AND 2012 THEN 'Gen Z (1997-2012)'
+                    WHEN p.BirthYear >= 2013 THEN 'Gen Alpha (2013+)'
+                    ELSE 'Unknown'
+                END
+            ORDER BY MIN(ISNULL(p.BirthYear, 9999))
+        ''',
+        'parameters': [
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''},
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'bar', 'chart_label_col': 'Generation',
+                    'chart_data_cols': ['PersonCount']},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'demo_geographic',
+        'name': 'Geographic Distribution',
+        'description': 'Population distribution by zip code with member counts',
+        'help_text': '<strong>Geographic Distribution</strong> groups people by zip code showing where your congregation lives. Useful for small group placement, campus planning, outreach targeting, and understanding your ministry footprint.',
+        'category': 'demographics',
+        'icon': 'fa-map-marker-alt',
+        'sql_template': '''
+            SELECT
+                ISNULL(p.PrimaryZip, 'No Zip') AS ZipCode,
+                ISNULL(p.PrimaryCity, 'Unknown') AS City,
+                ISNULL(p.PrimaryState, '') AS State,
+                COUNT(*) AS PersonCount,
+                SUM(CASE WHEN p.MemberStatusId = 10 THEN 1 ELSE 0 END) AS Members,
+                COUNT(DISTINCT p.FamilyId) AS Families,
+                CAST(COUNT(*) * 100.0 / NULLIF(SUM(COUNT(*)) OVER(), 0) AS DECIMAL(5,1)) AS Percentage
+            FROM People p
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND p.PrimaryZip IS NOT NULL AND p.PrimaryZip != ''
+                {filters}
+            GROUP BY p.PrimaryZip, p.PrimaryCity, p.PrimaryState
+            ORDER BY COUNT(*) DESC
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'ZipCode',
+                    'chart_data_cols': ['PersonCount']},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'demo_growth_by_demographic',
+        'name': 'Growth by Demographic',
+        'description': 'Which age groups and member statuses are growing or shrinking over time',
+        'help_text': '<strong>Growth by Demographic</strong> compares the current population to what it looked like 12 months ago by age group. Shows net change and growth percentage. Identifies which demographics are expanding (outreach is working) and which are contracting (may need attention).',
+        'category': 'demographics',
+        'icon': 'fa-chart-line',
+        'sql_template': '''
+            WITH CurrentPop AS (
+                SELECT
+                    CASE
+                        WHEN p.Age < 13 THEN 'Children (0-12)'
+                        WHEN p.Age BETWEEN 13 AND 17 THEN 'Teens (13-17)'
+                        WHEN p.Age BETWEEN 18 AND 29 THEN 'Young Adults (18-29)'
+                        WHEN p.Age BETWEEN 30 AND 44 THEN 'Adults (30-44)'
+                        WHEN p.Age BETWEEN 45 AND 64 THEN 'Midlife (45-64)'
+                        WHEN p.Age >= 65 THEN 'Seniors (65+)'
+                        ELSE 'Unknown'
+                    END AS AgeGroup,
+                    COUNT(*) AS CurrentCount
+                FROM People p
+                WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 AND p.Age IS NOT NULL
+                GROUP BY
+                    CASE
+                        WHEN p.Age < 13 THEN 'Children (0-12)'
+                        WHEN p.Age BETWEEN 13 AND 17 THEN 'Teens (13-17)'
+                        WHEN p.Age BETWEEN 18 AND 29 THEN 'Young Adults (18-29)'
+                        WHEN p.Age BETWEEN 30 AND 44 THEN 'Adults (30-44)'
+                        WHEN p.Age BETWEEN 45 AND 64 THEN 'Midlife (45-64)'
+                        WHEN p.Age >= 65 THEN 'Seniors (65+)'
+                        ELSE 'Unknown'
+                    END
+            ),
+            PriorPop AS (
+                SELECT
+                    CASE
+                        WHEN (p.Age - 1) < 13 THEN 'Children (0-12)'
+                        WHEN (p.Age - 1) BETWEEN 13 AND 17 THEN 'Teens (13-17)'
+                        WHEN (p.Age - 1) BETWEEN 18 AND 29 THEN 'Young Adults (18-29)'
+                        WHEN (p.Age - 1) BETWEEN 30 AND 44 THEN 'Adults (30-44)'
+                        WHEN (p.Age - 1) BETWEEN 45 AND 64 THEN 'Midlife (45-64)'
+                        WHEN (p.Age - 1) >= 65 THEN 'Seniors (65+)'
+                        ELSE 'Unknown'
+                    END AS AgeGroup,
+                    COUNT(*) AS PriorCount
+                FROM People p
+                WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 AND p.Age IS NOT NULL
+                    AND p.CreatedDate < DATEADD(year, -1, GETDATE())
+                GROUP BY
+                    CASE
+                        WHEN (p.Age - 1) < 13 THEN 'Children (0-12)'
+                        WHEN (p.Age - 1) BETWEEN 13 AND 17 THEN 'Teens (13-17)'
+                        WHEN (p.Age - 1) BETWEEN 18 AND 29 THEN 'Young Adults (18-29)'
+                        WHEN (p.Age - 1) BETWEEN 30 AND 44 THEN 'Adults (30-44)'
+                        WHEN (p.Age - 1) BETWEEN 45 AND 64 THEN 'Midlife (45-64)'
+                        WHEN (p.Age - 1) >= 65 THEN 'Seniors (65+)'
+                        ELSE 'Unknown'
+                    END
+            )
+            SELECT
+                c.AgeGroup,
+                ISNULL(pp.PriorCount, 0) AS OneYearAgo,
+                c.CurrentCount AS Now,
+                c.CurrentCount - ISNULL(pp.PriorCount, 0) AS NetChange,
+                CASE WHEN ISNULL(pp.PriorCount, 0) > 0
+                    THEN CAST((c.CurrentCount - pp.PriorCount) * 100.0 / pp.PriorCount AS DECIMAL(5,1))
+                    ELSE 0 END AS GrowthPct
+            FROM CurrentPop c
+            LEFT JOIN PriorPop pp ON c.AgeGroup = pp.AgeGroup
+            ORDER BY
+                CASE c.AgeGroup
+                    WHEN 'Children (0-12)' THEN 1
+                    WHEN 'Teens (13-17)' THEN 2
+                    WHEN 'Young Adults (18-29)' THEN 3
+                    WHEN 'Adults (30-44)' THEN 4
+                    WHEN 'Midlife (45-64)' THEN 5
+                    WHEN 'Seniors (65+)' THEN 6
+                    ELSE 7 END
+        ''',
+        'parameters': [],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'bar', 'chart_label_col': 'AgeGroup',
+                    'chart_data_cols': ['OneYearAgo', 'Now']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    # ---- TRANSACTIONS (continued - Fee Involvements) ----
+
+    reports.append({
+        'id': 'txn_involvements_with_fees',
+        'name': 'Involvements with Fees',
+        'description': 'Involvements configured to collect fees with registration count and total collected',
+        'help_text': '<strong>Involvements with Fees</strong> shows all active involvements that have registration fees configured (RegistrationTypeId = 26 with non-zero fee fields). Shows fee per person, deposit amount, member count, registration count, and total amount collected via transactions. Useful for finance oversight of which programs are collecting money.',
+        'category': 'transactions',
+        'icon': 'fa-file-invoice-dollar',
+        'sql_template': '''
+            SELECT
+                o.OrganizationId,
+                o.OrganizationName AS Involvement,
+                ISNULL(pro.Name, 'No Program') AS Program,
+                d.Name AS Division,
+                CONVERT(VARCHAR, o.CreatedDate, 101) AS Created,
+                TRY_CAST(o.RegFeePerPerson AS DECIMAL(10,2)) AS FeePerPerson,
+                TRY_CAST(o.RegDepositAmount AS DECIMAL(10,2)) AS Deposit,
+                (SELECT COUNT(*) FROM OrganizationMembers om
+                 WHERE om.OrganizationId = o.OrganizationId) AS Members,
+                (SELECT COUNT(*) FROM RegistrationData rd
+                 WHERE rd.OrganizationId = o.OrganizationId) AS Registrations,
+                ISNULL((SELECT SUM(t.Amt) FROM [Transaction] t
+                 WHERE t.OrgId = o.OrganizationId), 0) AS TotalCollected,
+                CASE WHEN o.RegistrationClosed = 1 THEN 'Closed' ELSE 'Open' END AS RegStatus,
+                os.Description AS OrgStatus
+            FROM Organizations o
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program pro ON d.ProgId = pro.Id
+            LEFT JOIN lookup.OrganizationStatus os ON o.OrganizationStatusId = os.Id
+            WHERE o.RegistrationTypeId = 26
+                AND (TRY_CAST(o.RegFeePerPerson AS DECIMAL(10,2)) > 0
+                     OR TRY_CAST(o.RegDepositAmount AS DECIMAL(10,2)) > 0
+                     OR TRY_CAST(o.RegFeeChange AS DECIMAL(10,2)) > 0
+                     OR TRY_CAST(o.RegMaxFee AS DECIMAL(10,2)) > 0
+                     OR TRY_CAST(o.RegInvolvementFees AS DECIMAL(10,2)) > 0)
+                {filters}
+            ORDER BY ISNULL((SELECT SUM(t.Amt) FROM [Transaction] t
+                 WHERE t.OrgId = o.OrganizationId), 0) DESC
+        ''',
+        'parameters': [
+            {'name': 'program', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'pro.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table',
+                    'formats': {'FeePerPerson': 'currency', 'Deposit': 'currency', 'TotalCollected': 'currency'}},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    # ---- TRANSACTIONS (5) ----
+
+    reports.append({
+        'id': 'txn_outstanding_by_program',
+        'name': 'Outstanding Balances by Program',
+        'description': 'Total outstanding balances rolled up by program',
+        'help_text': '<strong>Outstanding Balances by Program</strong> shows each program that has outstanding fee balances, with total amount owed and number of payers. Useful for a quick snapshot of where money is owed across the church.',
+        'category': 'transactions',
+        'icon': 'fa-building',
+        'sql_template': '''
+            SELECT
+                ISNULL(pro.Name, 'No Program') AS Program,
+                COUNT(DISTINCT ts.PeopleId) AS Payers,
+                SUM(ts.IndDue) AS TotalOutstanding,
+                AVG(ts.IndDue) AS AvgBalance,
+                MIN(ts.IndDue) AS SmallestBalance,
+                MAX(ts.IndDue) AS LargestBalance
+            FROM TransactionSummary ts
+            JOIN People p ON ts.PeopleId = p.PeopleId
+            LEFT JOIN Organizations o ON o.OrganizationId = ts.OrganizationId
+            LEFT JOIN Division d ON d.Id = o.DivisionId
+            LEFT JOIN Program pro ON pro.Id = d.ProgId
+            WHERE ts.IndDue <> 0
+                AND ts.IsLatestTransaction = 1
+                {filters}
+            GROUP BY pro.Name
+            ORDER BY SUM(ts.IndDue) DESC
+        ''',
+        'parameters': [],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'Program',
+                    'chart_data_cols': ['TotalOutstanding'],
+                    'formats': {'TotalOutstanding': 'currency', 'AvgBalance': 'currency',
+                                'SmallestBalance': 'currency', 'LargestBalance': 'currency'}},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'txn_outstanding_by_person',
+        'name': 'Outstanding Balances by Person',
+        'description': 'Individual payers with outstanding balances across all involvements',
+        'help_text': '<strong>Outstanding Balances by Person</strong> lists every person who owes money, with their involvement, total paid, coupons applied, and remaining balance. Use the <b>Program</b> filter to narrow to a specific area. Supports Blue Toolbar for bulk actions on selected payers.',
+        'category': 'transactions',
+        'icon': 'fa-user-tag',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                p.EmailAddress AS Email,
+                p.CellPhone AS Phone,
+                ISNULL(pro.Name, 'No Program') AS Program,
+                o.OrganizationName AS Involvement,
+                SUM(ts.TotPaid) AS TotalPaid,
+                SUM(ts.TotCoupon) AS Coupons,
+                SUM(ts.IndDue) AS Outstanding
+            FROM TransactionSummary ts
+            JOIN People p ON ts.PeopleId = p.PeopleId
+            LEFT JOIN Organizations o ON o.OrganizationId = ts.OrganizationId
+            LEFT JOIN Division d ON d.Id = o.DivisionId
+            LEFT JOIN Program pro ON pro.Id = d.ProgId
+            WHERE ts.IndDue <> 0
+                AND ts.IsLatestTransaction = 1
+                {filters}
+            GROUP BY p.PeopleId, p.Name2, p.EmailAddress, p.CellPhone,
+                     pro.Name, o.OrganizationName
+            ORDER BY SUM(ts.IndDue) DESC
+        ''',
+        'parameters': [
+            {'name': 'program', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'pro.Id',
+             'source_sql': "SELECT DISTINCT pro.Id as value, pro.Name as label FROM TransactionSummary ts LEFT JOIN Organizations o ON o.OrganizationId = ts.OrganizationId LEFT JOIN Division d ON d.Id = o.DivisionId LEFT JOIN Program pro ON pro.Id = d.ProgId WHERE ts.IndDue <> 0 AND ts.IsLatestTransaction = 1 AND pro.Name IS NOT NULL ORDER BY pro.Name",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table',
+                    'formats': {'TotalPaid': 'currency', 'Coupons': 'currency', 'Outstanding': 'currency'}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'txn_payment_history',
+        'name': 'Payment History',
+        'description': 'Recent transaction activity with payment type breakdown',
+        'help_text': '<strong>Payment History</strong> shows recent transaction activity across all involvements. Includes payment type classification (Check, Cash, Credit Card, Coupon, Church Adjustment). Use the <b>Date Range</b> filter to view a specific period.',
+        'category': 'transactions',
+        'icon': 'fa-history',
+        'sql_template': '''
+            SELECT TOP 500
+                p.PeopleId,
+                p.Name2 AS Name,
+                ISNULL(pro.Name, 'No Program') AS Program,
+                o.OrganizationName AS Involvement,
+                CONVERT(VARCHAR, t.TransactionDate, 101) AS TransactionDate,
+                t.Amt AS Amount,
+                CASE
+                    WHEN t.Message LIKE 'CHK%' THEN 'Check'
+                    WHEN t.Message LIKE 'CSH%' THEN 'Cash'
+                    WHEN t.Message LIKE 'Response%' THEN 'Credit Card'
+                    WHEN t.Message LIKE 'FEE%' THEN 'Adjustment'
+                    WHEN t.TransactionId LIKE 'Coupon%' THEN 'Coupon'
+                    ELSE 'Other'
+                END AS PaymentType,
+                t.Description
+            FROM [Transaction] t
+            JOIN TransactionSummary ts ON ts.RegId = t.OriginalId
+            JOIN People p ON ts.PeopleId = p.PeopleId
+            LEFT JOIN Organizations o ON o.OrganizationId = ts.OrganizationId
+            LEFT JOIN Division d ON d.Id = o.DivisionId
+            LEFT JOIN Program pro ON pro.Id = d.ProgId
+            WHERE t.Amt <> 0
+                {filters}
+            ORDER BY t.TransactionDate DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Date Range', 'type': 'daterange',
+             'sql_column': 't.TransactionDate', 'default': 'last_30_days'},
+            {'name': 'program', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'pro.Id',
+             'source_sql': "SELECT DISTINCT pro.Id as value, pro.Name as label FROM TransactionSummary ts LEFT JOIN Organizations o ON o.OrganizationId = ts.OrganizationId LEFT JOIN Division d ON d.Id = o.DivisionId LEFT JOIN Program pro ON pro.Id = d.ProgId WHERE pro.Name IS NOT NULL ORDER BY pro.Name",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table',
+                    'formats': {'Amount': 'currency'}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'txn_payment_type_summary',
+        'name': 'Payment Type Summary',
+        'description': 'Breakdown of payments by type (Check, Cash, Credit Card, etc.)',
+        'help_text': '<strong>Payment Type Summary</strong> shows how payments are being made across your church. Breaks down by Check, Cash, Credit Card, Coupon, and Adjustment. Useful for understanding payment trends and planning for payment processing.',
+        'category': 'transactions',
+        'icon': 'fa-credit-card',
+        'sql_template': '''
+            SELECT
+                CASE
+                    WHEN t.Message LIKE 'CHK%' THEN 'Check'
+                    WHEN t.Message LIKE 'CSH%' THEN 'Cash'
+                    WHEN t.Message LIKE 'Response%' THEN 'Credit Card'
+                    WHEN t.Message LIKE 'FEE%' THEN 'Adjustment'
+                    WHEN t.TransactionId LIKE 'Coupon%' THEN 'Coupon'
+                    ELSE 'Other'
+                END AS PaymentType,
+                COUNT(*) AS TransactionCount,
+                COUNT(DISTINCT ts.PeopleId) AS UniquePayers,
+                SUM(ABS(t.Amt)) AS TotalAmount,
+                AVG(ABS(t.Amt)) AS AvgAmount
+            FROM [Transaction] t
+            JOIN TransactionSummary ts ON ts.RegId = t.OriginalId
+            WHERE t.Amt <> 0
+                {filters}
+            GROUP BY
+                CASE
+                    WHEN t.Message LIKE 'CHK%' THEN 'Check'
+                    WHEN t.Message LIKE 'CSH%' THEN 'Cash'
+                    WHEN t.Message LIKE 'Response%' THEN 'Credit Card'
+                    WHEN t.Message LIKE 'FEE%' THEN 'Adjustment'
+                    WHEN t.TransactionId LIKE 'Coupon%' THEN 'Coupon'
+                    ELSE 'Other'
+                END
+            ORDER BY SUM(ABS(t.Amt)) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Date Range', 'type': 'daterange',
+             'sql_column': 't.TransactionDate', 'default': 'last_90_days'}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'pie', 'chart_label_col': 'PaymentType',
+                    'chart_data_cols': ['TotalAmount'],
+                    'formats': {'TotalAmount': 'currency', 'AvgAmount': 'currency'}},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'txn_aging_report',
+        'name': 'Balance Aging Report',
+        'description': 'Outstanding balances grouped by how long they have been owed',
+        'help_text': '<strong>Balance Aging Report</strong> groups outstanding balances by age: Current (0-30 days), 31-60 days, 61-90 days, and 90+ days. Shows payer count and total owed in each bucket. Useful for collections follow-up and identifying chronic non-payers.',
+        'category': 'transactions',
+        'icon': 'fa-clock',
+        'sql_template': '''
+            SELECT
+                CASE
+                    WHEN DATEDIFF(day, ts.TranDate, GETDATE()) <= 30 THEN 'Current (0-30 days)'
+                    WHEN DATEDIFF(day, ts.TranDate, GETDATE()) BETWEEN 31 AND 60 THEN '31-60 days'
+                    WHEN DATEDIFF(day, ts.TranDate, GETDATE()) BETWEEN 61 AND 90 THEN '61-90 days'
+                    ELSE '90+ days'
+                END AS AgingBucket,
+                COUNT(DISTINCT ts.PeopleId) AS Payers,
+                SUM(ts.IndDue) AS TotalOutstanding,
+                AVG(ts.IndDue) AS AvgBalance
+            FROM TransactionSummary ts
+            JOIN People p ON ts.PeopleId = p.PeopleId
+            WHERE ts.IndDue > 0
+                AND ts.IsLatestTransaction = 1
+                {filters}
+            GROUP BY
+                CASE
+                    WHEN DATEDIFF(day, ts.TranDate, GETDATE()) <= 30 THEN 'Current (0-30 days)'
+                    WHEN DATEDIFF(day, ts.TranDate, GETDATE()) BETWEEN 31 AND 60 THEN '31-60 days'
+                    WHEN DATEDIFF(day, ts.TranDate, GETDATE()) BETWEEN 61 AND 90 THEN '61-90 days'
+                    ELSE '90+ days'
+                END
+            ORDER BY MIN(DATEDIFF(day, ts.TranDate, GETDATE()))
+        ''',
+        'parameters': [],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'bar', 'chart_label_col': 'AgingBucket',
+                    'chart_data_cols': ['TotalOutstanding'],
+                    'formats': {'TotalOutstanding': 'currency', 'AvgBalance': 'currency'}},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    # ---- TASKS & NOTES (6) ----
+
+    reports.append({
+        'id': 'task_summary_overview',
+        'name': 'Task Summary Overview',
+        'description': 'High-level task and note counts by status',
+        'help_text': '<strong>Task Summary Overview</strong> shows total tasks vs notes, broken down by status (Pending, Accepted, Completed, Declined, Archived). Includes overdue count and recent 7-day activity. Use the <b>Date Range</b> filter to focus on a specific period.',
+        'category': 'tasks',
+        'icon': 'fa-clipboard-list',
+        'sql_template': '''
+            SELECT
+                CASE WHEN tn.IsNote = 1 THEN 'Note' ELSE 'Task' END AS ItemType,
+                SUM(CASE WHEN tn.StatusId = 2 THEN 1 ELSE 0 END) AS Pending,
+                SUM(CASE WHEN tn.StatusId = 3 THEN 1 ELSE 0 END) AS Accepted,
+                SUM(CASE WHEN tn.StatusId = 1 THEN 1 ELSE 0 END) AS Completed,
+                SUM(CASE WHEN tn.StatusId = 4 THEN 1 ELSE 0 END) AS Declined,
+                SUM(CASE WHEN tn.StatusId = 5 THEN 1 ELSE 0 END) AS Archived,
+                SUM(CASE WHEN tn.DueDate IS NOT NULL AND tn.DueDate < GETDATE()
+                    AND tn.StatusId NOT IN (1, 5) AND tn.IsNote = 0 THEN 1 ELSE 0 END) AS Overdue,
+                COUNT(*) AS Total
+            FROM TaskNote tn
+            WHERE 1=1
+                {filters}
+            GROUP BY CASE WHEN tn.IsNote = 1 THEN 'Note' ELSE 'Task' END
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Created Date', 'type': 'daterange', 'sql_column': 'tn.CreatedDate',
+             'default': 'last_90_days'}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'ItemType',
+                    'chart_data_cols': ['Pending', 'Accepted', 'Completed', 'Overdue']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'task_overdue_by_assignee',
+        'name': 'Overdue Tasks by Assignee',
+        'description': 'Staff members with overdue tasks ranked by count',
+        'help_text': '<strong>Overdue Tasks by Assignee</strong> shows each staff member who has overdue tasks, ranked by how many they have. Includes the oldest due date and average days overdue. Use this to identify bottlenecks and hold staff accountable for timely task completion.',
+        'category': 'tasks',
+        'icon': 'fa-exclamation-circle',
+        'sql_template': '''
+            SELECT
+                assignee.PeopleId,
+                assignee.Name2 AS Assignee,
+                COUNT(*) AS OverdueTasks,
+                CONVERT(VARCHAR, MIN(tn.DueDate), 101) AS OldestDueDate,
+                MAX(DATEDIFF(day, tn.DueDate, GETDATE())) AS MaxDaysOverdue,
+                AVG(DATEDIFF(day, tn.DueDate, GETDATE())) AS AvgDaysOverdue,
+                SUM(CASE WHEN DATEDIFF(day, tn.DueDate, GETDATE()) > 30 THEN 1 ELSE 0 END) AS Over30Days
+            FROM TaskNote tn
+            JOIN People assignee ON tn.AssigneeId = assignee.PeopleId
+            WHERE tn.DueDate IS NOT NULL
+                AND tn.DueDate < GETDATE()
+                AND tn.StatusId NOT IN (1, 5)
+                AND tn.IsNote = 0
+                {filters}
+            GROUP BY assignee.PeopleId, assignee.Name2
+            ORDER BY COUNT(*) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Due Date After', 'type': 'daterange', 'sql_column': 'tn.DueDate',
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'Assignee',
+                    'chart_data_cols': ['OverdueTasks']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'task_completion_by_staff',
+        'name': 'Task Completion',
+        'description': 'Per-person completion rate, on-time percentage, and average days to complete',
+        'help_text': '<strong>Task Completion by Staff</strong> is a performance scorecard for each assignee. Shows completed, on-time, late, pending, and overdue counts along with average completion time and on-time percentage. Use the <b>Date Range</b> filter to evaluate a specific period.',
+        'category': 'tasks',
+        'icon': 'fa-user-check',
+        'sql_template': '''
+            WITH AssigneeStats AS (
+                SELECT
+                    tn.AssigneeId,
+                    p.Name2 AS Assignee,
+                    COUNT(CASE WHEN tn.StatusId = 1 THEN 1 END) AS Completed,
+                    COUNT(CASE WHEN tn.StatusId = 1
+                        AND (tn.DueDate IS NULL OR tn.CompletedDate <= tn.DueDate) THEN 1 END) AS OnTime,
+                    COUNT(CASE WHEN tn.StatusId = 1
+                        AND tn.DueDate IS NOT NULL AND tn.CompletedDate > tn.DueDate THEN 1 END) AS Late,
+                    COUNT(CASE WHEN tn.StatusId IN (2, 3) THEN 1 END) AS Pending,
+                    COUNT(CASE WHEN tn.DueDate IS NOT NULL AND tn.DueDate < GETDATE()
+                        AND tn.StatusId NOT IN (1, 5) THEN 1 END) AS Overdue,
+                    AVG(CASE WHEN tn.StatusId = 1
+                        THEN DATEDIFF(day, tn.CreatedDate, tn.CompletedDate) END) AS AvgDays
+                FROM TaskNote tn
+                JOIN People p ON tn.AssigneeId = p.PeopleId
+                WHERE tn.IsNote = 0
+                    AND tn.AssigneeId IS NOT NULL
+                    {filters}
+                GROUP BY tn.AssigneeId, p.Name2
+            )
+            SELECT
+                AssigneeId AS PeopleId,
+                Assignee,
+                Completed,
+                OnTime,
+                Late,
+                Pending,
+                Overdue,
+                ISNULL(AvgDays, 0) AS AvgDaysToComplete,
+                CASE WHEN Completed > 0
+                    THEN CAST(ROUND(CAST(OnTime AS FLOAT) / Completed * 100, 1) AS DECIMAL(5,1))
+                    ELSE 0 END AS OnTimePct,
+                CASE WHEN (Completed + Pending) > 0
+                    THEN CAST(ROUND(CAST(Completed AS FLOAT) / (Completed + Pending) * 100, 1) AS DECIMAL(5,1))
+                    ELSE 0 END AS CompletionRate
+            FROM AssigneeStats
+            WHERE Completed > 0 OR Pending > 0 OR Overdue > 0
+            ORDER BY Completed DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Created Date', 'type': 'daterange', 'sql_column': 'tn.CreatedDate',
+             'default': 'last_90_days'}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'Assignee',
+                    'chart_data_cols': ['Completed', 'Pending', 'Overdue']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'task_aging_analysis',
+        'name': 'Task Aging Analysis',
+        'description': 'Open tasks grouped by age bucket showing backlog health',
+        'help_text': '<strong>Task Aging Analysis</strong> groups all open (non-completed, non-archived) tasks into age buckets based on how long they have been open. Helps identify backlog buildup and tasks that may have been forgotten. Tasks with due dates are aged from the due date; tasks without due dates are aged from the creation date.',
+        'category': 'tasks',
+        'icon': 'fa-hourglass-half',
+        'sql_template': '''
+            SELECT
+                CASE
+                    WHEN DATEDIFF(day, ISNULL(tn.DueDate, tn.CreatedDate), GETDATE()) <= 0 THEN 'Current (not yet due)'
+                    WHEN DATEDIFF(day, ISNULL(tn.DueDate, tn.CreatedDate), GETDATE()) BETWEEN 1 AND 7 THEN '1-7 days'
+                    WHEN DATEDIFF(day, ISNULL(tn.DueDate, tn.CreatedDate), GETDATE()) BETWEEN 8 AND 30 THEN '8-30 days'
+                    WHEN DATEDIFF(day, ISNULL(tn.DueDate, tn.CreatedDate), GETDATE()) BETWEEN 31 AND 90 THEN '31-90 days'
+                    ELSE '90+ days'
+                END AS AgeBucket,
+                COUNT(*) AS TaskCount,
+                MIN(DATEDIFF(day, ISNULL(tn.DueDate, tn.CreatedDate), GETDATE())) AS MinDays,
+                MAX(DATEDIFF(day, ISNULL(tn.DueDate, tn.CreatedDate), GETDATE())) AS MaxDays,
+                AVG(DATEDIFF(day, ISNULL(tn.DueDate, tn.CreatedDate), GETDATE())) AS AvgDays
+            FROM TaskNote tn
+            WHERE tn.IsNote = 0
+                AND tn.StatusId NOT IN (1, 5)
+                {filters}
+            GROUP BY
+                CASE
+                    WHEN DATEDIFF(day, ISNULL(tn.DueDate, tn.CreatedDate), GETDATE()) <= 0 THEN 'Current (not yet due)'
+                    WHEN DATEDIFF(day, ISNULL(tn.DueDate, tn.CreatedDate), GETDATE()) BETWEEN 1 AND 7 THEN '1-7 days'
+                    WHEN DATEDIFF(day, ISNULL(tn.DueDate, tn.CreatedDate), GETDATE()) BETWEEN 8 AND 30 THEN '8-30 days'
+                    WHEN DATEDIFF(day, ISNULL(tn.DueDate, tn.CreatedDate), GETDATE()) BETWEEN 31 AND 90 THEN '31-90 days'
+                    ELSE '90+ days'
+                END
+            ORDER BY MIN(DATEDIFF(day, ISNULL(tn.DueDate, tn.CreatedDate), GETDATE()))
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Created After', 'type': 'daterange', 'sql_column': 'tn.CreatedDate',
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'bar', 'chart_label_col': 'AgeBucket',
+                    'chart_data_cols': ['TaskCount']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'task_keyword_trends',
+        'name': 'Keyword Trends',
+        'description': 'Task keyword usage over three time periods showing emerging and declining trends',
+        'help_text': '<strong>Keyword Trends</strong> divides the selected time range into three equal periods and shows how keyword usage has changed. A positive trend means the keyword is being used more recently; negative means it is declining. Useful for spotting emerging issues or work shifting between categories.',
+        'category': 'tasks',
+        'icon': 'fa-chart-line',
+        'sql_template': '''
+            WITH DateBounds AS (
+                SELECT
+                    DATEADD(day, -90, GETDATE()) AS PeriodStart,
+                    DATEADD(day, -60, GETDATE()) AS P1End,
+                    DATEADD(day, -30, GETDATE()) AS P2End,
+                    GETDATE() AS PeriodEnd
+            ),
+            P1 AS (
+                SELECT k.Description AS Keyword, COUNT(*) AS Cnt
+                FROM TaskNoteKeyword tnk
+                JOIN Keyword k ON tnk.KeywordId = k.KeywordId
+                JOIN TaskNote tn ON tnk.TaskNoteId = tn.TaskNoteId
+                CROSS JOIN DateBounds db
+                WHERE tn.CreatedDate BETWEEN db.PeriodStart AND db.P1End
+                GROUP BY k.Description
+            ),
+            P2 AS (
+                SELECT k.Description AS Keyword, COUNT(*) AS Cnt
+                FROM TaskNoteKeyword tnk
+                JOIN Keyword k ON tnk.KeywordId = k.KeywordId
+                JOIN TaskNote tn ON tnk.TaskNoteId = tn.TaskNoteId
+                CROSS JOIN DateBounds db
+                WHERE tn.CreatedDate BETWEEN db.P1End AND db.P2End
+                GROUP BY k.Description
+            ),
+            P3 AS (
+                SELECT k.Description AS Keyword, COUNT(*) AS Cnt
+                FROM TaskNoteKeyword tnk
+                JOIN Keyword k ON tnk.KeywordId = k.KeywordId
+                JOIN TaskNote tn ON tnk.TaskNoteId = tn.TaskNoteId
+                CROSS JOIN DateBounds db
+                WHERE tn.CreatedDate BETWEEN db.P2End AND db.PeriodEnd
+                GROUP BY k.Description
+            )
+            SELECT
+                COALESCE(P1.Keyword, P2.Keyword, P3.Keyword) AS Keyword,
+                ISNULL(P1.Cnt, 0) AS EarlyPeriod,
+                ISNULL(P2.Cnt, 0) AS MiddlePeriod,
+                ISNULL(P3.Cnt, 0) AS RecentPeriod,
+                ISNULL(P3.Cnt, 0) - ISNULL(P1.Cnt, 0) AS Trend
+            FROM P1
+            FULL OUTER JOIN P2 ON P1.Keyword = P2.Keyword
+            FULL OUTER JOIN P3 ON COALESCE(P1.Keyword, P2.Keyword) = P3.Keyword
+            ORDER BY ABS(ISNULL(P3.Cnt, 0) - ISNULL(P1.Cnt, 0)) DESC
+        ''',
+        'parameters': [],
+        'display': {'types': ['table', 'chart'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'Keyword',
+                    'chart_data_cols': ['EarlyPeriod', 'MiddlePeriod', 'RecentPeriod']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'task_staff_workload',
+        'name': 'Workload Distribution',
+        'description': 'Active task load per staff member with completion velocity',
+        'help_text': '<strong>Staff Workload Distribution</strong> shows each staff member\'s current open task count, how many are stale (open longer than 90 days), completed count in the period, average completion days, and a weekly completion rate. Sorted by total open tasks so you can quickly see who carries the most load.',
+        'category': 'tasks',
+        'icon': 'fa-balance-scale',
+        'sql_template': '''
+            WITH TaskMetrics AS (
+                SELECT
+                    p.PeopleId,
+                    p.Name2 AS StaffMember,
+                    SUM(CASE WHEN tn.StatusId NOT IN (1, 5)
+                        AND DATEDIFF(day, tn.CreatedDate, GETDATE()) > 90
+                        THEN 1 ELSE 0 END) AS StaleTasks,
+                    SUM(CASE WHEN tn.StatusId NOT IN (1, 5)
+                        AND DATEDIFF(day, tn.CreatedDate, GETDATE()) <= 90
+                        THEN 1 ELSE 0 END) AS RecentOpen,
+                    SUM(CASE WHEN tn.StatusId = 1
+                        AND tn.CompletedDate >= DATEADD(day, -90, GETDATE())
+                        THEN 1 ELSE 0 END) AS CompletedLast90d,
+                    AVG(CASE WHEN tn.StatusId = 1
+                        AND tn.CompletedDate >= DATEADD(day, -90, GETDATE())
+                        THEN DATEDIFF(day, tn.CreatedDate, tn.CompletedDate) END) AS AvgCompletionDays,
+                    CAST(CASE WHEN SUM(CASE WHEN tn.StatusId = 1
+                        AND tn.CompletedDate >= DATEADD(day, -90, GETDATE())
+                        THEN 1 ELSE 0 END) > 0
+                        THEN SUM(CASE WHEN tn.StatusId = 1
+                            AND tn.CompletedDate >= DATEADD(day, -90, GETDATE())
+                            THEN 1 ELSE 0 END) * 7.0 / 90.0
+                        ELSE 0 END AS DECIMAL(10,2)) AS WeeklyRate
+                FROM TaskNote tn
+                JOIN People p ON p.PeopleId = tn.AssigneeId
+                WHERE tn.IsNote = 0
+                    AND tn.AssigneeId IS NOT NULL
+                    {filters}
+                GROUP BY p.PeopleId, p.Name2
+            )
+            SELECT
+                PeopleId,
+                StaffMember,
+                StaleTasks,
+                RecentOpen,
+                (StaleTasks + RecentOpen) AS TotalOpen,
+                CompletedLast90d,
+                ISNULL(AvgCompletionDays, 0) AS AvgDays,
+                WeeklyRate
+            FROM TaskMetrics
+            WHERE StaleTasks > 0 OR RecentOpen > 0 OR CompletedLast90d > 0
+            ORDER BY (StaleTasks + RecentOpen) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Created Date', 'type': 'daterange', 'sql_column': 'tn.CreatedDate',
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'StaffMember',
+                    'chart_data_cols': ['StaleTasks', 'RecentOpen', 'CompletedLast90d']},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'task_people_attention',
+        'name': 'People Receiving Most Attention',
+        'description': 'People with the most tasks and notes created about them',
+        'help_text': '<strong>People Receiving Most Attention</strong> ranks people by how many tasks and notes have been created about them. Shows the breakdown of tasks vs notes and the number of different staff members involved. Useful for pastoral care tracking and identifying people who may need coordinated follow-up.',
+        'category': 'tasks',
+        'icon': 'fa-user-clock',
+        'sql_template': '''
+            SELECT TOP 100
+                about.PeopleId,
+                about.Name2 AS PersonName,
+                ms.Description AS MemberStatus,
+                COUNT(*) AS TotalItems,
+                SUM(CASE WHEN tn.IsNote = 1 THEN 1 ELSE 0 END) AS Notes,
+                SUM(CASE WHEN tn.IsNote = 0 THEN 1 ELSE 0 END) AS Tasks,
+                SUM(CASE WHEN tn.StatusId NOT IN (1, 5) AND tn.IsNote = 0 THEN 1 ELSE 0 END) AS OpenTasks,
+                COUNT(DISTINCT tn.OwnerId) AS StaffInvolved,
+                CONVERT(VARCHAR, MAX(tn.CreatedDate), 101) AS LastActivity
+            FROM TaskNote tn
+            JOIN People about ON tn.AboutPersonId = about.PeopleId
+            JOIN People p ON about.PeopleId = p.PeopleId
+            LEFT JOIN lookup.MemberStatus ms ON about.MemberStatusId = ms.Id
+            WHERE tn.AboutPersonId IS NOT NULL
+                {filters}
+            GROUP BY about.PeopleId, about.Name2, ms.Description
+            ORDER BY COUNT(*) DESC
+        ''',
+        'parameters': [
+            {'name': 'date_range', 'label': 'Created Date', 'type': 'daterange', 'sql_column': 'tn.CreatedDate',
+             'default': 'last_90_days'},
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'about.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'PersonName',
+                    'chart_data_cols': ['Notes', 'Tasks']},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'task_completion_velocity',
+        'name': 'Task Completion Velocity',
+        'description': 'Weekly creation vs completion rates with backlog projection',
+        'help_text': '<strong>Task Completion Velocity</strong> shows weekly task creation and completion rates over the last 12 weeks, plus the current outstanding backlog and an estimate of days to clear it. If creation outpaces completion, the backlog grows and the projection shows infinity. Use this to gauge whether your team is keeping up.',
+        'category': 'tasks',
+        'icon': 'fa-tachometer-alt',
+        'sql_template': '''
+            WITH WeeklyMetrics AS (
+                SELECT
+                    DATEADD(WEEK, DATEDIFF(WEEK, 0, tn.CreatedDate), 0) AS WeekStart,
+                    COUNT(*) AS Created,
+                    SUM(CASE WHEN tn.StatusId = 1 THEN 1 ELSE 0 END) AS Completed
+                FROM TaskNote tn
+                WHERE tn.IsNote = 0
+                    AND tn.CreatedDate >= DATEADD(week, -12, GETDATE())
+                GROUP BY DATEADD(WEEK, DATEDIFF(WEEK, 0, tn.CreatedDate), 0)
+            ),
+            Backlog AS (
+                SELECT COUNT(*) AS Outstanding
+                FROM TaskNote
+                WHERE IsNote = 0 AND StatusId NOT IN (1, 5)
+            ),
+            Averages AS (
+                SELECT
+                    AVG(CAST(Created AS FLOAT)) AS AvgWeeklyCreated,
+                    AVG(CAST(Completed AS FLOAT)) AS AvgWeeklyCompleted
+                FROM WeeklyMetrics
+            )
+            SELECT
+                FORMAT(wm.WeekStart, 'MMM d, yyyy') AS Week,
+                wm.Created,
+                wm.Completed,
+                CASE WHEN wm.Created > 0
+                    THEN CAST(ROUND(CAST(wm.Completed AS FLOAT) / wm.Created * 100, 1) AS DECIMAL(5,1))
+                    ELSE 0 END AS CompletionPct,
+                b.Outstanding AS Backlog,
+                CAST(ROUND(a.AvgWeeklyCreated, 1) AS DECIMAL(5,1)) AS AvgCreated,
+                CAST(ROUND(a.AvgWeeklyCompleted, 1) AS DECIMAL(5,1)) AS AvgCompleted,
+                CASE WHEN a.AvgWeeklyCompleted > a.AvgWeeklyCreated
+                    THEN CAST(CEILING(b.Outstanding / (a.AvgWeeklyCompleted - a.AvgWeeklyCreated)) * 7 AS INT)
+                    ELSE 999 END AS EstDaysToZero
+            FROM WeeklyMetrics wm
+            CROSS JOIN Backlog b
+            CROSS JOIN Averages a
+            ORDER BY wm.WeekStart DESC
+        ''',
+        'parameters': [],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'chart',
+                    'chart_type': 'line', 'chart_label_col': 'Week',
+                    'chart_data_cols': ['Created', 'Completed']},
+        'bluetoolbar': {'supported': False},
+        'is_builtin': True
+    })
+
     # ---- EMERGENCY (1) ----
 
     reports.append({
@@ -3323,8 +6607,735 @@ def get_default_reports():
         'is_builtin': True
     })
 
+    # ---- ENGAGEMENT: Prospect-Builder-inspired Person-Level Reports ----
+
+    reports.append({
+        'id': 'eng_person_engagement_scorecard',
+        'name': 'Person Engagement Scorecard',
+        'description': 'Per-person engagement breakdown with scored factors: attendance, groups, serving',
+        'help_text': '<strong>Person Engagement Scorecard</strong> provides a per-person breakdown of engagement across four scored factors: Attendance Recency (days since last attend), Attendance Frequency (times in 90 days), Group Involvement (active org count), and Serving (leader/volunteer roles). Each factor scores 0-100 and is weighted to produce a composite score. Filter by member status, campus, or engagement tier. Inspired by the Prospect Builder detail view.',
+        'category': 'engagement',
+        'icon': 'fa-id-badge',
+        'sql_template': '''
+            WITH AttendMetrics AS (
+                SELECT a.PeopleId,
+                       DATEDIFF(day, MAX(a.MeetingDate), GETDATE()) AS DaysSinceLast,
+                       COUNT(CASE WHEN a.MeetingDate >= DATEADD(day, -90, GETDATE()) THEN 1 END) AS Attend90
+                FROM Attend a WITH (NOLOCK)
+                WHERE a.AttendanceFlag = 1
+                  AND a.MeetingDate >= DATEADD(day, -365, GETDATE())
+                GROUP BY a.PeopleId
+            ),
+            InvMetrics AS (
+                SELECT om.PeopleId,
+                       COUNT(DISTINCT om.OrganizationId) AS GroupCount
+                FROM OrganizationMembers om WITH (NOLOCK)
+                JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                WHERE om.InactiveDate IS NULL
+                  AND o.OrganizationStatusId = 30
+                GROUP BY om.PeopleId
+            ),
+            ServMetrics AS (
+                SELECT om.PeopleId,
+                       COUNT(DISTINCT om.OrganizationId) AS ServingCount
+                FROM OrganizationMembers om WITH (NOLOCK)
+                JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                WHERE om.MemberTypeId IN (140, 310, 320, 710)
+                  AND om.InactiveDate IS NULL
+                  AND o.OrganizationStatusId = 30
+                GROUP BY om.PeopleId
+            ),
+            Scores AS (
+                SELECT p.PeopleId, p.Name2 AS Name,
+                       ms.Description AS MemberStatus,
+                       c.Description AS Campus,
+                       ISNULL(am.DaysSinceLast, 999) AS DaysSinceLast,
+                       ISNULL(am.Attend90, 0) AS Attend90,
+                       ISNULL(im.GroupCount, 0) AS GroupCount,
+                       ISNULL(sm.ServingCount, 0) AS ServingCount,
+                       CASE
+                           WHEN ISNULL(am.DaysSinceLast, 999) <= 7 THEN 100
+                           WHEN am.DaysSinceLast <= 14 THEN 85
+                           WHEN am.DaysSinceLast <= 30 THEN 70
+                           WHEN am.DaysSinceLast <= 60 THEN 40
+                           WHEN am.DaysSinceLast <= 90 THEN 20
+                           ELSE 5
+                       END AS RecencyScore,
+                       CASE
+                           WHEN ISNULL(am.Attend90, 0) >= 10 THEN 100
+                           WHEN am.Attend90 >= 7 THEN 80
+                           WHEN am.Attend90 >= 4 THEN 60
+                           WHEN am.Attend90 >= 2 THEN 40
+                           WHEN am.Attend90 >= 1 THEN 20
+                           ELSE 0
+                       END AS FrequencyScore,
+                       CASE
+                           WHEN ISNULL(im.GroupCount, 0) >= 4 THEN 100
+                           WHEN im.GroupCount >= 3 THEN 80
+                           WHEN im.GroupCount >= 2 THEN 60
+                           WHEN im.GroupCount >= 1 THEN 40
+                           ELSE 0
+                       END AS GroupScore,
+                       CASE
+                           WHEN ISNULL(sm.ServingCount, 0) >= 3 THEN 100
+                           WHEN sm.ServingCount >= 2 THEN 80
+                           WHEN sm.ServingCount >= 1 THEN 60
+                           ELSE 0
+                       END AS ServingScore
+                FROM People p
+                LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+                LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+                LEFT JOIN AttendMetrics am ON p.PeopleId = am.PeopleId
+                LEFT JOIN InvMetrics im ON p.PeopleId = im.PeopleId
+                LEFT JOIN ServMetrics sm ON p.PeopleId = sm.PeopleId
+                WHERE p.IsDeceased = 0 AND p.DeceasedDate IS NULL
+                    {filters}
+            )
+            SELECT PeopleId, Name, MemberStatus, Campus,
+                   DaysSinceLast AS DaysSinceAttend,
+                   Attend90 AS AttendCount90d,
+                   GroupCount AS Groups,
+                   ServingCount AS ServingRoles,
+                   RecencyScore,
+                   FrequencyScore,
+                   GroupScore,
+                   ServingScore,
+                   CAST((RecencyScore * 30 + FrequencyScore * 30 + GroupScore * 20 + ServingScore * 20) / 100.0 AS DECIMAL(5,1)) AS EngagementScore,
+                   CASE
+                       WHEN (RecencyScore * 30 + FrequencyScore * 30 + GroupScore * 20 + ServingScore * 20) / 100 >= 80 THEN 'Highly Engaged'
+                       WHEN (RecencyScore * 30 + FrequencyScore * 30 + GroupScore * 20 + ServingScore * 20) / 100 >= 60 THEN 'Engaged'
+                       WHEN (RecencyScore * 30 + FrequencyScore * 30 + GroupScore * 20 + ServingScore * 20) / 100 >= 40 THEN 'Moderate'
+                       WHEN (RecencyScore * 30 + FrequencyScore * 30 + GroupScore * 20 + ServingScore * 20) / 100 >= 20 THEN 'Low'
+                       ELSE 'Not Engaged'
+                   END AS EngagementTier
+            FROM Scores
+            ORDER BY EngagementScore DESC
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'EngagementTier',
+                    'chart_data_cols': ['EngagementScore'],
+                    'formats': {}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_priority_outreach',
+        'name': 'Priority Outreach List',
+        'description': 'People ranked by outreach priority score with 9 weighted factors',
+        'help_text': '<strong>Priority Outreach List</strong> ranks people by a composite priority score (0-100) across 9 factors: Contact Efforts (TaskNote activity), Attendance Recency, Attendance Frequency, Involvements, Serving Roles, Enrollment Recency, Family Engaged, Member Status, and TaskNote Activity. Higher scores = higher priority for follow-up. Prospects and new people score highest by default. Inspired by the Prospect Builder Priority Scorecard.',
+        'category': 'engagement',
+        'icon': 'fa-bullseye',
+        'sql_template': '''
+            WITH AttendData AS (
+                SELECT a.PeopleId,
+                       DATEDIFF(day, MAX(a.MeetingDate), GETDATE()) AS DaysSinceLast,
+                       COUNT(CASE WHEN a.MeetingDate >= DATEADD(day, -90, GETDATE()) THEN 1 END) AS Attend90
+                FROM Attend a WITH (NOLOCK)
+                WHERE a.AttendanceFlag = 1
+                  AND a.MeetingDate >= DATEADD(day, -180, GETDATE())
+                GROUP BY a.PeopleId
+            ),
+            InvData AS (
+                SELECT om.PeopleId,
+                       COUNT(*) AS InvCount,
+                       MIN(DATEDIFF(day, om.EnrollmentDate, GETDATE())) AS NewestEnrollDays
+                FROM OrganizationMembers om WITH (NOLOCK)
+                JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                WHERE om.InactiveDate IS NULL
+                  AND o.OrganizationStatusId = 30
+                GROUP BY om.PeopleId
+            ),
+            ServData AS (
+                SELECT om.PeopleId, COUNT(*) AS ServingCount
+                FROM OrganizationMembers om WITH (NOLOCK)
+                JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                WHERE om.MemberTypeId IN (140, 310, 320, 710)
+                  AND om.InactiveDate IS NULL
+                  AND o.OrganizationStatusId = 30
+                GROUP BY om.PeopleId
+            ),
+            FamEngaged AS (
+                SELECT DISTINCT p2.PeopleId
+                FROM People p2 WITH (NOLOCK)
+                WHERE p2.IsDeceased = 0
+                  AND EXISTS (
+                    SELECT 1 FROM People fam WITH (NOLOCK)
+                    JOIN OrganizationMembers om WITH (NOLOCK) ON fam.PeopleId = om.PeopleId
+                    WHERE fam.FamilyId = p2.FamilyId
+                      AND fam.PeopleId != p2.PeopleId
+                      AND fam.IsDeceased = 0
+                      AND om.InactiveDate IS NULL
+                      AND om.MemberTypeId IN (220, 140, 310, 710)
+                  )
+            ),
+            TaskData AS (
+                SELECT t.AboutPersonId AS PeopleId, COUNT(*) AS TaskCount
+                FROM TaskNote t WITH (NOLOCK)
+                WHERE t.CreatedDate >= DATEADD(day, -90, GETDATE())
+                GROUP BY t.AboutPersonId
+            ),
+            Scores AS (
+                SELECT p.PeopleId, p.Name2 AS Name,
+                       ms.Description AS MemberStatus,
+                       c.Description AS Campus,
+                       p.EmailAddress AS Email,
+                       p.CellPhone AS Phone,
+                       ISNULL(ad.DaysSinceLast, 999) AS DaysSinceLast,
+                       ISNULL(ad.Attend90, 0) AS Attend90,
+                       ISNULL(inv.InvCount, 0) AS InvCount,
+                       ISNULL(sv.ServingCount, 0) AS ServingCount,
+                       ISNULL(td.TaskCount, 0) AS RecentTasks,
+                       CASE WHEN fe.PeopleId IS NOT NULL THEN 1 ELSE 0 END AS FamilyEngaged,
+                       -- Attend Recency Score (17%)
+                       CASE
+                           WHEN ISNULL(ad.DaysSinceLast, 999) <= 7 THEN 100
+                           WHEN ad.DaysSinceLast <= 14 THEN 85
+                           WHEN ad.DaysSinceLast <= 30 THEN 70
+                           WHEN ad.DaysSinceLast <= 60 THEN 40
+                           WHEN ad.DaysSinceLast <= 90 THEN 20
+                           ELSE 5
+                       END AS AttRecencyScore,
+                       -- Attend Frequency Score (13%)
+                       CASE
+                           WHEN ISNULL(ad.Attend90, 0) >= 10 THEN 100
+                           WHEN ad.Attend90 >= 7 THEN 80
+                           WHEN ad.Attend90 >= 4 THEN 60
+                           WHEN ad.Attend90 >= 2 THEN 40
+                           WHEN ad.Attend90 >= 1 THEN 20
+                           ELSE 0
+                       END AS AttFreqScore,
+                       -- Involvements Score (9%)
+                       CASE
+                           WHEN ISNULL(inv.InvCount, 0) >= 4 THEN 100
+                           WHEN inv.InvCount >= 3 THEN 80
+                           WHEN inv.InvCount >= 2 THEN 60
+                           WHEN inv.InvCount >= 1 THEN 40
+                           ELSE 0
+                       END AS InvScore,
+                       -- Serving Score (13%)
+                       CASE
+                           WHEN ISNULL(sv.ServingCount, 0) >= 3 THEN 100
+                           WHEN sv.ServingCount >= 2 THEN 80
+                           WHEN sv.ServingCount >= 1 THEN 50
+                           ELSE 0
+                       END AS ServScore,
+                       -- Enrollment Recency Score (9%)
+                       CASE
+                           WHEN ISNULL(inv.NewestEnrollDays, 9999) <= 30 THEN 100
+                           WHEN inv.NewestEnrollDays <= 90 THEN 75
+                           WHEN inv.NewestEnrollDays <= 180 THEN 50
+                           WHEN inv.NewestEnrollDays <= 365 THEN 25
+                           ELSE 10
+                       END AS EnrollRecencyScore,
+                       -- Family Engaged Score (9%)
+                       CASE WHEN fe.PeopleId IS NOT NULL THEN 100 ELSE 0 END AS FamEngagedScore,
+                       -- Member Status Score (9%)
+                       CASE
+                           WHEN p.MemberStatusId = 20 THEN 100
+                           WHEN p.MemberStatusId = 50 THEN 90
+                           WHEN p.MemberStatusId = 30 THEN 60
+                           WHEN p.MemberStatusId = 10 THEN 30
+                           ELSE 50
+                       END AS StatusScore,
+                       -- TaskNote Activity Score (4%)
+                       CASE
+                           WHEN ISNULL(td.TaskCount, 0) >= 5 THEN 100
+                           WHEN td.TaskCount >= 3 THEN 70
+                           WHEN td.TaskCount >= 1 THEN 40
+                           ELSE 0
+                       END AS TaskScore
+                FROM People p
+                LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+                LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+                LEFT JOIN AttendData ad ON p.PeopleId = ad.PeopleId
+                LEFT JOIN InvData inv ON p.PeopleId = inv.PeopleId
+                LEFT JOIN ServData sv ON p.PeopleId = sv.PeopleId
+                LEFT JOIN FamEngaged fe ON p.PeopleId = fe.PeopleId
+                LEFT JOIN TaskData td ON p.PeopleId = td.PeopleId
+                WHERE p.IsDeceased = 0 AND p.DeceasedDate IS NULL
+                  AND p.PositionInFamilyId IN (10, 20)
+                    {filters}
+            )
+            SELECT TOP 500 PeopleId, Name, MemberStatus, Campus, Email, Phone,
+                   DaysSinceLast AS DaysSinceAttend,
+                   Attend90 AS Attend90d,
+                   InvCount AS Involvements,
+                   ServingCount AS ServingRoles,
+                   RecentTasks,
+                   CASE WHEN FamilyEngaged = 1 THEN 'Yes' ELSE 'No' END AS FamilyEngaged,
+                   CAST((AttRecencyScore * 17 + AttFreqScore * 13 + InvScore * 9 + ServScore * 13
+                         + EnrollRecencyScore * 9 + FamEngagedScore * 9 + StatusScore * 9 + TaskScore * 4) / 83.0
+                         AS DECIMAL(5,1)) AS PriorityScore
+            FROM Scores
+            ORDER BY PriorityScore DESC
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'kpi'], 'default': 'table',
+                    'formats': {}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_milestone_pipeline',
+        'name': 'Milestone Pipeline',
+        'description': 'People and which milestones they have completed: attend, decision, baptism, membership, serving',
+        'help_text': '<strong>Milestone Pipeline</strong> shows each person and which key milestones they have reached: First Attendance, Decision, Baptism, New Member Class, Joined Church, and Serving. Helps identify where people stall on the discipleship pathway. Filter by member status or campus to focus on specific populations.',
+        'category': 'engagement',
+        'icon': 'fa-flag-checkered',
+        'sql_template': '''
+            SELECT p.PeopleId, p.Name2 AS Name,
+                   ms.Description AS MemberStatus,
+                   c.Description AS Campus,
+                   p.Age,
+                   CONVERT(VARCHAR(10), p.CreatedDate, 120) AS AddedToSystem,
+                   CONVERT(VARCHAR(10), (SELECT TOP 1 m.MeetingDate FROM Attend a
+                       JOIN Meetings m ON a.MeetingId = m.MeetingId
+                       WHERE a.PeopleId = p.PeopleId AND a.AttendanceFlag = 1
+                       ORDER BY m.MeetingDate), 120) AS FirstAttendance,
+                   CASE WHEN p.DecisionDate IS NOT NULL THEN CONVERT(VARCHAR(10), p.DecisionDate, 120) ELSE '' END AS DecisionDate,
+                   ISNULL(dt.Description, '') AS DecisionType,
+                   CASE WHEN p.BaptismDate IS NOT NULL THEN CONVERT(VARCHAR(10), p.BaptismDate, 120) ELSE '' END AS BaptismDate,
+                   CASE WHEN p.NewMemberClassDate IS NOT NULL THEN CONVERT(VARCHAR(10), p.NewMemberClassDate, 120) ELSE '' END AS NewMemberClass,
+                   CASE WHEN p.JoinDate IS NOT NULL THEN CONVERT(VARCHAR(10), p.JoinDate, 120) ELSE '' END AS JoinedChurch,
+                   CASE WHEN EXISTS (
+                       SELECT 1 FROM OrganizationMembers om
+                       JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                       WHERE om.PeopleId = p.PeopleId
+                         AND om.MemberTypeId IN (140, 310, 320, 710)
+                         AND om.InactiveDate IS NULL
+                         AND o.OrganizationStatusId = 30
+                   ) THEN 'Yes' ELSE 'No' END AS Serving,
+                   CASE
+                       WHEN p.JoinDate IS NOT NULL AND EXISTS (
+                           SELECT 1 FROM OrganizationMembers om JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                           WHERE om.PeopleId = p.PeopleId AND om.MemberTypeId IN (140, 310, 320, 710)
+                             AND om.InactiveDate IS NULL AND o.OrganizationStatusId = 30
+                       ) THEN 6
+                       WHEN p.JoinDate IS NOT NULL THEN 5
+                       WHEN p.NewMemberClassDate IS NOT NULL THEN 4
+                       WHEN p.BaptismDate IS NOT NULL THEN 3
+                       WHEN p.DecisionDate IS NOT NULL THEN 2
+                       WHEN EXISTS (SELECT 1 FROM Attend a WHERE a.PeopleId = p.PeopleId AND a.AttendanceFlag = 1) THEN 1
+                       ELSE 0
+                   END AS MilestonesCompleted
+            FROM People p
+            LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+            LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+            LEFT JOIN lookup.DecisionType dt ON p.DecisionTypeId = dt.Id
+            WHERE p.IsDeceased = 0 AND p.DeceasedDate IS NULL
+                {filters}
+            ORDER BY MilestonesCompleted ASC, p.Name2
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'MilestonesCompleted',
+                    'chart_data_cols': ['MilestonesCompleted'],
+                    'formats': {}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_family_engagement_gap',
+        'name': 'Family Engagement Gap',
+        'description': 'Households where some members are engaged but others are not',
+        'help_text': '<strong>Family Engagement Gap</strong> identifies households where at least one family member is actively attending but another adult family member has no recent attendance. These represent pastoral care opportunities — the engaged family member is your connection point to re-engage the disengaged one.',
+        'category': 'engagement',
+        'icon': 'fa-users',
+        'sql_template': '''
+            WITH FamilyAttend AS (
+                SELECT p.FamilyId, p.PeopleId, p.Name2,
+                       ms.Description AS MemberStatus,
+                       p.PositionInFamilyId,
+                       COUNT(CASE WHEN a.AttendanceFlag = 1 AND m.MeetingDate >= DATEADD(day, -90, GETDATE()) THEN 1 END) AS Attend90
+                FROM People p
+                LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+                LEFT JOIN Attend a ON a.PeopleId = p.PeopleId
+                LEFT JOIN Meetings m ON a.MeetingId = m.MeetingId AND m.MeetingDate >= DATEADD(day, -90, GETDATE())
+                WHERE p.IsDeceased = 0 AND p.DeceasedDate IS NULL
+                  AND p.PositionInFamilyId IN (10, 20)
+                    {filters}
+                GROUP BY p.FamilyId, p.PeopleId, p.Name2, ms.Description, p.PositionInFamilyId
+            ),
+            FamiliesWithGap AS (
+                SELECT FamilyId
+                FROM FamilyAttend
+                GROUP BY FamilyId
+                HAVING MAX(Attend90) > 0 AND MIN(Attend90) = 0
+                   AND COUNT(*) >= 2
+            )
+            SELECT fa.PeopleId, fa.Name2 AS Name, fa.MemberStatus,
+                   fa.Attend90 AS AttendCount90d,
+                   CASE WHEN fa.Attend90 > 0 THEN 'Attending' ELSE 'Not Attending' END AS Status,
+                   fa.FamilyId,
+                   (SELECT COUNT(*) FROM FamilyAttend fa2 WHERE fa2.FamilyId = fa.FamilyId) AS FamilyAdults,
+                   (SELECT STRING_AGG(fa3.Name2, ', ') FROM FamilyAttend fa3
+                    WHERE fa3.FamilyId = fa.FamilyId AND fa3.PeopleId != fa.PeopleId) AS OtherFamilyMembers
+            FROM FamilyAttend fa
+            JOIN FamiliesWithGap fg ON fa.FamilyId = fg.FamilyId
+            ORDER BY fa.FamilyId, fa.Attend90 DESC
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'kpi'], 'default': 'table',
+                    'formats': {}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_involvement_churn',
+        'name': 'Involvement Churn Report',
+        'description': 'Recent dropouts from involvements with tenure and last attendance',
+        'help_text': '<strong>Involvement Churn Report</strong> shows people who were dropped from involvements in the selected date range. Includes how long they were enrolled (tenure), their last attendance date, and the program/division of the involvement they left. Helps identify patterns in attrition and people who may need follow-up.',
+        'category': 'engagement',
+        'icon': 'fa-user-minus',
+        'sql_template': '''
+            SELECT TOP 500
+                et.PeopleId AS PeopleId,
+                p.Name2 AS Name,
+                ms.Description AS MemberStatus,
+                o.OrganizationName AS Involvement,
+                prog.Name AS Program,
+                d.Name AS Division,
+                mt.Description AS MemberType,
+                CONVERT(VARCHAR(10), et.EnrollmentDate, 120) AS EnrolledDate,
+                CONVERT(VARCHAR(10), et.InactiveDate, 120) AS DroppedDate,
+                DATEDIFF(day, et.EnrollmentDate, et.InactiveDate) AS TenureDays,
+                CASE
+                    WHEN DATEDIFF(day, et.EnrollmentDate, et.InactiveDate) >= 365 THEN CAST(DATEDIFF(day, et.EnrollmentDate, et.InactiveDate) / 365 AS VARCHAR) + 'y'
+                    WHEN DATEDIFF(day, et.EnrollmentDate, et.InactiveDate) >= 30 THEN CAST(DATEDIFF(day, et.EnrollmentDate, et.InactiveDate) / 30 AS VARCHAR) + 'mo'
+                    ELSE CAST(DATEDIFF(day, et.EnrollmentDate, et.InactiveDate) AS VARCHAR) + 'd'
+                END AS Tenure,
+                CONVERT(VARCHAR(10), (SELECT TOP 1 m2.MeetingDate FROM Attend a2
+                    JOIN Meetings m2 ON a2.MeetingId = m2.MeetingId
+                    WHERE a2.PeopleId = et.PeopleId AND a2.OrganizationId = et.OrganizationId
+                      AND a2.AttendanceFlag = 1
+                    ORDER BY m2.MeetingDate DESC), 120) AS LastAttended,
+                CASE WHEN EXISTS (
+                    SELECT 1 FROM OrganizationMembers om2
+                    JOIN Organizations o2 ON om2.OrganizationId = o2.OrganizationId
+                    WHERE om2.PeopleId = et.PeopleId AND om2.InactiveDate IS NULL AND o2.OrganizationStatusId = 30
+                ) THEN 'Yes' ELSE 'No' END AS StillInOtherGroups
+            FROM EnrollmentTransaction et
+            JOIN People p ON et.PeopleId = p.PeopleId
+            JOIN Organizations o ON et.OrganizationId = o.OrganizationId
+            LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+            LEFT JOIN lookup.MemberType mt ON et.MemberTypeId = mt.Id
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program prog ON d.ProgId = prog.Id
+            WHERE et.InactiveDate IS NOT NULL
+              AND et.TransactionStatus = 0
+              AND p.IsDeceased = 0
+              AND et.InactiveDate >= DATEADD(day, -30, GETDATE())
+                {filters}
+            ORDER BY et.InactiveDate DESC
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''},
+            {'name': 'program_id', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'prog.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''},
+            {'name': 'division_id', 'label': 'Division', 'type': 'dropdown', 'sql_column': 'd.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Division ORDER BY Name",
+             'default': ''},
+            {'name': 'org_type', 'label': 'Involvement Type', 'type': 'dropdown', 'sql_column': 'o.OrganizationTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.OrganizationType ORDER BY Description",
+             'default': ''},
+            {'name': 'member_type', 'label': 'Member Type', 'type': 'dropdown', 'sql_column': 'et.MemberTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberType ORDER BY Description",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'Program',
+                    'chart_data_cols': ['TenureDays'],
+                    'formats': {}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_journey_stage_distribution',
+        'name': 'Journey Stage Distribution',
+        'description': 'How many people at each engagement level across the congregation',
+        'help_text': '<strong>Journey Stage Distribution</strong> categorizes every active person into an engagement tier based on a weighted composite score (0-100):<br><br><strong>Scoring Factors:</strong><ul><li><strong>Attendance Recency (30%)</strong> — days since last attend: &le;7d = 100, &le;14d = 85, &le;30d = 70, &le;60d = 40, &le;90d = 20, 90d+ = 5</li><li><strong>Attendance Frequency (30%)</strong> — times attended in 90 days: 10+ = 100, 7+ = 80, 4+ = 60, 2+ = 40, 1 = 20, 0 = 0</li><li><strong>Group Involvement (20%)</strong> — active org count: 4+ = 100, 3 = 80, 2 = 60, 1 = 40, 0 = 0</li><li><strong>Serving Roles (20%)</strong> — leader/volunteer roles: 3+ = 100, 2 = 80, 1 = 60, 0 = 0</li></ul><strong>Tiers:</strong><ul><li><strong>Highly Engaged (80-100):</strong> Attending weekly, in multiple groups, serving</li><li><strong>Engaged (60-79):</strong> Regular attendance, connected to at least one group</li><li><strong>Moderate (40-59):</strong> Semi-regular attendance or group involvement but not both</li><li><strong>Low (20-39):</strong> Infrequent attendance, minimal connections</li><li><strong>Not Engaged (0-19):</strong> No recent attendance or involvement</li></ul>',
+        'category': 'engagement',
+        'icon': 'fa-layer-group',
+        'sql_template': '''
+            WITH AttendMetrics AS (
+                SELECT a.PeopleId,
+                       DATEDIFF(day, MAX(a.MeetingDate), GETDATE()) AS DaysSinceLast,
+                       COUNT(CASE WHEN a.MeetingDate >= DATEADD(day, -90, GETDATE()) THEN 1 END) AS Attend90
+                FROM Attend a WITH (NOLOCK)
+                WHERE a.AttendanceFlag = 1
+                  AND a.MeetingDate >= DATEADD(day, -365, GETDATE())
+                GROUP BY a.PeopleId
+            ),
+            InvMetrics AS (
+                SELECT om.PeopleId, COUNT(DISTINCT om.OrganizationId) AS GroupCount
+                FROM OrganizationMembers om WITH (NOLOCK)
+                JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                WHERE om.InactiveDate IS NULL AND o.OrganizationStatusId = 30
+                GROUP BY om.PeopleId
+            ),
+            ServMetrics AS (
+                SELECT om.PeopleId, COUNT(DISTINCT om.OrganizationId) AS ServingCount
+                FROM OrganizationMembers om WITH (NOLOCK)
+                JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                WHERE om.MemberTypeId IN (140, 310, 320, 710)
+                  AND om.InactiveDate IS NULL AND o.OrganizationStatusId = 30
+                GROUP BY om.PeopleId
+            ),
+            PersonScores AS (
+                SELECT p.PeopleId,
+                       (CASE WHEN ISNULL(am.DaysSinceLast,999)<=7 THEN 100 WHEN am.DaysSinceLast<=14 THEN 85 WHEN am.DaysSinceLast<=30 THEN 70 WHEN am.DaysSinceLast<=60 THEN 40 WHEN am.DaysSinceLast<=90 THEN 20 ELSE 5 END * 30
+                        + CASE WHEN ISNULL(am.Attend90,0)>=10 THEN 100 WHEN am.Attend90>=7 THEN 80 WHEN am.Attend90>=4 THEN 60 WHEN am.Attend90>=2 THEN 40 WHEN am.Attend90>=1 THEN 20 ELSE 0 END * 30
+                        + CASE WHEN ISNULL(im.GroupCount,0)>=4 THEN 100 WHEN im.GroupCount>=3 THEN 80 WHEN im.GroupCount>=2 THEN 60 WHEN im.GroupCount>=1 THEN 40 ELSE 0 END * 20
+                        + CASE WHEN ISNULL(sm.ServingCount,0)>=3 THEN 100 WHEN sm.ServingCount>=2 THEN 80 WHEN sm.ServingCount>=1 THEN 60 ELSE 0 END * 20
+                       ) / 100 AS Score
+                FROM People p
+                LEFT JOIN AttendMetrics am ON p.PeopleId = am.PeopleId
+                LEFT JOIN InvMetrics im ON p.PeopleId = im.PeopleId
+                LEFT JOIN ServMetrics sm ON p.PeopleId = sm.PeopleId
+                WHERE p.IsDeceased = 0 AND p.DeceasedDate IS NULL
+                    {filters}
+            )
+            SELECT
+                CASE
+                    WHEN Score >= 80 THEN 'Highly Engaged'
+                    WHEN Score >= 60 THEN 'Engaged'
+                    WHEN Score >= 40 THEN 'Moderate'
+                    WHEN Score >= 20 THEN 'Low'
+                    ELSE 'Not Engaged'
+                END AS EngagementTier,
+                COUNT(*) AS PersonCount,
+                CAST(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER() AS DECIMAL(5,1)) AS Percentage
+            FROM PersonScores
+            GROUP BY
+                CASE
+                    WHEN Score >= 80 THEN 'Highly Engaged'
+                    WHEN Score >= 60 THEN 'Engaged'
+                    WHEN Score >= 40 THEN 'Moderate'
+                    WHEN Score >= 20 THEN 'Low'
+                    ELSE 'Not Engaged'
+                END
+            ORDER BY MIN(Score) DESC
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['chart', 'table', 'kpi'], 'default': 'chart',
+                    'chart_type': 'doughnut', 'chart_label_col': 'EngagementTier',
+                    'chart_data_cols': ['PersonCount'],
+                    'formats': {'Percentage': 'percent'}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_current_involvements',
+        'name': 'Current Involvements by Person',
+        'description': 'Every person and their active involvements with attendance stats and enrollment date',
+        'help_text': '<strong>Current Involvements by Person</strong> lists every person and their active organization memberships with program, division, member type, enrollment date, 90-day attendance count and percentage, and last attended date. Shows a complete picture of where each person is plugged in. Use Blue Toolbar to focus on specific people.',
+        'category': 'engagement',
+        'icon': 'fa-address-card',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                ms.Description AS MemberStatus,
+                c.Description AS Campus,
+                o.OrganizationName AS Involvement,
+                prog.Name AS Program,
+                d.Name AS Division,
+                mt.Description AS MemberType,
+                CONVERT(VARCHAR(10), om.EnrollmentDate, 120) AS EnrolledDate,
+                ISNULL(att.Attended, 0) AS Attended90d,
+                ISNULL(att.TotalMeetings, 0) AS Meetings90d,
+                CASE WHEN ISNULL(att.TotalMeetings, 0) > 0
+                     THEN CAST(ISNULL(att.Attended, 0) * 100.0 / att.TotalMeetings AS DECIMAL(5,1))
+                     ELSE 0 END AS AttendPct,
+                ISNULL(att.LastAttend, '') AS LastAttended
+            FROM OrganizationMembers om
+            JOIN People p ON om.PeopleId = p.PeopleId
+            JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+            LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+            LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+            LEFT JOIN lookup.MemberType mt ON om.MemberTypeId = mt.Id
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program prog ON d.ProgId = prog.Id
+            LEFT JOIN (
+                SELECT a.PeopleId, a.OrganizationId,
+                       COUNT(CASE WHEN a.AttendanceFlag = 1 THEN 1 END) AS Attended,
+                       COUNT(*) AS TotalMeetings,
+                       CONVERT(VARCHAR(10), MAX(CASE WHEN a.AttendanceFlag = 1 THEN m.MeetingDate END), 120) AS LastAttend
+                FROM Attend a
+                JOIN Meetings m ON a.MeetingId = m.MeetingId
+                WHERE m.MeetingDate >= DATEADD(day, -90, GETDATE()) AND m.DidNotMeet = 0
+                GROUP BY a.PeopleId, a.OrganizationId
+            ) att ON att.PeopleId = om.PeopleId AND att.OrganizationId = om.OrganizationId
+            WHERE p.IsDeceased = 0 AND p.DeceasedDate IS NULL
+              AND o.OrganizationStatusId = 30
+              AND om.InactiveDate IS NULL
+                {filters}
+            ORDER BY p.Name2, prog.Name, o.OrganizationName
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''},
+            {'name': 'program_id', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'prog.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''},
+            {'name': 'division_id', 'label': 'Division', 'type': 'dropdown', 'sql_column': 'd.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Division ORDER BY Name",
+             'default': ''},
+            {'name': 'org_type', 'label': 'Involvement Type', 'type': 'dropdown', 'sql_column': 'o.OrganizationTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.OrganizationType ORDER BY Description",
+             'default': ''},
+            {'name': 'member_type', 'label': 'Member Type', 'type': 'dropdown', 'sql_column': 'om.MemberTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberType ORDER BY Description",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'kpi'], 'default': 'table',
+                    'formats': {'AttendPct': 'percent'}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'eng_past_involvements',
+        'name': 'Past Involvements by Person',
+        'description': 'People who dropped from involvements with enrollment tenure and last attendance',
+        'help_text': '<strong>Past Involvements by Person</strong> shows historical involvement data: every person and the involvements they have left. Includes enrollment and drop dates, tenure (how long they were enrolled), last attendance in that involvement, and whether they are still in any other active group. Useful for understanding churn patterns and identifying people who have fully disengaged.',
+        'category': 'engagement',
+        'icon': 'fa-history',
+        'sql_template': '''
+            SELECT TOP 1000
+                et.PeopleId AS PeopleId,
+                p.Name2 AS Name,
+                ms.Description AS MemberStatus,
+                c.Description AS Campus,
+                o.OrganizationName AS Involvement,
+                prog.Name AS Program,
+                d.Name AS Division,
+                mt.Description AS MemberType,
+                CONVERT(VARCHAR(10), et.EnrollmentDate, 120) AS EnrolledDate,
+                CONVERT(VARCHAR(10), et.InactiveDate, 120) AS DroppedDate,
+                DATEDIFF(day, et.EnrollmentDate, et.InactiveDate) AS TenureDays,
+                CASE
+                    WHEN DATEDIFF(day, et.EnrollmentDate, et.InactiveDate) >= 365
+                        THEN CAST(DATEDIFF(day, et.EnrollmentDate, et.InactiveDate) / 365 AS VARCHAR) + 'y ' +
+                             CAST((DATEDIFF(day, et.EnrollmentDate, et.InactiveDate) % 365) / 30 AS VARCHAR) + 'mo'
+                    WHEN DATEDIFF(day, et.EnrollmentDate, et.InactiveDate) >= 30
+                        THEN CAST(DATEDIFF(day, et.EnrollmentDate, et.InactiveDate) / 30 AS VARCHAR) + 'mo'
+                    ELSE CAST(DATEDIFF(day, et.EnrollmentDate, et.InactiveDate) AS VARCHAR) + 'd'
+                END AS Tenure,
+                CONVERT(VARCHAR(10), (SELECT TOP 1 m2.MeetingDate FROM Attend a2
+                    JOIN Meetings m2 ON a2.MeetingId = m2.MeetingId
+                    WHERE a2.PeopleId = et.PeopleId AND a2.OrganizationId = et.OrganizationId
+                      AND a2.AttendanceFlag = 1
+                    ORDER BY m2.MeetingDate DESC), 120) AS LastAttended,
+                CASE WHEN EXISTS (
+                    SELECT 1 FROM OrganizationMembers om2
+                    JOIN Organizations o2 ON om2.OrganizationId = o2.OrganizationId
+                    WHERE om2.PeopleId = et.PeopleId AND om2.InactiveDate IS NULL AND o2.OrganizationStatusId = 30
+                ) THEN 'Yes' ELSE 'No' END AS StillInOtherGroups,
+                (SELECT COUNT(*)
+                 FROM OrganizationMembers om3
+                 JOIN Organizations o3 ON om3.OrganizationId = o3.OrganizationId
+                 WHERE om3.PeopleId = et.PeopleId AND om3.InactiveDate IS NULL AND o3.OrganizationStatusId = 30
+                ) AS ActiveGroupCount
+            FROM EnrollmentTransaction et
+            JOIN People p ON et.PeopleId = p.PeopleId
+            JOIN Organizations o ON et.OrganizationId = o.OrganizationId
+            LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
+            LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
+            LEFT JOIN lookup.MemberType mt ON et.MemberTypeId = mt.Id
+            LEFT JOIN Division d ON o.DivisionId = d.Id
+            LEFT JOIN Program prog ON d.ProgId = prog.Id
+            WHERE et.InactiveDate IS NOT NULL
+              AND et.TransactionStatus = 0
+              AND p.IsDeceased = 0
+              AND p.DeceasedDate IS NULL
+                {filters}
+            ORDER BY et.InactiveDate DESC
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown', 'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus",
+             'default': ''},
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''},
+            {'name': 'date_range', 'label': 'Drop Date Range', 'type': 'daterange', 'sql_column': 'et.InactiveDate',
+             'default': 'last_90_days'},
+            {'name': 'program_id', 'label': 'Program', 'type': 'dropdown', 'sql_column': 'prog.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Program ORDER BY Name",
+             'default': ''},
+            {'name': 'division_id', 'label': 'Division', 'type': 'dropdown', 'sql_column': 'd.Id',
+             'source_sql': "SELECT Id as value, Name as label FROM Division ORDER BY Name",
+             'default': ''},
+            {'name': 'org_type', 'label': 'Involvement Type', 'type': 'dropdown', 'sql_column': 'o.OrganizationTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.OrganizationType ORDER BY Description",
+             'default': ''},
+            {'name': 'member_type', 'label': 'Member Type', 'type': 'dropdown', 'sql_column': 'et.MemberTypeId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberType ORDER BY Description",
+             'default': ''}
+        ],
+        'display': {'types': ['table', 'chart', 'kpi'], 'default': 'table',
+                    'chart_type': 'bar', 'chart_label_col': 'Program',
+                    'chart_data_cols': ['TenureDays'],
+                    'formats': {}},
+        'bluetoolbar': {'supported': True},
+        'is_builtin': True
+    })
+
     # Sort reports alphabetically by name within each category
-    cat_order = ['attendance', 'demographics', 'engagement', 'membership', 'financial', 'communications', 'emergency', 'admin']
+    cat_order = ['attendance', 'demographics', 'engagement', 'membership', 'financial', 'transactions', 'communications', 'tasks', 'emergency', 'admin']
     cat_rank = {c: i for i, c in enumerate(cat_order)}
     reports.sort(key=lambda r: (cat_rank.get(r.get('category', 'zzz'), 99), r.get('name', '').lower()))
 
@@ -3334,7 +7345,8 @@ def get_default_reports():
 # REPORT EXECUTION ENGINE
 # ============================================================================
 
-def execute_report(report_def, filter_values, bt_people_ids=None, settings=None):
+def execute_report(report_def, filter_values, bt_people_ids=None, settings=None,
+                   current_org_id=None):
     """Execute a report SQL with filters applied. Returns dict with rows, columns, error."""
     sql = report_def.get('sql_template', '')
     if not sql:
@@ -3352,6 +7364,24 @@ def execute_report(report_def, filter_values, bt_people_ids=None, settings=None)
     sql = sql.replace('{filters}', filter_sql)
     sql = sql.replace('{filters_where}', ('WHERE ' + ' AND '.join(where_clauses)) if where_clauses else '')
     sql = sql.replace('{bluetoolbar_filter}', '')
+
+    # {current_org_filter}: when the script was launched from an involvement
+    # page (Blue Toolbar passed CurrentOrgId in the URL), reports that
+    # opt in via this placeholder get auto-scoped to that involvement.
+    # Reports that don't include the placeholder are unaffected.
+    if current_org_id and '{current_org_filter}' in sql:
+        sql = sql.replace('{current_org_filter}',
+                          'AND o.OrganizationId = {0}'.format(int(current_org_id)))
+    else:
+        sql = sql.replace('{current_org_filter}', '')
+    # Replace settings-driven placeholders
+    if settings:
+        fiscal_month = str(settings.get('fiscal_year_start_month', 10))
+        sql = sql.replace('{fiscal_month}', fiscal_month)
+        # {year_start} - driven by year_type parameter: 'fiscal' uses fiscal_month, 'calendar' uses 1
+        year_type = filter_values.get('year_type', 'calendar')
+        year_start = fiscal_month if year_type == 'fiscal' else '1'
+        sql = sql.replace('{year_start}', year_start)
 
     rows = []
     columns = []
@@ -3728,8 +7758,6 @@ def render_chart_data_json(result, report_def):
         except:
             pass
 
-    labels = [safe_str(r.get(label_col, '')) for r in rows]
-
     chart_colors = [
         'rgba(37, 99, 235, 0.7)', 'rgba(5, 150, 105, 0.7)', 'rgba(124, 58, 237, 0.7)',
         'rgba(220, 38, 38, 0.7)', 'rgba(217, 119, 6, 0.7)', 'rgba(8, 145, 178, 0.7)',
@@ -3737,28 +7765,67 @@ def render_chart_data_json(result, report_def):
     ]
     border_colors = [c.replace('0.7', '1') for c in chart_colors]
 
-    datasets = []
-    for di, dc in enumerate(data_cols):
-        data = []
+    # Support chart_group_col for pivoting normalized data (e.g., Year + Type + Count)
+    group_col = display.get('chart_group_col', '')
+    if group_col and len(data_cols) == 1:
+        value_col = data_cols[0]
+        # Pivot: unique labels from label_col, unique series from group_col
+        seen_labels = []
+        label_set = set()
+        series_names = []
+        series_set = set()
+        pivot = {}  # {label: {series: value}}
         for r in rows:
+            lbl = safe_str(r.get(label_col, ''))
+            grp = safe_str(r.get(group_col, ''))
+            if lbl not in label_set:
+                seen_labels.append(lbl)
+                label_set.add(lbl)
+            if grp not in series_set:
+                series_names.append(grp)
+                series_set.add(grp)
+            if lbl not in pivot:
+                pivot[lbl] = {}
             try:
-                data.append(float(r.get(dc, 0)))
+                pivot[lbl][grp] = float(r.get(value_col, 0))
             except:
-                data.append(0)
-        ds_label = year_labels.get(dc, re.sub(r'([a-z])([A-Z])', r'\1 \2', dc))
-        if chart_type == 'pie':
+                pivot[lbl][grp] = 0
+        labels = seen_labels
+        datasets = []
+        for si, sname in enumerate(series_names):
+            data = [pivot.get(lbl, {}).get(sname, 0) for lbl in labels]
             datasets.append({
-                'label': ds_label, 'data': data,
-                'backgroundColor': chart_colors[:len(data)],
-                'borderColor': border_colors[:len(data)], 'borderWidth': 1
-            })
-        else:
-            datasets.append({
-                'label': ds_label, 'data': data,
-                'backgroundColor': chart_colors[di % len(chart_colors)],
-                'borderColor': border_colors[di % len(border_colors)],
+                'label': sname if sname else '(none)',
+                'data': data,
+                'backgroundColor': chart_colors[si % len(chart_colors)],
+                'borderColor': border_colors[si % len(border_colors)],
                 'borderWidth': 2, 'fill': False
             })
+    else:
+        # Standard: each data_col is a series
+        labels = [safe_str(r.get(label_col, '')) for r in rows]
+        datasets = []
+        for di, dc in enumerate(data_cols):
+            data = []
+            for r in rows:
+                try:
+                    data.append(float(r.get(dc, 0)))
+                except:
+                    data.append(0)
+            ds_label = year_labels.get(dc, re.sub(r'([a-z])([A-Z])', r'\1 \2', dc))
+            if chart_type in ('pie', 'doughnut'):
+                datasets.append({
+                    'label': ds_label, 'data': data,
+                    'backgroundColor': chart_colors[:len(data)],
+                    'borderColor': border_colors[:len(data)], 'borderWidth': 1
+                })
+            else:
+                datasets.append({
+                    'label': ds_label, 'data': data,
+                    'backgroundColor': chart_colors[di % len(chart_colors)],
+                    'borderColor': border_colors[di % len(border_colors)],
+                    'borderWidth': 2, 'fill': False
+                })
 
     return json.dumps(sanitize_for_json({
         'type': chart_type, 'labels': labels, 'datasets': datasets
@@ -3819,9 +7886,16 @@ def render_filter_panel(report_def):
 
         elif ptype == 'dropdown':
             source_sql = p.get('source_sql', '')
+            static_options = p.get('options', [])
             html.append('<select name="filter_{0}" class="rb-filter-input" data-param="{0}">'.format(pname))
-            html.append('<option value="">All</option>')
-            if source_sql:
+            if not static_options:
+                html.append('<option value="">All</option>')
+            if static_options:
+                for opt in static_options:
+                    sel = ' selected' if str(opt.get('value', '')) == str(p.get('default', '')) else ''
+                    html.append('<option value="{0}"{2}>{1}</option>'.format(
+                        html_escape(str(opt.get('value', ''))), html_escape(str(opt.get('label', ''))), sel))
+            elif source_sql:
                 try:
                     for r in q.QuerySql(source_sql):
                         v = safe_str(r.value)
@@ -3941,7 +8015,7 @@ def find_report(report_id, user_id):
 # AJAX HANDLER
 # ============================================================================
 
-def handle_ajax(action, user_id, bt_people_ids):
+def handle_ajax(action, user_id, bt_people_ids, current_org_id=None):
     """Handle AJAX requests. Returns JSON response string."""
     settings = load_settings()
 
@@ -3969,7 +8043,12 @@ def handle_ajax(action, user_id, bt_people_ids):
             filter_values[pname] = val
 
         use_bt = bt_people_ids if report_def.get('bluetoolbar', {}).get('supported', False) else None
-        result = execute_report(report_def, filter_values, use_bt, settings)
+        # current_org_id is only honored when BT is supported AND active.
+        # Without BT, the user is browsing reports normally and shouldn't
+        # be silently scoped to an org they may have visited days ago.
+        use_org = current_org_id if (use_bt and current_org_id) else None
+        result = execute_report(report_def, filter_values, use_bt, settings,
+                                current_org_id=use_org)
 
         if result.get('error'):
             return json.dumps(sanitize_for_json({'success': False, 'error': result['error']}))
@@ -4037,7 +8116,9 @@ def handle_ajax(action, user_id, bt_people_ids):
             filter_values[pname] = val
 
         use_bt = bt_people_ids if report_def.get('bluetoolbar', {}).get('supported', False) else None
-        result = execute_report(report_def, filter_values, use_bt, settings)
+        use_org = current_org_id if (use_bt and current_org_id) else None
+        result = execute_report(report_def, filter_values, use_bt, settings,
+                                current_org_id=use_org)
         csv_data = render_csv(result)
         return json.dumps(sanitize_for_json({
             'success': True, 'csv': csv_data,
@@ -4175,6 +8256,10 @@ def handle_ajax(action, user_id, bt_people_ids):
             rr_json = get_param('report_roles', '')
             if rr_json:
                 updated['report_roles'] = json.loads(rr_json)
+            # Engagement weights
+            ew_json = get_param('engagement_weights', '')
+            if ew_json:
+                updated['engagement_weights'] = json.loads(ew_json)
             ok = save_settings(updated)
             return json.dumps({'success': ok})
         except Exception as e:
@@ -4502,7 +8587,7 @@ def handle_ajax(action, user_id, bt_people_ids):
                     'lastAttend': safe_str(r.LastAttend),
                 })
 
-            # Engagement stats
+            # Engagement stats (configurable weighted scoring)
             try:
                 eng_sql = """
                     SELECT
@@ -4511,7 +8596,13 @@ def handle_ajax(action, user_id, bt_people_ids):
                         (SELECT DATEDIFF(day, MAX(a.MeetingDate), GETDATE())
                          FROM Attend a WHERE a.PeopleId = {0} AND a.AttendanceFlag = 1) AS DaysSince,
                         (SELECT COUNT(DISTINCT om.OrganizationId) FROM OrganizationMembers om
-                         WHERE om.PeopleId = {0} AND om.MemberTypeId > 100) AS ServingCount,
+                         JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                         WHERE om.PeopleId = {0} AND om.MemberTypeId IN (140, 310, 320, 710)
+                         AND o.OrganizationStatusId = 30 AND om.InactiveDate IS NULL) AS ServingCount,
+                        (SELECT COUNT(DISTINCT om.OrganizationId) FROM OrganizationMembers om
+                         JOIN Organizations o ON om.OrganizationId = o.OrganizationId
+                         WHERE om.PeopleId = {0} AND o.OrganizationStatusId = 30
+                         AND om.InactiveDate IS NULL) AS GroupCount,
                         (SELECT TOP 1 CONVERT(varchar, a.MeetingDate, 101) + ' - ' + o.OrganizationName
                          FROM Attend a JOIN Organizations o ON a.OrganizationId = o.OrganizationId
                          WHERE a.PeopleId = {0} AND a.AttendanceFlag = 1
@@ -4519,29 +8610,73 @@ def handle_ajax(action, user_id, bt_people_ids):
                 """.format(pid)
                 eng = q.QuerySqlTop1(eng_sql)
                 if eng:
-                    a90 = eng.Attend90 if eng.Attend90 else 0
-                    ds = eng.DaysSince
-                    srv = eng.ServingCount if eng.ServingCount else 0
-                    score = 10
-                    if a90 >= 9: score += 40
-                    elif a90 >= 6: score += 30
-                    elif a90 >= 3: score += 20
-                    elif a90 >= 1: score += 10
-                    if ds is not None:
-                        if ds <= 7: score += 15
-                        elif ds <= 14: score += 10
-                        elif ds <= 30: score += 5
-                        elif ds > 90: score -= 10
-                    if srv > 0: score += 20
-                    if len(detail['involvements']) > 0: score += 10
+                    a90 = int(eng.Attend90) if eng.Attend90 else 0
+                    ds = int(eng.DaysSince) if eng.DaysSince is not None else None
+                    srv = int(eng.ServingCount) if eng.ServingCount else 0
+                    grp = int(eng.GroupCount) if eng.GroupCount else 0
+
+                    # Score each factor 0-100
+                    def _score_recency(d):
+                        if d is None: return 0
+                        if d <= 7: return 100
+                        if d <= 14: return 85
+                        if d <= 30: return 70
+                        if d <= 60: return 40
+                        if d <= 90: return 20
+                        return 5
+                    def _score_frequency(n):
+                        if n >= 10: return 100
+                        if n >= 7: return 80
+                        if n >= 4: return 60
+                        if n >= 2: return 40
+                        if n >= 1: return 20
+                        return 0
+                    def _score_groups(n):
+                        if n >= 4: return 100
+                        if n >= 3: return 80
+                        if n >= 2: return 60
+                        if n >= 1: return 40
+                        return 0
+                    def _score_serving(n):
+                        if n >= 3: return 100
+                        if n >= 2: return 80
+                        if n >= 1: return 60
+                        return 0
+
+                    factor_scores = {
+                        'attend_recency': _score_recency(ds),
+                        'attend_frequency': _score_frequency(a90),
+                        'group_involvement': _score_groups(grp),
+                        'serving': _score_serving(srv),
+                    }
+
+                    # Apply configurable weights
+                    ew = settings.get('engagement_weights', DEFAULT_SETTINGS['engagement_weights'])
+                    total_weight = 0
+                    weighted_sum = 0
+                    factor_detail = {}
+                    for fk, fs in factor_scores.items():
+                        fd = ew.get(fk, {'enabled': True, 'weight': 20})
+                        if fd.get('enabled', True):
+                            w = fd.get('weight', 20)
+                            total_weight += w
+                            weighted_sum += fs * w
+                            factor_detail[fk] = {'score': fs, 'weight': w}
+                        else:
+                            factor_detail[fk] = {'score': fs, 'weight': 0, 'disabled': True}
+
+                    score = int(round(weighted_sum / total_weight)) if total_weight > 0 else 0
                     score = max(0, min(100, score))
+
                     if ds is not None and ds <= 30: status = 'Active'
                     elif ds is not None and ds > 90: status = 'Inactive'
                     else: status = 'Occasional'
+
                     detail['engagement'] = {
                         'score': score, 'status': status, 'attend90': a90,
-                        'daysSince': ds, 'servingCount': srv,
+                        'daysSince': ds, 'servingCount': srv, 'groupCount': grp,
                         'lastAttendance': safe_str(eng.LastAttendance) if eng.LastAttendance else None,
+                        'factors': factor_detail,
                     }
             except:
                 pass
@@ -4597,6 +8732,7 @@ def build_css():
 .rb-report-item:hover{background:#e2e8f0;color:#1e293b}
 .rb-report-item.active{background:#dbeafe;color:#1d4ed8;font-weight:600}
 .rb-report-item .fa,.rb-report-item .fas{width:16px;font-size:11px;text-align:center}
+.rb-bt-badge{margin-left:auto;color:#2563eb;font-size:9px;opacity:0.5}.rb-report-item:hover .rb-bt-badge{opacity:0.8}
 .rb-sidebar-footer{padding:12px 16px;border-top:1px solid #e2e8f0;background:#fff}
 .rb-new-report-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:8px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;transition:background 0.15s}
 .rb-new-report-btn:hover{background:#1d4ed8}
@@ -4658,16 +8794,15 @@ def build_css():
 .rb-welcome-card:hover{border-color:#93c5fd;background:#eff6ff}
 .rb-welcome-card h4{margin:0 0 4px;font-size:14px;color:#1e293b}
 .rb-welcome-card p{margin:0;font-size:12px;color:#64748b}
-.rb-modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;justify-content:center;align-items:flex-start;padding-top:40px}
-.rb-modal-overlay.open{display:flex}
-.rb-modal{background:#fff;border-radius:12px;width:90%;max-width:800px;max-height:calc(100vh - 80px);display:flex;flex-direction:column;box-shadow:0 25px 50px rgba(0,0,0,0.15)}
-.rb-modal .rb-modal-body{overflow-y:auto;flex:1}
-.rb-modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0}
+#rb-settings-overlay,#rb-modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;overflow-y:auto}
+#rb-settings-overlay.open,#rb-modal-overlay.open{display:block}
+#rb-settings-overlay>.rb-modal,#rb-modal-overlay>.rb-modal{background:#fff;border-radius:12px;width:90%;max-width:800px;margin:30px auto;box-shadow:0 25px 50px rgba(0,0,0,0.15)}
+#rb-settings-overlay .rb-modal-header,#rb-modal-overlay .rb-modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0}
 .rb-modal-header h3{margin:0;font-size:16px}
 .rb-modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:#94a3b8;padding:4px 8px}
 .rb-modal-close:hover{color:#475569}
-.rb-modal-body{padding:20px}
-.rb-modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px;border-top:1px solid #e2e8f0}
+#rb-settings-overlay .rb-modal-body,#rb-modal-overlay .rb-modal-body{padding:20px;overflow-y:auto;max-height:calc(100vh - 200px)}
+#rb-settings-overlay .rb-modal-footer,#rb-modal-overlay .rb-modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px;border-top:1px solid #e2e8f0}
 .rb-form-group{margin-bottom:16px}
 .rb-form-group label{display:block;font-size:13px;font-weight:600;color:#475569;margin-bottom:4px}
 .rb-form-input{width:100%;padding:8px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px;box-sizing:border-box}
@@ -4770,6 +8905,7 @@ var currentReport=null,currentDisplay="table",currentChart=null,currentGrid=null
 var agEnterprise=''' + ('true' if ag_enterprise else 'false') + ''';
 var isAdmin=''' + ('true' if is_admin else 'false') + ''';
 var btPeopleIds=''' + bt_json + ''',btCount=''' + str(bt_count) + ''';
+var currentOrgIdFromUrl=null;  /* hydrated from sessionStorage after BT redirect */
 var selectedOrg=null;var selectedOrgName="";var orgPeopleIds=[];var searchTimer=null;
 var lastGridData=null;
 var ctEnabled=''' + ('true' if ct_enabled else 'false') + ''';
@@ -4828,6 +8964,9 @@ function runReport(){
     var p={action:"run_report",report_id:currentReport,display_type:currentDisplay};
     // Send people IDs for org/BT filtering
     if(btPeopleIds&&btPeopleIds.length>0) p.people_ids=btPeopleIds.join(",");
+    // Forward CurrentOrgId so BT-supported reports with {current_org_filter}
+    // get scoped to the involvement the BT was invoked from.
+    if(currentOrgIdFromUrl) p.current_org_id=currentOrgIdFromUrl;
     var ins=document.querySelectorAll("#rb-filter-panel .rb-filter-input");
     for(var i=0;i<ins.length;i++){var el=ins[i];var pn=el.getAttribute("data-param");if(pn){if(el.multiple){var sv=[];for(var j=0;j<el.options.length;j++){if(el.options[j].selected)sv.push(el.options[j].value)}p["filter_"+pn]=sv.join(",")}else{p["filter_"+pn]=el.value||""}}}
     ajax(p,function(r){
@@ -5041,7 +9180,13 @@ function buildGrid(gd){
             ["childname",["ChildPeopleId","ChildPeople_Id"]],
             ["child_name",["ChildPeopleId","ChildPeople_Id"]],
             ["leadername",["LeaderPeopleId","LeaderId","LeaderPeople_Id"]],
-            ["leader_name",["LeaderPeopleId","LeaderId","LeaderPeople_Id"]]
+            ["leader_name",["LeaderPeopleId","LeaderId","LeaderPeople_Id"]],
+            ["assignee",["AssigneeId","Assignee_Id",mainPid]],
+            ["assigneename",["AssigneeId","Assignee_Id",mainPid]],
+            ["assignee_name",["AssigneeId","Assignee_Id",mainPid]],
+            ["staffmember",["StaffMemberId","Staff_Id",mainPid]],
+            ["ownername",["OwnerId","Owner_Id"]],
+            ["owner_name",["OwnerId","Owner_Id"]]
         ];
         function _addRenderer(col,pf){
             col.cellRenderer=function(params){
@@ -5157,6 +9302,7 @@ function exportCsv(){
     if(!currentReport) return;
     var p={action:"export_csv",report_id:currentReport};
     if(btPeopleIds&&btPeopleIds.length>0) p.people_ids=btPeopleIds.join(",");
+    if(currentOrgIdFromUrl) p.current_org_id=currentOrgIdFromUrl;
     var ins=document.querySelectorAll("#rb-filter-panel .rb-filter-input");
     for(var i=0;i<ins.length;i++){var el=ins[i];var pn=el.getAttribute("data-param");if(pn){if(el.multiple){var sv=[];for(var j=0;j<el.options.length;j++){if(el.options[j].selected)sv.push(el.options[j].value)}p["filter_"+pn]=sv.join(",")}else{p["filter_"+pn]=el.value||""}}}
     ajax(p,function(r){
@@ -5352,10 +9498,12 @@ function closeOrgDropdown(){
 /* Settings */
 function openSettings(){
     var o=document.getElementById("rb-settings-overlay");if(o) o.classList.add("open");
+    document.body.style.overflow="hidden";
     initSettingsUI();
 }
 function closeSettings(){
     var o=document.getElementById("rb-settings-overlay");if(o) o.classList.remove("open");
+    document.body.style.overflow="";
 }
 function saveSettings(){
     var fiscal=document.getElementById("rb-set-fiscal");
@@ -5407,12 +9555,14 @@ function saveSettings(){
         report_roles:JSON.stringify(reportRoles),
         contact_tracking:ctEn&&ctEn.checked?"true":"false",
         contact_lookback_days:ctDays?ctDays.value:"90",
-        contact_methods:JSON.stringify(_ctMethods)
+        contact_methods:JSON.stringify(_ctMethods),
+        engagement_weights:JSON.stringify(_collectEngagementWeights())
     },function(r){
         if(r.success){closeSettings();window.location.reload()}
         else alert(r.error||"Save failed");
     });
 }
+function _collectEngagementWeights(){var ew={};var els=document.querySelectorAll(".rb-ew-enabled");for(var i=0;i<els.length;i++){var f=els[i].getAttribute("data-factor");var wEl=document.querySelector('.rb-ew-weight[data-factor="'+f+'"]');ew[f]={enabled:els[i].checked,weight:wEl?parseInt(wEl.value)||0:0}}return ew}
 function initSettingsUI(){
     var cb=document.getElementById("rb-set-ag-enterprise");
     if(cb){cb.addEventListener("change",function(){
@@ -5509,6 +9659,15 @@ function hydrateBt(ids){
     var sw=document.getElementById("rb-org-search-wrap");if(sw) sw.style.display="none";
     var hint=document.getElementById("rb-scope-hint");if(hint) hint.style.display="none";
     var bar=document.getElementById("rb-scope-bar");if(bar) bar.classList.add("has-selection");
+}
+
+function hydrateCurrentOrg(oid){
+    /* Stores the CurrentOrgId so subsequent run_report / export_csv AJAX
+       calls include it. Reports that opt in via {current_org_filter}
+       will auto-scope to this involvement. No UI surface yet -- the
+       value just rides along with the BT chip. */
+    if(!oid||oid<=0) return;
+    currentOrgIdFromUrl=oid;
 }
 
 /* Help */
@@ -5715,22 +9874,31 @@ function _renderPersonDetail(pid,d){
     if(ms.length){for(var i=0;i<ms.length;i++) h+='<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:12px"><span>'+ms[i].icon+' '+ms[i].label+'</span><span style="color:#64748b">'+ms[i].date+'</span></div>';}
     else h+='<span style="color:#94a3b8;font-size:12px">None recorded</span>';
     h+='</div>';
-    // Recent Activity
-    h+='<div class="rb-pm-section"><h4>&#9200; Recent Activity</h4>';
-    if(eng){
-        if(eng.lastAttendance) h+='<div style="font-size:12px;padding:2px 0"><span style="color:#64748b">Last seen:</span> '+eng.lastAttendance+'</div>';
-        if(eng.attend90!==undefined){
-            var fl=eng.attend90>=9?"Weekly":eng.attend90>=6?"Bi-weekly":eng.attend90>=3?"Monthly":eng.attend90>0?"Occasional":"None";
-            var fc=eng.attend90>=6?"#059669":eng.attend90>=3?"#d97706":"#dc2626";
-            h+='<div style="font-size:12px;padding:2px 0"><span style="color:#64748b">90d:</span> '+eng.attend90+'x <span style="color:'+fc+'">'+fl+'</span></div>';
-        }
-        if(eng.servingCount>0) h+='<div style="font-size:12px;padding:2px 0"><span style="color:#64748b">Serving:</span> '+eng.servingCount+' role(s)</div>';
-        if(eng.daysSince!=null){
-            var dsc=eng.daysSince<=30?"#059669":eng.daysSince<=90?"#d97706":"#dc2626";
-            h+='<div style="font-size:12px;padding:2px 0"><span style="color:#64748b">Days since:</span> <span style="color:'+dsc+'">'+eng.daysSince+'</span>';
-            if(eng.daysSince>90) h+=' <span style="color:#dc2626">(follow up)</span>';
+    // Engagement Factors
+    h+='<div class="rb-pm-section"><h4>&#9200; Engagement Breakdown</h4>';
+    if(eng&&eng.factors){
+        var fLabels={attend_recency:"Attend Recency",attend_frequency:"Attend Frequency",group_involvement:"Groups",serving:"Serving"};
+        var fIcons={attend_recency:"&#128197;",attend_frequency:"&#128200;",group_involvement:"&#128101;",serving:"&#9997;"};
+        var fDetails={};
+        if(eng.daysSince!=null) fDetails.attend_recency=eng.daysSince+"d ago";
+        fDetails.attend_frequency=eng.attend90+"x (90d)";
+        fDetails.group_involvement=(eng.groupCount||0)+" orgs";
+        fDetails.serving=(eng.servingCount||0)+" roles";
+        var fKeys=["attend_recency","attend_frequency","group_involvement","serving"];
+        for(var fi=0;fi<fKeys.length;fi++){
+            var fk=fKeys[fi];var ff=eng.factors[fk];if(!ff)continue;
+            if(ff.disabled){h+='<div style="font-size:11px;padding:2px 0;opacity:0.4"><span>'+fIcons[fk]+' '+fLabels[fk]+'</span> <span style="color:#94a3b8">disabled</span></div>';continue;}
+            var fs=ff.score;var fw=ff.weight;
+            var fbc=fs>=70?"#059669":fs>=40?"#d97706":"#dc2626";
+            h+='<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:11px">';
+            h+='<span style="width:14px">'+fIcons[fk]+'</span>';
+            h+='<span style="width:85px;color:#475569">'+fLabels[fk]+'</span>';
+            h+='<div style="flex:1;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden"><div style="width:'+fs+'%;height:100%;background:'+fbc+';border-radius:3px"></div></div>';
+            h+='<span style="width:28px;text-align:right;font-weight:600;color:'+fbc+'">'+fs+'</span>';
+            h+='<span style="width:55px;color:#94a3b8;font-size:10px">'+((fDetails[fk])||"")+'</span>';
             h+='</div>';
         }
+        if(eng.lastAttendance) h+='<div style="font-size:11px;color:#64748b;margin-top:4px;border-top:1px solid #f1f5f9;padding-top:3px">Last: '+eng.lastAttendance+'</div>';
     } else h+='<span style="color:#94a3b8;font-size:12px">No data</span>';
     h+='</div></div>';
     // Current Involvements
@@ -5787,7 +9955,7 @@ return{selectReport:selectReport,runReport:runReport,setDisplay:setDisplay,expor
     saveCustomReport:saveCustomReport,validateSql:validateSql,deleteReport:deleteReport,
     filterSidebar:filterSidebar,toggleCategory:toggleCategory,dismissBt:dismissBt,
     onOrgSearch:onOrgSearch,pickOrg:pickOrg,clearScope:clearScope,closeOrgDropdown:closeOrgDropdown,
-    hydrateBt:hydrateBt,openSettings:openSettings,closeSettings:closeSettings,saveSettings:saveSettings,
+    hydrateBt:hydrateBt,hydrateCurrentOrg:hydrateCurrentOrg,openSettings:openSettings,closeSettings:closeSettings,saveSettings:saveSettings,
     showBulkAction:showBulkAction,closeBulkModal:closeBulkModal,executeBulkTag:executeBulkTag,
     executeBulkTask:executeBulkTask,executeBulkNote:executeBulkNote,searchAssignee:searchAssignee,pickAssignee:pickAssignee,
     checkForUpdate:checkForUpdate,applyUpdate:applyUpdate,toggleHelp:toggleHelp,
@@ -5817,6 +9985,16 @@ window.addEventListener("load",function(){
             }
         }
     }catch(e){}
+    // CurrentOrgId hydration -- forwarded on every AJAX so BT-supported
+    // reports with {current_org_filter} get scoped to the involvement
+    // the user came from.
+    try{
+        var oid=sessionStorage.getItem("rb_current_org_id");
+        if(oid){
+            sessionStorage.removeItem("rb_current_org_id");
+            if(RB.hydrateCurrentOrg) RB.hydrateCurrentOrg(parseInt(oid,10));
+        }
+    }catch(e){}
 });
 '''
 
@@ -5840,7 +10018,7 @@ def build_sidebar_html(all_reports):
             cat_reports[cat] = []
         cat_reports[cat].append(r)
 
-    cat_order = ['attendance', 'demographics', 'engagement', 'membership', 'financial', 'communications', 'emergency', 'admin']
+    cat_order = ['attendance', 'demographics', 'engagement', 'membership', 'financial', 'transactions', 'communications', 'tasks', 'emergency', 'admin']
     rendered = set()
 
     for ck in cat_order:
@@ -5856,7 +10034,8 @@ def build_sidebar_html(all_reports):
         html.append('</div><div class="rb-cat-body">')
         for r in cat_reports[ck]:
             html.append('<div class="rb-report-item" data-id="{0}" onclick="RB.selectReport(\'{0}\')">'.format(html_escape(r['id'])))
-            html.append('<i class="fas {0}"></i> {1}</div>'.format(r.get('icon', 'fa-file-alt'), html_escape(r.get('name', ''))))
+            bt_badge = ' <span class="rb-bt-badge" title="Supports Blue Toolbar"><i class="fas fa-hand-pointer"></i></span>' if r.get('bluetoolbar', {}).get('supported', False) else ''
+            html.append('<i class="fas {0}"></i> {1}{2}</div>'.format(r.get('icon', 'fa-file-alt'), html_escape(r.get('name', '')), bt_badge))
         html.append('</div></div>')
 
     # Custom reports
@@ -6059,7 +10238,7 @@ def build_settings_modal(settings):
         reports_by_cat[rcat].append({'id': r.get('id', ''), 'name': r.get('name', '')})
     report_roles = settings.get('report_roles', {})
 
-    cat_order = ['attendance', 'demographics', 'engagement', 'membership', 'financial', 'communications', 'emergency', 'admin']
+    cat_order = ['attendance', 'demographics', 'engagement', 'membership', 'financial', 'transactions', 'communications', 'tasks', 'emergency', 'admin']
     for ck in cat_order:
         ci = CATEGORIES.get(ck, {})
         roles = cat_roles.get(ck, [])
@@ -6147,13 +10326,37 @@ def build_settings_modal(settings):
     html.append('</div>')
     html.append('</div>')
 
+    # ---- Engagement Score Weights ----
+    ew = settings.get('engagement_weights', DEFAULT_SETTINGS['engagement_weights'])
+    factor_labels = {
+        'attend_recency': ('Attendance Recency', 'How recently the person attended (days since last visit)'),
+        'attend_frequency': ('Attendance Frequency', 'How often they attend (count in last 90 days)'),
+        'group_involvement': ('Group Involvement', 'Number of active organization memberships'),
+        'serving': ('Serving', 'Leadership or volunteer roles (member types 140, 310, 320, 710)'),
+    }
+    html.append('<hr style="margin:20px 0;border-color:#e2e8f0">')
+    html.append('<h4 style="margin:0 0 12px"><i class="fas fa-chart-line"></i> Engagement Score Weights</h4>')
+    html.append('<p style="font-size:12px;color:#64748b;margin:0 0 12px">Configure how the engagement score (0-100) is calculated for each person. Weights are relative &mdash; they are normalized to 100% automatically. Disable a factor to exclude it entirely.</p>')
+    html.append('<div id="rb-ew-list">')
+    for fkey in ['attend_recency', 'attend_frequency', 'group_involvement', 'serving']:
+        fd = ew.get(fkey, {'enabled': True, 'weight': 20})
+        fl = factor_labels.get(fkey, (fkey, ''))
+        chk = 'checked' if fd.get('enabled', True) else ''
+        html.append('<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f1f5f9">')
+        html.append('<input type="checkbox" class="rb-ew-enabled" data-factor="{0}" {1}>'.format(fkey, chk))
+        html.append('<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">{0}</div><div style="font-size:11px;color:#94a3b8">{1}</div></div>'.format(fl[0], fl[1]))
+        html.append('<div style="width:70px"><input type="number" class="rb-ew-weight rb-form-input" data-factor="{0}" value="{1}" min="0" max="100" style="width:60px;text-align:center;padding:4px"></div>'.format(fkey, fd.get('weight', 20)))
+        html.append('</div>')
     html.append('</div>')
-    html.append('</div>')
+    html.append('<div id="rb-ew-total" style="text-align:right;font-size:12px;color:#64748b;margin-top:6px">Total weight: <strong>--</strong> (will be normalized to 100%)</div>')
+
+    html.append('</div>')  # close rb-modal-body
 
     html.append('<div class="rb-modal-footer">')
     html.append('<button class="rb-btn rb-btn-secondary" onclick="RB.closeSettings()">Cancel</button>')
     html.append('<button class="rb-btn rb-btn-success" onclick="RB.saveSettings()"><i class="fas fa-save"></i> Save Settings</button>')
-    html.append('</div></div></div>')
+    html.append('</div>')  # close rb-modal-footer
+    html.append('</div></div>')  # close rb-modal + rb-modal-overlay
     return ''.join(html)
 
 def build_person_modal():
@@ -6252,7 +10455,19 @@ if model.HttpMethod == 'post' and get_param('ajax') == 'true':
         except:
             pass
 
-    response = handle_ajax(action, current_user_id, ajax_people_ids)
+    # current_org_id (from URL CurrentOrgId) hydrated client-side via
+    # sessionStorage and forwarded on every AJAX call. Reports that opt
+    # in via {current_org_filter} placeholder get auto-scoped to it.
+    ajax_current_org_id = None
+    raw_oid = get_param('current_org_id', '')
+    if raw_oid:
+        try:
+            ajax_current_org_id = int(raw_oid)
+        except:
+            pass
+
+    response = handle_ajax(action, current_user_id, ajax_people_ids,
+                           current_org_id=ajax_current_org_id)
     print response
 
 else:
@@ -6269,6 +10484,22 @@ else:
     bt_people_ids = detect_blue_toolbar()
     bt_count = len(bt_people_ids)
     bt_json_for_redirect = json.dumps([int(p) for p in bt_people_ids]) if bt_people_ids else '[]'
+
+    # CurrentOrgId arrives on the URL when Blue Toolbar is invoked from an
+    # involvement page (Reports > Custom Reports > script). It's only valid
+    # on the initial /PyScript/ load -- we stash it in sessionStorage so the
+    # /PyScriptForm/ page (and subsequent AJAX calls) can use it to scope
+    # reports to that one involvement.
+    current_org_id_from_url = None
+    try:
+        if hasattr(model.Data, 'CurrentOrgId'):
+            _coid = model.Data.CurrentOrgId
+            if _coid:
+                current_org_id_from_url = int(_coid)
+    except:
+        pass
+    current_org_json_for_redirect = (str(current_org_id_from_url)
+                                     if current_org_id_from_url else 'null')
 
     # The page always renders fully. A JS block at the top detects /PyScript/,
     # stores BT data in sessionStorage, and redirects to /PyScriptForm/.
@@ -6310,6 +10541,10 @@ else:
     var btPeople = ''' + bt_people_ids_for_redirect + ''';
     if (btPeople.length > 0) {
         sessionStorage.setItem("rb_bt_people", JSON.stringify(btPeople));
+    }
+    var currentOrgId = ''' + current_org_json_for_redirect + ''';
+    if (currentOrgId) {
+        sessionStorage.setItem("rb_current_org_id", String(currentOrgId));
     }
     window.location.href = "/PyScriptForm/" + scriptName;
 })();
