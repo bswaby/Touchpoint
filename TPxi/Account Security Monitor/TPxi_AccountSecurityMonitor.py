@@ -6898,6 +6898,121 @@ class EnumerationMonitor:
                        match_pct, match_count_html, rate_label, rate_msg,
                        country_chips)
 
+            # Summary cards (one per signal type)
+            print '<h3 style="margin:18px 0 10px 0;">Signal breakdown</h3>'
+            print '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:24px;">'
+            if not summary:
+                print '<div style="grid-column:1/-1;padding:16px;background:#f0fff4;color:#22543d;border-radius:6px;">No enumeration signals found in the last {0} days. (That\'s good.)</div>'.format(lookback_days)
+            else:
+                for row in summary:
+                    label = _safe_str(getattr(row, 'Signal', ''))
+                    hits = getattr(row, 'Hits', 0) or 0
+                    uips = getattr(row, 'UniqueIps', 0) or 0
+                    last = getattr(row, 'LastSeen', None)
+                    last_str = format_datetime(last) if last else '-'
+                    # Color the card by intent
+                    if 'invalid' in label.lower():
+                        accent = '#c53030'  # red -- bot
+                    elif 'no match' in label.lower():
+                        accent = '#dd6b20'  # orange -- targeted
+                    elif 'login' in label.lower():
+                        accent = '#b7791f'  # amber -- login probe
+                    else:
+                        accent = '#4a5568'
+                    print """
+                    <div style="background:white;border-left:4px solid {0};
+                                padding:14px 16px;border-radius:6px;
+                                box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+                        <div style="font-size:12px;color:#718096;text-transform:uppercase;
+                                    letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">
+                            {1}
+                        </div>
+                        <div style="font-size:30px;font-weight:700;color:#1a202c;">
+                            {2:,}
+                        </div>
+                        <div style="font-size:12px;color:#718096;margin-top:4px;">
+                            {3:,} unique IPs &middot; last: {4}
+                        </div>
+                    </div>
+                    """.format(accent, label, hits, uips, last_str)
+            print '</div>'
+
+            # Group the attempt log two ways from the same query:
+            #   cidr_attempts_map  -> keyed by /24 prefix (network drilldown)
+            #   ip_attempts_map    -> keyed by full IP   (per-IP drilldown)
+            # Both ship to the browser as JS maps so onclick handlers can
+            # look up the right slice in O(1) without a server round-trip.
+            cidr_attempts_map = {}
+            ip_attempts_map = {}
+            for r in cidr_attempt_rows:
+                ip_addr = _safe_str(getattr(r, 'ClientIp', ''))
+                if not ip_addr:
+                    continue
+                cidr = _cidr_24(ip_addr)
+                when = getattr(r, 'ActivityDate', None)
+                act = _safe_str(getattr(r, 'Activity', ''))
+                when_str = format_datetime(when) if when else ''
+                attempt = {
+                    'when': when_str,
+                    'ip': ip_addr,
+                    'activity': act[:300],
+                }
+                if cidr:
+                    bucket = cidr_attempts_map.setdefault(cidr, [])
+                    if len(bucket) < 100:
+                        bucket.append(attempt)
+                ip_bucket = ip_attempts_map.setdefault(ip_addr, [])
+                if len(ip_bucket) < 100:
+                    ip_bucket.append(attempt)
+
+            # CIDR /24 aggregation -- shows the COORDINATED side: which
+            # /24 networks are running the bots, with geo + hosting-provider
+            # context. This is where you actually decide what to block.
+            print '<h3 style="margin:18px 0 10px 0;">Attacker networks (/24 aggregated) <span style="font-size:12px;color:#666;font-weight:normal;">&mdash; click any row for the attempt log</span></h3>'
+            if not cidr_rows:
+                print '<p style="color:#666;">No network-level patterns detected.</p>'
+            else:
+                print """
+                <table style="width:100%;border-collapse:collapse;font-size:13px;
+                              background:white;border-radius:6px;overflow:hidden;
+                              box-shadow:0 1px 3px rgba(0,0,0,0.06);margin-bottom:24px;">
+                    <thead>
+                        <tr style="background:#1a202c;color:white;">
+                            <th style="text-align:left;padding:10px;">CIDR</th>
+                            <th style="text-align:right;padding:10px;">IPs</th>
+                            <th style="text-align:right;padding:10px;">Total</th>
+                            <th style="text-align:left;padding:10px;">Country</th>
+                            <th style="text-align:left;padding:10px;">Org / Hosting</th>
+                            <th style="text-align:left;padding:10px;">Severity</th>
+                            <th style="text-align:right;padding:10px;">&nbsp;</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                """
+                for b in cidr_rows[:15]:
+                    sev_bg = '#fed7d7' if b['abuse_severity'] == 'high' else \
+                             '#feebc8' if b['abuse_severity'] == 'med' else '#f7fafc'
+                    countries = ', '.join(sorted(b['countries']))[:80] or '-'
+                    orgs = ', '.join(sorted(b['orgs']))[:120] or '-'
+                    abuse = b['abuse_label'] or 'unknown'
+                    cidr_safe = b['cidr'].replace("'", "\\'")
+                    print """
+                    <tr style="background:{0};border-bottom:1px solid #e5e5e5;cursor:pointer;"
+                        onclick="enumShowCidr('{1}')"
+                        onmouseover="this.style.filter='brightness(0.96)';"
+                        onmouseout="this.style.filter='';">
+                        <td style="padding:8px;font-family:Consolas,monospace;font-weight:600;">{1}</td>
+                        <td style="text-align:right;padding:8px;">{2}</td>
+                        <td style="text-align:right;padding:8px;font-weight:700;font-size:15px;">{3:,}</td>
+                        <td style="padding:8px;">{4}</td>
+                        <td style="padding:8px;color:#4a5568;">{5}</td>
+                        <td style="padding:8px;font-size:11px;text-transform:uppercase;font-weight:600;color:#742a2a;">{6}</td>
+                        <td style="text-align:right;padding:8px;color:#999;font-size:18px;">&rsaquo;</td>
+                    </tr>
+                    """.format(sev_bg, cidr_safe, len(b['ips']), b['attempts'],
+                               countries, orgs, abuse)
+                print '</tbody></table>'
+
             # ::STEP:: Cross-IP correlation -- the coordinated-targeting view
             # "Which emails are being hit from multiple IPs?" The strongest
             # signal that the attacker has a SHARED LIST and is working
@@ -7018,121 +7133,6 @@ class EnumerationMonitor:
                                c['total_hits'], chip_html,
                                format_datetime_short(c['first']) if c['first'] else '-',
                                format_datetime_short(c['last']) if c['last'] else '-')
-                print '</tbody></table>'
-
-            # Summary cards (one per signal type)
-            print '<h3 style="margin:18px 0 10px 0;">Signal breakdown</h3>'
-            print '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:24px;">'
-            if not summary:
-                print '<div style="grid-column:1/-1;padding:16px;background:#f0fff4;color:#22543d;border-radius:6px;">No enumeration signals found in the last {0} days. (That\'s good.)</div>'.format(lookback_days)
-            else:
-                for row in summary:
-                    label = _safe_str(getattr(row, 'Signal', ''))
-                    hits = getattr(row, 'Hits', 0) or 0
-                    uips = getattr(row, 'UniqueIps', 0) or 0
-                    last = getattr(row, 'LastSeen', None)
-                    last_str = format_datetime(last) if last else '-'
-                    # Color the card by intent
-                    if 'invalid' in label.lower():
-                        accent = '#c53030'  # red -- bot
-                    elif 'no match' in label.lower():
-                        accent = '#dd6b20'  # orange -- targeted
-                    elif 'login' in label.lower():
-                        accent = '#b7791f'  # amber -- login probe
-                    else:
-                        accent = '#4a5568'
-                    print """
-                    <div style="background:white;border-left:4px solid {0};
-                                padding:14px 16px;border-radius:6px;
-                                box-shadow:0 1px 3px rgba(0,0,0,0.06);">
-                        <div style="font-size:12px;color:#718096;text-transform:uppercase;
-                                    letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">
-                            {1}
-                        </div>
-                        <div style="font-size:30px;font-weight:700;color:#1a202c;">
-                            {2:,}
-                        </div>
-                        <div style="font-size:12px;color:#718096;margin-top:4px;">
-                            {3:,} unique IPs &middot; last: {4}
-                        </div>
-                    </div>
-                    """.format(accent, label, hits, uips, last_str)
-            print '</div>'
-
-            # Group the attempt log two ways from the same query:
-            #   cidr_attempts_map  -> keyed by /24 prefix (network drilldown)
-            #   ip_attempts_map    -> keyed by full IP   (per-IP drilldown)
-            # Both ship to the browser as JS maps so onclick handlers can
-            # look up the right slice in O(1) without a server round-trip.
-            cidr_attempts_map = {}
-            ip_attempts_map = {}
-            for r in cidr_attempt_rows:
-                ip_addr = _safe_str(getattr(r, 'ClientIp', ''))
-                if not ip_addr:
-                    continue
-                cidr = _cidr_24(ip_addr)
-                when = getattr(r, 'ActivityDate', None)
-                act = _safe_str(getattr(r, 'Activity', ''))
-                when_str = format_datetime(when) if when else ''
-                attempt = {
-                    'when': when_str,
-                    'ip': ip_addr,
-                    'activity': act[:300],
-                }
-                if cidr:
-                    bucket = cidr_attempts_map.setdefault(cidr, [])
-                    if len(bucket) < 100:
-                        bucket.append(attempt)
-                ip_bucket = ip_attempts_map.setdefault(ip_addr, [])
-                if len(ip_bucket) < 100:
-                    ip_bucket.append(attempt)
-
-            # CIDR /24 aggregation -- shows the COORDINATED side: which
-            # /24 networks are running the bots, with geo + hosting-provider
-            # context. This is where you actually decide what to block.
-            print '<h3 style="margin:18px 0 10px 0;">Attacker networks (/24 aggregated) <span style="font-size:12px;color:#666;font-weight:normal;">&mdash; click any row for the attempt log</span></h3>'
-            if not cidr_rows:
-                print '<p style="color:#666;">No network-level patterns detected.</p>'
-            else:
-                print """
-                <table style="width:100%;border-collapse:collapse;font-size:13px;
-                              background:white;border-radius:6px;overflow:hidden;
-                              box-shadow:0 1px 3px rgba(0,0,0,0.06);margin-bottom:24px;">
-                    <thead>
-                        <tr style="background:#1a202c;color:white;">
-                            <th style="text-align:left;padding:10px;">CIDR</th>
-                            <th style="text-align:right;padding:10px;">IPs</th>
-                            <th style="text-align:right;padding:10px;">Total</th>
-                            <th style="text-align:left;padding:10px;">Country</th>
-                            <th style="text-align:left;padding:10px;">Org / Hosting</th>
-                            <th style="text-align:left;padding:10px;">Severity</th>
-                            <th style="text-align:right;padding:10px;">&nbsp;</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                """
-                for b in cidr_rows[:15]:
-                    sev_bg = '#fed7d7' if b['abuse_severity'] == 'high' else \
-                             '#feebc8' if b['abuse_severity'] == 'med' else '#f7fafc'
-                    countries = ', '.join(sorted(b['countries']))[:80] or '-'
-                    orgs = ', '.join(sorted(b['orgs']))[:120] or '-'
-                    abuse = b['abuse_label'] or 'unknown'
-                    cidr_safe = b['cidr'].replace("'", "\\'")
-                    print """
-                    <tr style="background:{0};border-bottom:1px solid #e5e5e5;cursor:pointer;"
-                        onclick="enumShowCidr('{1}')"
-                        onmouseover="this.style.filter='brightness(0.96)';"
-                        onmouseout="this.style.filter='';">
-                        <td style="padding:8px;font-family:Consolas,monospace;font-weight:600;">{1}</td>
-                        <td style="text-align:right;padding:8px;">{2}</td>
-                        <td style="text-align:right;padding:8px;font-weight:700;font-size:15px;">{3:,}</td>
-                        <td style="padding:8px;">{4}</td>
-                        <td style="padding:8px;color:#4a5568;">{5}</td>
-                        <td style="padding:8px;font-size:11px;text-transform:uppercase;font-weight:600;color:#742a2a;">{6}</td>
-                        <td style="text-align:right;padding:8px;color:#999;font-size:18px;">&rsaquo;</td>
-                    </tr>
-                    """.format(sev_bg, cidr_safe, len(b['ips']), b['attempts'],
-                               countries, orgs, abuse)
                 print '</tbody></table>'
 
             # Top IPs table
