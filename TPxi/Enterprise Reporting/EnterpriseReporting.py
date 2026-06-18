@@ -72,7 +72,7 @@ import datetime
 # CONFIGURATION & CONSTANTS
 # ============================================================================
 
-APP_VERSION = '1.1.26'
+APP_VERSION = '1.1.29'
 APP_TITLE = 'Enterprise Reporting'
 DC_SCRIPT_ID = 'EnterpriseReporting'  # ID used on DisplayCache to identify this script
 # Use workers.dev URL for server-side fetches (bypasses Cloudflare Bot Fight Mode)
@@ -5457,7 +5457,18 @@ def get_default_reports():
                      THEN 'Leader' ELSE 'Member' END AS LeaderOrMember,
                 a.MemberTypeId,
                 a.AttendanceFlag,
-                m.MeetingId
+                m.MeetingId,
+                p.Age,
+                ISNULL(g.Description, '') AS Gender,
+                ISNULL(c.Description, '') AS Campus,
+                ISNULL(ms.Description, '') AS MemberStatus,
+                ISNULL(fp.Description, '') AS FamilyPosition,
+                ISNULL(ma.Description, '') AS MaritalStatus,
+                ISNULL(p.EmailAddress, '') AS Email,
+                ISNULL(p.CellPhone, '') AS CellPhone,
+                ISNULL(p.HomePhone, '') AS HomePhone,
+                p.JoinDate,
+                p.FamilyId
             FROM Attend a
             JOIN Meetings m ON m.MeetingId = a.MeetingId
             JOIN Organizations o ON o.OrganizationId = m.OrganizationId
@@ -5465,6 +5476,11 @@ def get_default_reports():
             LEFT JOIN Division d ON o.DivisionId = d.Id
             LEFT JOIN Program pro ON d.ProgId = pro.Id
             LEFT JOIN lookup.MemberType mt ON mt.Id = a.MemberTypeId
+            LEFT JOIN lookup.Gender g ON g.Id = p.GenderId
+            LEFT JOIN lookup.Campus c ON c.Id = p.CampusId
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            LEFT JOIN lookup.FamilyPosition fp ON fp.Id = p.PositionInFamilyId
+            LEFT JOIN lookup.MaritalStatus ma ON ma.Id = p.MaritalStatusId
             WHERE m.DidNotMeet = 0
                 {current_org_filter}
                 {filters}
@@ -5490,7 +5506,20 @@ def get_default_reports():
                          {'value': '0', 'label': 'Did not attend only'}],
              'default': ''}
         ],
-        'display': {'types': ['table'], 'default': 'table'},
+        'display': {
+            'types': ['table'],
+            'default': 'table',
+            # Extra demographic columns ship in the SELECT but start
+            # hidden -- users opt them in via the Columns dropdown when
+            # they want age/gender/contact info alongside attendance.
+            'default_hidden_columns': [
+                'MemberTypeId', 'AttendanceFlag', 'MeetingId',
+                'Age', 'Gender', 'Campus', 'MemberStatus',
+                'FamilyPosition', 'MaritalStatus',
+                'Email', 'CellPhone', 'HomePhone',
+                'JoinDate', 'FamilyId'
+            ]
+        },
         'bluetoolbar': {'supported': True},
         'is_builtin': True
     })
@@ -7505,6 +7534,11 @@ def render_grid_data(result, report_def):
         except:
             pass
 
+    # Columns the report wants present in the SELECT but not visible until
+    # the user opts in via the Columns dropdown. Lets reports ship optional
+    # demographic/extra columns without forcing them on by default.
+    default_hidden = set(display.get('default_hidden_columns', []) or [])
+
     col_defs = []
     for col in columns:
         label = year_labels.get(col, re.sub(r'([a-z])([A-Z])', r'\1 \2', col))
@@ -7516,6 +7550,8 @@ def render_grid_data(result, report_def):
             'filter': True,
             'resizable': True
         }
+        if col in default_hidden:
+            cdef['hide'] = True
         # Auto-detect numeric columns for right-align and formatting
         if fmt == 'currency':
             cdef['type'] = 'numericColumn'
@@ -8772,6 +8808,25 @@ def build_css():
 .rb-results-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px}
 .rb-results-info{font-size:13px;color:#64748b}
 .rb-results-actions{display:flex;gap:8px}
+/* Fullscreen toggle -- escapes TouchPoint's page chrome (navbar, sidebar,
+   max-width containers) and lets a big table or chart actually breathe.
+   Position-fixed overlay; body overflow gets locked in JS. */
+.rb-results.rb-fullscreen{position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;width:100vw!important;height:100vh!important;z-index:99999!important;background:#fff!important;padding:24px!important;margin:0!important;overflow:auto!important;box-sizing:border-box!important}
+.rb-results.rb-fullscreen .rb-results-header{position:sticky;top:0;background:#fff;z-index:2;padding-bottom:12px;border-bottom:1px solid #e2e8f0}
+.rb-results.rb-fullscreen #rb-grid,.rb-results.rb-fullscreen .rb-chart-container{min-height:calc(100vh - 140px)}
+/* Columns dropdown -- a faked Enterprise-style column visibility panel.
+   Pure Community-tier API under the hood (setColumnsVisible). */
+.rb-cols-dd{position:relative;display:inline-block}
+.rb-cols-panel{position:absolute;top:calc(100% + 6px);right:0;min-width:280px;max-width:340px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);z-index:100002;padding:10px}
+.rb-cols-panel .rb-cols-search{width:100%;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;margin-bottom:8px;box-sizing:border-box}
+.rb-cols-panel .rb-cols-actions{display:flex;gap:10px;font-size:12px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #f1f5f9}
+.rb-cols-panel .rb-cols-actions a{color:#2563eb;cursor:pointer;text-decoration:none}
+.rb-cols-panel .rb-cols-actions a:hover{text-decoration:underline}
+.rb-cols-panel .rb-cols-list{max-height:340px;overflow-y:auto}
+.rb-cols-panel .rb-col-item{display:flex;align-items:center;gap:8px;padding:5px 4px;font-size:13px;cursor:pointer;border-radius:4px;color:#1e293b}
+.rb-cols-panel .rb-col-item:hover{background:#f8fafc}
+.rb-cols-panel .rb-col-item input{margin:0}
+.rb-cols-panel .rb-cols-empty{padding:12px;color:#94a3b8;font-size:12px;text-align:center}
 /* AG Grid container */
 #rb-grid{border-radius:8px;overflow:hidden;border:1px solid #e2e8f0}
 #rb-grid .ag-header{background:#f8fafc}
@@ -8980,8 +9035,10 @@ function renderRes(r){
     var n=r.row_count||0;
     lastGridData=r.grid_data||null;
     var h='<div class="rb-results-header"><div class="rb-results-info">'+n+" row"+(n!==1?"s":"")+" returned</div>";
-    h+='<div class="rb-results-actions"><button class="rb-btn rb-btn-secondary rb-btn-sm" onclick="RB.exportCsv()"><i class="fas fa-download"></i> CSV</button>';
-    h+='<button class="rb-btn rb-btn-secondary rb-btn-sm" onclick="RB.printReport()"><i class="fas fa-print"></i> Print</button></div></div>';
+    h+='<div class="rb-results-actions"><div class="rb-cols-dd"><button class="rb-btn rb-btn-secondary rb-btn-sm" id="rb-cols-btn" onclick="RB.toggleColsPanel()" title="Show or hide columns"><i class="fas fa-columns"></i> Columns</button><div id="rb-cols-panel" class="rb-cols-panel" style="display:none;"></div></div>';
+    h+='<button class="rb-btn rb-btn-secondary rb-btn-sm" onclick="RB.exportCsv()"><i class="fas fa-download"></i> CSV</button>';
+    h+='<button class="rb-btn rb-btn-secondary rb-btn-sm" onclick="RB.printReport()"><i class="fas fa-print"></i> Print</button>';
+    h+='<button class="rb-btn rb-btn-secondary rb-btn-sm" id="rb-fs-btn" onclick="RB.toggleFullscreen()" title="Expand to full screen (Esc to exit)"><i class="fas fa-expand"></i> Fullscreen</button></div></div>';
     // Action bar for selected rows (hidden until rows selected)
     h+='<div id="rb-action-bar" class="rb-action-bar" style="display:none;">';
     h+='<span id="rb-sel-count" style="font-weight:600;"></span>';
@@ -9670,6 +9727,119 @@ function hydrateCurrentOrg(oid){
     currentOrgIdFromUrl=oid;
 }
 
+/* Columns dropdown -- AG Grid Community doesn't ship the Enterprise
+   column tool panel, so we fake it. setColumnsVisible IS in Community,
+   so visibility itself works fine; only the UI was paywalled. */
+function toggleColsPanel(){
+    var panel=document.getElementById("rb-cols-panel");
+    if(!panel) return;
+    if(panel.style.display==="block"){panel.style.display="none";return}
+    if(!currentGrid){
+        panel.innerHTML='<div class="rb-cols-empty">No grid loaded yet.</div>';
+        panel.style.display="block";
+        return;
+    }
+    var cols=[];
+    try{cols=currentGrid.getColumns?currentGrid.getColumns():[]}catch(e){}
+    if(!cols||!cols.length){
+        panel.innerHTML='<div class="rb-cols-empty">No columns to manage.</div>';
+        panel.style.display="block";
+        return;
+    }
+    var html='<input type="text" class="rb-cols-search" id="rb-cols-search" placeholder="Filter columns..." oninput="RB.filterColsPanel()" />';
+    html+='<div class="rb-cols-actions"><a onclick="RB.toggleAllCols(true)">Show all</a><a onclick="RB.toggleAllCols(false)">Hide all</a></div>';
+    html+='<div class="rb-cols-list" id="rb-cols-list">';
+    for(var i=0;i<cols.length;i++){
+        var c=cols[i];
+        var cid=c.getColId?c.getColId():"";
+        if(!cid) continue;
+        var visible=c.isVisible?c.isVisible():true;
+        var def=c.getColDef?c.getColDef():{};
+        var label=def.headerName||cid;
+        html+='<label class="rb-col-item"><input type="checkbox" data-colid="'+cid.replace(/"/g,"&quot;")+'" '+(visible?'checked':'')+' onchange="RB.toggleCol(this)" />'+esc(label)+'</label>';
+    }
+    html+='</div>';
+    panel.innerHTML=html;
+    panel.style.display="block";
+    var s=document.getElementById("rb-cols-search");
+    if(s) setTimeout(function(){s.focus()},20);
+}
+function toggleCol(input){
+    if(!currentGrid) return;
+    var cid=input.getAttribute("data-colid");
+    if(!cid) return;
+    try{
+        if(currentGrid.setColumnsVisible) currentGrid.setColumnsVisible([cid],input.checked);
+        else if(currentGrid.setColumnVisible) currentGrid.setColumnVisible(cid,input.checked);
+    }catch(e){}
+}
+function toggleAllCols(visible){
+    if(!currentGrid) return;
+    var cols=currentGrid.getColumns?currentGrid.getColumns():[];
+    var ids=[];
+    for(var i=0;i<cols.length;i++){var id=cols[i].getColId?cols[i].getColId():null;if(id) ids.push(id)}
+    try{if(currentGrid.setColumnsVisible) currentGrid.setColumnsVisible(ids,visible);}catch(e){}
+    var boxes=document.querySelectorAll('#rb-cols-list input[type=checkbox]');
+    for(var j=0;j<boxes.length;j++) boxes[j].checked=visible;
+}
+function filterColsPanel(){
+    var q=(document.getElementById("rb-cols-search").value||'').toLowerCase();
+    var items=document.querySelectorAll('#rb-cols-list .rb-col-item');
+    for(var i=0;i<items.length;i++){
+        var txt=items[i].textContent.toLowerCase();
+        items[i].style.display=(!q||txt.indexOf(q)>=0)?'flex':'none';
+    }
+}
+function closeColsPanel(){
+    var panel=document.getElementById("rb-cols-panel");
+    if(panel) panel.style.display="none";
+}
+
+function toggleFullscreen(){
+    /* Promote the results pane to a fixed-position overlay so a wide
+       table or tall chart isn't crammed into TouchPoint's centered
+       container. Body overflow is locked while active. ESC exits. */
+    var res=document.getElementById("rb-results");
+    if(!res) return;
+    var btn=document.getElementById("rb-fs-btn");
+    var isFs=res.classList.toggle("rb-fullscreen");
+    document.body.style.overflow=isFs?"hidden":"";
+    if(btn){
+        btn.innerHTML=isFs
+            ?'<i class="fas fa-compress"></i> Exit Fullscreen'
+            :'<i class="fas fa-expand"></i> Fullscreen';
+        btn.title=isFs?"Exit full screen (Esc)":"Expand to full screen (Esc to exit)";
+    }
+    /* Give the browser a tick to apply the new size class, then resize
+       the embedded grid and chart so they fill the new viewport.
+       In fullscreen we want autoSizeAllColumns -- size each column to
+       its content and let the grid scroll horizontally when overflow.
+       In normal mode we fall back to sizeColumnsToFit which crams the
+       columns into TouchPoint's narrow centered container. */
+    setTimeout(function(){
+        try{
+            if(currentGrid){
+                if(isFs){
+                    if(currentGrid.autoSizeAllColumns) currentGrid.autoSizeAllColumns();
+                    else if(currentGrid.sizeColumnsToFit) currentGrid.sizeColumnsToFit();
+                } else if(currentGrid.sizeColumnsToFit) {
+                    currentGrid.sizeColumnsToFit();
+                }
+            }
+        }catch(e){}
+        try{if(currentChart&&currentChart.resize) currentChart.resize();}catch(e){}
+        try{window.dispatchEvent(new Event("resize"));}catch(e){}
+    },80);
+}
+/* ESC handler: only intercepts when fullscreen is actually active so
+   we don't steal Escape from other modals. */
+document.addEventListener("keydown",function(e){
+    if(e.key==="Escape"||e.keyCode===27){
+        var res=document.getElementById("rb-results");
+        if(res&&res.classList.contains("rb-fullscreen")) toggleFullscreen();
+    }
+});
+
 /* Help */
 function toggleHelp(){var hp=document.getElementById("rb-help-panel");if(hp) hp.classList.toggle("open")}
 
@@ -9955,7 +10125,7 @@ return{selectReport:selectReport,runReport:runReport,setDisplay:setDisplay,expor
     saveCustomReport:saveCustomReport,validateSql:validateSql,deleteReport:deleteReport,
     filterSidebar:filterSidebar,toggleCategory:toggleCategory,dismissBt:dismissBt,
     onOrgSearch:onOrgSearch,pickOrg:pickOrg,clearScope:clearScope,closeOrgDropdown:closeOrgDropdown,
-    hydrateBt:hydrateBt,hydrateCurrentOrg:hydrateCurrentOrg,openSettings:openSettings,closeSettings:closeSettings,saveSettings:saveSettings,
+    hydrateBt:hydrateBt,hydrateCurrentOrg:hydrateCurrentOrg,toggleFullscreen:toggleFullscreen,toggleColsPanel:toggleColsPanel,toggleCol:toggleCol,toggleAllCols:toggleAllCols,filterColsPanel:filterColsPanel,closeColsPanel:closeColsPanel,openSettings:openSettings,closeSettings:closeSettings,saveSettings:saveSettings,
     showBulkAction:showBulkAction,closeBulkModal:closeBulkModal,executeBulkTag:executeBulkTag,
     executeBulkTask:executeBulkTask,executeBulkNote:executeBulkNote,searchAssignee:searchAssignee,pickAssignee:pickAssignee,
     checkForUpdate:checkForUpdate,applyUpdate:applyUpdate,toggleHelp:toggleHelp,
@@ -9967,6 +10137,8 @@ return{selectReport:selectReport,runReport:runReport,setDisplay:setDisplay,expor
 document.addEventListener("click",function(e){
     var wrap=document.querySelector(".rb-org-search-wrap");
     if(wrap&&!wrap.contains(e.target)) RB.closeOrgDropdown();
+    var colsWrap=document.querySelector(".rb-cols-dd");
+    if(colsWrap&&!colsWrap.contains(e.target)) RB.closeColsPanel();
 });
 // Check for updates on page load (admin/developer only, non-blocking)
 window.addEventListener("load",function(){
