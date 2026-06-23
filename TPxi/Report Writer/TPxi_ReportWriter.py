@@ -181,7 +181,7 @@ import json
 import re
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.5.4'
+APP_VERSION = '1.6.1'
 DC_SCRIPT_ID = 'TPxi_ReportWriter'  # ID used on DisplayCache to identify this script
 # scripts.displaycache.com is the custom domain used for browser-side version checks.
 # workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
@@ -1693,7 +1693,13 @@ def _render_summary_item(item, people, heading_color):
       person       -- field = any flat person field (generic value tally)
     Mirrors the auto sections so customized and automatic modes look identical."""
     it = (item.get('itemType') or '').strip()
-    field = (item.get('field') or '').strip()
+    # NOTE: do NOT strip the field. For regquestion items the field is the
+    # answer-key (the question label), which is stored verbatim in
+    # person['answers'] -- including any trailing/leading whitespace the
+    # registration question label carries (e.g. "...Do not repeat answers. ").
+    # Stripping here made the lookup miss those questions, so only labels
+    # without surrounding whitespace (like FIRST CHOICE) rendered.
+    field = item.get('field') or ''
     label = item.get('label') or field
     total = len(people)
 
