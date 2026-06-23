@@ -73,6 +73,13 @@ v1.6.0 - June 2026
            Checkout) split their comma-joined lists and tally each item
            separately instead of counting each person's whole list as one
            value (SUMMARY_MULTIVALUE_FIELDS).
+  - Fixed: picking a SAVED template didn't restore supplemental-page
+           settings (summary/cover/missing/medical toggles, panels and item
+           lists) -- the saved-template load path synced only a few global
+           options using stale element IDs. Both load paths now share
+           syncTemplateOptionsToUI(), so saved supplemental config (incl.
+           summaryItems / hidePersonDetail) is restored on load, import, and
+           auto-update.
 
 v1.5.4 - June 2026
   - Fixed: Legacy RegistrationData XML fallback referenced an undefined
@@ -174,7 +181,7 @@ import json
 import re
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.6.0'
+APP_VERSION = '1.5.4'
 DC_SCRIPT_ID = 'TPxi_ReportWriter'  # ID used on DisplayCache to identify this script
 # scripts.displaycache.com is the custom domain used for browser-side version checks.
 # workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
@@ -3805,20 +3812,11 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
 
     function applyLoadedTemplateToUI() {
         if (!state.template) return;
-        var go = state.template.globalOptions || {};
-        var ps = state.template.printSettings || {};
-        var hidEl = document.getElementById('rrHideEmpty'); if (hidEl) hidEl.checked = !!go.hideEmptyFields;
-        var hidQ = document.getElementById('rrHideUnanswered'); if (hidQ) hidQ.checked = !!go.hideUnansweredQuestions;
-        var oneEl = document.getElementById('rrOnePerPage'); if (oneEl) oneEl.checked = !!ps.onePersonPerPage;
-        var pgEl = document.getElementById('rrShowPageNum'); if (pgEl) pgEl.checked = !!ps.showPageNumbers;
-        var orgEl = document.getElementById('rrShowOrgHeader'); if (orgEl) orgEl.checked = !!ps.showOrgHeader;
-        // Pre-fill the document title input from the saved template -- the
-        // selectTemplate sync block does this for built-in templates but
-        // selectSavedTemplate routes through here instead. Without this
-        // line, a re-save after picking a saved template overwrites the
-        // stored reportTitle with the (visibly empty) input value.
-        var rtEl = document.getElementById('rrOptReportTitle');
-        if (rtEl) rtEl.value = state.template.reportTitle || '';
+        // Full sync (global options + supplemental pages + title) -- shared
+        // with selectTemplate. Previously this only synced a handful of
+        // controls using stale element IDs, so saved templates lost their
+        // supplemental-page settings (summary/cover/missing/medical) on load.
+        syncTemplateOptionsToUI();
         renderSections();
         refreshSaveControls();
     }
@@ -3834,43 +3832,54 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
             state.currentSavedName = null;
         }
         if (state.template) {
-            var go = state.template.globalOptions || {};
-            var ps = state.template.printSettings || {};
-            setChecked('rrOptHideEmpty', go.hideEmptyFields !== false);
-            setChecked('rrOptHideUnanswered', go.hideUnansweredQuestions !== false);
-            setChecked('rrOptShowPhoto', go.showPersonPhoto === true);
-            setChecked('rrOptPreserveNewlines', go.preserveNewlines === true);
-            setChecked('rrOptOnePerPage', ps.onePersonPerPage !== false);
-            setChecked('rrOptShowOrgHeader', ps.showOrgHeader !== false);
-            setChecked('rrOptCompactRows', go.compactRows === true);
-            setChecked('rrOptPageNumbers', ps.showPageNumbers === true);
-            setChecked('rrOptSplitSections', ps.allowSectionSplit === true);
-            document.getElementById('rrOptHeadingColor').value = go.headingColor || '#2c5282';
-            // Document title is a template-root field; pre-fill from there.
-            var rtEl = document.getElementById('rrOptReportTitle');
-            if (rtEl) rtEl.value = state.template.reportTitle || '';
-            // Supplemental page toggles
-            setChecked('rrOptSkipDetail', ps.hidePersonDetail === true);
-            setChecked('rrOptSummaryPage', ps.showSummaryPage === true);
-            setChecked('rrOptCoverPage', ps.showCoverPage === true);
-            setChecked('rrOptMissingInfo', ps.showMissingInfoPage === true);
-            setChecked('rrOptMedicalPage', ps.showMedicalPage === true);
-            var summaryPanel = document.getElementById('rrSummaryPanel');
-            if (summaryPanel) summaryPanel.style.display = ps.showSummaryPage ? 'block' : 'none';
-            var missingPanel = document.getElementById('rrMissingInfoPanel');
-            if (missingPanel) missingPanel.style.display = ps.showMissingInfoPage ? 'block' : 'none';
-            var medPanel = document.getElementById('rrMedicalPanel');
-            if (medPanel) medPanel.style.display = ps.showMedicalPage ? 'block' : 'none';
-            // Build pickers and render item lists
-            buildSupplementalPicker('summary');
-            buildSupplementalPicker('missing');
-            buildSupplementalPicker('medical');
-            renderSupplementalItems('summary');
-            renderSupplementalItems('missing');
-            renderSupplementalItems('medical');
+            syncTemplateOptionsToUI();
         }
         renderSections();
     };
+
+    // Sync every Step-2 option control (global options + supplemental pages)
+    // from state.template. Shared by selectTemplate (built-in templates) AND
+    // applyLoadedTemplateToUI (saved templates) so picking a SAVED template
+    // restores its supplemental-page settings -- summary/cover/missing/medical
+    // toggles, panels, and item lists -- not just the section layout.
+    function syncTemplateOptionsToUI() {
+        if (!state.template) return;
+        var go = state.template.globalOptions || {};
+        var ps = state.template.printSettings || {};
+        setChecked('rrOptHideEmpty', go.hideEmptyFields !== false);
+        setChecked('rrOptHideUnanswered', go.hideUnansweredQuestions !== false);
+        setChecked('rrOptShowPhoto', go.showPersonPhoto === true);
+        setChecked('rrOptPreserveNewlines', go.preserveNewlines === true);
+        setChecked('rrOptOnePerPage', ps.onePersonPerPage !== false);
+        setChecked('rrOptShowOrgHeader', ps.showOrgHeader !== false);
+        setChecked('rrOptCompactRows', go.compactRows === true);
+        setChecked('rrOptPageNumbers', ps.showPageNumbers === true);
+        setChecked('rrOptSplitSections', ps.allowSectionSplit === true);
+        var hcEl = document.getElementById('rrOptHeadingColor');
+        if (hcEl) hcEl.value = go.headingColor || '#2c5282';
+        // Document title is a template-root field; pre-fill from there.
+        var rtEl = document.getElementById('rrOptReportTitle');
+        if (rtEl) rtEl.value = state.template.reportTitle || '';
+        // Supplemental page toggles
+        setChecked('rrOptSkipDetail', ps.hidePersonDetail === true);
+        setChecked('rrOptSummaryPage', ps.showSummaryPage === true);
+        setChecked('rrOptCoverPage', ps.showCoverPage === true);
+        setChecked('rrOptMissingInfo', ps.showMissingInfoPage === true);
+        setChecked('rrOptMedicalPage', ps.showMedicalPage === true);
+        var summaryPanel = document.getElementById('rrSummaryPanel');
+        if (summaryPanel) summaryPanel.style.display = ps.showSummaryPage ? 'block' : 'none';
+        var missingPanel = document.getElementById('rrMissingInfoPanel');
+        if (missingPanel) missingPanel.style.display = ps.showMissingInfoPage ? 'block' : 'none';
+        var medPanel = document.getElementById('rrMedicalPanel');
+        if (medPanel) medPanel.style.display = ps.showMedicalPage ? 'block' : 'none';
+        // Build pickers and render item lists
+        buildSupplementalPicker('summary');
+        buildSupplementalPicker('missing');
+        buildSupplementalPicker('medical');
+        renderSupplementalItems('summary');
+        renderSupplementalItems('missing');
+        renderSupplementalItems('medical');
+    }
 
     function setChecked(id, val) { var el = document.getElementById(id); if (el) el.checked = val; }
 
