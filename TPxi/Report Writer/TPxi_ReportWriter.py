@@ -47,6 +47,48 @@ Features:
 
 
 Change Log:
+v1.6.0 - June 2026
+  - Added: Form Summary page -- a Wufoo / MS-Forms style aggregate view.
+           "Form summary page (counts & charts)" toggle under Supplemental
+           Pages. KPI cards (registrants, unique people, gender, avg age),
+           plus bar charts for gender / age bins / subgroups / top ZIPs and
+           a per-question answer tally. Pure HTML/CSS bars (no Chart.js) so
+           it prints in the popup. Prepended like the cover page
+           (printSettings.showSummaryPage); per-person output unchanged when
+           off. No new SQL -- aggregates already-fetched data.
+  - Added: Customizable summary via a picker (same UX as the Missing-Info /
+           Medical item pickers). Choose exactly which items appear and in
+           what order: demographics (gender, age bins, marital status,
+           state, city, top ZIPs), subgroups, registration questions, the
+           same Person/Family/Medical fields as the section builder, and
+           Extra Value fields (PeopleExtra). Stored as
+           printSettings.summaryItems[] = [{itemType, field, label}]. Empty
+           = automatic set. EV names fold into extract_ev_names_from_template
+           so they're fetched. render dispatch: _render_summary_item().
+  - Added: reorder arrows on summary / missing / medical item chips (no
+           more delete-and-readd to change order).
+  - Added: "Skip per-person detail" toggle -- output only the summary /
+           supplemental pages (printSettings.hidePersonDetail).
+  - Fixed: multi-value fields (Approved Medications, Subgroups, Authorized
+           Checkout) split their comma-joined lists and tally each item
+           separately instead of counting each person's whole list as one
+           value (SUMMARY_MULTIVALUE_FIELDS).
+
+v1.5.4 - June 2026
+  - Fixed: Legacy RegistrationData XML fallback referenced an undefined
+           `question_set` variable. The NameError was silently swallowed by
+           the surrounding try/except, so orgs using the older XML-based
+           registration format showed "0 questions" with no clue why.
+           Affected installs where the registration data lives in
+           RegistrationData.Data rather than RegQuestion/RegAnswer.
+v1.5.3 - June 2026
+  - Added: "Include dropped registrants" toggle on the selected-involvement bar.
+           Surfaces people who answered the org's registration questions but are
+           no longer in OrganizationMembers (dropped, moved, etc.). Their reg
+           answers persist on the original involvement. Dropped people are
+           marked with a red "DROPPED" badge in the report header and "(Dropped)"
+           in the preview-person dropdown. Counter ("X dropped") appears next to
+           the people count when any dropped registrants exist.
 v1.5.2 - May 2026
   - Added: Custom Document Title (template-level field). Replaces the
            "Registration Report" cover-page heading AND the involvement
@@ -132,7 +174,7 @@ import json
 import re
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.5.2'
+APP_VERSION = '1.6.0'
 DC_SCRIPT_ID = 'TPxi_ReportWriter'  # ID used on DisplayCache to identify this script
 # scripts.displaycache.com is the custom domain used for browser-side version checks.
 # workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
@@ -591,36 +633,94 @@ def build_meds_map(people_ids, people_list):
     return {pid: bucket[pid]['order'] for pid in bucket}
 
 
-def get_registrant_data(org_id, filter_people_ids=None):
+def get_registrant_data(org_id, filter_people_ids=None, include_dropped=False):
     """Get all registrant data for an org in batch queries.
-    If filter_people_ids is set, only include those people (Blue Toolbar filter)."""
+    If filter_people_ids is set, only include those people (Blue Toolbar filter).
+    If include_dropped is True, also pull people who have a RegPeople row for this
+    org but are no longer in OrganizationMembers (their registration answers
+    persist after they're dropped/moved). Dropped people get IsDropped=True."""
     result = {'people': [], 'questions': [], 'familyData': {}}
 
     filter_clause = ""
     if filter_people_ids:
         filter_clause = " AND p.PeopleId IN ({0})".format(','.join(str(int(pid)) for pid in filter_people_ids))
 
-    # Query 1: Get all org members with person + medical data
-    people_sql = """
-        SELECT DISTINCT
-            p.PeopleId, p.Name2, p.FirstName, p.LastName, p.NickName,
-            p.BDate, p.Age, p.GenderId, p.EmailAddress, p.CellPhone, p.HomePhone,
-            p.PrimaryAddress, p.PrimaryCity, p.PrimaryState, p.PrimaryZip,
-            p.FamilyId, ms.Description as MaritalStatus, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
-            rr.MedicalDescription, rr.MedAllergy, rr.emcontact, rr.emphone,
-            rr.doctor, rr.docphone, rr.insurance, rr.policy,
-            ISNULL(rr.Tylenol, 0) as Tylenol, ISNULL(rr.Advil, 0) as Advil,
-            ISNULL(rr.Maalox, 0) as Maalox, ISNULL(rr.Robitussin, 0) as Robitussin,
-            pic.SmallUrl as PhotoUrl
-        FROM OrganizationMembers om
-        JOIN People p ON om.PeopleId = p.PeopleId
-        LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
-        LEFT JOIN RecReg rr ON rr.PeopleId = p.PeopleId
-        LEFT JOIN Picture pic ON pic.PictureId = p.PictureId
-        WHERE om.OrganizationId = {0}
-        {1}
-        ORDER BY p.Name2
-    """.format(int(org_id), filter_clause)
+    # Query 1: Get all org members with person + medical data.
+    # When include_dropped, UNION in people who answered registration questions
+    # for this org but are no longer current members. We wrap the UNION in a
+    # subquery so the outer ORDER BY applies to the combined result.
+    if include_dropped:
+        people_sql = """
+            SELECT * FROM (
+                SELECT DISTINCT
+                    p.PeopleId, p.Name2, p.FirstName, p.LastName, p.NickName,
+                    p.BDate, p.Age, p.GenderId, p.EmailAddress, p.CellPhone, p.HomePhone,
+                    p.PrimaryAddress, p.PrimaryCity, p.PrimaryState, p.PrimaryZip,
+                    p.FamilyId, ms.Description as MaritalStatus, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
+                    rr.MedicalDescription, rr.MedAllergy, rr.emcontact, rr.emphone,
+                    rr.doctor, rr.docphone, rr.insurance, rr.policy,
+                    ISNULL(rr.Tylenol, 0) as Tylenol, ISNULL(rr.Advil, 0) as Advil,
+                    ISNULL(rr.Maalox, 0) as Maalox, ISNULL(rr.Robitussin, 0) as Robitussin,
+                    pic.SmallUrl as PhotoUrl,
+                    CAST(0 AS BIT) as IsDropped
+                FROM OrganizationMembers om
+                JOIN People p ON om.PeopleId = p.PeopleId
+                LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
+                LEFT JOIN RecReg rr ON rr.PeopleId = p.PeopleId
+                LEFT JOIN Picture pic ON pic.PictureId = p.PictureId
+                WHERE om.OrganizationId = {0}
+                {1}
+
+                UNION
+
+                SELECT DISTINCT
+                    p.PeopleId, p.Name2, p.FirstName, p.LastName, p.NickName,
+                    p.BDate, p.Age, p.GenderId, p.EmailAddress, p.CellPhone, p.HomePhone,
+                    p.PrimaryAddress, p.PrimaryCity, p.PrimaryState, p.PrimaryZip,
+                    p.FamilyId, ms.Description as MaritalStatus, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
+                    rr.MedicalDescription, rr.MedAllergy, rr.emcontact, rr.emphone,
+                    rr.doctor, rr.docphone, rr.insurance, rr.policy,
+                    ISNULL(rr.Tylenol, 0) as Tylenol, ISNULL(rr.Advil, 0) as Advil,
+                    ISNULL(rr.Maalox, 0) as Maalox, ISNULL(rr.Robitussin, 0) as Robitussin,
+                    pic.SmallUrl as PhotoUrl,
+                    CAST(1 AS BIT) as IsDropped
+                FROM Registration r WITH (NOLOCK)
+                JOIN RegPeople rp WITH (NOLOCK) ON r.RegistrationId = rp.RegistrationId
+                JOIN People p ON rp.PeopleId = p.PeopleId
+                LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
+                LEFT JOIN RecReg rr ON rr.PeopleId = p.PeopleId
+                LEFT JOIN Picture pic ON pic.PictureId = p.PictureId
+                WHERE r.OrganizationId = {0}
+                  AND NOT EXISTS (
+                      SELECT 1 FROM OrganizationMembers om2
+                      WHERE om2.OrganizationId = {0} AND om2.PeopleId = p.PeopleId
+                  )
+                {1}
+            ) merged
+            ORDER BY Name2
+        """.format(int(org_id), filter_clause)
+    else:
+        people_sql = """
+            SELECT DISTINCT
+                p.PeopleId, p.Name2, p.FirstName, p.LastName, p.NickName,
+                p.BDate, p.Age, p.GenderId, p.EmailAddress, p.CellPhone, p.HomePhone,
+                p.PrimaryAddress, p.PrimaryCity, p.PrimaryState, p.PrimaryZip,
+                p.FamilyId, ms.Description as MaritalStatus, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
+                rr.MedicalDescription, rr.MedAllergy, rr.emcontact, rr.emphone,
+                rr.doctor, rr.docphone, rr.insurance, rr.policy,
+                ISNULL(rr.Tylenol, 0) as Tylenol, ISNULL(rr.Advil, 0) as Advil,
+                ISNULL(rr.Maalox, 0) as Maalox, ISNULL(rr.Robitussin, 0) as Robitussin,
+                pic.SmallUrl as PhotoUrl,
+                CAST(0 AS BIT) as IsDropped
+            FROM OrganizationMembers om
+            JOIN People p ON om.PeopleId = p.PeopleId
+            LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
+            LEFT JOIN RecReg rr ON rr.PeopleId = p.PeopleId
+            LEFT JOIN Picture pic ON pic.PictureId = p.PictureId
+            WHERE om.OrganizationId = {0}
+            {1}
+            ORDER BY p.Name2
+        """.format(int(org_id), filter_clause)
 
     people_list = []
     people_ids = []
@@ -657,6 +757,7 @@ def get_registrant_data(org_id, filter_people_ids=None):
                 'policy': safe_str(r.policy),
                 'PhotoUrl': safe_str(r.PhotoUrl),
                 'CustodyIssue': r.CustodyIssue,
+                'IsDropped': bool(getattr(r, 'IsDropped', False)),
                 'answers': {},
                 '_Tylenol': r.Tylenol,
                 '_Advil': r.Advil,
@@ -700,6 +801,11 @@ def get_registrant_data(org_id, filter_people_ids=None):
     question_id_set = set()   # track by RegQuestionId (unique per question)
     question_id_to_key = {}   # RegQuestionId -> answer key
     label_count = {}          # track label occurrences for duplicate detection
+    # question_set tracks question keys already added to `questions` so the
+    # legacy XML fallback below can dedupe against new-system entries by label.
+    # Without it, the fallback NameErrors on `question_set` and the except below
+    # silently swallows the error -> 0 questions for legacy-XML orgs.
+    question_set = set()
 
     answers_sql = """
         SELECT
@@ -737,6 +843,7 @@ def get_registrant_data(org_id, filter_people_ids=None):
                     q_key = '{0} ({1})'.format(q_text, count + 1)
                 question_id_to_key[q_id] = q_key
                 questions.append({'key': q_key, 'label': q_text})
+                question_set.add(q_key)
 
             # Look up the key for this question and store the answer
             q_key = question_id_to_key.get(q_id, q_text)
@@ -1161,12 +1268,17 @@ def get_field_value(person, field, preserve_newlines=False):
     return ''
 
 def extract_ev_names_from_template(template):
-    """Scan template sections for extravalue fields and return a set of EV names."""
+    """Scan template sections AND summary items for extravalue fields and
+    return a set of EV names (so both render paths fetch what they need)."""
     ev_names = set()
     for sec in template.get('sections', []):
         for f in sec.get('fields', []):
             if f.get('fieldType') == 'extravalue' and f.get('sourceField'):
                 ev_names.add(f['sourceField'])
+    ps = template.get('printSettings', {}) or {}
+    for it in (ps.get('summaryItems', []) or []):
+        if it.get('itemType') == 'extravalue' and it.get('field'):
+            ev_names.add(it['field'])
     return ev_names
 
 def fetch_extra_values(people_list, ev_names):
@@ -1323,8 +1435,17 @@ def render_report_html(people, template, org_name, questions, single_person_id=N
         parts.append('<div class="rr-person-header">')
         if show_photo and person.get('PhotoUrl'):
             parts.append('<img class="rr-photo" src="{0}" alt="Photo" onerror="this.style.display=\'none\'">'.format(html_escape(person['PhotoUrl'])))
-        parts.append('<div class="rr-person-name" style="color: {0};">{1}</div>'.format(
-            html_escape(heading_color), html_escape(person.get('Name', ''))))
+        dropped_badge = ''
+        if person.get('IsDropped'):
+            # Inline styles so the badge survives popup-window printing
+            # (TouchPoint page CSS doesn't reach the print popup).
+            dropped_badge = (' <span style="display:inline-block;margin-left:8px;padding:2px 8px;'
+                             'background:#fed7d7;color:#9b2c2c;border:1px solid #fc8181;'
+                             'border-radius:10px;font-size:11px;font-weight:700;vertical-align:middle;'
+                             '-webkit-print-color-adjust:exact;print-color-adjust:exact;">'
+                             'DROPPED</span>')
+        parts.append('<div class="rr-person-name" style="color: {0};">{1}{2}</div>'.format(
+            html_escape(heading_color), html_escape(person.get('Name', '')), dropped_badge))
         parts.append('</div>')
 
         for sec in sorted_sections:
@@ -1432,6 +1553,396 @@ def _is_meaningful_medical(val):
     if not val:
         return False
     return val.strip().lower() not in _EXCLUDE_MEDICAL
+
+# =====================================================================
+# Form Summary page (Wufoo / MS-Forms style aggregate view)
+# =====================================================================
+# PROTOTYPE (Phase 1 slice): a per-involvement aggregate summary --
+# demographics strip + per-question answer tallies -- prepended like the
+# cover page and gated by printSettings.showSummaryPage. Uses pure
+# HTML/CSS horizontal bars (no Chart.js dependency) so it renders the
+# same in the page and in the print popup, and inline background colors
+# survive print-color-adjust. Operates on the already-fetched
+# data['people'] / data['questions'] -- no new SQL.
+AGE_BIN_ORDER = ['0-4', '5-9', '10-12', '13-17', '18-24', '25-34',
+                 '35-44', '45-54', '55-64', '65+']
+
+# Flat person fields that hold a comma-joined LIST of values (one person can
+# have several). When summarized, these are split on commas and each item is
+# tallied separately -- otherwise every person's whole list reads as one
+# distinct value (e.g. Approved Medications). Other fields tally as-is.
+SUMMARY_MULTIVALUE_FIELDS = set(['Medications', 'SubGroups', 'AuthorizedCheckout'])
+
+
+def _split_answer_options(raw):
+    """Split a raw registration answer into individual option strings for
+    tallying. Handles JSON-array checkbox answers (["A","B"]) and plain
+    single values. Returns a list (possibly empty)."""
+    if raw is None:
+        return []
+    s = safe_str(raw).strip()
+    if not s:
+        return []
+    if s.startswith('[') and s.endswith(']'):
+        try:
+            items = json.loads(s)
+            if isinstance(items, list):
+                out = []
+                for it in items:
+                    v = safe_str(it).strip().strip('"')
+                    if v:
+                        out.append(v)
+                return out
+        except:
+            pass
+    if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+        s = s[1:-1]
+    s = s.strip()
+    return [s] if s else []
+
+
+def _age_bin_label(age):
+    """Bucket an age into a display label, or None if not a usable age."""
+    try:
+        a = int(age)
+    except:
+        return None
+    if a < 0:
+        return None
+    if a <= 4: return '0-4'
+    if a <= 9: return '5-9'
+    if a <= 12: return '10-12'
+    if a <= 17: return '13-17'
+    if a <= 24: return '18-24'
+    if a <= 34: return '25-34'
+    if a <= 44: return '35-44'
+    if a <= 54: return '45-54'
+    if a <= 64: return '55-64'
+    return '65+'
+
+
+def _summary_bar_rows(pairs, total, bar_color):
+    """pairs = ordered list of (label, count). Returns HTML rows: label +
+    inline CSS bar + count and %. Pure CSS so it prints in the popup."""
+    parts = []
+    maxc = 0
+    for _, c in pairs:
+        if c > maxc:
+            maxc = c
+    for label, c in pairs:
+        pct = (100.0 * c / total) if total else 0
+        barw = (100.0 * c / maxc) if maxc else 0
+        parts.append(
+            '<div style="display:flex;align-items:center;margin:2px 0;font-size:12px;">'
+            '<div style="width:38%;padding-right:8px;text-align:right;color:#4a5568;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{0}</div>'
+            '<div style="flex:1;background:#edf2f7;border-radius:3px;height:16px;">'
+            '<div style="width:{1:.1f}%;background:{2};height:16px;border-radius:3px;"></div>'
+            '</div>'
+            '<div style="width:90px;padding-left:8px;color:#2d3748;white-space:nowrap;">{3} <span style="color:#a0aec0;">({4:.0f}%)</span></div>'
+            '</div>'.format(html_escape(label), barw, bar_color, c, pct))
+    return ''.join(parts)
+
+
+def _summary_block(heading_color, title_html, body_html):
+    """Wrap a titled summary section. title_html may contain markup (e.g. the
+    'N of M answered' span) so it is NOT escaped here -- callers escape labels."""
+    return ('<div style="margin-bottom:22px;break-inside:avoid;page-break-inside:avoid;">'
+            '<div style="font-size:14px;font-weight:700;color:#2d3748;border-bottom:2px solid {0};padding-bottom:4px;margin-bottom:8px;">{1}</div>'
+            '{2}</div>').format(heading_color, title_html, body_html)
+
+
+def _tally_person_field(people, field):
+    """Count distinct non-empty values of a flat person dict field.
+    Returns (counts_dict, answered_count). For known multi-value fields
+    (comma-joined lists like Approved Medications), each list item is counted
+    separately; answered still counts people, so a bar % reads as 'X% of
+    respondents have this item'."""
+    counts = {}
+    answered = 0
+    multi = field in SUMMARY_MULTIVALUE_FIELDS
+    for p in people:
+        v = safe_str(p.get(field, '')).strip()
+        if not v:
+            continue
+        answered += 1
+        if multi:
+            seen = set()
+            for tok in v.split(','):
+                tok = tok.strip()
+                if tok and tok not in seen:
+                    seen.add(tok)
+                    counts[tok] = counts.get(tok, 0) + 1
+        else:
+            counts[v] = counts.get(v, 0) + 1
+    return counts, answered
+
+
+def _render_summary_item(item, people, heading_color):
+    """Render one CONFIGURED summary item -> an HTML block, or '' if there's
+    nothing to show. item = {itemType, field, label}. itemType is one of:
+      demographic  -- field Age (bins), PrimaryZip (top), or any person field tally
+      subgroup     -- field '_all' (counts per involvement subgroup)
+      regquestion  -- field = question key (answer tally; choice vs free-text)
+      person       -- field = any flat person field (generic value tally)
+    Mirrors the auto sections so customized and automatic modes look identical."""
+    it = (item.get('itemType') or '').strip()
+    field = (item.get('field') or '').strip()
+    label = item.get('label') or field
+    total = len(people)
+
+    # Age distribution (binned)
+    if it == 'demographic' and field == 'Age':
+        bin_counts = {}
+        have = 0
+        for p in people:
+            lbl = _age_bin_label(p.get('Age'))
+            if lbl:
+                have += 1
+                bin_counts[lbl] = bin_counts.get(lbl, 0) + 1
+        if not have:
+            return ''
+        pairs = [(b, bin_counts[b]) for b in AGE_BIN_ORDER if b in bin_counts]
+        return _summary_block(heading_color, html_escape(label), _summary_bar_rows(pairs, have, '#48bb78'))
+
+    # Top ZIP codes
+    if it == 'demographic' and field in ('PrimaryZip', 'Zip'):
+        zc = {}
+        for p in people:
+            z = safe_str(p.get('PrimaryZip')).strip()[:5]
+            if z:
+                zc[z] = zc.get(z, 0) + 1
+        if not zc:
+            return ''
+        pairs = sorted(zc.items(), key=lambda kv: (-kv[1], kv[0]))[:12]
+        return _summary_block(heading_color, html_escape(label), _summary_bar_rows(pairs, total, '#ed8936'))
+
+    # Subgroup membership counts
+    if it == 'subgroup':
+        sc = {}
+        for p in people:
+            for sg in (p.get('_SubGroupsList') or []):
+                sc[sg] = sc.get(sg, 0) + 1
+        if not sc:
+            return ''
+        pairs = sorted(sc.items(), key=lambda kv: (-kv[1], kv[0]))
+        return _summary_block(heading_color, html_escape(label), _summary_bar_rows(pairs, total, '#9f7aea'))
+
+    # Registration question answer tally
+    if it == 'regquestion':
+        opt_counts = {}
+        answered = 0
+        long_text_hits = 0
+        for p in people:
+            optslist = _split_answer_options(p.get('answers', {}).get(field, ''))
+            if not optslist:
+                continue
+            answered += 1
+            for o in optslist:
+                if len(o) > 60:
+                    long_text_hits += 1
+                opt_counts[o] = opt_counts.get(o, 0) + 1
+        if answered == 0:
+            return ''
+        distinct = len(opt_counts)
+        is_freetext = (distinct > 12) or (long_text_hits > 0 and distinct > 5)
+        head = '{0} <span style="font-weight:400;color:#a0aec0;font-size:11px;">({1} of {2} answered)</span>'.format(
+            html_escape(label), answered, total)
+        if is_freetext:
+            toppairs = sorted(opt_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:8]
+            body = '<div style="font-size:11px;color:#a0aec0;margin-bottom:4px;">Free-text &mdash; {0} distinct responses. Most common:</div>'.format(distinct)
+            body += _summary_bar_rows(toppairs, answered, '#718096')
+        else:
+            pairs = sorted(opt_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            body = _summary_bar_rows(pairs, answered, '#4299e1')
+        return _summary_block(heading_color, head, body)
+
+    # Extra Value tally (PeopleExtra). Values were fetched onto the person dict
+    # as '_ev_<Field>' by fetch_extra_values (driven by extract_ev_names).
+    if it == 'extravalue':
+        counts = {}
+        answered = 0
+        for p in people:
+            v = safe_str(p.get('_ev_' + field, '')).strip()
+            if not v:
+                continue
+            answered += 1
+            counts[v] = counts.get(v, 0) + 1
+        if answered == 0:
+            return ''
+        pairs = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        if len(pairs) > 15:
+            pairs = pairs[:15]
+        head = '{0} <span style="font-weight:400;color:#a0aec0;font-size:11px;">({1} of {2})</span>'.format(
+            html_escape(label), answered, total)
+        return _summary_block(heading_color, head, _summary_bar_rows(pairs, answered, '#38b2ac'))
+
+    # Generic person-field / demographic value tally (Gender, MaritalStatus,
+    # State, City, or any other flat field).
+    if it in ('demographic', 'person'):
+        counts, answered = _tally_person_field(people, field)
+        if answered == 0:
+            return ''
+        pairs = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        if len(pairs) > 15:
+            pairs = pairs[:15]
+        head = '{0} <span style="font-weight:400;color:#a0aec0;font-size:11px;">({1} of {2})</span>'.format(
+            html_escape(label), answered, total)
+        return _summary_block(heading_color, head, _summary_bar_rows(pairs, answered, '#4299e1'))
+
+    return ''
+
+
+def render_summary_page(people, questions, org_name, template):
+    """Aggregate summary page: KPIs + demographics + per-question tallies.
+    Prepended like the cover page; gated by printSettings.showSummaryPage.
+    If printSettings.summaryItems[] is set, only those items render (in order);
+    otherwise an automatic set (gender/age/subgroups/ZIPs/all questions)."""
+    opts = template.get('globalOptions', {})
+    heading_color = opts.get('headingColor', '#2c5282')
+    total = len(people)
+
+    custom_title = ''
+    try:
+        ct = template.get('reportTitle') if isinstance(template, dict) else None
+        custom_title = (ct or '').strip() if ct else ''
+    except:
+        custom_title = ''
+    title_text = custom_title if custom_title else 'Registration Summary'
+
+    import datetime
+    now_str = datetime.datetime.now().strftime('%B %d, %Y at %I:%M %p')
+
+    parts = []
+    parts.append('<div class="rr-summary-page" style="page-break-after:always;padding:30px;">')
+    parts.append('<h1 style="font-size:26px;color:{0};margin:0 0 4px 0;">{1}</h1>'.format(
+        heading_color, html_escape(title_text)))
+    if org_name:
+        parts.append('<div style="font-size:16px;color:#4a5568;margin-bottom:2px;">{0}</div>'.format(html_escape(org_name)))
+    parts.append('<div style="font-size:12px;color:#a0aec0;margin-bottom:18px;">Summary &bull; {0} registrants &bull; generated {1}</div>'.format(total, html_escape(now_str)))
+
+    if total == 0:
+        parts.append('<div style="color:#718096;">No registrants to summarize.</div></div>')
+        return ''.join(parts)
+
+    # KPI cards
+    unique_ids = set(p.get('PeopleId') for p in people)
+    male = sum(1 for p in people if p.get('Gender') == 'Male')
+    female = sum(1 for p in people if p.get('Gender') == 'Female')
+    unknown = total - male - female
+    ages = []
+    for p in people:
+        try:
+            if p.get('Age') not in (None, ''):
+                ages.append(int(p.get('Age')))
+        except:
+            pass
+    avg_age = (sum(ages) / float(len(ages))) if ages else None
+
+    def kpi(label, value):
+        return ('<div style="flex:1;min-width:104px;background:#f7fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;">'
+                '<div style="font-size:22px;font-weight:700;color:{0};">{1}</div>'
+                '<div style="font-size:11px;color:#718096;text-transform:uppercase;letter-spacing:.04em;">{2}</div>'
+                '</div>').format(heading_color, value, html_escape(label))
+
+    parts.append('<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;">')
+    parts.append(kpi('Registrants', total))
+    parts.append(kpi('Unique People', len(unique_ids)))
+    parts.append(kpi('Male', male))
+    parts.append(kpi('Female', female))
+    if unknown:
+        parts.append(kpi('Unspecified', unknown))
+    if avg_age is not None:
+        parts.append(kpi('Avg Age', '{0:.0f}'.format(avg_age)))
+    parts.append('</div>')
+
+    # Customized mode: if the template lists explicit summary items, render
+    # only those (in the admin's order) and stop. Empty list -> automatic mode.
+    ps_cfg = template.get('printSettings', {}) or {}
+    summary_items = ps_cfg.get('summaryItems', []) or []
+    if summary_items:
+        for sit in summary_items:
+            blk = _render_summary_item(sit, people, heading_color)
+            if blk:
+                parts.append(blk)
+        parts.append('</div>')
+        return ''.join(parts)
+
+    def block(title_html, body_html):
+        return _summary_block(heading_color, title_html, body_html)
+
+    # Gender
+    gpairs = [('Male', male), ('Female', female)]
+    if unknown:
+        gpairs.append(('Unspecified', unknown))
+    parts.append(block('Gender', _summary_bar_rows(gpairs, total, '#4299e1')))
+
+    # Age bins
+    bin_counts = {}
+    have_age = 0
+    for p in people:
+        lbl = _age_bin_label(p.get('Age'))
+        if lbl:
+            have_age += 1
+            bin_counts[lbl] = bin_counts.get(lbl, 0) + 1
+    if have_age:
+        agepairs = [(b, bin_counts[b]) for b in AGE_BIN_ORDER if b in bin_counts]
+        parts.append(block('Age Distribution', _summary_bar_rows(agepairs, have_age, '#48bb78')))
+
+    # Subgroups
+    sg_counts = {}
+    for p in people:
+        for sg in (p.get('_SubGroupsList') or []):
+            sg_counts[sg] = sg_counts.get(sg, 0) + 1
+    if sg_counts:
+        sgpairs = sorted(sg_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        parts.append(block('Subgroups', _summary_bar_rows(sgpairs, total, '#9f7aea')))
+
+    # Top ZIPs
+    zip_counts = {}
+    for p in people:
+        z = safe_str(p.get('PrimaryZip')).strip()[:5]
+        if z:
+            zip_counts[z] = zip_counts.get(z, 0) + 1
+    if zip_counts:
+        zippairs = sorted(zip_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
+        parts.append(block('Top ZIP Codes', _summary_bar_rows(zippairs, total, '#ed8936')))
+
+    # Per-question tallies
+    CHOICE_MAX_DISTINCT = 12
+    for qd in questions:
+        key = qd.get('key')
+        label = qd.get('label', key)
+        opt_counts = {}
+        answered = 0
+        long_text_hits = 0
+        for p in people:
+            raw = p.get('answers', {}).get(key, '')
+            optslist = _split_answer_options(raw)
+            if not optslist:
+                continue
+            answered += 1
+            for o in optslist:
+                if len(o) > 60:
+                    long_text_hits += 1
+                opt_counts[o] = opt_counts.get(o, 0) + 1
+        if answered == 0:
+            continue
+        distinct = len(opt_counts)
+        is_freetext = (distinct > CHOICE_MAX_DISTINCT) or (long_text_hits > 0 and distinct > 5)
+        head = '{0} <span style="font-weight:400;color:#a0aec0;font-size:11px;">({1} of {2} answered)</span>'.format(
+            html_escape(label), answered, total)
+        if is_freetext:
+            toppairs = sorted(opt_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:8]
+            body = '<div style="font-size:11px;color:#a0aec0;margin-bottom:4px;">Free-text &mdash; {0} distinct responses. Most common:</div>'.format(distinct)
+            body += _summary_bar_rows(toppairs, answered, '#718096')
+        else:
+            qpairs = sorted(opt_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            body = _summary_bar_rows(qpairs, answered, '#4299e1')
+        parts.append(block(head, body))
+
+    parts.append('</div>')
+    return ''.join(parts)
+
 
 def render_cover_page(people, org_name, template):
     """Render a cover page with summary statistics."""
@@ -1885,6 +2396,7 @@ if model.HttpMethod == "post":
     elif action == 'load_org_data':
         org_id = getattr(Data, 'org_id', '')
         filter_ids = parse_filter_people(getattr(Data, 'filter_people', ''))
+        include_dropped = str(getattr(Data, 'include_dropped', '') or '').lower() in ('1', 'true', 'yes')
         if not org_id:
             print json.dumps({'success': False, 'message': 'Organization ID required'})
         else:
@@ -1893,15 +2405,20 @@ if model.HttpMethod == "post":
                 org_info = q.QuerySqlTop1("SELECT OrganizationName FROM Organizations WHERE OrganizationId = {0}".format(org_id))
                 org_name = safe_str(org_info.OrganizationName) if org_info else 'Unknown'
 
-                data = get_registrant_data(org_id, filter_ids)
+                data = get_registrant_data(org_id, filter_ids, include_dropped=include_dropped)
                 if 'error' in data:
                     print json.dumps({'success': False, 'message': data['error']})
                 else:
                     person_list = []
+                    dropped_count = 0
                     for p in data['people']:
+                        is_dropped = bool(p.get('IsDropped', False))
+                        if is_dropped:
+                            dropped_count += 1
                         person_list.append({
                             'id': p['PeopleId'],
-                            'name': p['Name']
+                            'name': p['Name'],
+                            'dropped': is_dropped
                         })
 
                     person_fields = [
@@ -1953,6 +2470,7 @@ if model.HttpMethod == "post":
                         'success': True,
                         'orgName': org_name,
                         'personCount': len(data['people']),
+                        'droppedCount': dropped_count,
                         'questionCount': len(data['questions']),
                         'questions': data['questions'],
                         'personList': person_list,
@@ -2164,6 +2682,7 @@ if model.HttpMethod == "post":
         template_json = getattr(Data, 'template_json', '')
         people_id = getattr(Data, 'people_id', '')
         filter_ids = parse_filter_people(getattr(Data, 'filter_people', ''))
+        include_dropped = str(getattr(Data, 'include_dropped', '') or '').lower() in ('1', 'true', 'yes')
 
         if not org_id or not template_json:
             print json.dumps({'success': False, 'message': 'Organization and template required'})
@@ -2177,7 +2696,7 @@ if model.HttpMethod == "post":
                     org_id = int(org_id)
                     org_info = q.QuerySqlTop1("SELECT OrganizationName FROM Organizations WHERE OrganizationId = {0}".format(org_id))
                     org_name = safe_str(org_info.OrganizationName) if org_info else ''
-                    data = get_registrant_data(org_id, filter_ids)
+                    data = get_registrant_data(org_id, filter_ids, include_dropped=include_dropped)
                 ev_names = extract_ev_names_from_template(template)
                 if ev_names:
                     fetch_extra_values(data['people'], ev_names)
@@ -2185,6 +2704,8 @@ if model.HttpMethod == "post":
                 # Supplemental pages in preview (shown before the person preview)
                 ps = template.get('printSettings', {})
                 prefix_html = ''
+                if ps.get('showSummaryPage', False):
+                    prefix_html += render_summary_page(data['people'], data.get('questions', []), org_name, template)
                 if ps.get('showCoverPage', False):
                     prefix_html += render_cover_page(data['people'], org_name, template)
                 if ps.get('showMissingInfoPage', False):
@@ -2192,7 +2713,10 @@ if model.HttpMethod == "post":
                 if ps.get('showMedicalPage', False):
                     prefix_html += render_medical_page(data['people'], template, data.get('questions', []))
 
-                html_out = prefix_html + render_report_html(data['people'], template, org_name, data.get('questions', []), people_id)
+                if ps.get('hidePersonDetail', False):
+                    html_out = prefix_html if prefix_html else '<div style="padding:30px;color:#718096;">No summary/supplemental pages enabled. Turn on a summary page, or turn off "Skip per-person detail".</div>'
+                else:
+                    html_out = prefix_html + render_report_html(data['people'], template, org_name, data.get('questions', []), people_id)
                 print json.dumps({'success': True, 'html': html_out})
             except Exception as e:
                 print json.dumps({'success': False, 'message': safe_str(e)})
@@ -2204,6 +2728,7 @@ if model.HttpMethod == "post":
         org_id = getattr(Data, 'org_id', '')
         template_json = getattr(Data, 'template_json', '')
         filter_ids = parse_filter_people(getattr(Data, 'filter_people', ''))
+        include_dropped = str(getattr(Data, 'include_dropped', '') or '').lower() in ('1', 'true', 'yes')
 
         if not org_id or not template_json:
             print json.dumps({'success': False, 'message': 'Organization and template required'})
@@ -2217,7 +2742,7 @@ if model.HttpMethod == "post":
                     org_id = int(org_id)
                     org_info = q.QuerySqlTop1("SELECT OrganizationName FROM Organizations WHERE OrganizationId = {0}".format(org_id))
                     org_name = safe_str(org_info.OrganizationName) if org_info else ''
-                    data = get_registrant_data(org_id, filter_ids)
+                    data = get_registrant_data(org_id, filter_ids, include_dropped=include_dropped)
                 ev_names = extract_ev_names_from_template(template)
                 if ev_names:
                     fetch_extra_values(data['people'], ev_names)
@@ -2225,6 +2750,8 @@ if model.HttpMethod == "post":
                 # Build supplemental pages based on print settings
                 ps = template.get('printSettings', {})
                 prefix_html = ''
+                if ps.get('showSummaryPage', False):
+                    prefix_html += render_summary_page(data['people'], data.get('questions', []), org_name, template)
                 if ps.get('showCoverPage', False):
                     prefix_html += render_cover_page(data['people'], org_name, template)
                 if ps.get('showMissingInfoPage', False):
@@ -2232,7 +2759,10 @@ if model.HttpMethod == "post":
                 if ps.get('showMedicalPage', False):
                     prefix_html += render_medical_page(data['people'], template, data.get('questions', []))
 
-                html_out = prefix_html + render_report_html(data['people'], template, org_name, data.get('questions', []))
+                if ps.get('hidePersonDetail', False):
+                    html_out = prefix_html if prefix_html else '<div style="padding:30px;color:#718096;">No summary/supplemental pages enabled. Turn on a summary page, or turn off "Skip per-person detail".</div>'
+                else:
+                    html_out = prefix_html + render_report_html(data['people'], template, org_name, data.get('questions', []))
                 print json.dumps({'success': True, 'html': html_out, 'personCount': len(data['people'])})
             except Exception as e:
                 print json.dumps({'success': False, 'message': safe_str(e)})
@@ -2244,6 +2774,7 @@ if model.HttpMethod == "post":
         org_id = getattr(Data, 'org_id', '')
         template_json = getattr(Data, 'template_json', '')
         filter_ids = parse_filter_people(getattr(Data, 'filter_people', ''))
+        include_dropped = str(getattr(Data, 'include_dropped', '') or '').lower() in ('1', 'true', 'yes')
 
         if not org_id or not template_json:
             print json.dumps({'success': False, 'message': 'Organization and template required'})
@@ -2254,7 +2785,7 @@ if model.HttpMethod == "post":
                     data = get_people_data_direct(filter_ids)
                 else:
                     org_id = int(org_id)
-                    data = get_registrant_data(org_id, filter_ids)
+                    data = get_registrant_data(org_id, filter_ids, include_dropped=include_dropped)
                 ev_names = extract_ev_names_from_template(template)
                 if ev_names:
                     fetch_extra_values(data['people'], ev_names)
@@ -2734,7 +3265,12 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         <div id="rrSelectedOrgBar" class="rr-selected-org" style="display:none;">
             <span class="rr-selected-org-name" id="rrOrgNameBar"></span>
             <span class="rr-badge rr-badge-blue" id="rrOrgPeopleCount"></span>
+            <span class="rr-badge" id="rrOrgDroppedCount" style="display:none;background:#fed7d7;color:#9b2c2c;"></span>
             <span class="rr-badge rr-badge-green" id="rrOrgQuestionCount"></span>
+            <label id="rrIncludeDroppedWrap" style="display:none;margin:0 0 0 8px;align-items:center;gap:6px;font-size:12px;color:#4a5568;cursor:pointer;" title="Also include people who answered registration questions but were later dropped or moved out of this involvement. Registration answers persist on the original involvement.">
+                <input type="checkbox" id="rrIncludeDropped" onchange="toggleIncludeDropped(this.checked)" style="margin:0;">
+                Include dropped registrants
+            </label>
             <button class="rr-btn rr-btn-secondary rr-btn-sm" id="rrChangeOrgBtn" onclick="goToStep(1)">Change</button>
         </div>
 
@@ -2879,6 +3415,30 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                 <div class="rr-card">
                     <div class="rr-card-title">Supplemental Pages</div>
                     <div style="font-size:12px;color:#718096;margin-bottom:10px;">These pages are prepended to the report when generating/printing.</div>
+                    <div class="rr-option-row">
+                        <span class="rr-option-label">Skip per-person detail <span style="font-weight:400;color:#a0aec0;">(print only the pages below)</span></span>
+                        <label class="rr-toggle"><input type="checkbox" id="rrOptSkipDetail" onchange="updatePrintSetting('hidePersonDetail', this.checked)"><span class="rr-toggle-slider"></span></label>
+                    </div>
+                    <div class="rr-option-row">
+                        <span class="rr-option-label">Form summary page (counts &amp; charts)</span>
+                        <label class="rr-toggle"><input type="checkbox" id="rrOptSummaryPage" onchange="updatePrintSetting('showSummaryPage', this.checked)"><span class="rr-toggle-slider"></span></label>
+                    </div>
+                    <div id="rrSummaryPanel" style="display:none;padding:8px 12px;background:#f7fafc;border:1px solid #e2e8f0;border-radius:4px;margin:4px 0 8px 0;">
+                        <div style="font-size:12px;font-weight:600;color:#4a5568;margin-bottom:6px;">Items to summarize <span style="font-weight:400;color:#a0aec0;">(leave empty for automatic: gender, age, subgroups, ZIPs &amp; every question)</span>:</div>
+                        <div id="rrSummaryItemsList"></div>
+                        <div style="display:flex;gap:6px;margin-top:6px;">
+                            <select id="rrSummaryItemPicker" style="flex:1;font-size:12px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;"></select>
+                            <button class="rr-btn rr-btn-primary rr-btn-sm" onclick="addSupplementalItem('summary')">Add</button>
+                        </div>
+                        <div id="rrSummaryEvRow" style="display:none;margin-top:6px;padding:6px;background:#fff;border:1px dashed #cbd5e0;border-radius:4px;">
+                            <div style="font-size:11px;color:#4a5568;margin-bottom:4px;">Extra Value field name (exact) + optional label:</div>
+                            <div style="display:flex;gap:6px;">
+                                <input type="text" id="rrSummaryEvName" placeholder="EV field name" style="flex:1;font-size:12px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;"/>
+                                <input type="text" id="rrSummaryEvLabel" placeholder="Label (optional)" style="flex:1;font-size:12px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;"/>
+                                <button class="rr-btn rr-btn-primary rr-btn-sm" onclick="addSummaryEvField()">Add</button>
+                            </div>
+                        </div>
+                    </div>
                     <div class="rr-option-row">
                         <span class="rr-option-label">Cover page with summary</span>
                         <label class="rr-toggle"><input type="checkbox" id="rrOptCoverPage" onchange="updatePrintSetting('showCoverPage', this.checked)"><span class="rr-toggle-slider"></span></label>
@@ -3043,7 +3603,8 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         currentSavedName: null,
         generatedHtml: '',
         btMode: false,
-        btPeopleIds: []
+        btPeopleIds: [],
+        includeDropped: false
     };
 
     var TEMPLATES = {
@@ -3065,6 +3626,11 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         }
         if (state.btMode && state.btPeopleIds.length > 0) {
             params.filter_people = state.btPeopleIds.join(',');
+        }
+        // Only the org-based actions consume include_dropped. Sending it on
+        // every call is harmless — unrecognized params are ignored server-side.
+        if (state.includeDropped) {
+            params.include_dropped = '1';
         }
         $.ajax({
             url: scriptUrl,
@@ -3132,6 +3698,57 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         });
     };
 
+    function applyOrgLoadResponse(data) {
+        state.selectedOrgName = data.orgName;
+        state.personList = data.personList || [];
+        state.questions = data.questions || [];
+        state.availableFields = data.availableFields || {};
+        state.availableSubGroups = data.availableSubGroups || [];
+        document.getElementById('rrOrgNameBar').textContent = data.orgName;
+        var countLabel = state.btMode ? data.personCount + ' selected' : data.personCount + ' people';
+        document.getElementById('rrOrgPeopleCount').textContent = countLabel;
+        var droppedEl = document.getElementById('rrOrgDroppedCount');
+        var droppedCount = data.droppedCount || 0;
+        if (droppedCount > 0) {
+            droppedEl.textContent = droppedCount + ' dropped';
+            droppedEl.style.display = '';
+        } else {
+            droppedEl.style.display = 'none';
+        }
+        document.getElementById('rrOrgQuestionCount').textContent = data.questionCount + ' questions';
+        document.getElementById('rrSelectedOrgBar').style.display = 'flex';
+        // The include-dropped toggle only makes sense for org-based runs, not Blue Toolbar.
+        var dropWrap = document.getElementById('rrIncludeDroppedWrap');
+        if (dropWrap) dropWrap.style.display = state.btMode ? 'none' : 'inline-flex';
+        var dropCb = document.getElementById('rrIncludeDropped');
+        if (dropCb) dropCb.checked = !!state.includeDropped;
+        var changeBtn = document.getElementById('rrChangeOrgBtn');
+        if (changeBtn && state.btMode) changeBtn.style.display = 'none';
+        var sel = document.getElementById('rrPreviewPerson');
+        sel.innerHTML = '';
+        for (var i = 0; i < state.personList.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = state.personList[i].id;
+            opt.textContent = state.personList[i].name + (state.personList[i].dropped ? ' (Dropped)' : '');
+            sel.appendChild(opt);
+        }
+    }
+
+    window.toggleIncludeDropped = function(checked) {
+        state.includeDropped = !!checked;
+        if (!state.selectedOrgId || state.btMode) return;
+        showToast('Reloading involvement data...', 'info');
+        ajax('load_org_data', {org_id: state.selectedOrgId}, function(data) {
+            if (!data.success) { showToast('Error: ' + data.message, 'danger'); return; }
+            applyOrgLoadResponse(data);
+            // Refresh preview if user has already configured a template
+            if (state.currentStep >= 3 && state.template) refreshPreview();
+            showToast(state.includeDropped
+                ? 'Now including ' + (data.droppedCount || 0) + ' dropped registrants'
+                : 'Showing active members only', 'success');
+        });
+    };
+
     window.selectOrg = function(orgId, el) {
         document.querySelectorAll('.rr-org-item').forEach(function(e) { e.classList.remove('selected'); });
         if (el) el.classList.add('selected');
@@ -3139,26 +3756,7 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         showToast('Loading organization data...', 'info');
         ajax('load_org_data', {org_id: orgId}, function(data) {
             if (!data.success) { showToast('Error: ' + data.message, 'danger'); return; }
-            state.selectedOrgName = data.orgName;
-            state.personList = data.personList || [];
-            state.questions = data.questions || [];
-            state.availableFields = data.availableFields || {};
-            state.availableSubGroups = data.availableSubGroups || [];
-            document.getElementById('rrOrgNameBar').textContent = data.orgName;
-            var countLabel = state.btMode ? data.personCount + ' selected' : data.personCount + ' people';
-            document.getElementById('rrOrgPeopleCount').textContent = countLabel;
-            document.getElementById('rrOrgQuestionCount').textContent = data.questionCount + ' questions';
-            document.getElementById('rrSelectedOrgBar').style.display = 'flex';
-            var changeBtn = document.getElementById('rrChangeOrgBtn');
-            if (changeBtn && state.btMode) changeBtn.style.display = 'none';
-            var sel = document.getElementById('rrPreviewPerson');
-            sel.innerHTML = '';
-            for (var i = 0; i < state.personList.length; i++) {
-                var opt = document.createElement('option');
-                opt.value = state.personList[i].id;
-                opt.textContent = state.personList[i].name;
-                sel.appendChild(opt);
-            }
+            applyOrgLoadResponse(data);
             ajax('load_template', {org_id: orgId}, function(tplData) {
                 if (tplData.success) {
                     state.savedTemplates = tplData.templates || {};
@@ -3252,16 +3850,22 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
             var rtEl = document.getElementById('rrOptReportTitle');
             if (rtEl) rtEl.value = state.template.reportTitle || '';
             // Supplemental page toggles
+            setChecked('rrOptSkipDetail', ps.hidePersonDetail === true);
+            setChecked('rrOptSummaryPage', ps.showSummaryPage === true);
             setChecked('rrOptCoverPage', ps.showCoverPage === true);
             setChecked('rrOptMissingInfo', ps.showMissingInfoPage === true);
             setChecked('rrOptMedicalPage', ps.showMedicalPage === true);
+            var summaryPanel = document.getElementById('rrSummaryPanel');
+            if (summaryPanel) summaryPanel.style.display = ps.showSummaryPage ? 'block' : 'none';
             var missingPanel = document.getElementById('rrMissingInfoPanel');
             if (missingPanel) missingPanel.style.display = ps.showMissingInfoPage ? 'block' : 'none';
             var medPanel = document.getElementById('rrMedicalPanel');
             if (medPanel) medPanel.style.display = ps.showMedicalPage ? 'block' : 'none';
             // Build pickers and render item lists
+            buildSupplementalPicker('summary');
             buildSupplementalPicker('missing');
             buildSupplementalPicker('medical');
+            renderSupplementalItems('summary');
             renderSupplementalItems('missing');
             renderSupplementalItems('medical');
         }
@@ -3286,6 +3890,11 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         if (!state.template) return;
         if (!state.template.printSettings) state.template.printSettings = {};
         state.template.printSettings[key] = value;
+        if (key === 'showSummaryPage') {
+            var el = document.getElementById('rrSummaryPanel');
+            if (el) el.style.display = value ? 'block' : 'none';
+            if (value) { buildSupplementalPicker('summary'); renderSupplementalItems('summary'); }
+        }
         if (key === 'showMissingInfoPage') {
             var el = document.getElementById('rrMissingInfoPanel');
             if (el) el.style.display = value ? 'block' : 'none';
@@ -3300,10 +3909,61 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
 
     // Build picker options for supplemental page item pickers
     function buildSupplementalPicker(pageType) {
-        var pickerId = pageType === 'missing' ? 'rrMissingItemPicker' : 'rrMedicalItemPicker';
+        var pickerId = pageType === 'missing' ? 'rrMissingItemPicker' : (pageType === 'medical' ? 'rrMedicalItemPicker' : 'rrSummaryItemPicker');
         var sel = document.getElementById(pickerId);
         if (!sel) return;
         var af = state.availableFields || {};
+        // Summary picker offers aggregatable items (demographics, subgroups,
+        // registration questions) plus the same field sources as the
+        // section/field builder. Free-text-ish fields fall back to a
+        // top-values list in the renderer.
+        if (pageType === 'summary') {
+            var shtml = '<option value="">+ Add an item...</option>';
+            shtml += '<optgroup label="Demographics (computed)">';
+            shtml += '<option value="demographic|Gender|Gender">Gender</option>';
+            shtml += '<option value="demographic|Age|Age Distribution">Age Distribution</option>';
+            shtml += '<option value="demographic|MaritalStatus|Marital Status">Marital Status</option>';
+            shtml += '<option value="demographic|PrimaryState|State">State</option>';
+            shtml += '<option value="demographic|PrimaryCity|City">City</option>';
+            shtml += '<option value="demographic|PrimaryZip|Top ZIP Codes">Top ZIP Codes</option>';
+            shtml += '</optgroup>';
+            shtml += '<optgroup label="Groups"><option value="subgroup|_all|Subgroups">Subgroups</option></optgroup>';
+            var skipPerson = {Gender:1, Age:1, MaritalStatus:1, SubGroups:1};
+            if (af.person && af.person.length) {
+                shtml += '<optgroup label="Person Fields">';
+                for (var pi = 0; pi < af.person.length; pi++) {
+                    if (skipPerson[af.person[pi].sourceField]) continue;
+                    shtml += '<option value="person|' + escAttr(af.person[pi].sourceField) + '|' + escAttr(af.person[pi].label) + '">' + escHtml(af.person[pi].label) + '</option>';
+                }
+                shtml += '</optgroup>';
+            }
+            if (af.family && af.family.length) {
+                shtml += '<optgroup label="Family Fields">';
+                for (var fyi = 0; fyi < af.family.length; fyi++) {
+                    shtml += '<option value="person|' + escAttr(af.family[fyi].sourceField) + '|' + escAttr(af.family[fyi].label) + '">' + escHtml(af.family[fyi].label) + '</option>';
+                }
+                shtml += '</optgroup>';
+            }
+            if (af.medical && af.medical.length) {
+                shtml += '<optgroup label="Medical / Emergency">';
+                for (var mdi = 0; mdi < af.medical.length; mdi++) {
+                    shtml += '<option value="person|' + escAttr(af.medical[mdi].sourceField) + '|' + escAttr(af.medical[mdi].label) + '">' + escHtml(af.medical[mdi].label) + '</option>';
+                }
+                shtml += '</optgroup>';
+            }
+            if (af.regquestion && af.regquestion.length > 0) {
+                shtml += '<optgroup label="Registration Questions">';
+                for (var si = 0; si < af.regquestion.length; si++) {
+                    var sql2 = af.regquestion[si].label;
+                    var sqs = sql2.length > 50 ? sql2.substring(0,47) + '...' : sql2;
+                    shtml += '<option value="regquestion|' + escAttr(af.regquestion[si].sourceField) + '|' + escAttr(sql2) + '">' + escHtml(sqs) + '</option>';
+                }
+                shtml += '</optgroup>';
+            }
+            shtml += '<optgroup label="Other"><option value="extravalue|_prompt_|">Extra Value Field...</option></optgroup>';
+            sel.innerHTML = shtml;
+            return;
+        }
         var html = '<option value="">+ Add an item...</option>';
         html += '<optgroup label="Person Fields">';
         var personItems = [
@@ -3353,8 +4013,8 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
 
     function renderSupplementalItems(pageType) {
         if (!state.template || !state.template.printSettings) return;
-        var listKey = pageType === 'missing' ? 'missingInfoItems' : 'medicalItems';
-        var containerId = pageType === 'missing' ? 'rrMissingItemsList' : 'rrMedicalItemsList';
+        var listKey = pageType === 'missing' ? 'missingInfoItems' : (pageType === 'medical' ? 'medicalItems' : 'summaryItems');
+        var containerId = pageType === 'missing' ? 'rrMissingItemsList' : (pageType === 'medical' ? 'rrMedicalItemsList' : 'rrSummaryItemsList');
         var container = document.getElementById(containerId);
         if (!container) return;
         var items = state.template.printSettings[listKey] || [];
@@ -3370,7 +4030,14 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
             else if (item.itemType === 'regquestion') { tagColor = '#276749'; tagBg = '#f0fff4'; }
             else if (item.itemType === 'keyword') { tagColor = '#6b46c1'; tagBg = '#faf5ff'; }
             else if (item.itemType === 'family') { tagColor = '#b7791f'; tagBg = '#fffff0'; }
-            html += '<div style="display:inline-flex;align-items:center;gap:4px;margin:2px 4px 2px 0;padding:3px 8px;background:' + tagBg + ';border:1px solid ' + tagColor + ';border-radius:12px;font-size:11px;color:' + tagColor + ';">';
+            else if (item.itemType === 'extravalue') { tagColor = '#2c7a7b'; tagBg = '#e6fffa'; }
+            else if (item.itemType === 'subgroup') { tagColor = '#6b46c1'; tagBg = '#faf5ff'; }
+            html += '<div style="display:inline-flex;align-items:center;gap:3px;margin:2px 4px 2px 0;padding:3px 8px;background:' + tagBg + ';border:1px solid ' + tagColor + ';border-radius:12px;font-size:11px;color:' + tagColor + ';">';
+            // Reorder arrows (disabled at the ends). Order is the render order.
+            var upDis = (i === 0) ? 'opacity:.25;cursor:default;' : 'cursor:pointer;';
+            var dnDis = (i === items.length - 1) ? 'opacity:.25;cursor:default;' : 'cursor:pointer;';
+            html += '<button data-pagetype="' + pageType + '" data-idx="' + i + '" onclick="moveSupplementalItem(this.dataset.pagetype,parseInt(this.dataset.idx),-1)" style="border:none;background:none;color:' + tagColor + ';font-size:11px;padding:0 1px;line-height:1;' + upDis + '" title="Move up">&#9650;</button>';
+            html += '<button data-pagetype="' + pageType + '" data-idx="' + i + '" onclick="moveSupplementalItem(this.dataset.pagetype,parseInt(this.dataset.idx),1)" style="border:none;background:none;color:' + tagColor + ';font-size:11px;padding:0 1px;line-height:1;' + dnDis + '" title="Move down">&#9660;</button>';
             html += '<span>' + escHtml(item.label || item.field) + '</span>';
             html += '<button data-pagetype="' + pageType + '" data-idx="' + i + '" onclick="removeSupplementalItem(this.dataset.pagetype,parseInt(this.dataset.idx))" style="border:none;background:none;cursor:pointer;color:' + tagColor + ';font-size:14px;padding:0 2px;line-height:1;" title="Remove">&times;</button>';
             html += '</div>';
@@ -3378,12 +4045,22 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         container.innerHTML = html;
     }
 
+    window.moveSupplementalItem = function(pageType, idx, dir) {
+        if (!state.template || !state.template.printSettings) return;
+        var listKey = pageType === 'missing' ? 'missingInfoItems' : (pageType === 'medical' ? 'medicalItems' : 'summaryItems');
+        var items = state.template.printSettings[listKey] || [];
+        var ni = idx + dir;
+        if (idx < 0 || idx >= items.length || ni < 0 || ni >= items.length) return;
+        var tmp = items[idx]; items[idx] = items[ni]; items[ni] = tmp;
+        renderSupplementalItems(pageType);
+    };
+
     window.addSupplementalItem = function(pageType) {
         if (!state.template) return;
         if (!state.template.printSettings) state.template.printSettings = {};
-        var listKey = pageType === 'missing' ? 'missingInfoItems' : 'medicalItems';
+        var listKey = pageType === 'missing' ? 'missingInfoItems' : (pageType === 'medical' ? 'medicalItems' : 'summaryItems');
         if (!state.template.printSettings[listKey]) state.template.printSettings[listKey] = [];
-        var pickerId = pageType === 'missing' ? 'rrMissingItemPicker' : 'rrMedicalItemPicker';
+        var pickerId = pageType === 'missing' ? 'rrMissingItemPicker' : (pageType === 'medical' ? 'rrMedicalItemPicker' : 'rrSummaryItemPicker');
         var sel = document.getElementById(pickerId);
         if (!sel || !sel.value) return;
         var parts = sel.value.split('|');
@@ -3393,6 +4070,17 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
             document.getElementById('rrMedKeywordRow').style.display = 'block';
             var inp = document.getElementById('rrMedKeywordInput');
             if (inp) { inp.value = ''; inp.focus(); }
+            sel.value = '';
+            return;
+        }
+        // Extra Value prompt (summary): reveal the name/label input row
+        if (parts[0] === 'extravalue' && parts[1] === '_prompt_') {
+            var evRow = document.getElementById('rrSummaryEvRow');
+            if (evRow) evRow.style.display = 'block';
+            var evN = document.getElementById('rrSummaryEvName');
+            var evL = document.getElementById('rrSummaryEvLabel');
+            if (evN) { evN.value = ''; evN.focus(); }
+            if (evL) evL.value = '';
             sel.value = '';
             return;
         }
@@ -3430,9 +4118,31 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         renderSupplementalItems('medical');
     };
 
+    window.addSummaryEvField = function() {
+        if (!state.template) return;
+        if (!state.template.printSettings) state.template.printSettings = {};
+        if (!state.template.printSettings.summaryItems) state.template.printSettings.summaryItems = [];
+        var nameInput = document.getElementById('rrSummaryEvName');
+        var labelInput = document.getElementById('rrSummaryEvLabel');
+        var evName = nameInput ? nameInput.value.trim() : '';
+        if (!evName) { if (nameInput) nameInput.focus(); return; }
+        var lbl = (labelInput && labelInput.value.trim()) ? labelInput.value.trim() : evName;
+        var existing = state.template.printSettings.summaryItems;
+        for (var i = 0; i < existing.length; i++) {
+            if (existing[i].itemType === 'extravalue' && existing[i].field === evName) {
+                showToast('Already added', 'info');
+                return;
+            }
+        }
+        existing.push({itemType: 'extravalue', field: evName, label: lbl});
+        var row = document.getElementById('rrSummaryEvRow');
+        if (row) row.style.display = 'none';
+        renderSupplementalItems('summary');
+    };
+
     window.removeSupplementalItem = function(pageType, idx) {
         if (!state.template || !state.template.printSettings) return;
-        var listKey = pageType === 'missing' ? 'missingInfoItems' : 'medicalItems';
+        var listKey = pageType === 'missing' ? 'missingInfoItems' : (pageType === 'medical' ? 'medicalItems' : 'summaryItems');
         var items = state.template.printSettings[listKey] || [];
         if (idx >= 0 && idx < items.length) {
             items.splice(idx, 1);
