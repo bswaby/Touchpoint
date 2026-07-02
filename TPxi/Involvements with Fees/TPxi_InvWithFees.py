@@ -28,6 +28,8 @@ To upload code to Touchpoint, use the following steps:
 4. Test and optionally add to menu
 --Upload Instructions End--
 
+Written By: Ben Swaby
+Email: bswaby@fbchtn.org
 '''
 #roles=Finance,Admin
 
@@ -53,7 +55,7 @@ class Config:
     ADMIN_FEATURES_ROLE = "Admin"
     
     # === Date Settings ===
-    DEFAULT_DAYS_BACK = 30  # Default to last 30 days
+    DEFAULT_DAYS_BACK = 30  # Default to last month; widen with the date form to see older fee involvements.
     DATE_FORMAT = "%m/%d/%Y"
 
     # === Filter Settings ===
@@ -162,9 +164,9 @@ def run_diagnostic_test():
         sql = """SELECT TOP 10 
                  o.OrganizationId,
                  o.OrganizationName,
-                 CASE WHEN o.CreatedBy = '[]' THEN 'HAS []' ELSE 'OK' END AS CreatedByCheck,
-                 CASE WHEN o.RegAccountCodeId = '[]' THEN 'HAS []' ELSE 'OK' END AS RegAccountCodeIdCheck,
-                 CASE WHEN o.RegFundId = '[]' THEN 'HAS []' ELSE 'OK' END AS RegFundIdCheck,
+                 CASE WHEN CAST(o.CreatedBy AS VARCHAR(50)) = '[]' THEN 'HAS []' ELSE 'OK' END AS CreatedByCheck,
+                 CASE WHEN CAST(o.RegAccountCodeId AS VARCHAR(50)) = '[]' THEN 'HAS []' ELSE 'OK' END AS RegAccountCodeIdCheck,
+                 CASE WHEN CAST(o.RegFundId AS VARCHAR(50)) = '[]' THEN 'HAS []' ELSE 'OK' END AS RegFundIdCheck,
                  CASE WHEN CAST(o.OrganizationStatusId AS VARCHAR) = '[]' THEN 'HAS []' ELSE 'OK' END AS OrgStatusIdCheck,
                  CASE WHEN CAST(o.DivisionId AS VARCHAR) = '[]' THEN 'HAS []' ELSE 'OK' END AS DivisionIdCheck,
                  o.CreatedBy,
@@ -172,10 +174,10 @@ def run_diagnostic_test():
                  o.RegFundId,
                  o.OrganizationStatusId,
                  o.DivisionId
-                 FROM Organizations o 
-                 WHERE o.CreatedBy = '[]' 
-                    OR o.RegAccountCodeId = '[]' 
-                    OR o.RegFundId = '[]'
+                 FROM Organizations o
+                 WHERE CAST(o.CreatedBy AS VARCHAR(50)) = '[]'
+                    OR CAST(o.RegAccountCodeId AS VARCHAR(50)) = '[]'
+                    OR CAST(o.RegFundId AS VARCHAR(50)) = '[]'
                     OR CAST(o.OrganizationStatusId AS VARCHAR) = '[]'
                     OR CAST(o.DivisionId AS VARCHAR) = '[]'"""
         
@@ -229,8 +231,8 @@ def run_diagnostic_test():
             print "</div>"
         
         # Now check RegQuestion
-        sql = """SELECT 
-                 rq.QuestionId,
+        sql = """SELECT
+                 rq.RegQuestionId AS QuestionId,
                  rq.Options,
                  LEN(rq.Options) AS OptionsLength
                  FROM RegQuestion rq
@@ -272,9 +274,10 @@ def run_diagnostic_test():
         INNER JOIN RegQuestion rq ON o.OrganizationId = rq.OrganizationId
         WHERE o.OrganizationId = 3019
           AND o.RegistrationTypeId = 26
-          AND rq.Options LIKE '%"Fee":%' 
-          AND rq.Options NOT LIKE '%"Fee":null%'
-          AND CHARINDEX('"Fee":0', rq.Options) = 0
+          AND rq.Options LIKE '%"Fee":%'
+          AND (rq.Options LIKE '%"Fee":1%' OR rq.Options LIKE '%"Fee":2%' OR rq.Options LIKE '%"Fee":3%'
+            OR rq.Options LIKE '%"Fee":4%' OR rq.Options LIKE '%"Fee":5%' OR rq.Options LIKE '%"Fee":6%'
+            OR rq.Options LIKE '%"Fee":7%' OR rq.Options LIKE '%"Fee":8%' OR rq.Options LIKE '%"Fee":9%')
         """
         
         test_result = q.QuerySqlTop1(test_sql)
@@ -319,9 +322,9 @@ def run_diagnostic_test():
                      ELSE NULL 
                  END AS DonationFundId,
                  CONVERT(varchar, o.CreatedDate, 101) AS CreatedDate
-                 FROM Organizations o 
-                 WHERE (o.RegSettingXML.exist('(/Settings/Fees/Fee)[1]') = 1
-                    OR o.RegSettingXML.exist('(/Settings/Fees/Deposit)[1]') = 1)
+                 FROM Organizations o
+                 WHERE (TRY_CAST(o.RegSettingXML.value('(/Settings/Fees/Fee)[1]','nvarchar(50)') AS money) > 0
+                    OR TRY_CAST(o.RegSettingXML.value('(/Settings/Fees/Deposit)[1]','nvarchar(50)') AS money) > 0)
                  ORDER BY o.CreatedDate DESC"""
         
         results = q.QuerySql(sql)
@@ -537,10 +540,10 @@ def get_involvements_with_fees(start_date=None, end_date=None, include_active=No
                 NULL AS RegDepositAmount,
                 NULL AS RegAccountCodeId,
                 NULL AS RegFundId,
-                CAST(o.RegSettingXML AS VARCHAR(MAX)) AS FeeData
+                CAST(o.RegSettingXML AS NVARCHAR(MAX)) AS FeeData
             FROM Organizations o
-            WHERE (o.RegSettingXML.exist('(/Settings/Fees/Fee)[1]') = 1
-               OR o.RegSettingXML.exist('(/Settings/Fees/Deposit)[1]') = 1)
+            WHERE (TRY_CAST(o.RegSettingXML.value('(/Settings/Fees/Fee)[1]','nvarchar(50)') AS money) > 0
+               OR TRY_CAST(o.RegSettingXML.value('(/Settings/Fees/Deposit)[1]','nvarchar(50)') AS money) > 0)
               {1}
             
             UNION ALL
@@ -727,7 +730,7 @@ def get_involvements_with_fees(start_date=None, end_date=None, include_active=No
                     NULL AS RegDepositAmount,
                     NULL AS RegAccountCodeId,
                     NULL AS RegFundId,
-                    CAST(o.RegSettingXML AS VARCHAR(MAX)) AS FeeData
+                    CAST(o.RegSettingXML AS NVARCHAR(MAX)) AS FeeData
                 FROM Organizations o
                 WHERE (o.RegSettingXML.exist('(/Settings/Fees/Fee)[1]') = 1
                    OR o.RegSettingXML.exist('(/Settings/Fees/Deposit)[1]') = 1)
