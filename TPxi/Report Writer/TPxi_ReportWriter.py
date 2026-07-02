@@ -65,6 +65,11 @@ v1.6.2 - July 2026
   - Added: Standard alert colors baked into the Emergency List template --
            RED allergies (#f8d0d0 / #8a1f1f) and YELLOW medical
            (#fff3cd / #664d03), the colors staff already recognize.
+  - Added: Adjustable person photo size (globalOptions.photoSize, px). "Photo
+           size" dropdown (Small 60 / Medium 90 / Large 130 / X-Large 170)
+           under Global Options; applied inline so it overrides the default
+           .rr-photo size on screen AND print. Clamped 40-220. Optional and
+           backward compatible -- absent => 60px (the prior fixed size).
   - Note:  Field colors persist through Save and travel with Export / Import
            JSON (sanitize_for_json preserves every key; no migration needed).
 
@@ -1471,6 +1476,17 @@ def render_report_html(people, template, org_name, questions, single_person_id=N
     hide_empty = opts.get('hideEmptyFields', True)
     hide_unanswered = opts.get('hideUnansweredQuestions', True)
     show_photo = opts.get('showPersonPhoto', False)
+    # Photo size in px (square). Optional/backward compatible: absent => 60 (the prior fixed size).
+    # Clamped so a bad value can't blow up the layout. Applied inline so it overrides the .rr-photo
+    # CSS default on both screen and print.
+    try:
+        photo_size = int(opts.get('photoSize', 60) or 60)
+    except:
+        photo_size = 60
+    if photo_size < 40:
+        photo_size = 40
+    if photo_size > 220:
+        photo_size = 220
     heading_color = opts.get('headingColor', '#2c5282')
     font_family = opts.get('fontFamily', 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif')
     one_per_page = ps.get('onePersonPerPage', True)
@@ -1528,7 +1544,7 @@ def render_report_html(people, template, org_name, questions, single_person_id=N
 
         parts.append('<div class="rr-person-header">')
         if show_photo and person.get('PhotoUrl'):
-            parts.append('<img class="rr-photo" src="{0}" alt="Photo" onerror="this.style.display=\'none\'">'.format(html_escape(person['PhotoUrl'])))
+            parts.append('<img class="rr-photo" src="{0}" alt="Photo" style="width:{1}px;height:{1}px;" onerror="this.style.display=\'none\'">'.format(html_escape(person['PhotoUrl']), photo_size))
         dropped_badge = ''
         if person.get('IsDropped'):
             # Inline styles so the badge survives popup-window printing
@@ -3497,6 +3513,15 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                         <label class="rr-toggle"><input type="checkbox" id="rrOptShowPhoto" onchange="updateGlobalOption('showPersonPhoto', this.checked)"><span class="rr-toggle-slider"></span></label>
                     </div>
                     <div class="rr-option-row">
+                        <span class="rr-option-label">Photo size</span>
+                        <select id="rrOptPhotoSize" onchange="updateGlobalOption('photoSize', parseInt(this.value, 10))" style="padding:3px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:13px;">
+                            <option value="60">Small (60px)</option>
+                            <option value="90">Medium (90px)</option>
+                            <option value="130">Large (130px)</option>
+                            <option value="170">X-Large (170px)</option>
+                        </select>
+                    </div>
+                    <div class="rr-option-row">
                         <span class="rr-option-label">Preserve line breaks in answers</span>
                         <label class="rr-toggle"><input type="checkbox" id="rrOptPreserveNewlines" onchange="updateGlobalOption('preserveNewlines', this.checked)"><span class="rr-toggle-slider"></span></label>
                     </div>
@@ -3967,6 +3992,8 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         setChecked('rrOptHideEmpty', go.hideEmptyFields !== false);
         setChecked('rrOptHideUnanswered', go.hideUnansweredQuestions !== false);
         setChecked('rrOptShowPhoto', go.showPersonPhoto === true);
+        var psEl = document.getElementById('rrOptPhotoSize');
+        if (psEl) psEl.value = String(go.photoSize || 60);
         setChecked('rrOptPreserveNewlines', go.preserveNewlines === true);
         setChecked('rrOptOnePerPage', ps.onePersonPerPage !== false);
         setChecked('rrOptShowOrgHeader', ps.showOrgHeader !== false);
