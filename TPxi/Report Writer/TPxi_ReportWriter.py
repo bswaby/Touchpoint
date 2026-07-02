@@ -47,7 +47,7 @@ Features:
 
 
 Change Log:
-v1.6.1 - July 2026
+v1.6.2 - July 2026
   - Added: "Emergency List" standard template -- mirrors TPxi_EmergencyList's
            field set (Name/Age, Allergies, Medical [approved meds, doctor,
            doctor phone, insurance, policy, custody issue], and Emergency
@@ -202,7 +202,7 @@ import json
 import re
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.6.1'
+APP_VERSION = '1.6.2'
 DC_SCRIPT_ID = 'TPxi_ReportWriter'  # ID used on DisplayCache to identify this script
 # scripts.displaycache.com is the custom domain used for browser-side version checks.
 # workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
