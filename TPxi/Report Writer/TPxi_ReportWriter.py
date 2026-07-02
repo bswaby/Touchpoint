@@ -47,6 +47,27 @@ Features:
 
 
 Change Log:
+v1.6.1 - July 2026
+  - Added: "Emergency List" standard template -- mirrors TPxi_EmergencyList's
+           field set (Name/Age, Allergies, Medical [approved meds, doctor,
+           doctor phone, insurance, policy, custody issue], and Emergency
+           Contacts [emergency contact/phone + parents/guardians & phones]).
+           Ships with the Medical Summary page ON and hideEmptyFields ON by
+           default, so empty fields/sections collapse and only real info shows.
+  - Added: Per-field background & text color pickers on every field in the
+           layout builder (mirrors the Roll Sheet color model). New OPTIONAL
+           field keys bgColor / textColor, emitted as an inline style so the
+           page's print-color-adjust rules preserve them when printed. Absent
+           keys = unstyled -- fully backward compatible; existing saved
+           templates are unchanged. Works on both block and inline fields;
+           colored block fields drop the default gray fill so the color reads
+           uniformly. Clear (x) button resets a field to no color.
+  - Added: Standard alert colors baked into the Emergency List template --
+           RED allergies (#f8d0d0 / #8a1f1f) and YELLOW medical
+           (#fff3cd / #664d03), the colors staff already recognize.
+  - Note:  Field colors persist through Save and travel with Export / Import
+           JSON (sanitize_for_json preserves every key; no migration needed).
+
 v1.6.0 - June 2026
   - Added: Form Summary page -- a Wufoo / MS-Forms style aggregate view.
            "Form summary page (counts & charts)" toggle under Supplemental
@@ -547,6 +568,72 @@ CUSTOM_TEMPLATE = {
             "headerColor": "#2c5282",
             "visible": True,
             "fields": []
+        }
+    ]
+}
+
+# Emergency List: mirrors TPxi_EmergencyList's field set. Standard alert colors are baked in
+# via the per-field bgColor/textColor keys: RED allergies, YELLOW medical. These color keys are
+# optional everywhere else (backward compatible) - only this template ships them by default.
+EMERGENCY_LIST_TEMPLATE = {
+    "templateName": "Emergency List",
+    "baseTemplate": "emergency_list",
+    "reportTitle": "Emergency & Medical List",
+    "printSettings": {
+        "onePersonPerPage": False,
+        "showPageNumbers": True,
+        "showOrgHeader": True,
+        "showMedicalPage": True,
+        "medicalItems": [
+            {"itemType": "medical", "field": "MedAllergy", "label": "Allergies"},
+            {"itemType": "medical", "field": "Medications", "label": "Medications"}
+        ]
+    },
+    "globalOptions": {
+        "hideEmptyFields": True,
+        "hideUnansweredQuestions": True,
+        "showPersonPhoto": True,
+        "headingColor": "#c53030",
+        "fontFamily": "Segoe UI, Tahoma, Geneva, Verdana, sans-serif",
+        "compactRows": True
+    },
+    "sections": [
+        {
+            "sectionId": "sec_1", "title": "Person", "order": 1,
+            "layout": "two-column", "headerColor": "#2c5282", "visible": True,
+            "fields": [
+                {"fieldId": "fld_1", "fieldType": "person", "sourceField": "Name", "label": "Name", "displayFormat": "single-line", "order": 1, "visible": True, "colSpan": 1},
+                {"fieldId": "fld_2", "fieldType": "person", "sourceField": "Age", "label": "Age", "displayFormat": "single-line", "order": 2, "visible": True, "colSpan": 1}
+            ]
+        },
+        {
+            "sectionId": "sec_2", "title": "Allergies", "order": 2,
+            "layout": "single-column", "headerColor": "#c53030", "visible": True,
+            "fields": [
+                {"fieldId": "fld_3", "fieldType": "medical", "sourceField": "MedAllergy", "label": "Allergies", "displayFormat": "block", "order": 1, "visible": True, "colSpan": 1, "bgColor": "#f8d0d0", "textColor": "#8a1f1f"}
+            ]
+        },
+        {
+            "sectionId": "sec_3", "title": "Medical Information", "order": 3,
+            "layout": "two-column", "headerColor": "#b7791f", "visible": True,
+            "fields": [
+                {"fieldId": "fld_4", "fieldType": "medical", "sourceField": "Medications", "label": "Approved Medications", "displayFormat": "block", "order": 1, "visible": True, "colSpan": 2, "bgColor": "#fff3cd", "textColor": "#664d03"},
+                {"fieldId": "fld_5", "fieldType": "medical", "sourceField": "doctor", "label": "Doctor", "displayFormat": "single-line", "order": 2, "visible": True, "colSpan": 1, "bgColor": "#fff3cd", "textColor": "#664d03"},
+                {"fieldId": "fld_6", "fieldType": "medical", "sourceField": "docphone", "label": "Doctor Phone", "displayFormat": "single-line", "order": 3, "visible": True, "colSpan": 1, "bgColor": "#fff3cd", "textColor": "#664d03"},
+                {"fieldId": "fld_7", "fieldType": "medical", "sourceField": "insurance", "label": "Insurance", "displayFormat": "single-line", "order": 4, "visible": True, "colSpan": 1, "bgColor": "#fff3cd", "textColor": "#664d03"},
+                {"fieldId": "fld_8", "fieldType": "medical", "sourceField": "policy", "label": "Policy #", "displayFormat": "single-line", "order": 5, "visible": True, "colSpan": 1, "bgColor": "#fff3cd", "textColor": "#664d03"},
+                {"fieldId": "fld_9", "fieldType": "medical", "sourceField": "CustodyIssue", "label": "Custody Issue", "displayFormat": "single-line", "order": 6, "visible": True, "colSpan": 1, "bgColor": "#fff3cd", "textColor": "#664d03"}
+            ]
+        },
+        {
+            "sectionId": "sec_4", "title": "Emergency Contacts", "order": 4,
+            "layout": "two-column", "headerColor": "#c53030", "visible": True,
+            "fields": [
+                {"fieldId": "fld_10", "fieldType": "medical", "sourceField": "emcontact", "label": "Emergency Contact", "displayFormat": "single-line", "order": 1, "visible": True, "colSpan": 1},
+                {"fieldId": "fld_11", "fieldType": "medical", "sourceField": "emphone", "label": "Emergency Phone", "displayFormat": "single-line", "order": 2, "visible": True, "colSpan": 1},
+                {"fieldId": "fld_12", "fieldType": "family", "sourceField": "Parents", "label": "Parent(s)/Guardian(s)", "displayFormat": "full-width", "order": 3, "visible": True, "colSpan": 2},
+                {"fieldId": "fld_13", "fieldType": "family", "sourceField": "ParentPhones", "label": "Parent/Guardian Phones", "displayFormat": "full-width", "order": 4, "visible": True, "colSpan": 2}
+            ]
         }
     ]
 }
@@ -1521,13 +1608,32 @@ def render_report_html(people, template, org_name, questions, single_person_id=N
                 if col_span == 2 or display_fmt == 'full-width':
                     span_class = ' rr-full-width'
 
+                # Optional per-field colors (backward compatible: absent keys => no styling).
+                # bgColor/textColor mirror the Roll Sheet color model so items like Allergies
+                # can stand out (e.g. red allergies, yellow medical). Emitted as an inline
+                # style so the page's print-color-adjust rules preserve them when printed.
+                _bg = f.get('bgColor')
+                _tc = f.get('textColor')
+                _fstyle = ''
+                if _bg:
+                    _fstyle += 'background-color:' + html_escape(_bg) + ';'
+                if _tc:
+                    _fstyle += 'color:' + html_escape(_tc) + ';'
+                _wrap_style = ''
+                if _fstyle:
+                    _wrap_style = ' style="' + _fstyle + 'padding:3px 8px;border-radius:4px;"'
+
                 if display_fmt == 'block':
-                    parts.append('<div class="rr-field rr-field-block{0}">'.format(span_class))
+                    parts.append('<div class="rr-field rr-field-block{0}"{1}>'.format(span_class, _wrap_style))
                     parts.append('<div class="rr-field-label">{0}</div>'.format(html_escape(f.get('label', ''))))
-                    parts.append('<div class="rr-field-value rr-block-value">{0}</div>'.format(val or '&nbsp;'))
+                    if _bg:
+                        # colored field: skip the default gray block-value background so the field color shows uniformly
+                        parts.append('<div class="rr-field-value" style="display:block;padding:2px 0;">{0}</div>'.format(val or '&nbsp;'))
+                    else:
+                        parts.append('<div class="rr-field-value rr-block-value">{0}</div>'.format(val or '&nbsp;'))
                     parts.append('</div>')
                 else:
-                    parts.append('<div class="rr-field{0}">'.format(span_class))
+                    parts.append('<div class="rr-field{0}"{1}>'.format(span_class, _wrap_style))
                     parts.append('<span class="rr-field-label">{0}:</span> '.format(html_escape(f.get('label', ''))))
                     parts.append('<span class="rr-field-value">{0}</span>'.format(val or '&mdash;'))
                     parts.append('</div>')
@@ -2912,6 +3018,7 @@ else:
     tpl_basic_json = json.dumps(BASIC_TEMPLATE)
     tpl_detailed_json = json.dumps(DETAILED_TEMPLATE)
     tpl_custom_json = json.dumps(CUSTOM_TEMPLATE)
+    tpl_emergency_json = json.dumps(EMERGENCY_LIST_TEMPLATE)
 
     # Blue Toolbar: gather people from @BlueToolbarTagId
     # Only useful in PyScript context (JS stores in sessionStorage then redirects).
@@ -3298,6 +3405,10 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                     <h4>Detailed Form</h4>
                     <p>WEE-style with emergency contacts, medical info, and family data</p>
                 </div>
+                <div class="rr-template-card" data-tpl="emergency_list" onclick="selectTemplate('emergency_list')">
+                    <h4>Emergency List</h4>
+                    <p>Allergies (red), medical (yellow), and emergency contacts &mdash; like the Emergency List report</p>
+                </div>
                 <div class="rr-template-card" data-tpl="custom" onclick="selectTemplate('custom')">
                     <h4>Custom</h4>
                     <p>Start with a blank canvas</p>
@@ -3623,7 +3734,8 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
     var TEMPLATES = {
         basic: ''' + tpl_basic_json + ''',
         detailed_form: ''' + tpl_detailed_json + ''',
-        custom: ''' + tpl_custom_json + '''
+        custom: ''' + tpl_custom_json + ''',
+        emergency_list: ''' + tpl_emergency_json + '''
     };
 
     var fieldIdCounter = 100;
@@ -4234,6 +4346,11 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                     html += '<option value="block"' + (f.displayFormat === 'block' ? ' selected' : '') + '>Block</option>';
                     html += '</select>';
                     html += '<label style="font-size:11px;white-space:nowrap;"><input type="checkbox"' + (f.visible !== false ? ' checked' : '') + ' onchange="updateFieldVisible(' + si + ',' + fi + ',this.checked)"> Show</label>';
+                    html += '<span class="rr-field-color" style="display:inline-flex;align-items:center;gap:2px;white-space:nowrap;" title="Field background &amp; text color (optional)">';
+                    html += '<input type="color" value="' + escAttr(f.bgColor || '#ffffff') + '" onchange="updateFieldBgColor(' + si + ',' + fi + ',this.value)" title="Background color" style="width:22px;height:20px;border:1px solid #cbd5e0;border-radius:3px;cursor:pointer;padding:0;">';
+                    html += '<input type="color" value="' + escAttr(f.textColor || '#000000') + '" onchange="updateFieldTextColor(' + si + ',' + fi + ',this.value)" title="Text color" style="width:22px;height:20px;border:1px solid #cbd5e0;border-radius:3px;cursor:pointer;padding:0;">';
+                    if (f.bgColor || f.textColor) { html += '<button onclick="clearFieldColor(' + si + ',' + fi + ')" title="Clear field colors" style="border:none;background:none;cursor:pointer;color:#a0aec0;font-size:12px;padding:0 2px;line-height:1;">&times;</button>'; }
+                    html += '</span>';
                     if (f.sourceField === 'SubGroups' && (state.availableSubGroups || []).length > 0) {
                         var sgFilter = f.subgroupFilter || [];
                         var summary = sgFilter.length === 0 ? 'All' : sgFilter.length + ' picked';
@@ -4301,6 +4418,10 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
     };
     window.updateSectionTitle = function(si, val) { if (state.template && state.template.sections[si]) state.template.sections[si].title = val; };
     window.updateSectionColor = function(si, val) { if (state.template && state.template.sections[si]) state.template.sections[si].headerColor = val; };
+    function _rrField(si, fi) { return (state.template && state.template.sections[si] && state.template.sections[si].fields[fi]) ? state.template.sections[si].fields[fi] : null; }
+    window.updateFieldBgColor = function(si, fi, val) { var f = _rrField(si, fi); if (f) { f.bgColor = val; renderSections(); } };
+    window.updateFieldTextColor = function(si, fi, val) { var f = _rrField(si, fi); if (f) { f.textColor = val; renderSections(); } };
+    window.clearFieldColor = function(si, fi) { var f = _rrField(si, fi); if (f) { delete f.bgColor; delete f.textColor; renderSections(); } };
     window.updateSectionLayout = function(si, val) { if (state.template && state.template.sections[si]) state.template.sections[si].layout = val; };
 
     window.moveSection = function(si, dir) {
