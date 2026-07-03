@@ -57,7 +57,29 @@ model.Header = 'Involvement Processor'
 #   3. Click sends action=apply_update; server fetches new source from the
 #      workers.dev mirror (bypasses Cloudflare Bot Fight) and rewrites the
 #      installed PythonContent slot — user data in OrgExtra is preserved.
-APP_VERSION = '1.1.2'
+#
+# 1.3.0 - Buddy system (single-involvement). Fully additive — involvements
+#         with no buddy data behave exactly as before.
+#         * Capture: per-person "+ Buddy" chip -> editor. A buddy may be
+#           already signed up, have an account, or have NO account yet
+#           (held as a name-only placeholder).
+#         * Waiting queue: a "Waiting" header button (with a live count)
+#           lists everyone requested who hasn't signed up. Link them the
+#           moment they register — one link resolves every request that
+#           named them. The waiting list and the Link toast now show WHERE
+#           the requester was placed, e.g. "place in Cabin A to match".
+#         * Buddy-aware placement (per session / per effort):
+#           - "+group" queues a person and their whole buddy cluster at once.
+#           - Cards show where each buddy is already placed.
+#           - A pending person whose buddy is already placed gets a loud
+#             "buddy placed -> Cabin A — match it" banner so they aren't split.
+#           - "Needs Matching" header button (live count, pulses) opens a
+#             panel of split/partial buddy groups for the current session.
+#         * Undirected links: someone listed as a buddy shows the connection
+#           even if they never filed their own request. Per-render index keeps
+#           it fast across 1000+ registrants.
+# 1.2.x - Internal buddy build iterations (superseded by 1.3.0).
+APP_VERSION = '1.3.0'
 DC_SCRIPT_ID = 'TPxi_InvolvementProcessor'
 DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
 DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
@@ -195,6 +217,177 @@ def _json_encode(obj):
         return '[' + ','.join(_json_encode(x) for x in obj) + ']'
     # Fall back to repr-as-string for anything else (sql Row objects, etc.)
     return _json_escape_string(unicode(obj))
+
+
+# ============================================================================
+# BUDDY SYSTEM  --  event-scoped storage, shared with the Placement Board
+# ============================================================================
+# A registrant can ask to be placed with 1+ "buddies". Because ONE placement
+# (e.g. a camp) can be fed by MORE THAN ONE intake form (pre-reg + day-of),
+# buddy data is anchored to an EVENT -- a named set of involvement OrgIds --
+# not to a single involvement. So every form writes one store and the board
+# reads one store. A buddy is either a real TouchPoint person (linked by
+# PeopleId) or a PLACEHOLDER: just a name we hold, "waiting to sign up", that
+# gets linked to a real person the day they register on any of the event's
+# forms. Placeholders live in a shared registry so several people can name the
+# same not-yet-signed-up buddy and a SINGLE link resolves them all (incl.
+# reciprocal requests) because it is one event namespace.
+#
+# Storage uses global content (not org extra values, since events span orgs):
+#   PlacementEvents             -> {"events": {eventId: {"name", "orgIds":[...]}}}
+#   PlacementBuddies_<eventId>  -> {"requests":   {reqPid: {"buddies":[...], ...}},
+#                                   "placeholders":{phId:  {"name","email","phone",
+#                                                           "linkedPeopleId", ...}}}
+# A buddy entry is {"ref":"person","peopleId":N} or {"ref":"placeholder","placeholderId":"ph_.."}.
+# Per-buddy STATE (signed_up / has_account_not_signed_up / waiting) is DERIVED on
+# load from event membership, never stored, so it can't go stale.
+
+PLACEMENT_EVENTS_KEY = 'PlacementEvents'
+
+
+def _read_content_json(key, default):
+    try:
+        raw = model.TextContent(key)
+    except:
+        raw = None
+    if not raw:
+        return default
+    try:
+        val = json.loads(raw)
+        return val if val is not None else default
+    except:
+        return default
+
+
+def _write_content_json(key, obj):
+    model.WriteContentText(key, safe_json(obj), '')
+
+
+def _load_events():
+    d = _read_content_json(PLACEMENT_EVENTS_KEY, {'events': {}})
+    if not isinstance(d, dict):
+        d = {'events': {}}
+    if not isinstance(d.get('events'), dict):
+        d['events'] = {}
+    return d
+
+
+def _event_for_org(org_id):
+    """First event whose orgIds contains org_id -> (eventId, eventRecord) or (None, None)."""
+    try:
+        oid = int(org_id)
+    except:
+        return None, None
+    d = _load_events()
+    for eid, ev in d['events'].items():
+        try:
+            if oid in [int(x) for x in (ev.get('orgIds') or [])]:
+                return eid, ev
+        except:
+            pass
+    return None, None
+
+
+def _buddy_store_key(event_id):
+    return 'PlacementBuddies_' + str(event_id)
+
+
+def _load_buddies(event_id):
+    d = _read_content_json(_buddy_store_key(event_id), {})
+    if not isinstance(d, dict):
+        d = {}
+    if not isinstance(d.get('requests'), dict):
+        d['requests'] = {}
+    if not isinstance(d.get('placeholders'), dict):
+        d['placeholders'] = {}
+    return d
+
+
+def _save_buddies(event_id, data):
+    _write_content_json(_buddy_store_key(event_id), data)
+
+
+def _now_str():
+    return str(model.DateTime)
+
+
+def _gen_id(prefix, existing):
+    """Timestamp-derived id unique within the given dict of existing ids."""
+    base = ''.join(ch for ch in str(model.DateTime) if ch.isdigit()) or '0'
+    cand = prefix + '_' + base
+    n = 0
+    while cand in existing:
+        n += 1
+        cand = prefix + '_' + base + str(n)
+    return cand
+
+
+def _ph_fingerprint(name, email, phone):
+    """Normalized key so the same not-yet-signed-up buddy dedupes to one placeholder."""
+    def _norm(s):
+        return ''.join((s or '').lower().split())
+    def _digits(s):
+        return ''.join(ch for ch in (s or '') if ch.isdigit())
+    return _norm(name) + '|' + _norm(email) + '|' + _digits(phone)
+
+
+def _find_placeholder(store, name, email, phone):
+    """Return existing placeholderId matching name/email/phone, else None (dedupe)."""
+    fp = _ph_fingerprint(name, email, phone)
+    for phid, ph in store.get('placeholders', {}).items():
+        if _ph_fingerprint(ph.get('name'), ph.get('email'), ph.get('phone')) == fp:
+            return phid
+    return None
+
+
+def _event_org_ids(event_rec):
+    out = []
+    for x in (event_rec.get('orgIds') or []) if event_rec else []:
+        try:
+            out.append(int(x))
+        except:
+            pass
+    return out
+
+
+def _default_event_id(org_id):
+    """A single involvement is its own event by default -- zero setup. Deterministic id
+    so buddies 'just work' on the involvement you're processing without any event step."""
+    return 'org_' + str(int(org_id))
+
+
+def _resolve_event_org_ids(event_id):
+    """Org ids for an event. If it's a default 'org_<id>' event not yet persisted, derive [id]
+    so the common single-involvement case knows its own org without a save having happened."""
+    ev = _load_events()['events'].get(event_id)
+    if ev:
+        return _event_org_ids(ev)
+    if str(event_id).startswith('org_'):
+        try:
+            return [int(str(event_id)[4:])]
+        except:
+            return []
+    return []
+
+
+def _ensure_event(event_id, fallback_org_id=0, fallback_name=''):
+    """Persist an event record if missing (auto for the single-involvement case). For a default
+    'org_<id>' id we self-derive the involvement, so no explicit 'create event' step is needed."""
+    d = _load_events()
+    if event_id not in d['events']:
+        try:
+            org = int(fallback_org_id) if fallback_org_id else 0
+        except:
+            org = 0
+        if not org and str(event_id).startswith('org_'):
+            try:
+                org = int(str(event_id)[4:])
+            except:
+                org = 0
+        d['events'][event_id] = {'name': fallback_name or '', 'orgIds': ([org] if org else [])}
+        _write_content_json(PLACEMENT_EVENTS_KEY, d)
+    return d['events'][event_id]
+
 
 # ============================================================================
 # AJAX HANDLER
@@ -1443,6 +1636,210 @@ if model.HttpMethod == "post":
                 except Exception as we:
                     print safe_json({'success': False, 'message': 'Write failed: ' + str(we)})
 
+    # -------------------------------------------------------------------------
+    # BUDDY SYSTEM actions (Increment 1: capture, placeholders, waiting queue)
+    # -------------------------------------------------------------------------
+    elif action == 'buddy_get_event':
+        # Which event does this involvement feed? (+ all events, so the UI can attach/create.)
+        try:
+            org_id = int(Data.org_id) if hasattr(Data, 'org_id') and Data.org_id else 0
+            org_name = str(Data.org_name) if hasattr(Data, 'org_name') and Data.org_name else ''
+            eid, ev = _event_for_org(org_id)
+            is_default = False
+            if eid is None and org_id:
+                # Single involvement = its own event, no setup. Not persisted until first save.
+                eid = _default_event_id(org_id)
+                ev = {'name': org_name, 'orgIds': [org_id]}
+                is_default = True
+            allev = _load_events()['events']
+            events_list = [{'eventId': k, 'name': v.get('name', ''), 'orgIds': v.get('orgIds', [])}
+                           for k, v in allev.items()]
+            print safe_json({'success': True, 'eventId': eid, 'isDefault': is_default,
+                             'event': ({'eventId': eid, 'name': (ev.get('name', '') if ev else ''),
+                                        'orgIds': (ev.get('orgIds', []) if ev else [])} if ev else None),
+                             'events': events_list})
+        except Exception as e:
+            print safe_json({'success': False, 'message': str(e)})
+
+    elif action == 'buddy_create_event':
+        try:
+            name = (str(Data.name).strip() if hasattr(Data, 'name') and Data.name else '') or 'Event'
+            org_id = int(Data.org_id) if hasattr(Data, 'org_id') and Data.org_id else 0
+            d = _load_events()
+            eid = _gen_id('evt', d['events'])
+            d['events'][eid] = {'name': name, 'orgIds': ([org_id] if org_id else [])}
+            _write_content_json(PLACEMENT_EVENTS_KEY, d)
+            print safe_json({'success': True, 'eventId': eid, 'event': {'eventId': eid, 'name': name, 'orgIds': d['events'][eid]['orgIds']}})
+        except Exception as e:
+            print safe_json({'success': False, 'message': str(e)})
+
+    elif action == 'buddy_attach_org':
+        # Add this involvement (e.g. the day-of form) to an existing event.
+        try:
+            eid = str(Data.event_id)
+            org_id = int(Data.org_id)
+            d = _load_events()
+            if eid not in d['events']:
+                print safe_json({'success': False, 'message': 'Unknown event'})
+            else:
+                orgs = _event_org_ids(d['events'][eid])
+                if org_id and org_id not in orgs:
+                    orgs.append(org_id)
+                d['events'][eid]['orgIds'] = orgs
+                _write_content_json(PLACEMENT_EVENTS_KEY, d)
+                print safe_json({'success': True, 'event': {'eventId': eid, 'name': d['events'][eid].get('name', ''), 'orgIds': orgs}})
+        except Exception as e:
+            print safe_json({'success': False, 'message': str(e)})
+
+    elif action == 'buddy_search':
+        # Search a buddy across the event's forms + all of TouchPoint. InEvent flags whether
+        # they are already registered somewhere in the event (=> signed_up), else has-account.
+        try:
+            term = str(Data.term).strip() if hasattr(Data, 'term') and Data.term else ''
+            event_id = str(Data.event_id) if hasattr(Data, 'event_id') and Data.event_id else ''
+            org_ids = _resolve_event_org_ids(event_id) if event_id else []
+            if len(term) < 2:
+                print safe_json({'success': True, 'results': []})
+            else:
+                t = term.replace("'", "''")
+                tokens = [tok for tok in t.split() if tok]
+                name_clause = ' AND '.join(["p.Name2 LIKE '%" + tok + "%'" for tok in tokens]) if tokens else "1=1"
+                num_clause = (" OR p.PeopleId = " + t) if t.isdigit() else ""
+                in_event_expr = '0'
+                if org_ids:
+                    in_event_expr = ("CASE WHEN EXISTS (SELECT 1 FROM OrganizationMembers om WHERE om.PeopleId=p.PeopleId "
+                                     "AND om.OrganizationId IN (" + ','.join(str(o) for o in org_ids) + ")) THEN 1 ELSE 0 END")
+                sql = ("SELECT TOP 25 p.PeopleId, ISNULL(p.Name2,'') AS Name, p.Age, "
+                       "ISNULL(p.EmailAddress,'') AS Email, ISNULL(p.CellPhone,'') AS Cell, " + in_event_expr + " AS InEvent "
+                       "FROM People p WITH (NOLOCK) WHERE p.IsDeceased=0 AND p.ArchivedFlag=0 AND ( (" + name_clause + ") "
+                       "OR p.EmailAddress LIKE '%" + t + "%' OR p.CellPhone LIKE '%" + t + "%'" + num_clause + " ) "
+                       "ORDER BY InEvent DESC, p.Name2")
+                results = []
+                for r in q.QuerySql(sql):
+                    in_ev = int(getattr(r, 'InEvent', 0) or 0)
+                    results.append({'peopleId': r.PeopleId, 'name': r.Name, 'age': r.Age, 'email': r.Email,
+                                    'cell': r.Cell, 'inEvent': in_ev,
+                                    'state': ('signed_up' if in_ev else 'has_account_not_signed_up')})
+                print safe_json({'success': True, 'results': results})
+        except Exception as e:
+            print safe_json({'success': False, 'message': str(e)})
+
+    elif action == 'buddy_load':
+        # All requests + placeholders for the event, plus a people{} lookup (live names + inEvent).
+        try:
+            event_id = str(Data.event_id) if hasattr(Data, 'event_id') and Data.event_id else ''
+            if not event_id:
+                print safe_json({'success': False, 'message': 'No event'})
+            else:
+                store = _load_buddies(event_id)
+                ev = _load_events()['events'].get(event_id, {})
+                org_ids = _resolve_event_org_ids(event_id)
+                pids = set()
+                for pid, req in store['requests'].items():
+                    try:
+                        pids.add(int(pid))
+                    except:
+                        pass
+                    for b in req.get('buddies', []):
+                        if b.get('ref') == 'person' and b.get('peopleId'):
+                            pids.add(int(b['peopleId']))
+                for phid, ph in store['placeholders'].items():
+                    lp = int(ph.get('linkedPeopleId') or 0)
+                    if lp:
+                        pids.add(lp)
+                people = {}
+                if pids:
+                    member_expr = '0'
+                    if org_ids:
+                        member_expr = ("CASE WHEN EXISTS (SELECT 1 FROM OrganizationMembers om WHERE om.PeopleId=p.PeopleId "
+                                       "AND om.OrganizationId IN (" + ','.join(str(o) for o in org_ids) + ")) THEN 1 ELSE 0 END")
+                    prows = q.QuerySql("SELECT p.PeopleId, ISNULL(p.Name2,'') AS Name, p.Age, " + member_expr +
+                                       " AS InEvent FROM People p WITH (NOLOCK) WHERE p.PeopleId IN (" +
+                                       ','.join(str(x) for x in pids) + ")")
+                    for r in prows:
+                        people[str(r.PeopleId)] = {'peopleId': r.PeopleId, 'name': r.Name, 'age': r.Age,
+                                                   'inEvent': int(getattr(r, 'InEvent', 0) or 0)}
+                print safe_json({'success': True, 'event': {'eventId': event_id, 'name': ev.get('name', ''), 'orgIds': org_ids},
+                                 'requests': store['requests'], 'placeholders': store['placeholders'], 'people': people})
+        except Exception as e:
+            print safe_json({'success': False, 'message': str(e)})
+
+    elif action == 'buddy_save_request':
+        # Set a requester's full buddy list. Each incoming buddy is kind=person|placeholder|newPlaceholder.
+        try:
+            event_id = str(Data.event_id)
+            requester_pid = str(int(Data.requester_pid))
+            buddies_in = json.loads(str(Data.buddies_json)) if hasattr(Data, 'buddies_json') and Data.buddies_json else []
+            notes = str(Data.notes) if hasattr(Data, 'notes') and Data.notes else ''
+            source_org = str(Data.source_org_id) if hasattr(Data, 'source_org_id') and Data.source_org_id else ''
+            _ensure_event(event_id, source_org, '')  # auto-persist the involvement's own event on first save
+            store = _load_buddies(event_id)
+            out_buddies = []
+            for b in buddies_in:
+                kind = b.get('kind')
+                if kind == 'person' and b.get('peopleId'):
+                    out_buddies.append({'ref': 'person', 'peopleId': int(b['peopleId'])})
+                elif kind == 'placeholder' and b.get('placeholderId'):
+                    out_buddies.append({'ref': 'placeholder', 'placeholderId': str(b['placeholderId'])})
+                elif kind == 'newPlaceholder':
+                    nm = (b.get('name') or '').strip()
+                    if not nm:
+                        continue
+                    em = (b.get('email') or '').strip()
+                    phn = (b.get('phone') or '').strip()
+                    existing = _find_placeholder(store, nm, em, phn)
+                    if existing:
+                        phid = existing
+                    else:
+                        phid = _gen_id('ph', store['placeholders'])
+                        store['placeholders'][phid] = {'name': nm, 'email': em, 'phone': phn, 'linkedPeopleId': 0, 'createdAt': _now_str()}
+                    out_buddies.append({'ref': 'placeholder', 'placeholderId': phid})
+            if out_buddies:
+                store['requests'][requester_pid] = {'buddies': out_buddies, 'notes': notes, 'source': 'ip',
+                                                    'sourceOrgId': source_org, 'updated': _now_str()}
+            elif requester_pid in store['requests']:
+                del store['requests'][requester_pid]
+            _save_buddies(event_id, store)
+            print safe_json({'success': True})
+        except Exception as e:
+            print safe_json({'success': False, 'message': str(e)})
+
+    elif action == 'buddy_link_placeholder':
+        # Resolve a "waiting to sign up" placeholder to a real person (one link fixes all references).
+        try:
+            event_id = str(Data.event_id)
+            phid = str(Data.placeholder_id)
+            pid = int(Data.people_id)
+            store = _load_buddies(event_id)
+            if phid in store['placeholders']:
+                store['placeholders'][phid]['linkedPeopleId'] = pid
+                store['placeholders'][phid]['linkedAt'] = _now_str()
+                _save_buddies(event_id, store)
+                print safe_json({'success': True})
+            else:
+                print safe_json({'success': False, 'message': 'Unknown placeholder'})
+        except Exception as e:
+            print safe_json({'success': False, 'message': str(e)})
+
+    elif action == 'buddy_waiting':
+        # The "waiting to sign up" queue: placeholders not yet linked + who is waiting on each.
+        try:
+            event_id = str(Data.event_id)
+            store = _load_buddies(event_id)
+            wanted_by = {}
+            for pid, req in store['requests'].items():
+                for b in req.get('buddies', []):
+                    if b.get('ref') == 'placeholder':
+                        wanted_by.setdefault(b['placeholderId'], []).append(pid)
+            waiting = []
+            for phid, ph in store['placeholders'].items():
+                if int(ph.get('linkedPeopleId') or 0) == 0:
+                    waiting.append({'placeholderId': phid, 'name': ph.get('name', ''), 'email': ph.get('email', ''),
+                                    'phone': ph.get('phone', ''), 'wantedBy': wanted_by.get(phid, [])})
+            print safe_json({'success': True, 'waiting': waiting})
+        except Exception as e:
+            print safe_json({'success': False, 'message': str(e)})
+
     else:
         print safe_json({'success': False, 'message': 'Unknown action: ' + action})
 
@@ -2022,6 +2419,36 @@ else:
 .ip-root .py-4 { padding-top: 1.5rem !important; padding-bottom: 1.5rem !important; }
 .ip-root .p-2 { padding: 0.5rem !important; }
 .ip-root .p-3 { padding: 1rem !important; }
+/* Buddy system */
+.ip-root .ip-buddy-chip { display:inline-flex; align-items:center; gap:4px; font-size:11px; line-height:1; padding:2px 7px; border-radius:10px; border:1px solid #cbd5e0; background:#fff; color:#4a5568; cursor:pointer; margin-top:3px; }
+.ip-root .ip-buddy-chip:hover { border-color:#4299e1; }
+.ip-root .ip-buddy-empty { color:#a0aec0; border-style:dashed; }
+.ip-root .ip-buddy-has { background:#ebf8ff; border-color:#90cdf4; color:#2b6cb0; font-weight:600; }
+.ip-root .ip-buddy-waiting { background:#fffaf0; border-color:#f6ad55; color:#9c4221; font-weight:600; }
+.ip-root .ip-bstate { display:inline-block; font-size:10px; padding:0 6px; border-radius:8px; font-weight:600; margin-left:4px; }
+.ip-root .ip-bstate-in { background:#c6f6d5; color:#22543d; }
+.ip-root .ip-bstate-acct { background:#e9d8fd; color:#553c9a; }
+.ip-root .ip-bstate-wait { background:#feebc8; color:#7b341e; }
+.ip-root .ip-buddy-row, .ip-root .ip-buddy-result, .ip-root .ip-wait-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 8px; border:1px solid #e2e8f0; border-radius:6px; margin-bottom:6px; }
+.ip-root .ip-buddy-name { font-weight:600; }
+.ip-root .ip-buddy-addph { background:#f7fafc; }
+/* Buddy-aware placement (Increment 2) */
+.ip-root .ip-buddy-cardline { margin-top:4px; display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.ip-root .ip-buddy-group-btn { font-size:10px; line-height:1; padding:2px 7px; border-radius:8px; border:1px solid #9ae6b4; background:#f0fff4; color:#276749; cursor:pointer; font-weight:600; }
+.ip-root .ip-buddy-group-btn:hover { background:#c6f6d5; }
+.ip-root .ip-buddy-hint { font-size:11px; color:#4a5568; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.ip-root .ip-bplace { background:#e6fffa; color:#234e52; border:1px solid #b2f5ea; border-radius:6px; padding:0 6px; font-size:10px; }
+.ip-root .ip-bplace-split { background:#fff5f5; color:#822727; border:1px solid #feb2b2; border-radius:6px; padding:0 6px; font-size:10px; font-weight:600; }
+.ip-root .ip-bplace-none { color:#a0aec0; font-size:10px; font-style:italic; }
+.ip-root .ip-buddy-selfplace { color:#2d3748; }
+.ip-root .ip-buddy-wantedby { color:#2c5282; background:#ebf8ff; border:1px solid #bee3f8; border-radius:6px; padding:4px 8px; }
+.ip-root .ip-buddy-attention { font-size:11px; font-weight:600; color:#7b341e; background:#fffaf0; border:1px solid #f6ad55; border-radius:6px; padding:2px 8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.ip-root .ip-conflict-card { border:1px solid #e2e8f0; border-left:3px solid #fc8181; border-radius:6px; padding:8px 10px; margin-bottom:8px; }
+.ip-root .ip-hdr-label { font-size:11px; }
+.ip-root .ip-hdr-badge { display:inline-block; min-width:16px; padding:0 5px; border-radius:9px; background:#fff; color:#c53030; font-size:10px; font-weight:700; line-height:16px; text-align:center; margin-left:3px; }
+.ip-root .ip-hdr-live { animation: ip-hdrpulse 1.5s ease-in-out infinite; }
+@keyframes ip-hdrpulse { 0%,100% { box-shadow:0 0 0 0 rgba(255,255,255,0); } 50% { box-shadow:0 0 0 4px rgba(255,255,255,0.45); } }
+.ip-root .ip-wait-place { margin-top:4px; font-size:11px; font-weight:600; color:#22543d; background:#f0fff4; border:1px solid #9ae6b4; border-radius:6px; padding:2px 8px; display:inline-flex; align-items:center; }
     </style>
 </head>
 <body>
@@ -2071,8 +2498,542 @@ var state = {
     // Merge state — set while the merge-target modal is open so the
     // confirm handler knows which source to merge.
     mergeSourceId: null,
-    mergeSourceName: ''
+    mergeSourceName: '',
+    // Buddy system. Event is auto-derived from the involvement (zero setup);
+    // buddyData is loaded once per source and drives the per-person chips.
+    buddyEventId: null,
+    buddyEvent: null,
+    buddyEvents: [],
+    buddyData: { requests: {}, placeholders: {}, people: {} },
+    buddyEditPid: null,
+    buddyEditList: [],
+    resolvePhid: null,
+    resolveName: ''
 };
+
+// ==================== BUDDY SYSTEM (client) ====================
+// Zero-setup: the involvement is its own "event" by default. buddyInit resolves it,
+// buddyLoad caches the requests/placeholders, and per-person chips drive the editor.
+function buddyInit() {
+    if (!state.sourceOrgId) { return; }
+    ajax('buddy_get_event', { org_id: state.sourceOrgId, org_name: state.sourceOrgName || '' }, function(d) {
+        if (!d || !d.success) { return; }
+        state.buddyEventId = d.eventId;
+        state.buddyEvent = d.event;
+        state.buddyEvents = d.events || [];
+        buddyLoad();
+    });
+}
+function buddyLoad() {
+    if (!state.buddyEventId) { return; }
+    ajax('buddy_load', { event_id: state.buddyEventId }, function(d) {
+        if (!d || !d.success) { return; }
+        state.buddyData = { requests: d.requests || {}, placeholders: d.placeholders || {}, people: d.people || {} };
+        if (d.event) { state.buddyEvent = d.event; }
+        renderRegistrantList();
+    });
+}
+function buddyReqFor(pid) {
+    if (!state.buddyData || !state.buddyData.requests) { return null; }
+    return state.buddyData.requests[String(pid)] || null;
+}
+function buddyChipHtml(pid) {
+    var req = buddyReqFor(pid);
+    var ownList = (req && req.buddies) ? req.buddies : [];
+    var ownPids = {}, n = 0, waiting = false;
+    for (var i = 0; i < ownList.length; i++) {
+        var b = ownList[i];
+        if (b.ref === 'person') { ownPids[b.peopleId] = true; n++; }
+        else if (b.ref === 'placeholder') {
+            n++;
+            var ph = state.buddyData.placeholders[b.placeholderId];
+            if (ph && !ph.linkedPeopleId) { waiting = true; }
+        }
+    }
+    // Count people who listed THIS person too, so someone who never filled out
+    // a buddy request still shows the link instead of a misleading "+ Buddy".
+    var incoming = buddyIncomingPids(pid);
+    for (var j = 0; j < incoming.length; j++) { if (!ownPids[incoming[j]]) { n++; } }
+    var cls = (n === 0) ? 'ip-buddy-empty' : (waiting ? 'ip-buddy-waiting' : 'ip-buddy-has');
+    var label = (n === 0) ? '+ Buddy' : ('Buddies ' + n + (waiting ? ' &#9203;' : ''));
+    return '<button type="button" class="ip-buddy-chip ' + cls + '" onclick="event.stopPropagation(); openBuddyModal(' + pid + ')" title="Buddy requests">' +
+           '<i class="bi bi-people-fill"></i> ' + label + '</button>';
+}
+function buddyName(pid) {
+    var p = (state.buddyData && state.buddyData.people) ? state.buddyData.people[String(pid)] : null;
+    if (p) { return p.name; }
+    for (var i = 0; i < state.registrants.length; i++) { if (state.registrants[i].peopleId === pid) { return state.registrants[i].name; } }
+    return 'Person ' + pid;
+}
+function buddyStateBadge(st) {
+    if (st === 'signed_up') { return '<span class="ip-bstate ip-bstate-in">signed up</span>'; }
+    if (st === 'has_account_not_signed_up') { return '<span class="ip-bstate ip-bstate-acct">has account</span>'; }
+    return '<span class="ip-bstate ip-bstate-wait">&#9203; waiting</span>';
+}
+function openBuddyModal(pid) {
+    if (!state.buddyEventId) { showToast('Load an involvement first', 'warning'); return; }
+    state.buddyEditPid = pid;
+    state.buddyEditList = [];
+    var req = buddyReqFor(pid);
+    if (req && req.buddies) {
+        for (var i = 0; i < req.buddies.length; i++) {
+            var b = req.buddies[i];
+            if (b.ref === 'person') {
+                var p = state.buddyData.people[String(b.peopleId)];
+                state.buddyEditList.push({ kind: 'person', peopleId: b.peopleId, name: (p ? p.name : ('Person ' + b.peopleId)), state: ((p && p.inEvent) ? 'signed_up' : 'has_account_not_signed_up') });
+            } else if (b.ref === 'placeholder') {
+                var ph = state.buddyData.placeholders[b.placeholderId];
+                state.buddyEditList.push({ kind: 'placeholder', placeholderId: b.placeholderId, name: (ph ? ph.name : 'Unknown'), state: ((ph && ph.linkedPeopleId) ? 'signed_up' : 'waiting') });
+            }
+        }
+    }
+    document.getElementById('buddyModalPerson').innerHTML = escapeHtml(buddyName(pid));
+    document.getElementById('buddySearchInput').value = '';
+    document.getElementById('buddySearchResults').innerHTML = '';
+    renderBuddyEditList();
+    var el = document.getElementById('buddyModal');
+    (bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el)).show();
+}
+function renderBuddyEditList() {
+    var h = '';
+    var selfPl = buddyPlacementFor(state.buddyEditPid);
+    if (selfPl) {
+        h += '<div class="ip-buddy-selfplace small mb-2"><i class="bi bi-geo-alt me-1"></i>Placed in <strong>' + escapeHtml(selfPl.label) + '</strong> <span class="text-muted">(' + escapeHtml(buddySessionLabel()) + ')</span></div>';
+    }
+    // Incoming: people who listed THIS person as their buddy (they may not be in
+    // this person's own list). Shows their placement so you can match it.
+    var ownSet = {};
+    for (var s = 0; s < state.buddyEditList.length; s++) { if (state.buddyEditList[s].kind === 'person') { ownSet[state.buddyEditList[s].peopleId] = true; } }
+    var incoming = buddyIncomingPids(state.buddyEditPid).filter(function(p) { return !ownSet[p]; });
+    if (incoming.length) {
+        var inParts = incoming.map(function(p) {
+            var pl = buddyPlacementFor(p);
+            return escapeHtml(buddyName(p)) + (pl ? ' <span class="ip-bplace">' + escapeHtml(pl.label) + '</span>' : ' <span class="ip-bplace-none">not placed</span>');
+        });
+        h += '<div class="ip-buddy-wantedby small mb-2"><i class="bi bi-arrow-down-left-circle me-1"></i>Listed as a buddy by: ' + inParts.join(', ') + '</div>';
+    }
+    if (state.buddyEditList.length === 0) {
+        h += '<div class="text-muted small">No buddies yet. Search below, or add a name to wait on.</div>';
+    } else {
+        for (var i = 0; i < state.buddyEditList.length; i++) {
+            var b = state.buddyEditList[i];
+            var plBadge = '';
+            if (b.kind === 'person') {
+                var pl = buddyPlacementFor(b.peopleId);
+                if (pl) {
+                    var split = selfPl && (pl.key !== selfPl.key);
+                    plBadge = ' <span class="' + (split ? 'ip-bplace-split' : 'ip-bplace') + '">' + escapeHtml(pl.label) + '</span>';
+                } else {
+                    plBadge = ' <span class="ip-bplace-none">not placed</span>';
+                }
+            }
+            h += '<div class="ip-buddy-row"><span><span class="ip-buddy-name">' + escapeHtml(b.name) + '</span> ' + buddyStateBadge(b.state) + plBadge + '</span>' +
+                 '<button type="button" class="btn btn-sm btn-outline-danger" onclick="buddyRemoveAt(' + i + ')">&times;</button></div>';
+        }
+    }
+    document.getElementById('buddyEditList').innerHTML = h;
+}
+function buddyRemoveAt(i) { state.buddyEditList.splice(i, 1); renderBuddyEditList(); }
+function buddySearch() {
+    var term = (document.getElementById('buddySearchInput').value || '').trim();
+    var box = document.getElementById('buddySearchResults');
+    if (term.length < 2) { box.innerHTML = '<div class="text-muted small">Type at least 2 characters&hellip;</div>'; return; }
+    ajax('buddy_search', { event_id: state.buddyEventId, term: term }, function(d) {
+        if (!d || !d.success) { box.innerHTML = '<div class="text-danger small">Search failed</div>'; return; }
+        var h = '';
+        for (var i = 0; i < d.results.length; i++) {
+            var r = d.results[i];
+            h += '<div class="ip-buddy-result"><span>' + escapeHtml(r.name) + (r.age ? ' <span class="text-muted">(' + r.age + ')</span>' : '') + ' ' + buddyStateBadge(r.state) + '</span>' +
+                 '<button type="button" class="btn btn-sm btn-primary" onclick="buddyAddPerson(' + r.peopleId + ',' + escapeHtml(JSON.stringify(r.name)) + ',' + escapeHtml(JSON.stringify(r.state)) + ')">Add</button></div>';
+        }
+        if (d.results.length === 0) { h += '<div class="text-muted small">No matches in TouchPoint.</div>'; }
+        h += '<div class="ip-buddy-result ip-buddy-addph"><span class="text-muted small">No account yet? Hold just a name:</span>' +
+             '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="buddyAddPlaceholderPrompt()">Wait on &quot;' + escapeHtml(term) + '&quot;</button></div>';
+        box.innerHTML = h;
+    });
+}
+function buddyAddPerson(pid, name, st) {
+    if (pid === state.buddyEditPid) { showToast("That's the same person", 'warning'); return; }
+    for (var i = 0; i < state.buddyEditList.length; i++) { if (state.buddyEditList[i].kind === 'person' && state.buddyEditList[i].peopleId === pid) { showToast('Already added', 'info'); return; } }
+    state.buddyEditList.push({ kind: 'person', peopleId: pid, name: name, state: st });
+    renderBuddyEditList();
+    document.getElementById('buddySearchResults').innerHTML = '';
+    document.getElementById('buddySearchInput').value = '';
+}
+function buddyAddPlaceholderPrompt() {
+    var name = (document.getElementById('buddySearchInput').value || '').trim();
+    if (!name) { name = (window.prompt('Name of the buddy to wait on:') || '').trim(); }
+    if (!name) { return; }
+    state.buddyEditList.push({ kind: 'newPlaceholder', name: name, email: '', phone: '', state: 'waiting' });
+    renderBuddyEditList();
+    document.getElementById('buddySearchResults').innerHTML = '';
+    document.getElementById('buddySearchInput').value = '';
+}
+function buddySaveEdit() {
+    var payload = [];
+    for (var i = 0; i < state.buddyEditList.length; i++) {
+        var b = state.buddyEditList[i];
+        if (b.kind === 'person') { payload.push({ kind: 'person', peopleId: b.peopleId }); }
+        else if (b.kind === 'placeholder') { payload.push({ kind: 'placeholder', placeholderId: b.placeholderId }); }
+        else if (b.kind === 'newPlaceholder') { payload.push({ kind: 'newPlaceholder', name: b.name, email: b.email || '', phone: b.phone || '' }); }
+    }
+    ajax('buddy_save_request', { event_id: state.buddyEventId, requester_pid: state.buddyEditPid, source_org_id: state.sourceOrgId, buddies_json: JSON.stringify(payload) }, function(d) {
+        if (!d || !d.success) { showToast('Save failed: ' + (d ? d.message : ''), 'danger'); return; }
+        var el = document.getElementById('buddyModal'); var inst = bootstrap.Modal.getInstance(el); if (inst) { inst.hide(); }
+        showToast('Buddies saved', 'success');
+        buddyLoad();
+    });
+}
+function openWaitingModal() {
+    if (!state.buddyEventId) { showToast('Load an involvement first', 'warning'); return; }
+    ajax('buddy_waiting', { event_id: state.buddyEventId }, function(d) {
+        if (!d || !d.success) { showToast('Load failed', 'danger'); return; }
+        var h = '';
+        if (!d.waiting || d.waiting.length === 0) {
+            h = '<div class="text-muted">No buddies waiting to sign up. &#127881;</div>';
+        } else {
+            for (var i = 0; i < d.waiting.length; i++) {
+                var w = d.waiting[i];
+                var placedLabels = {};
+                var byParts = (w.wantedBy || []).map(function(pid) {
+                    var p = parseInt(pid, 10);
+                    var pl = buddyPlacementFor(p);
+                    if (pl) { placedLabels[pl.label] = true; }
+                    return escapeHtml(buddyName(p)) + (pl ? ' <span class="ip-bplace">' + escapeHtml(pl.label) + '</span>' : '');
+                });
+                var by = byParts.join(', ');
+                // If any requester is already placed, tell the user exactly where
+                // to put this person the moment they sign up.
+                var callout = '';
+                var labelList = [];
+                for (var lk in placedLabels) { if (placedLabels.hasOwnProperty(lk)) { labelList.push(escapeHtml(lk)); } }
+                if (labelList.length) {
+                    callout = '<div class="ip-wait-place"><i class="bi bi-signpost-2 me-1"></i>When linked, place in <strong>' + labelList.join(' / ') + '</strong></div>';
+                }
+                h += '<div class="ip-wait-row"><div><strong>' + escapeHtml(w.name) + '</strong>' + (w.phone ? ' <span class="text-muted small">' + escapeHtml(w.phone) + '</span>' : '') +
+                     '<div class="small text-muted">wanted by: ' + (by || '&mdash;') + '</div>' + callout + '</div>' +
+                     '<button type="button" class="btn btn-sm btn-primary" onclick="buddyResolveWaiting(' + escapeHtml(JSON.stringify(w.placeholderId)) + ',' + escapeHtml(JSON.stringify(w.name)) + ')">Link&hellip;</button></div>';
+            }
+        }
+        document.getElementById('waitingList').innerHTML = h;
+        document.getElementById('waitingResolve').style.display = 'none';
+        var el = document.getElementById('waitingModal');
+        (bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el)).show();
+    });
+}
+function buddyResolveWaiting(phid, name) {
+    state.resolvePhid = phid;
+    state.resolveName = name || '';
+    document.getElementById('waitingResolve').style.display = 'block';
+    document.getElementById('waitingResolveName').innerHTML = escapeHtml(name || '');
+    document.getElementById('buddySearchInput2').value = name || '';
+    buddySearch2();
+}
+function buddySearch2() {
+    var term = (document.getElementById('buddySearchInput2').value || '').trim();
+    var box = document.getElementById('buddySearchResults2');
+    if (term.length < 2) { box.innerHTML = ''; return; }
+    ajax('buddy_search', { event_id: state.buddyEventId, term: term }, function(d) {
+        if (!d || !d.success) { return; }
+        var h = '';
+        for (var i = 0; i < d.results.length; i++) {
+            var r = d.results[i];
+            h += '<div class="ip-buddy-result"><span>' + escapeHtml(r.name) + (r.age ? ' <span class="text-muted">(' + r.age + ')</span>' : '') + ' ' + buddyStateBadge(r.state) + '</span>' +
+                 '<button type="button" class="btn btn-sm btn-success" onclick="buddyLinkPlaceholder(' + r.peopleId + ')">Link</button></div>';
+        }
+        if (d.results.length === 0) { h = '<div class="text-muted small">No matches.</div>'; }
+        box.innerHTML = h;
+    });
+}
+function buddyLinkPlaceholder(pid) {
+    // Capture where this placeholder's requesters are placed BEFORE we reload,
+    // so the confirmation toast can tell the user exactly where to put them.
+    var reqPids = buddyPlaceholderRequesters(state.resolvePhid);
+    var labels = {};
+    for (var i = 0; i < reqPids.length; i++) {
+        var pl = buddyPlacementFor(reqPids[i]);
+        if (pl) { labels[pl.label] = true; }
+    }
+    var labelList = [];
+    for (var lk in labels) { if (labels.hasOwnProperty(lk)) { labelList.push(lk); } }
+    var who = state.resolveName || 'them';
+    ajax('buddy_link_placeholder', { event_id: state.buddyEventId, placeholder_id: state.resolvePhid, people_id: pid }, function(d) {
+        if (!d || !d.success) { showToast('Link failed', 'danger'); return; }
+        if (labelList.length) {
+            showToast('Linked! Now place <strong>' + escapeHtml(who) + '</strong> in <strong>' + escapeHtml(labelList.join(' / ')) + '</strong> to match their buddy.', 'success');
+        } else {
+            showToast('Linked ' + escapeHtml(who) + ' &mdash; their buddy is not placed yet.', 'success');
+        }
+        buddyLoad();
+        openWaitingModal();
+    });
+}
+
+// -------- Buddy-aware placement (Increment 2) --------
+// Placement is read from the CURRENT effort's processed list, so buddy
+// grouping and conflicts are evaluated PER SESSION. Each effort is one
+// dimension (buses, cabins, groups); switch efforts and everything below
+// re-evaluates for that session automatically.
+function buddySessionLabel() {
+    return (state.currentEffort && state.currentEffort.name) ? state.currentEffort.name : 'this session';
+}
+function buddyPlacementFor(pid) {
+    var info = getProcessedInfo(pid);
+    if (!info || typeof info !== 'object' || !info.targetOrgId) { return null; }
+    if (info.externallyRemoved) { return null; }
+    var sgs = (info.subgroups || []).slice().sort();
+    var label = (info.targetOrgName || ('Org ' + info.targetOrgId)) + (sgs.length ? ' / ' + sgs.join(', ') : '');
+    return { orgId: info.targetOrgId, subgroups: sgs, key: info.targetOrgId + '|' + sgs.join(','), label: label };
+}
+function _buddyAdj() {
+    var adj = {};
+    function add(a, b) { if (!adj[a]) { adj[a] = []; } if (adj[a].indexOf(b) < 0) { adj[a].push(b); } }
+    var reqs = (state.buddyData && state.buddyData.requests) || {};
+    for (var pidStr in reqs) {
+        if (!reqs.hasOwnProperty(pidStr)) { continue; }
+        var pid = parseInt(pidStr, 10);
+        var buddies = reqs[pidStr].buddies || [];
+        for (var i = 0; i < buddies.length; i++) {
+            var b = buddies[i];
+            var other = null;
+            if (b.ref === 'person') { other = b.peopleId; }
+            else if (b.ref === 'placeholder') {
+                var ph = state.buddyData.placeholders[b.placeholderId];
+                if (ph && ph.linkedPeopleId) { other = ph.linkedPeopleId; }
+            }
+            if (other) { add(pid, other); add(other, pid); }
+        }
+    }
+    return adj;
+}
+function _buddyComponent(adj, pid) {
+    var seen = {}, stack = [pid], out = [];
+    while (stack.length) {
+        var cur = stack.pop();
+        if (seen[cur]) { continue; }
+        seen[cur] = true; out.push(cur);
+        var nb = adj[cur] || [];
+        for (var i = 0; i < nb.length; i++) { if (!seen[nb[i]]) { stack.push(nb[i]); } }
+    }
+    return out;
+}
+// Per-render index (built once at the top of renderRegistrantList) so the
+// undirected buddy lookups below stay O(1) per card instead of rescanning
+// every request for all 1000+ registrants on each keystroke.
+var buddyIndex = null;
+function buddyBuildIndex() {
+    var adj = _buddyAdj();
+    var seen = {}, clusterMap = {};
+    for (var k in adj) {
+        if (!adj.hasOwnProperty(k)) { continue; }
+        var pid = parseInt(k, 10);
+        if (seen[pid]) { continue; }
+        var c = _buddyComponent(adj, pid);
+        for (var i = 0; i < c.length; i++) { seen[c[i]] = true; clusterMap[c[i]] = c; }
+    }
+    var incoming = {};
+    var reqs = (state.buddyData && state.buddyData.requests) || {};
+    for (var pidStr in reqs) {
+        if (!reqs.hasOwnProperty(pidStr)) { continue; }
+        var owner = parseInt(pidStr, 10);
+        var bl = reqs[pidStr].buddies || [];
+        for (var j = 0; j < bl.length; j++) {
+            var b = bl[j];
+            if (b.ref === 'person') {
+                if (!incoming[b.peopleId]) { incoming[b.peopleId] = []; }
+                if (incoming[b.peopleId].indexOf(owner) < 0) { incoming[b.peopleId].push(owner); }
+            }
+        }
+    }
+    return { clusterMap: clusterMap, incoming: incoming };
+}
+function buddyClusterFor(pid) {
+    if (buddyIndex && buddyIndex.clusterMap) { return buddyIndex.clusterMap[pid] || [pid]; }
+    return _buddyComponent(_buddyAdj(), pid);
+}
+// Everyone who listed `pid` as their buddy (incoming edges) — this is what
+// makes a person who never filled out a buddy request still show the link.
+function buddyIncomingPids(pid) {
+    if (buddyIndex && buddyIndex.incoming) { return buddyIndex.incoming[pid] || []; }
+    var out = [];
+    var reqs = (state.buddyData && state.buddyData.requests) || {};
+    for (var pidStr in reqs) {
+        if (!reqs.hasOwnProperty(pidStr)) { continue; }
+        var owner = parseInt(pidStr, 10);
+        if (owner === pid) { continue; }
+        var bl = reqs[pidStr].buddies || [];
+        for (var i = 0; i < bl.length; i++) { if (bl[i].ref === 'person' && bl[i].peopleId === pid) { out.push(owner); break; } }
+    }
+    return out;
+}
+function buddyInReg(pid) {
+    for (var i = 0; i < state.registrants.length; i++) { if (state.registrants[i].peopleId === pid) { return true; } }
+    return false;
+}
+// Everyone who listed this (still-unlinked) placeholder as their buddy.
+function buddyPlaceholderRequesters(phid) {
+    var out = [];
+    var reqs = (state.buddyData && state.buddyData.requests) || {};
+    for (var pidStr in reqs) {
+        if (!reqs.hasOwnProperty(pidStr)) { continue; }
+        var bl = reqs[pidStr].buddies || [];
+        for (var i = 0; i < bl.length; i++) {
+            if (bl[i].ref === 'placeholder' && bl[i].placeholderId === phid) { out.push(parseInt(pidStr, 10)); break; }
+        }
+    }
+    return out;
+}
+// Keep the header Waiting / Needs-Matching buttons honest: labelled, counted,
+// and pulsing when there's something to act on; muted (or hidden) when not.
+// Called every render so the counts track placements live.
+function buddyUpdateHeaderButtons() {
+    var reqs = (state.buddyData && state.buddyData.requests) || {};
+    var hasBuddyData = false;
+    for (var r in reqs) { if (reqs.hasOwnProperty(r)) { hasBuddyData = true; break; } }
+
+    var waitCount = 0;
+    var phs = (state.buddyData && state.buddyData.placeholders) || {};
+    for (var k in phs) { if (phs.hasOwnProperty(k) && !phs[k].linkedPeopleId) { waitCount++; } }
+
+    var confCount = state.buddyEventId ? buddyScanConflicts().length : 0;
+
+    _buddySetHdrBtn('buddyWaitingBtn', 'buddyWaitingBadge', waitCount, hasBuddyData, 'btn-warning');
+    _buddySetHdrBtn('buddyConflictBtn', 'buddyConflictBadge', confCount, hasBuddyData, 'btn-danger');
+}
+function _buddySetHdrBtn(btnId, badgeId, count, hasBuddyData, liveClass) {
+    var btn = document.getElementById(btnId);
+    var badge = document.getElementById(badgeId);
+    if (!btn || !badge) { return; }
+    if (count > 0) {
+        btn.style.display = '';
+        btn.className = 'btn btn-sm ' + liveClass + ' ms-1 ip-hdr-live';
+        badge.textContent = count;
+        badge.style.display = '';
+    } else if (hasBuddyData) {
+        btn.style.display = '';
+        btn.className = 'btn btn-sm btn-light ms-1';
+        badge.style.display = 'none';
+    } else {
+        btn.style.display = 'none';
+    }
+}
+function buddyQueueGroup(pid) {
+    var cluster = buddyClusterFor(pid);
+    var added = 0, skipped = 0;
+    for (var i = 0; i < cluster.length; i++) {
+        var cpid = cluster[i], reg = null;
+        for (var j = 0; j < state.registrants.length; j++) { if (state.registrants[j].peopleId === cpid) { reg = state.registrants[j]; break; } }
+        if (!reg) { skipped++; continue; }
+        if (!state.queue.some(function(q) { return q.peopleId === cpid; })) { state.queue.push(reg); added++; }
+    }
+    renderQueue(); renderRegistrantList(); updateProcessButton(); updateEffortDisplay();
+    if (added > 0) { showToast('Queued buddy group (' + added + ')' + (skipped ? ' — ' + skipped + ' not in this involvement' : ''), 'success'); }
+    else { showToast('Buddy group already in the queue', 'info'); }
+}
+function buddyIsSplit(pid) {
+    // Cheap short-circuit first: not connected to anyone -> can't be split.
+    // Keeps the per-card cost O(1) for the ~99% of cards with no buddies.
+    var cluster = buddyClusterFor(pid);
+    if (!cluster || cluster.length <= 1) { return false; }
+    var mine = buddyPlacementFor(pid);
+    if (!mine) { return false; }
+    for (var i = 0; i < cluster.length; i++) {
+        if (cluster[i] === pid) { continue; }
+        var pl = buddyPlacementFor(cluster[i]);
+        if (pl && pl.key !== mine.key) { return true; }
+    }
+    return false;
+}
+function buddyCardHint(pid) {
+    // Undirected: a person shows a hint if they're connected to ANYONE — whether
+    // they listed a buddy OR were listed by one. cluster.length > 1 means connected.
+    var cluster = buddyClusterFor(pid);
+    if (!cluster || cluster.length <= 1) { return ''; }
+    var regCount = 0;
+    for (var i = 0; i < cluster.length; i++) { if (buddyInReg(cluster[i])) { regCount++; } }
+    var out = '';
+    if (regCount > 1) {
+        out += '<button type="button" class="ip-buddy-group-btn" onclick="event.stopPropagation(); buddyQueueGroup(' + pid + ')" title="Queue this person and their buddies together"><i class="bi bi-people"></i> +group (' + regCount + ')</button>';
+    }
+    var mine = buddyPlacementFor(pid);
+    var placedParts = [], anyPlaced = false;
+    for (var k = 0; k < cluster.length; k++) {
+        var opid = cluster[k];
+        if (opid === pid) { continue; }
+        var pl = buddyPlacementFor(opid);
+        if (!pl) { continue; }
+        anyPlaced = true;
+        var split = mine && (pl.key !== mine.key);
+        placedParts.push('<span class="' + (split ? 'ip-bplace-split' : 'ip-bplace') + '">' + escapeHtml(buddyName(opid)) + ': ' + escapeHtml(pl.label) + '</span>');
+    }
+    if (!mine && anyPlaced) {
+        // The key case: THIS person is still unplaced but a buddy is already
+        // placed. Shout it so you don't split them while working Pending.
+        out += '<div class="ip-buddy-attention"><i class="bi bi-flag-fill me-1"></i>buddy placed &rarr; ' + placedParts.join(' ') + ' &mdash; match it</div>';
+    } else if (placedParts.length) {
+        out += '<div class="ip-buddy-hint">buddies &rarr; ' + placedParts.join(' ') + '</div>';
+    }
+    return out ? '<div class="ip-buddy-cardline">' + out + '</div>' : '';
+}
+function buddyAllClusters() {
+    var adj = _buddyAdj(), seen = {}, clusters = [];
+    for (var k in adj) {
+        if (!adj.hasOwnProperty(k)) { continue; }
+        var pid = parseInt(k, 10);
+        if (seen[pid]) { continue; }
+        var c = _buddyComponent(adj, pid);
+        for (var i = 0; i < c.length; i++) { seen[c[i]] = true; }
+        if (c.length >= 2) { clusters.push(c); }
+    }
+    return clusters;
+}
+function buddyScanConflicts() {
+    var clusters = buddyAllClusters(), conflicts = [];
+    for (var i = 0; i < clusters.length; i++) {
+        var c = clusters[i], placements = {}, unplaced = [], placedCount = 0;
+        for (var j = 0; j < c.length; j++) {
+            var pl = buddyPlacementFor(c[j]);
+            if (pl) {
+                placedCount++;
+                if (!placements[pl.key]) { placements[pl.key] = { label: pl.label, pids: [] }; }
+                placements[pl.key].pids.push(c[j]);
+            } else { unplaced.push(c[j]); }
+        }
+        var nkeys = 0; for (var kk in placements) { if (placements.hasOwnProperty(kk)) { nkeys++; } }
+        if (nkeys > 1) { conflicts.push({ pids: c, placements: placements, unplaced: unplaced, partial: false }); }
+        else if (nkeys === 1 && unplaced.length > 0 && placedCount > 0) { conflicts.push({ pids: c, placements: placements, unplaced: unplaced, partial: true }); }
+    }
+    return conflicts;
+}
+function openConflictsModal() {
+    if (!state.buddyEventId) { showToast('Load an involvement first', 'warning'); return; }
+    var conflicts = buddyScanConflicts();
+    var h = '<div class="small text-muted mb-2">Session: <strong>' + escapeHtml(buddySessionLabel()) + '</strong> &mdash; switch efforts to check another session.</div>';
+    if (!conflicts.length) {
+        h += '<div class="text-muted">No buddy conflicts in this session. Placed buddies are together. &#128077;</div>';
+    } else {
+        for (var i = 0; i < conflicts.length; i++) {
+            var cf = conflicts[i];
+            h += '<div class="ip-conflict-card">';
+            if (cf.partial) { h += '<div class="fw-bold text-warning mb-1"><i class="bi bi-hourglass-split me-1"></i>Partially placed group</div>'; }
+            else { h += '<div class="fw-bold text-danger mb-1"><i class="bi bi-scissors me-1"></i>Split buddy group</div>'; }
+            for (var key in cf.placements) {
+                if (!cf.placements.hasOwnProperty(key)) { continue; }
+                var pl = cf.placements[key];
+                var names = pl.pids.map(function(p) { return escapeHtml(buddyName(p)); }).join(', ');
+                h += '<div class="small">&bull; <strong>' + escapeHtml(pl.label) + '</strong>: ' + names + '</div>';
+            }
+            if (cf.unplaced.length) {
+                var un = cf.unplaced.map(function(p) { return escapeHtml(buddyName(p)); }).join(', ');
+                h += '<div class="small text-muted">&bull; not yet placed: ' + un + '</div>';
+            }
+            h += '</div>';
+        }
+    }
+    document.getElementById('conflictsList').innerHTML = h;
+    var el = document.getElementById('conflictsModal');
+    (bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el)).show();
+}
 
 var searchTimeout = null;
 var scriptUrl = window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
@@ -3314,6 +4275,8 @@ function loadRegistrants(orgId) {
 
             var memberCount = state.registrants.length;
             $('#registrantCount').text(memberCount + ' people');
+
+            buddyInit();  // resolve the involvement's (auto) buddy event + load buddy chips
         } else {
             showToast(response.message || 'Error loading registrants', 'danger');
         }
@@ -3352,6 +4315,11 @@ function renderRegistrantList() {
     if (!state.registrants || !Array.isArray(state.registrants)) {
         state.registrants = [];
     }
+
+    // Rebuild the buddy index once per render so per-card buddy lookups
+    // (chip counts, cluster hints, split detection) stay O(1).
+    buddyIndex = buddyBuildIndex();
+    buddyUpdateHeaderButtons();
 
     var filters = getActiveFilters();
     var filterMode = 'all';
@@ -3432,7 +4400,10 @@ function renderRegistrantList() {
         html += '<div class="' + cardClass + '" data-pid="' + r.peopleId + '" onclick="toggleQueuePerson(' + r.peopleId + ')">';
         html += '<div class="ip-name">' + r.name;
         if (procFlag) html += ' <i class="bi bi-check-circle-fill text-success"></i>';
+        if (buddyIsSplit(r.peopleId)) html += ' <i class="bi bi-scissors text-danger" title="Split from a buddy in this session"></i>';
         html += '</div>';
+        html += buddyChipHtml(r.peopleId);
+        html += buddyCardHint(r.peopleId);
 
         // Show assignment info for processed people
         if (procFlag && procInfo && procInfo.targetOrgName) {
@@ -4436,6 +5407,8 @@ checkForAppUpdate();
                     <span><i class="bi bi-person-lines-fill me-2"></i>Registrants</span>
                     <div>
                         <span class="badge bg-light text-dark" id="registrantCount">0 people</span>
+                        <button id="buddyWaitingBtn" class="btn btn-sm btn-light ms-1" onclick="openWaitingModal()" title="Buddies waiting to sign up" style="display:none;"><i class="bi bi-hourglass-split"></i> <span class="ip-hdr-label">Waiting</span> <span id="buddyWaitingBadge" class="ip-hdr-badge" style="display:none;">0</span></button>
+                        <button id="buddyConflictBtn" class="btn btn-sm btn-light ms-1" onclick="openConflictsModal()" title="Buddies that need matching in this session" style="display:none;"><i class="bi bi-people-fill"></i> <span class="ip-hdr-label">Needs Matching</span> <span id="buddyConflictBadge" class="ip-hdr-badge" style="display:none;">0</span></button>
                         <div class="btn-group btn-group-sm ms-2">
                             <button class="btn btn-light" onclick="filterRegistrants('all')" id="filterAll">All</button>
                             <button class="btn btn-outline-light" onclick="filterRegistrants('pending')" id="filterPending">Pending</button>
@@ -4831,6 +5804,73 @@ checkForAppUpdate();
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
                     <i class="bi bi-check me-1"></i>OK, Got It
                 </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Buddy editor -->
+<div class="modal fade" id="buddyModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-people-fill me-2"></i>Buddies for <span id="buddyModalPerson"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="buddyEditList" class="mb-3"></div>
+                <label class="form-label small text-muted mb-1">Add a buddy &mdash; searches this involvement <em>and</em> all of TouchPoint:</label>
+                <div class="input-group mb-2">
+                    <input type="text" id="buddySearchInput" class="form-control" placeholder="Type a name, email, or phone" onkeyup="if(event.key==='Enter')buddySearch()">
+                    <button class="btn btn-primary" type="button" onclick="buddySearch()">Search</button>
+                </div>
+                <div id="buddySearchResults"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" onclick="buddySaveEdit()"><i class="bi bi-check me-1"></i>Save Buddies</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Waiting to sign up -->
+<div class="modal fade" id="waitingModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-warning bg-opacity-25">
+                <h5 class="modal-title"><i class="bi bi-hourglass-split me-2"></i>Buddies Waiting to Sign Up</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted">Names people asked to be placed with, who aren&rsquo;t linked to a real record yet. When they register, link them here &mdash; one link resolves everyone waiting on them.</p>
+                <div id="waitingList"></div>
+                <div id="waitingResolve" style="display:none;" class="mt-3 p-2 border rounded bg-light">
+                    <div class="small text-muted mb-1">Link <strong id="waitingResolveName"></strong> to the real person who signed up:</div>
+                    <input type="text" id="buddySearchInput2" class="form-control mb-2" placeholder="Search name / email / phone" onkeyup="buddySearch2()">
+                    <div id="buddySearchResults2"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Buddy Conflicts Modal -->
+<div class="modal fade" id="conflictsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="bi bi-diagram-3 me-2"></i>Buddies to Match</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="conflictsList"><!-- populated by openConflictsModal --></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
