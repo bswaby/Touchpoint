@@ -47,6 +47,33 @@ Features:
 
 
 Change Log:
+v1.7.0 - July 2026
+  - Added: Template tools on the Configure step -- no need to walk to Generate to
+           reuse a template. A "Template library" bar under Choose a Starting
+           Template offers Import, Copy from..., and (for Admins) Publish to Public.
+  - Added: "Copy from..." browser -- copy a saved template from another involvement
+           or from another staff member's personal library. A type-to-filter search
+           box keeps the source picker usable when 30-40+ involvements/staff have
+           templates. Reuses the import mismatch validation, so cross-involvement
+           question / subgroup references are auto-remapped or flagged. Backed by
+           new copy_sources / copy_templates actions (read-only discovery via the
+           RegReportTemplate extra value on orgs / people). Any Edit-role user may
+           browse other staff members' personal templates (non-sensitive layouts).
+  - Added: Public (shared/managed) template library. A "Public library" panel with
+           its own search box lists shared templates (name, publisher, date) and
+           scrolls -- built to scale past a card row. Everyone can Load; TouchPoint
+           Admins can Publish the current layout and Rename / Delete public
+           templates; each records who published it and when. Stored globally in
+           special content (RegReportPublicTemplates) so it survives script updates.
+           Write actions (public_publish / public_rename / public_delete) are
+           gated to the Admin role server-side.
+  - Changed: Bringing a template in (Import / Copy / Public Load) now loads it into
+           the builder for preview WITHOUT saving -- "view vs save". Nothing is
+           written to a store until you click Save / Save As (the name is pre-filled
+           from the incoming template). Previously Import auto-saved on the spot.
+  - Note:  The Step 4 Export/Save/Save As/Rename/Delete controls are unchanged; the
+           Step 2 and Step 4 importers share one core so behavior matches.
+
 v1.6.3 - July 2026
   - Added: "Membership Status" and "Baptism Status" as Person field options.
            Joined from lookup.MemberStatus (p.MemberStatusId) and
@@ -217,7 +244,7 @@ import json
 import re
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.6.3'
+APP_VERSION = '1.7.0'
 DC_SCRIPT_ID = 'TPxi_ReportWriter'  # ID used on DisplayCache to identify this script
 # scripts.displaycache.com is the custom domain used for browser-side version checks.
 # workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
@@ -2462,6 +2489,59 @@ if model.HttpMethod == "post":
         return True
 
     # -------------------------------------------------------------------------
+    # Public (global) template store. Lives in special content so it is shared
+    # by every staff member and survives script updates. Same v2 shape as the
+    # org/user stores, plus a parallel `meta` map keyed by template name that
+    # records who published it and when (the "managed" feel). Read is open to
+    # everyone; writes (publish / rename / delete) are gated to the Admin role.
+    # -------------------------------------------------------------------------
+    PUBLIC_TEMPLATE_CONTENT = 'RegReportPublicTemplates'
+
+    def _empty_public_store():
+        return {'_format': 'v2', 'templates': {}, 'meta': {}}
+
+    def _read_public_store():
+        try:
+            saved = model.TextContent(PUBLIC_TEMPLATE_CONTENT)
+        except:
+            saved = None
+        if not saved:
+            return _empty_public_store()
+        try:
+            data = json.loads(saved)
+        except:
+            return _empty_public_store()
+        if not isinstance(data, dict):
+            return _empty_public_store()
+        if not isinstance(data.get('templates'), dict):
+            data['templates'] = {}
+        if not isinstance(data.get('meta'), dict):
+            data['meta'] = {}
+        data['_format'] = 'v2'
+        return data
+
+    def _write_public_store(store):
+        store['_format'] = 'v2'
+        if not isinstance(store.get('templates'), dict):
+            store['templates'] = {}
+        if not isinstance(store.get('meta'), dict):
+            store['meta'] = {}
+        model.WriteContentText(PUBLIC_TEMPLATE_CONTENT, json.dumps(store), '')
+
+    def _is_admin():
+        try:
+            return bool(model.UserIsInRole('Admin'))
+        except:
+            return False
+
+    def _now_str():
+        try:
+            import datetime
+            return datetime.datetime.now().strftime('%b %d, %Y')
+        except:
+            return ''
+
+    # -------------------------------------------------------------------------
     # Search Orgs with Registration Questions
     # -------------------------------------------------------------------------
     if action == 'search_orgs':
@@ -2834,6 +2914,188 @@ if model.HttpMethod == "post":
                     })
             except Exception as e:
                 print json.dumps({'success': False, 'message': safe_str(e)})
+
+    # -------------------------------------------------------------------------
+    # Copy browser: list sources (involvements or staff) that have >=1 template.
+    # source_type = 'org' | 'user'. Returns [{id, name, count}] sorted by name.
+    # Read-only discovery; the copy itself is done client-side via save_template.
+    # -------------------------------------------------------------------------
+    elif action == 'copy_sources':
+        source_type = str(getattr(Data, 'source_type', 'org') or 'org')
+        try:
+            sources = []
+            if source_type == 'user':
+                rows = q.QuerySql("""
+                    SELECT pe.PeopleId AS Id, p.Name2 AS Name
+                    FROM dbo.PeopleExtra pe
+                    JOIN dbo.People p ON p.PeopleId = pe.PeopleId
+                    WHERE pe.Field = 'RegReportTemplate'
+                """)
+                for r in (rows or []):
+                    store = _read_user_template_store(r.Id)
+                    cnt = len(store.get('templates', {}) or {})
+                    if cnt > 0:
+                        sources.append({'id': r.Id, 'name': safe_str(r.Name) or ('Person ' + str(r.Id)), 'count': cnt})
+            else:
+                rows = q.QuerySql("""
+                    SELECT oe.OrganizationId AS Id, o.OrganizationName AS Name
+                    FROM dbo.OrganizationExtra oe
+                    JOIN dbo.Organizations o ON o.OrganizationId = oe.OrganizationId
+                    WHERE oe.Field = 'RegReportTemplate'
+                """)
+                for r in (rows or []):
+                    store = _read_template_store(r.Id)
+                    cnt = len(store.get('templates', {}) or {})
+                    if cnt > 0:
+                        sources.append({'id': r.Id, 'name': safe_str(r.Name) or ('Involvement ' + str(r.Id)), 'count': cnt})
+            sources = sorted(sources, key=lambda s: s['name'].lower())
+            print json.dumps({'success': True, 'sourceType': source_type, 'sources': sources})
+        except Exception as e:
+            print json.dumps({'success': False, 'message': safe_str(e)})
+
+    # -------------------------------------------------------------------------
+    # Copy browser: list templates for a chosen source. Returns {names, templates}.
+    # -------------------------------------------------------------------------
+    elif action == 'copy_templates':
+        source_type = str(getattr(Data, 'source_type', 'org') or 'org')
+        source_id = getattr(Data, 'source_id', '')
+        try:
+            sid = int(source_id)
+        except:
+            sid = 0
+        if not sid:
+            print json.dumps({'success': False, 'message': 'A source is required'})
+        else:
+            try:
+                store = _read_user_template_store(sid) if source_type == 'user' else _read_template_store(sid)
+                templates = store.get('templates', {}) or {}
+                names = sorted(templates.keys(), key=lambda s: s.lower())
+                print json.dumps({'success': True, 'names': names, 'templates': templates})
+            except Exception as e:
+                print json.dumps({'success': False, 'message': safe_str(e)})
+
+    # -------------------------------------------------------------------------
+    # Public library: load (open to all). Returns templates + meta + canManage.
+    # -------------------------------------------------------------------------
+    elif action == 'public_load':
+        try:
+            store = _read_public_store()
+            templates = store.get('templates', {}) or {}
+            meta = store.get('meta', {}) or {}
+            names = sorted(templates.keys(), key=lambda s: s.lower())
+            print json.dumps({
+                'success': True,
+                'templates': templates,
+                'meta': meta,
+                'names': names,
+                'canManage': _is_admin()
+            })
+        except Exception as e:
+            print json.dumps({'success': False, 'message': safe_str(e)})
+
+    # -------------------------------------------------------------------------
+    # Public library: publish (create/overwrite). Admin only.
+    # -------------------------------------------------------------------------
+    elif action == 'public_publish':
+        if not _is_admin():
+            print json.dumps({'success': False, 'message': 'Admin role required to publish public templates'})
+        else:
+            template_json = getattr(Data, 'template_json', '')
+            name = getattr(Data, 'tpl_name', '') or getattr(Data, 'name', '')
+            source_label = safe_str(getattr(Data, 'source_label', '') or '')
+            name = str(name).strip()
+            if not template_json or not name:
+                print json.dumps({'success': False, 'message': 'Template and name are required'})
+            else:
+                try:
+                    parsed = json.loads(template_json)
+                    store = _read_public_store()
+                    templates = store.get('templates', {}) or {}
+                    meta = store.get('meta', {}) or {}
+                    templates[name] = parsed
+                    meta[name] = {
+                        'publishedByName': safe_str(getattr(model, 'UserName', '') or ''),
+                        'publishedDate': _now_str(),
+                        'sourceLabel': source_label
+                    }
+                    store['templates'] = templates
+                    store['meta'] = meta
+                    _write_public_store(store)
+                    print json.dumps({
+                        'success': True,
+                        'message': 'Published "' + name + '" to the public library',
+                        'name': name,
+                        'names': sorted(templates.keys(), key=lambda s: s.lower()),
+                        'meta': meta
+                    })
+                except Exception as e:
+                    print json.dumps({'success': False, 'message': safe_str(e)})
+
+    # -------------------------------------------------------------------------
+    # Public library: delete. Admin only.
+    # -------------------------------------------------------------------------
+    elif action == 'public_delete':
+        if not _is_admin():
+            print json.dumps({'success': False, 'message': 'Admin role required to delete public templates'})
+        else:
+            name = str(getattr(Data, 'tpl_name', '') or getattr(Data, 'name', '')).strip()
+            if not name:
+                print json.dumps({'success': False, 'message': 'Template name required'})
+            else:
+                try:
+                    store = _read_public_store()
+                    templates = store.get('templates', {}) or {}
+                    meta = store.get('meta', {}) or {}
+                    if name in templates:
+                        del templates[name]
+                    if name in meta:
+                        del meta[name]
+                    store['templates'] = templates
+                    store['meta'] = meta
+                    _write_public_store(store)
+                    print json.dumps({
+                        'success': True,
+                        'names': sorted(templates.keys(), key=lambda s: s.lower()),
+                        'meta': meta
+                    })
+                except Exception as e:
+                    print json.dumps({'success': False, 'message': safe_str(e)})
+
+    # -------------------------------------------------------------------------
+    # Public library: rename. Admin only.
+    # -------------------------------------------------------------------------
+    elif action == 'public_rename':
+        if not _is_admin():
+            print json.dumps({'success': False, 'message': 'Admin role required to rename public templates'})
+        else:
+            old_name = str(getattr(Data, 'tpl_old_name', '') or getattr(Data, 'old_name', '')).strip()
+            new_name = str(getattr(Data, 'tpl_new_name', '') or getattr(Data, 'new_name', '')).strip()
+            if not old_name or not new_name:
+                print json.dumps({'success': False, 'message': 'Old name and new name required'})
+            else:
+                try:
+                    store = _read_public_store()
+                    templates = store.get('templates', {}) or {}
+                    meta = store.get('meta', {}) or {}
+                    if old_name not in templates:
+                        print json.dumps({'success': False, 'message': 'Template "' + old_name + '" not found'})
+                    elif new_name in templates and new_name != old_name:
+                        print json.dumps({'success': False, 'message': 'Template "' + new_name + '" already exists'})
+                    else:
+                        templates[new_name] = templates.pop(old_name)
+                        if old_name in meta:
+                            meta[new_name] = meta.pop(old_name)
+                        store['templates'] = templates
+                        store['meta'] = meta
+                        _write_public_store(store)
+                        print json.dumps({
+                            'success': True,
+                            'name': new_name,
+                            'names': sorted(templates.keys(), key=lambda s: s.lower()),
+                            'meta': meta
+                        })
+                except Exception as e:
+                    print json.dumps({'success': False, 'message': safe_str(e)})
 
     # -------------------------------------------------------------------------
     # Preview Report (single person)
@@ -3457,6 +3719,63 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                 </div>
                 <span id="rrSavedTplContainer"></span>
             </div>
+
+            <!-- Template Library bar: bring Import / Copy / Public to Configure -->
+            <div class="rr-lib-bar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px;padding-top:12px;border-top:1px solid #edf2f7;">
+                <span style="font-size:12px;font-weight:600;color:#718096;">Template library:</span>
+                <button class="rr-btn rr-btn-secondary rr-btn-sm" onclick="openImportPanel2()" title="Load a configuration from a JSON file or pasted text"><i class="fa fa-upload"></i> Import&hellip;</button>
+                <button class="rr-btn rr-btn-secondary rr-btn-sm" onclick="openCopyPanel()" title="Copy a saved template from another involvement or staff member"><i class="fa fa-clone"></i> Copy from&hellip;</button>
+                <button class="rr-btn rr-btn-secondary rr-btn-sm" onclick="openPublicPanel()" title="Browse and load templates from the shared public library"><i class="fa fa-globe"></i> Public library <span id="rrPublicCountBadge" class="rr-badge rr-badge-green" style="display:none;"></span></button>
+                <button class="rr-btn rr-btn-secondary rr-btn-sm" id="rrPublishBtn" style="display:none;" onclick="publishToPublic()" title="Publish the current layout to the shared public library (Admin)"><i class="fa fa-upload"></i> Publish to Public&hellip;</button>
+            </div>
+
+            <!-- Import panel (Step 2 copy of the Step 4 importer) -->
+            <div id="rrImportPanel2" style="display:none;margin-top:10px;padding:12px;background:#f0f4ff;border:1px solid #cbd5e0;border-radius:6px;">
+                <div style="font-weight:600;margin-bottom:6px;">Import Template</div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+                    <input type="file" id="rrImportFile2" accept=".json,application/json" style="font-size:12px;">
+                    <span style="font-size:12px;color:#666;">or paste JSON below:</span>
+                </div>
+                <textarea id="rrImportText2" placeholder='Paste a previously exported template JSON here...' style="width:100%;min-height:80px;font-size:12px;font-family:monospace;padding:6px;border:1px solid #cbd5e0;border-radius:4px;"></textarea>
+                <div style="margin-top:6px;display:flex;gap:6px;">
+                    <button class="rr-btn rr-btn-primary rr-btn-sm" onclick="doImportTemplate2()"><i class="fa fa-check"></i> Import</button>
+                    <button class="rr-btn rr-btn-sm" onclick="document.getElementById('rrImportPanel2').style.display='none';" style="padding:4px 10px;">Cancel</button>
+                </div>
+            </div>
+
+            <!-- Copy-from panel: another involvement or another staff member -->
+            <div id="rrCopyPanel" style="display:none;margin-top:10px;padding:12px;background:#f7fafc;border:1px solid #cbd5e0;border-radius:6px;">
+                <div style="font-weight:600;margin-bottom:8px;">Copy a Template</div>
+                <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+                    <label style="font-size:13px;cursor:pointer;"><input type="radio" name="rrCopySrcType" value="org" checked onchange="onCopySrcTypeChange()"> From an involvement</label>
+                    <label style="font-size:13px;cursor:pointer;"><input type="radio" name="rrCopySrcType" value="user" onchange="onCopySrcTypeChange()"> From a staff member</label>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <input type="text" id="rrCopySourceFilter" placeholder="Type to filter&hellip;" oninput="filterCopySources()" style="padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:13px;min-width:150px;">
+                    <select id="rrCopySource" size="1" onchange="onCopySourcePicked(this.value)" style="padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:13px;min-width:240px;">
+                        <option value="">Loading sources&hellip;</option>
+                    </select>
+                    <select id="rrCopyTemplate" style="padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:13px;min-width:200px;display:none;">
+                        <option value="">-- pick a template --</option>
+                    </select>
+                    <button class="rr-btn rr-btn-primary rr-btn-sm" id="rrCopyApplyBtn" style="display:none;" onclick="applyCopiedTemplate()"><i class="fa fa-check"></i> Copy</button>
+                    <button class="rr-btn rr-btn-sm" onclick="document.getElementById('rrCopyPanel').style.display='none';" style="padding:4px 10px;">Cancel</button>
+                </div>
+                <div id="rrCopyHint" style="font-size:12px;color:#718096;margin-top:6px;"></div>
+            </div>
+
+            <!-- Public library browse panel: searchable list (scales to many templates) -->
+            <div id="rrPublicPanel" style="display:none;margin-top:10px;padding:12px;background:#f0fff4;border:1px solid #9ae6b4;border-radius:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                    <div style="font-weight:600;"><i class="fa fa-globe"></i> Public Library</div>
+                    <button class="rr-btn rr-btn-sm" onclick="document.getElementById('rrPublicPanel').style.display='none';" style="padding:4px 10px;">Close</button>
+                </div>
+                <input type="text" id="rrPublicFilter" placeholder="Search public templates&hellip;" oninput="renderPublicList()" style="width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:13px;margin-bottom:8px;box-sizing:border-box;">
+                <div id="rrPublicList" style="max-height:300px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:4px;background:#fff;"></div>
+            </div>
+
+            <!-- Import mismatch warnings for Step 2 imports/copies -->
+            <div id="rrImportWarnings2" style="display:none;margin-top:10px;"></div>
         </div>
 
         <div style="margin-bottom:12px;">
@@ -3779,7 +4098,15 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         generatedHtml: '',
         btMode: false,
         btPeopleIds: [],
-        includeDropped: false
+        includeDropped: false,
+        publicTemplates: {},
+        publicMeta: {},
+        publicNames: [],
+        canManagePublic: false,
+        copySourceType: 'org',
+        copySourcesAll: [],
+        copyTemplatesCache: {},
+        suggestedSaveName: ''
     };
 
     var TEMPLATES = {
@@ -3946,6 +4273,7 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                     state.savedTemplate = null;
                 }
                 renderSavedTemplateCards();
+                loadPublicTemplates();
                 selectTemplate('basic');
                 showToast('Organization loaded! Configure layout next.', 'success');
                 goToStep(2);
@@ -3954,6 +4282,233 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
     };
 
     // ===== STEP 2 =====
+    // Load the shared public library (open to all; management gated server-side).
+    function loadPublicTemplates() {
+        ajax('public_load', {}, function(data) {
+            if (data && data.success) {
+                state.publicTemplates = data.templates || {};
+                state.publicMeta = data.meta || {};
+                state.publicNames = data.names || [];
+                state.canManagePublic = !!data.canManage;
+            } else {
+                state.publicTemplates = {}; state.publicMeta = {}; state.publicNames = []; state.canManagePublic = false;
+            }
+            var pubBtn = document.getElementById('rrPublishBtn');
+            if (pubBtn) pubBtn.style.display = state.canManagePublic ? 'inline-block' : 'none';
+            renderPublicList();
+        });
+    }
+
+    function updatePublicBadge() {
+        var badge = document.getElementById('rrPublicCountBadge');
+        if (!badge) return;
+        if (state.publicNames.length) { badge.textContent = state.publicNames.length; badge.style.display = 'inline-block'; }
+        else { badge.style.display = 'none'; }
+    }
+
+    window.openPublicPanel = function() {
+        document.getElementById('rrImportPanel2').style.display = 'none';
+        document.getElementById('rrCopyPanel').style.display = 'none';
+        var p = document.getElementById('rrPublicPanel');
+        if (!p) return;
+        var show = (p.style.display !== 'block');
+        p.style.display = show ? 'block' : 'none';
+        if (show) {
+            renderPublicList();
+            var f = document.getElementById('rrPublicFilter');
+            if (f) { f.value = ''; f.focus(); renderPublicList(); }
+        }
+    };
+
+    // Render the public library as a searchable, scrollable list (scales past
+    // what a card row can hold). Filter text matches name or publisher.
+    window.renderPublicList = function() {
+        var box = document.getElementById('rrPublicList');
+        if (!box) return;
+        var filterEl = document.getElementById('rrPublicFilter');
+        var f = filterEl ? (filterEl.value || '').trim().toLowerCase() : '';
+        var shown = 0, html = '';
+        for (var i = 0; i < state.publicNames.length; i++) {
+            var nm = state.publicNames[i];
+            var meta = state.publicMeta[nm] || {};
+            var by = meta.publishedByName || '';
+            if (f && nm.toLowerCase().indexOf(f) < 0 && by.toLowerCase().indexOf(f) < 0) continue;
+            shown++;
+            var sub = by ? ('By ' + by + (meta.publishedDate ? ' \\u00b7 ' + meta.publishedDate : '')) : 'Shared public template';
+            html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #edf2f7;">';
+            html += '<div style="flex:1;min-width:0;">';
+            html += '<div style="font-weight:600;font-size:13px;color:#2d3748;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(nm) + '</div>';
+            html += '<div style="font-size:11px;color:#718096;">' + escHtml(sub) + '</div>';
+            html += '</div>';
+            html += '<button class="rr-btn rr-btn-primary rr-btn-sm" data-name="' + escAttr(nm) + '" onclick="selectPublicTemplate(this.dataset.name)" style="padding:3px 10px;font-size:12px;">Load</button>';
+            if (state.canManagePublic) {
+                html += '<button class="rr-btn rr-btn-sm" data-name="' + escAttr(nm) + '" onclick="renamePublicTemplate(this.dataset.name)" style="padding:3px 8px;font-size:11px;"><i class="fa fa-pencil"></i></button>';
+                html += '<button class="rr-btn rr-btn-sm rr-btn-danger" data-name="' + escAttr(nm) + '" onclick="deletePublicTemplate(this.dataset.name)" style="padding:3px 8px;font-size:11px;"><i class="fa fa-trash"></i></button>';
+            }
+            html += '</div>';
+        }
+        if (!state.publicNames.length) {
+            html = '<div style="padding:14px;text-align:center;color:#a0aec0;font-size:13px;">' + (state.canManagePublic ? 'No public templates yet \\u2014 use "Publish to Public" to share one.' : 'No public templates yet.') + '</div>';
+        } else if (!shown) {
+            html = '<div style="padding:14px;text-align:center;color:#a0aec0;font-size:13px;">No matches for "' + escHtml(f) + '"</div>';
+        }
+        box.innerHTML = html;
+        updatePublicBadge();
+    };
+
+    // Load a public template into the builder as a starting point (like a
+    // built-in template). It is NOT bound to a saved slot; Save/Save As writes
+    // to this org/user store. Cross-involvement refs are remapped/flagged.
+    window.selectPublicTemplate = function(name) {
+        if (!state.publicTemplates || !state.publicTemplates[name]) return;
+        var tpl = JSON.parse(JSON.stringify(state.publicTemplates[name]));
+        document.querySelectorAll('.rr-template-card').forEach(function(c) { c.classList.remove('selected'); });
+        loadTemplateIntoBuilder(tpl, name, 'rrImportWarnings2', 'rrPublicPanel', 'Loaded public template');
+    };
+
+    // ----- Publish / manage public templates (Admin only) -----
+    window.publishToPublic = function() {
+        if (!state.template) { showToast('Configure a layout first', 'warning'); return; }
+        var suggested = state.currentSavedName || (state.template.templateName || 'Shared Template');
+        var name = prompt('Publish to public library as:', suggested);
+        if (name === null) return;
+        name = (name || '').trim();
+        if (!name) { showToast('Name cannot be blank', 'warning'); return; }
+        if (state.publicTemplates[name] && !confirm('A public template named "' + name + '" already exists. Overwrite it?')) return;
+        var label = state.selectedOrgName || '';
+        ajax('public_publish', { tpl_name: name, template_json: JSON.stringify(state.template), source_label: label }, function(data) {
+            if (!data.success) { showToast(data.message || 'Publish failed', 'danger'); return; }
+            state.publicTemplates[name] = JSON.parse(JSON.stringify(state.template));
+            state.publicNames = data.names || state.publicNames;
+            state.publicMeta = data.meta || state.publicMeta;
+            renderPublicList();
+            showToast(data.message || 'Published', 'success');
+        });
+    };
+
+    window.renamePublicTemplate = function(oldName) {
+        var newName = prompt('Rename public template:', oldName);
+        if (newName === null) return;
+        newName = (newName || '').trim();
+        if (!newName || newName === oldName) return;
+        ajax('public_rename', { tpl_old_name: oldName, tpl_new_name: newName }, function(data) {
+            if (!data.success) { showToast(data.message || 'Rename failed', 'danger'); return; }
+            if (state.publicTemplates[oldName]) { state.publicTemplates[newName] = state.publicTemplates[oldName]; delete state.publicTemplates[oldName]; }
+            state.publicNames = data.names || state.publicNames;
+            state.publicMeta = data.meta || state.publicMeta;
+            renderPublicList();
+            showToast('Renamed', 'success');
+        });
+    };
+
+    window.deletePublicTemplate = function(name) {
+        if (!confirm('Delete public template "' + name + '"? This affects everyone.')) return;
+        ajax('public_delete', { tpl_name: name }, function(data) {
+            if (!data.success) { showToast(data.message || 'Delete failed', 'danger'); return; }
+            if (state.publicTemplates[name]) delete state.publicTemplates[name];
+            state.publicNames = data.names || state.publicNames;
+            state.publicMeta = data.meta || state.publicMeta;
+            renderPublicList();
+            showToast('Deleted', 'success');
+        });
+    };
+
+    // ----- Copy from another involvement / staff member -----
+    window.openCopyPanel = function() {
+        document.getElementById('rrImportPanel2').style.display = 'none';
+        var p = document.getElementById('rrCopyPanel');
+        if (!p) return;
+        var show = (p.style.display !== 'block');
+        p.style.display = show ? 'block' : 'none';
+        if (show) {
+            var checked = document.querySelector('input[name="rrCopySrcType"]:checked');
+            state.copySourceType = checked ? checked.value : 'org';
+            loadCopySources();
+        }
+    };
+
+    window.onCopySrcTypeChange = function() {
+        var checked = document.querySelector('input[name="rrCopySrcType"]:checked');
+        state.copySourceType = checked ? checked.value : 'org';
+        loadCopySources();
+    };
+
+    function loadCopySources() {
+        var srcSel = document.getElementById('rrCopySource');
+        var tplSel = document.getElementById('rrCopyTemplate');
+        var applyBtn = document.getElementById('rrCopyApplyBtn');
+        var hint = document.getElementById('rrCopyHint');
+        var filt = document.getElementById('rrCopySourceFilter');
+        if (filt) filt.value = '';
+        srcSel.innerHTML = '<option value="">Loading sources\\u2026</option>';
+        tplSel.style.display = 'none'; applyBtn.style.display = 'none'; hint.textContent = '';
+        state.copySourcesAll = [];
+        ajax('copy_sources', { source_type: state.copySourceType }, function(data) {
+            if (!data.success) { srcSel.innerHTML = '<option value="">Error loading sources</option>'; showToast(data.message || 'Error', 'danger'); return; }
+            state.copySourcesAll = data.sources || [];
+            renderCopySourceOptions();
+        });
+    }
+
+    // Rebuild the source dropdown from the cached list, filtered by the text box.
+    // Keeps selection usable when 30-40+ involvements/staff have templates.
+    window.renderCopySourceOptions = function() {
+        var srcSel = document.getElementById('rrCopySource');
+        if (!srcSel) return;
+        // Rebuilding resets selection, so hide the dependent template picker.
+        var tplSel = document.getElementById('rrCopyTemplate');
+        var applyBtn = document.getElementById('rrCopyApplyBtn');
+        if (tplSel) tplSel.style.display = 'none';
+        if (applyBtn) applyBtn.style.display = 'none';
+        var filtEl = document.getElementById('rrCopySourceFilter');
+        var f = filtEl ? (filtEl.value || '').trim().toLowerCase() : '';
+        var all = state.copySourcesAll || [];
+        var noun = state.copySourceType === 'user' ? 'staff member' : 'involvement';
+        if (!all.length) {
+            srcSel.innerHTML = '<option value="">No ' + noun + 's with saved templates</option>';
+            return;
+        }
+        var matches = [];
+        for (var i = 0; i < all.length; i++) {
+            if (!f || all[i].name.toLowerCase().indexOf(f) >= 0) matches.push(all[i]);
+        }
+        var h = '<option value="">' + (matches.length ? '-- pick a ' + noun + ' (' + matches.length + ') --' : 'No matches for "' + f + '"') + '</option>';
+        for (var j = 0; j < matches.length; j++) {
+            h += '<option value="' + matches[j].id + '">' + escHtml(matches[j].name) + ' (' + matches[j].count + ')</option>';
+        }
+        srcSel.innerHTML = h;
+    };
+
+    window.filterCopySources = function() { renderCopySourceOptions(); };
+
+    window.onCopySourcePicked = function(sourceId) {
+        var tplSel = document.getElementById('rrCopyTemplate');
+        var applyBtn = document.getElementById('rrCopyApplyBtn');
+        var hint = document.getElementById('rrCopyHint');
+        if (!sourceId) { tplSel.style.display = 'none'; applyBtn.style.display = 'none'; return; }
+        tplSel.innerHTML = '<option value="">Loading\\u2026</option>';
+        tplSel.style.display = 'inline-block';
+        ajax('copy_templates', { source_type: state.copySourceType, source_id: sourceId }, function(data) {
+            if (!data.success) { tplSel.innerHTML = '<option value="">Error</option>'; showToast(data.message || 'Error', 'danger'); return; }
+            state.copyTemplatesCache = data.templates || {};
+            var names = data.names || [];
+            if (!names.length) { tplSel.innerHTML = '<option value="">No templates</option>'; return; }
+            var h = '<option value="">-- pick a template --</option>';
+            for (var i = 0; i < names.length; i++) { h += '<option value="' + escAttr(names[i]) + '">' + escHtml(names[i]) + '</option>'; }
+            tplSel.innerHTML = h;
+            applyBtn.style.display = 'inline-block';
+            hint.textContent = 'Pick a template, then Copy to bring it into this involvement.';
+        });
+    };
+
+    window.applyCopiedTemplate = function() {
+        var tplSel = document.getElementById('rrCopyTemplate');
+        var name = tplSel.value;
+        if (!name || !state.copyTemplatesCache[name]) { showToast('Pick a template to copy', 'warning'); return; }
+        var tpl = JSON.parse(JSON.stringify(state.copyTemplatesCache[name]));
+        loadTemplateIntoBuilder(tpl, name, 'rrImportWarnings2', 'rrCopyPanel', 'Copied');
+    };
+
     function renderSavedTemplateCards() {
         var container = document.getElementById('rrSavedTplContainer');
         if (!container) return;
@@ -4694,7 +5249,7 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
     window.saveTemplateAs = function() {
         if (!state.selectedOrgId || !state.template) return;
         // bt_direct routes server-side to per-user PeopleExtra storage.
-        var name = prompt('Save as (template name):', state.currentSavedName || 'My Report');
+        var name = prompt('Save as (template name):', state.currentSavedName || state.suggestedSaveName || 'My Report');
         if (name === null) return;
         name = (name || '').trim();
         if (!name) { showToast('Name cannot be blank', 'warning'); return; }
@@ -4849,49 +5404,75 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
         return result;
     }
 
-    window.doImportTemplate = function() {
-        var raw = document.getElementById('rrImportText').value || '';
-        raw = raw.trim();
+    // Shared import/copy/public core. Loads an already-parsed template into the
+    // builder for VIEWING -- it does NOT save. The user previews it and, if they
+    // want to keep it, clicks Save / Save As (the name is pre-filled from
+    // suggestedName). This is the "view vs save" behavior: bringing a template in
+    // never commits it to a store on its own. Renders mismatch warnings into
+    // warnBoxId. Used by the Step 4 importer, the Step 2 importer, the "Copy
+    // from..." browser, and the public library.
+    function loadTemplateIntoBuilder(tpl, suggestedName, warnBoxId, panelToHideId, verb) {
+        if (!tpl || !tpl.sections) { showToast('Not a valid report template', 'danger'); return false; }
+
+        var validation = validateImportedTemplate(tpl);
+
+        // Apply to UI (unsaved) -- Save As will persist it if the user chooses to.
+        state.template = JSON.parse(JSON.stringify(tpl));
+        state.currentSavedName = null;
+        state.suggestedSaveName = (suggestedName || '').trim();
+        applyLoadedTemplateToUI();
+        if (panelToHideId) { var pnl = document.getElementById(panelToHideId); if (pnl) pnl.style.display = 'none'; }
+
+        renderImportWarnings(validation, warnBoxId);
+        var totalMissing = validation.missingQuestions.length + validation.missingSubgroups.length;
+        var head = (verb || 'Loaded') + (suggestedName ? ' "' + suggestedName + '"' : '');
+        var tail = ' \\u2014 Preview it, then Save As to keep it';
+        showToast(totalMissing === 0 ? head + tail : head + ' with ' + totalMissing + ' mismatch(es)' + tail, totalMissing === 0 ? 'success' : 'warning');
+        return true;
+    }
+
+    function importFromTextarea(textareaId, warnBoxId, panelToHideId) {
+        var raw = (document.getElementById(textareaId).value || '').trim();
         if (!raw) { showToast('Paste a JSON template or choose a file first', 'warning'); return; }
         var parsed;
         try { parsed = JSON.parse(raw); } catch(e) { showToast('Invalid JSON: ' + e.message, 'danger'); return; }
         // Accept either the export envelope or a bare template
         var tpl = (parsed && parsed._exportFormat === 'reportwriter-v1' && parsed.template) ? parsed.template : parsed;
-        if (!tpl || !tpl.sections) { showToast('Not a valid report template', 'danger'); return; }
         var suggestedName = (parsed && parsed.templateName) ? parsed.templateName : 'Imported';
-        var nameForUI = prompt('Save imported template as:', suggestedName);
-        if (nameForUI === null) return;
-        nameForUI = (nameForUI || '').trim();
-        if (!nameForUI) { showToast('Name cannot be blank', 'warning'); return; }
+        loadTemplateIntoBuilder(tpl, suggestedName, warnBoxId, panelToHideId, 'Imported');
+    }
 
-        var validation = validateImportedTemplate(tpl);
-
-        // Apply to UI
-        state.template = JSON.parse(JSON.stringify(tpl));
-        state.currentSavedName = nameForUI;
-        applyLoadedTemplateToUI();
-        document.getElementById('rrImportPanel').style.display = 'none';
-
-        // Auto-save to server too
-        if (state.selectedOrgId && state.selectedOrgId !== 'bt_direct') {
-            ajax('save_template', { org_id: state.selectedOrgId, template_json: JSON.stringify(state.template), tpl_name: nameForUI }, function(data) {
-                if (data.success) {
-                    state.savedTemplates[nameForUI] = JSON.parse(JSON.stringify(state.template));
-                    state.savedNames = data.names || state.savedNames;
-                    state.savedTemplate = state.savedTemplates[nameForUI];
-                    renderSavedTemplateCards();
-                    refreshSaveControls();
-                }
-            });
-        }
-
-        renderImportWarnings(validation);
-        var totalMissing = validation.missingQuestions.length + validation.missingSubgroups.length;
-        showToast(totalMissing === 0 ? 'Imported successfully' : 'Imported with ' + totalMissing + ' mismatch(es)', totalMissing === 0 ? 'success' : 'warning');
+    window.doImportTemplate = function() {
+        importFromTextarea('rrImportText', 'rrImportWarnings', 'rrImportPanel');
     };
 
-    function renderImportWarnings(v) {
-        var box = document.getElementById('rrImportWarnings');
+    // ----- Step 2 importer (mirror of the Step 4 importer) -----
+    window.openImportPanel2 = function() {
+        document.getElementById('rrCopyPanel').style.display = 'none';
+        var p = document.getElementById('rrImportPanel2');
+        if (p) p.style.display = (p.style.display === 'block') ? 'none' : 'block';
+        var w = document.getElementById('rrImportWarnings2');
+        if (w) { w.style.display = 'none'; w.innerHTML = ''; }
+        var fileEl = document.getElementById('rrImportFile2');
+        if (fileEl) {
+            fileEl.value = '';
+            fileEl.onchange = function(e) {
+                var f = e.target.files && e.target.files[0];
+                if (!f) return;
+                var reader = new FileReader();
+                reader.onload = function(ev) { document.getElementById('rrImportText2').value = ev.target.result || ''; };
+                reader.readAsText(f);
+            };
+        }
+    };
+
+    window.doImportTemplate2 = function() {
+        importFromTextarea('rrImportText2', 'rrImportWarnings2', 'rrImportPanel2');
+    };
+
+    function renderImportWarnings(v, boxId) {
+        boxId = boxId || 'rrImportWarnings';
+        var box = document.getElementById(boxId);
         if (!box) return;
         if (v.missingQuestions.length === 0 && v.missingSubgroups.length === 0) {
             box.style.display = 'none'; box.innerHTML = '';
@@ -4920,14 +5501,14 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
             h += '</ul></div>';
         }
         h += '<div style="margin-top:8px;display:flex;gap:6px;">';
-        h += '<button class="rr-btn rr-btn-sm rr-btn-secondary" onclick="autoRemoveMissingFields()" style="font-size:12px;"><i class="fa fa-eraser"></i> Auto-remove missing fields</button>';
-        h += '<button class="rr-btn rr-btn-sm" onclick="document.getElementById(\\'rrImportWarnings\\').style.display=\\'none\\';" style="font-size:12px;padding:4px 10px;">Dismiss</button>';
+        h += '<button class="rr-btn rr-btn-sm rr-btn-secondary" onclick="autoRemoveMissingFields(\\'' + boxId + '\\')" style="font-size:12px;"><i class="fa fa-eraser"></i> Auto-remove missing fields</button>';
+        h += '<button class="rr-btn rr-btn-sm" onclick="document.getElementById(\\'' + boxId + '\\').style.display=\\'none\\';" style="font-size:12px;padding:4px 10px;">Dismiss</button>';
         h += '</div></div>';
         box.innerHTML = h;
         box.style.display = 'block';
     }
 
-    window.autoRemoveMissingFields = function() {
+    window.autoRemoveMissingFields = function(boxId) {
         if (!state.template) return;
         var qKeys = {};
         for (var qi = 0; qi < (state.questions || []).length; qi++) {
@@ -4960,7 +5541,8 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
             sec.fields = keep;
         }
         renderSections();
-        document.getElementById('rrImportWarnings').style.display = 'none';
+        var warnBox = document.getElementById(boxId || 'rrImportWarnings');
+        if (warnBox) warnBox.style.display = 'none';
         showToast('Removed ' + removedFields + ' field(s) referencing missing questions', 'success');
     };
 
@@ -5202,6 +5784,7 @@ input[type="color"] { width: 36px; height: 28px; border: 1px solid #cbd5e0; bord
                             state.savedTemplate = null;
                         }
                         renderSavedTemplateCards();
+                        loadPublicTemplates();
                         selectTemplate('basic');
                         showToast('People loaded! Personal templates available. Person, family & medical fields ready -- select an involvement to add registration questions.', 'success');
                         goToStep(2);
