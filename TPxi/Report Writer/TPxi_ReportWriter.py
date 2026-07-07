@@ -47,6 +47,16 @@ Features:
 
 
 Change Log:
+v1.6.3 - July 2026
+  - Added: "Membership Status" and "Baptism Status" as Person field options.
+           Joined from lookup.MemberStatus (p.MemberStatusId) and
+           lookup.BaptismStatus (p.BaptismStatusId), not hardcoded, so they
+           show each church's own labels. Available in the section/field
+           builder and the summary-page item picker; renders on the report
+           and CSV like any other person field. Wired through all people
+           queries (org members, dropped-registrant UNION, and direct/Blue-
+           Toolbar) plus both person_fields dropdown lists.
+
 v1.6.2 - July 2026
   - Added: "Emergency List" standard template -- mirrors TPxi_EmergencyList's
            field set (Name/Age, Allergies, Medical [approved meds, doctor,
@@ -207,7 +217,7 @@ import json
 import re
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.6.2'
+APP_VERSION = '1.6.3'
 DC_SCRIPT_ID = 'TPxi_ReportWriter'  # ID used on DisplayCache to identify this script
 # scripts.displaycache.com is the custom domain used for browser-side version checks.
 # workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
@@ -755,7 +765,7 @@ def get_registrant_data(org_id, filter_people_ids=None, include_dropped=False):
                     p.PeopleId, p.Name2, p.FirstName, p.LastName, p.NickName,
                     p.BDate, p.Age, p.GenderId, p.EmailAddress, p.CellPhone, p.HomePhone,
                     p.PrimaryAddress, p.PrimaryCity, p.PrimaryState, p.PrimaryZip,
-                    p.FamilyId, ms.Description as MaritalStatus, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
+                    p.FamilyId, ms.Description as MaritalStatus, mstat.Description as MemberStatus, bs.Description as BaptismStatus, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
                     rr.MedicalDescription, rr.MedAllergy, rr.emcontact, rr.emphone,
                     rr.doctor, rr.docphone, rr.insurance, rr.policy,
                     ISNULL(rr.Tylenol, 0) as Tylenol, ISNULL(rr.Advil, 0) as Advil,
@@ -765,6 +775,8 @@ def get_registrant_data(org_id, filter_people_ids=None, include_dropped=False):
                 FROM OrganizationMembers om
                 JOIN People p ON om.PeopleId = p.PeopleId
                 LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
+                LEFT JOIN lookup.MemberStatus mstat ON p.MemberStatusId = mstat.Id
+                LEFT JOIN lookup.BaptismStatus bs ON p.BaptismStatusId = bs.Id
                 LEFT JOIN RecReg rr ON rr.PeopleId = p.PeopleId
                 LEFT JOIN Picture pic ON pic.PictureId = p.PictureId
                 WHERE om.OrganizationId = {0}
@@ -776,7 +788,7 @@ def get_registrant_data(org_id, filter_people_ids=None, include_dropped=False):
                     p.PeopleId, p.Name2, p.FirstName, p.LastName, p.NickName,
                     p.BDate, p.Age, p.GenderId, p.EmailAddress, p.CellPhone, p.HomePhone,
                     p.PrimaryAddress, p.PrimaryCity, p.PrimaryState, p.PrimaryZip,
-                    p.FamilyId, ms.Description as MaritalStatus, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
+                    p.FamilyId, ms.Description as MaritalStatus, mstat.Description as MemberStatus, bs.Description as BaptismStatus, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
                     rr.MedicalDescription, rr.MedAllergy, rr.emcontact, rr.emphone,
                     rr.doctor, rr.docphone, rr.insurance, rr.policy,
                     ISNULL(rr.Tylenol, 0) as Tylenol, ISNULL(rr.Advil, 0) as Advil,
@@ -787,6 +799,8 @@ def get_registrant_data(org_id, filter_people_ids=None, include_dropped=False):
                 JOIN RegPeople rp WITH (NOLOCK) ON r.RegistrationId = rp.RegistrationId
                 JOIN People p ON rp.PeopleId = p.PeopleId
                 LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
+                LEFT JOIN lookup.MemberStatus mstat ON p.MemberStatusId = mstat.Id
+                LEFT JOIN lookup.BaptismStatus bs ON p.BaptismStatusId = bs.Id
                 LEFT JOIN RecReg rr ON rr.PeopleId = p.PeopleId
                 LEFT JOIN Picture pic ON pic.PictureId = p.PictureId
                 WHERE r.OrganizationId = {0}
@@ -804,7 +818,7 @@ def get_registrant_data(org_id, filter_people_ids=None, include_dropped=False):
                 p.PeopleId, p.Name2, p.FirstName, p.LastName, p.NickName,
                 p.BDate, p.Age, p.GenderId, p.EmailAddress, p.CellPhone, p.HomePhone,
                 p.PrimaryAddress, p.PrimaryCity, p.PrimaryState, p.PrimaryZip,
-                p.FamilyId, ms.Description as MaritalStatus, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
+                p.FamilyId, ms.Description as MaritalStatus, mstat.Description as MemberStatus, bs.Description as BaptismStatus, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
                 rr.MedicalDescription, rr.MedAllergy, rr.emcontact, rr.emphone,
                 rr.doctor, rr.docphone, rr.insurance, rr.policy,
                 ISNULL(rr.Tylenol, 0) as Tylenol, ISNULL(rr.Advil, 0) as Advil,
@@ -814,6 +828,8 @@ def get_registrant_data(org_id, filter_people_ids=None, include_dropped=False):
             FROM OrganizationMembers om
             JOIN People p ON om.PeopleId = p.PeopleId
             LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
+            LEFT JOIN lookup.MemberStatus mstat ON p.MemberStatusId = mstat.Id
+            LEFT JOIN lookup.BaptismStatus bs ON p.BaptismStatusId = bs.Id
             LEFT JOIN RecReg rr ON rr.PeopleId = p.PeopleId
             LEFT JOIN Picture pic ON pic.PictureId = p.PictureId
             WHERE om.OrganizationId = {0}
@@ -837,6 +853,8 @@ def get_registrant_data(org_id, filter_people_ids=None, include_dropped=False):
                 'Age': str(r.Age) if r.Age else '',
                 'Gender': 'Male' if r.GenderId == 1 else 'Female' if r.GenderId == 2 else '',
                 'MaritalStatus': safe_str(r.MaritalStatus) if r.MaritalStatus else '',
+                'MemberStatus': safe_str(r.MemberStatus) if r.MemberStatus else '',
+                'BaptismStatus': safe_str(r.BaptismStatus) if r.BaptismStatus else '',
                 'EmailAddress': safe_str(r.EmailAddress),
                 'CellPhone': fmt_phone(r.CellPhone),
                 'HomePhone': fmt_phone(r.HomePhone),
@@ -1149,7 +1167,7 @@ def get_people_data_direct(people_ids):
             p.PeopleId, p.Name2, p.FirstName, p.LastName, p.NickName,
             p.BDate, p.Age, p.GenderId, p.EmailAddress, p.CellPhone, p.HomePhone,
             p.PrimaryAddress, p.PrimaryCity, p.PrimaryState, p.PrimaryZip,
-            p.FamilyId, ms.Description as MaritalStatus, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
+            p.FamilyId, ms.Description as MaritalStatus, mstat.Description as MemberStatus, bs.Description as BaptismStatus, ISNULL(p.CustodyIssue, 0) as CustodyIssue,
             rr.MedicalDescription, rr.MedAllergy, rr.emcontact, rr.emphone,
             rr.doctor, rr.docphone, rr.insurance, rr.policy,
             ISNULL(rr.Tylenol, 0) as Tylenol, ISNULL(rr.Advil, 0) as Advil,
@@ -1157,6 +1175,8 @@ def get_people_data_direct(people_ids):
             pic.SmallUrl as PhotoUrl
         FROM People p
         LEFT JOIN lookup.MaritalStatus ms ON p.MaritalStatusId = ms.Id
+        LEFT JOIN lookup.MemberStatus mstat ON p.MemberStatusId = mstat.Id
+        LEFT JOIN lookup.BaptismStatus bs ON p.BaptismStatusId = bs.Id
         LEFT JOIN RecReg rr ON rr.PeopleId = p.PeopleId
         LEFT JOIN Picture pic ON pic.PictureId = p.PictureId
         WHERE p.PeopleId IN ({0})
@@ -1178,6 +1198,8 @@ def get_people_data_direct(people_ids):
                 'Age': str(r.Age) if r.Age else '',
                 'Gender': 'Male' if r.GenderId == 1 else 'Female' if r.GenderId == 2 else '',
                 'MaritalStatus': safe_str(r.MaritalStatus) if r.MaritalStatus else '',
+                'MemberStatus': safe_str(r.MemberStatus) if r.MemberStatus else '',
+                'BaptismStatus': safe_str(r.BaptismStatus) if r.BaptismStatus else '',
                 'EmailAddress': safe_str(r.EmailAddress),
                 'CellPhone': fmt_phone(r.CellPhone),
                 'HomePhone': fmt_phone(r.HomePhone),
@@ -2568,6 +2590,8 @@ if model.HttpMethod == "post":
                         {'sourceField': 'BDate', 'label': 'Date of Birth', 'fieldType': 'person'},
                         {'sourceField': 'Gender', 'label': 'Gender', 'fieldType': 'person'},
                         {'sourceField': 'MaritalStatus', 'label': 'Marital Status', 'fieldType': 'person'},
+                        {'sourceField': 'MemberStatus', 'label': 'Membership Status', 'fieldType': 'person'},
+                        {'sourceField': 'BaptismStatus', 'label': 'Baptism Status', 'fieldType': 'person'},
                         {'sourceField': 'PrimaryAddress', 'label': 'Full Address', 'fieldType': 'person'},
                         {'sourceField': 'SubGroups', 'label': 'Subgroups', 'fieldType': 'person'}
                     ]
@@ -2650,6 +2674,8 @@ if model.HttpMethod == "post":
                         {'sourceField': 'BDate', 'label': 'Date of Birth', 'fieldType': 'person'},
                         {'sourceField': 'Gender', 'label': 'Gender', 'fieldType': 'person'},
                         {'sourceField': 'MaritalStatus', 'label': 'Marital Status', 'fieldType': 'person'},
+                        {'sourceField': 'MemberStatus', 'label': 'Membership Status', 'fieldType': 'person'},
+                        {'sourceField': 'BaptismStatus', 'label': 'Baptism Status', 'fieldType': 'person'},
                         {'sourceField': 'PrimaryAddress', 'label': 'Full Address', 'fieldType': 'person'}
                     ]
                     family_fields = [
