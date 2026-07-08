@@ -47,6 +47,22 @@ Features:
 
 
 Change Log:
+v1.7.2 - July 2026
+  - Fixed: RegistrationData (classic-XML) ANSWERS now attach correctly. The old
+           per-person regex used one greedy match that, on family registrations
+           (several children in one blob), spanned every OnlineRegPersonModel and
+           mis-attributed or dropped answers. Rewritten to iterate each person block
+           and scope answers to that block's PeopleId, with XML-unescaping so labels
+           with '&' match their definitions. Freeform (Text / ExtraQuestion) and
+           Yes/No answers populate; self-closing (unanswered) nodes are skipped.
+  - Fixed: QuestionCount could return a SQL bigint (LEN over NVARCHAR(MAX)) which
+           surfaced as a Python long and broke json ("19L is not JSON serializable");
+           cast to INT + int() on the way out.
+  - Known: Checkbox / radio / dropdown answers are stored in RegistrationData without
+           a question label (<Checkbox>/<choice> values), so those question rows still
+           show "--"; only the freeform text + Yes/No answers are recovered from the
+           classic XML for now.
+
 v1.7.1 - July 2026
   - Fixed: Involvements whose registration questions are defined in the classic
            settings (Registration > Questions -- "Freeform - Single Line Answers",
@@ -259,7 +275,7 @@ import json
 import re
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.7.1'
+APP_VERSION = '1.7.2'
 DC_SCRIPT_ID = 'TPxi_ReportWriter'  # ID used on DisplayCache to identify this script
 # scripts.displaycache.com is the custom domain used for browser-side version checks.
 # workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
@@ -1084,47 +1100,49 @@ def get_registrant_data(org_id, filter_people_ids=None, include_dropped=False):
         ORDER BY rd.Stamp DESC
     """.format(int(org_id))
 
+    # Iterate each <OnlineRegPersonModel> block on its own and scope answers to that
+    # block's PeopleId. The old approach used one greedy regex per person which, on
+    # family registrations (multiple children in one blob), spanned ALL person models
+    # and mis-attributed / dropped answers. Empty (self-closing) answer nodes have no
+    # content, so the content-required patterns skip them.
     try:
+        person_re = re.compile(r'<OnlineRegPersonModel\b.*?</OnlineRegPersonModel>', re.DOTALL)
+        pid_re = re.compile(r'<PeopleId>(\d+)</PeopleId>')
+        # Text / ExtraQuestion: freeform answers ("Freeform - Single Line", Extra Qs).
+        freeform_re = re.compile(r'<(Text|ExtraQuestion)\b[^>]*\squestion="([^"]+)"[^>]*>([^<]+)</\1>', re.DOTALL)
+        yesno_re = re.compile(r'<YesNoQuestion\b[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</YesNoQuestion>', re.DOTALL)
+
+        def _record(p, qtext, ans):
+            # qtext + ans are already XML-unescaped. First occurrence wins (rd_sql is
+            # ordered latest-first), so an earlier registration never overwrites a later.
+            if not qtext or qtext in p['answers']:
+                return
+            p['answers'][qtext] = ans
+            if qtext not in question_set:
+                questions.append({'key': qtext, 'label': qtext})
+                question_set.add(qtext)
+
         for row in q.QuerySql(rd_sql):
             if not row.XmlData:
                 continue
-            xml_data = row.XmlData
-            for p in people_list:
-                pid = p['PeopleId']
-                pid_tag = '<PeopleId>{0}</PeopleId>'.format(pid)
-                if pid_tag not in xml_data:
+            for pm in person_re.finditer(row.XmlData):
+                person_xml = pm.group(0)
+                pidm = pid_re.search(person_xml)
+                if not pidm:
                     continue
-                person_pattern = r'<OnlineRegPersonModel[^>]*>.*?<PeopleId>{0}</PeopleId>.*?</OnlineRegPersonModel>'.format(pid)
-                person_match = re.search(person_pattern, xml_data, re.DOTALL)
-                if not person_match:
+                try:
+                    pid = int(pidm.group(1))
+                except:
                     continue
-                person_xml = person_match.group(0)
-
-                # ExtraQuestion
-                for match in re.finditer(r'<ExtraQuestion[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</ExtraQuestion>', person_xml):
-                    qtext, ans = _xml_unescape(match.group(1)), _xml_unescape(match.group(2).strip())
-                    if qtext and qtext not in p['answers']:
-                        p['answers'][qtext] = ans
-                        if qtext not in question_set:
-                            questions.append({'key': qtext, 'label': qtext})
-                            question_set.add(qtext)
-                # Text
-                for match in re.finditer(r'<Text[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</Text>', person_xml):
-                    qtext, ans = _xml_unescape(match.group(1)), _xml_unescape(match.group(2).strip())
-                    if qtext and qtext not in p['answers']:
-                        p['answers'][qtext] = ans
-                        if qtext not in question_set:
-                            questions.append({'key': qtext, 'label': qtext})
-                            question_set.add(qtext)
-                # YesNoQuestion
-                for match in re.finditer(r'<YesNoQuestion[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</YesNoQuestion>', person_xml):
-                    qtext, ans_val = _xml_unescape(match.group(1)), match.group(2).strip()
-                    if qtext and qtext not in p['answers']:
-                        ans = 'Yes' if ans_val == 'True' else 'No' if ans_val == 'False' else ans_val
-                        p['answers'][qtext] = ans
-                        if qtext not in question_set:
-                            questions.append({'key': qtext, 'label': qtext})
-                            question_set.add(qtext)
+                p = people_map.get(pid)
+                if not p:
+                    continue
+                for m2 in freeform_re.finditer(person_xml):
+                    _record(p, _xml_unescape(m2.group(2)), _xml_unescape(m2.group(3).strip()))
+                for m2 in yesno_re.finditer(person_xml):
+                    v = m2.group(2).strip()
+                    _record(p, _xml_unescape(m2.group(1)),
+                            'Yes' if v == 'True' else 'No' if v == 'False' else _xml_unescape(v))
     except:
         pass
 
