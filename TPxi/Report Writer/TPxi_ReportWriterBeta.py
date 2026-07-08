@@ -2648,9 +2648,9 @@ if model.HttpMethod == "post":
                 d.Name as DivisionName,
                 p.Name as ProgramName,
                 (SELECT COUNT(*) FROM OrganizationMembers om WHERE om.OrganizationId = o.OrganizationId) as MemberCount,
-                (SELECT COUNT(*) FROM RegQuestion rq WHERE rq.OrganizationId = o.OrganizationId)
+                CAST((SELECT COUNT(*) FROM RegQuestion rq WHERE rq.OrganizationId = o.OrganizationId)
                   + (LEN(ISNULL(CAST(o.RegSettingXml AS NVARCHAR(MAX)), '') + 'x')
-                     - LEN(REPLACE(ISNULL(CAST(o.RegSettingXml AS NVARCHAR(MAX)), ''), '<Question>', '') + 'x')) / 10 as QuestionCount
+                     - LEN(REPLACE(ISNULL(CAST(o.RegSettingXml AS NVARCHAR(MAX)), ''), '<Question>', '') + 'x')) / 10 AS INT) as QuestionCount
             FROM Organizations o
             LEFT JOIN Division d ON o.DivisionId = d.Id
             LEFT JOIN Program p ON d.ProgId = p.Id
@@ -2673,8 +2673,8 @@ if model.HttpMethod == "post":
                     'name': safe_str(r.OrganizationName),
                     'division': safe_str(r.DivisionName),
                     'program': safe_str(r.ProgramName),
-                    'memberCount': r.MemberCount or 0,
-                    'questionCount': r.QuestionCount or 0
+                    'memberCount': int(r.MemberCount or 0),
+                    'questionCount': int(r.QuestionCount or 0)
                 })
             print json.dumps({'success': True, 'orgs': orgs})
         except Exception as e:
