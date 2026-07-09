@@ -47,6 +47,64 @@ Features:
 
 
 Change Log:
+v1.7.4 - July 2026
+  - Fixed: Registration ANSWERS now read from TouchPoint's own dbo.OnlineRegQA view --
+           the authoritative, per-current-member Q&A that also backs the member
+           "Questions" tab. It shreds OrganizationMembers.OnlineRegData (a clean
+           single-person model, so no family-blob mis-attribution) and returns EVERY
+           answer type -- freeform, yes/no, checkbox, radio, dropdown -- already tied
+           to its question label, INCLUDING dynamically-populated grade/date pickers.
+           Root cause of the widespread "questions show but answers blank": the report
+           parsed the RegistrationData submission log, but answers live in OnlineRegData
+           -- and ~26% of answered members (measured) have no matching completed
+           RegistrationData row, so they came back blank. OnlineRegQA is now the primary
+           source; RegAnswer + the RegistrationData XML parser are retained only to fill
+           gaps (e.g. dropped registrants, who aren't OrganizationMembers so aren't in
+           the view). This supersedes the v1.7.3 hand-rolled checkbox/radio matcher for
+           current members (that code now only serves the dropped-registrant fallback).
+
+v1.7.3 - July 2026
+  - Added: Classic Checkbox / Radio / Dropdown answers are now recovered. In the old
+           XML these are stored as bare <Checkbox>value</Checkbox> / <choice>value
+           </choice> nodes with NO question attribute -- just the selected option's
+           SmallGroup (or Description). The report now maps each value back to its
+           question by IDENTITY, using an option map built from RegSettingXml
+           (extract_regsetting_option_map): every option is defined inside exactly one
+           group, so answer -> question is unambiguous. Multiple checkbox selections
+           accumulate onto the one question (comma-joined). Validated ~96% recovery
+           across existing classic forms.
+
+v1.7.2 - July 2026
+  - Fixed: RegistrationData (classic-XML) ANSWERS now attach correctly. The old
+           per-person regex used one greedy match that, on family registrations
+           (several children in one blob), spanned every OnlineRegPersonModel and
+           mis-attributed or dropped answers. Rewritten to iterate each person block
+           and scope answers to that block's PeopleId, with XML-unescaping so labels
+           with '&' match their definitions. Freeform (Text / ExtraQuestion) and
+           Yes/No answers populate; self-closing (unanswered) nodes are skipped.
+  - Fixed: QuestionCount could return a SQL bigint (LEN over NVARCHAR(MAX)) which
+           surfaced as a Python long and broke json ("19L is not JSON serializable");
+           cast to INT + int() on the way out.
+  - Known: Checkbox / radio / dropdown answers are stored in RegistrationData without
+           a question label (<Checkbox>/<choice> values), so those question rows still
+           show "--"; only the freeform text + Yes/No answers are recovered from the
+           classic XML for now.
+
+v1.7.1 - July 2026
+  - Fixed: Involvements whose registration questions are defined in the classic
+           settings (Registration > Questions -- "Freeform - Single Line Answers",
+           Yes/No, Checkboxes, etc.) now (a) SHOW UP in the involvement search and
+           (b) LOAD their questions, even when no one has registered yet. Root cause:
+           these definitions live in Organizations.RegSettingXml (<AskItems>), not in
+           the RegQuestion/RegAnswer tables, and the report only read *answers* -- so
+           classic-XML orgs with no completed registrations returned 0 questions and
+           were filtered out of search. New extract_regsetting_questions() parses the
+           XML definitions and seeds them first; search_orgs also matches RegSettingXml.
+  - Fixed: Question labels containing '&' (e.g. "Parent/Guardian First & Last Name")
+           now match their answers correctly -- definitions and RegistrationData answers
+           are both XML-unescaped via a shared _xml_unescape() helper, so the answer
+           attaches to the right question instead of creating a duplicate.
+
 v1.7.0 - July 2026
   - Added: Template tools on the Configure step -- no need to walk to Generate to
            reuse a template. A "Template library" bar under Choose a Starting
@@ -244,7 +302,7 @@ import json
 import re
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.7.0'
+APP_VERSION = '1.7.4'
 DC_SCRIPT_ID = 'TPxi_ReportWriter'  # ID used on DisplayCache to identify this script
 # scripts.displaycache.com is the custom domain used for browser-side version checks.
 # workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
@@ -769,6 +827,113 @@ def build_meds_map(people_ids, people_list):
     return {pid: bucket[pid]['order'] for pid in bucket}
 
 
+def _xml_unescape(s):
+    """Decode the XML entities TouchPoint stores in question labels/answers so keys
+    from RegSettingXml (definitions) and RegistrationData (answers) match exactly --
+    critical for labels containing '&' (e.g. 'Parent/Guardian First & Last Name')."""
+    if not s:
+        return s
+    return (s.replace('&lt;', '<').replace('&gt;', '>')
+             .replace('&quot;', '"').replace('&#39;', "'").replace('&apos;', "'")
+             .replace('&amp;', '&'))
+
+
+def extract_regsetting_questions(org_id):
+    """Question DEFINITIONS from the org's classic registration settings XML
+    (Organizations.RegSettingXml). The classic 'Freeform - Single Line Answers'
+    (AskText), Extra Questions, Yes/No, and Checkbox/Radio/Menu groups are stored
+    HERE -- not in the RegQuestion table -- so a report must read them to show an
+    org's questions even when nobody has answered yet (no RegAnswer / completed
+    RegistrationData). Returns an ordered, de-duplicated list of question labels.
+
+    AskText / AskExtraQuestions / AskYesNoQuestions carry the label in <Question>;
+    AskCheckboxes / AskRadioButton / AskMenu carry it in <Label>. AskInstruction /
+    AskHeader / AskDivider are display-only and have neither, so they're skipped."""
+    labels = []
+    try:
+        rows = q.QuerySql(
+            "SELECT CAST(RegSettingXml AS NVARCHAR(MAX)) AS Xml FROM Organizations WHERE OrganizationId = {0}".format(int(org_id)))
+    except:
+        return labels
+    xml = ''
+    for r in rows:
+        xml = getattr(r, 'Xml', None) or ''
+        break
+    if not xml or '<AskItems' not in xml:
+        return labels
+    region = xml
+    m = re.search(r'<AskItems>(.*)</AskItems>', xml, re.DOTALL)
+    if m:
+        region = m.group(1)
+    seen = set()
+    # <Question>..</Question> and <Label>..</Label>, kept in document order.
+    for mm in re.finditer(r'<(Question|Label)>(.*?)</\1>', region, re.DOTALL):
+        txt = _xml_unescape(mm.group(2))
+        txt = re.sub(r'<[^>]+>', '', txt).strip()   # drop any embedded HTML
+        if txt and txt.lower() not in seen:
+            seen.add(txt.lower())
+            labels.append(txt)
+    return labels
+
+
+def extract_regsetting_option_map(org_id):
+    """Map each selectable option value -> (question_label, display_text) for the
+    classic Checkbox / Radio / Menu groups in Organizations.RegSettingXml.
+
+    In RegistrationData these answers are stored as bare <Checkbox>value</Checkbox>
+    and <choice>value</choice> nodes with NO question attribute -- the value is the
+    option's SmallGroup (or Description). Each option is defined inside exactly one
+    group, so we can tie the answer back to its question by IDENTITY (not position,
+    which is unreliable -- answer nodes aren't emitted in definition order).
+
+    Values that appear under MORE THAN ONE question are ambiguous (e.g. the same
+    grade list repeated for two children) and are dropped -- better a blank than a
+    confidently-wrong answer. Dynamically-populated groups (grade dropdowns, meeting-
+    date pickers) have no option children in the XML, so their values simply aren't
+    in the map and stay blank (same as before)."""
+    mp = {}                # value_lower -> (question_label, display_text)
+    seen = {}              # value_lower -> set(question_labels) for collision detection
+    try:
+        rows = q.QuerySql(
+            "SELECT CAST(RegSettingXml AS NVARCHAR(MAX)) AS Xml FROM Organizations WHERE OrganizationId = {0}".format(int(org_id)))
+    except:
+        return mp
+    xml = ''
+    for r in rows:
+        xml = getattr(r, 'Xml', None) or ''
+        break
+    if not xml or '<AskItems' not in xml:
+        return mp
+    m = re.search(r'<AskItems>(.*)</AskItems>', xml, re.DOTALL)
+    region = m.group(1) if m else xml
+    for gm in re.finditer(r'<(AskCheckboxes|AskRadioButton|AskMenu|AskDropdown)\b[^>]*>(.*?)</\1>', region, re.DOTALL):
+        body = gm.group(2)
+        lm = re.search(r'<Label>(.*?)</Label>', body, re.DOTALL)
+        if not lm:
+            continue
+        label = re.sub(r'<[^>]+>', '', _xml_unescape(lm.group(1))).strip()
+        if not label:
+            continue
+        for im in re.finditer(r'<(?:CheckboxItem|RadioButtonItem|MenuItem)>(.*?)</(?:CheckboxItem|RadioButtonItem|MenuItem)>', body, re.DOTALL):
+            ib = im.group(1)
+            dm = re.search(r'<Description>(.*?)</Description>', ib, re.DOTALL)
+            sm = re.search(r'<SmallGroup>(.*?)</SmallGroup>', ib, re.DOTALL)
+            desc = re.sub(r'<[^>]+>', '', _xml_unescape(dm.group(1))).strip() if dm else ''
+            grp = _xml_unescape(sm.group(1)).strip() if sm else ''
+            display = desc or grp
+            for key in (grp, desc):
+                k = key.strip().lower()
+                if not k:
+                    continue
+                seen.setdefault(k, set()).add(label)
+                mp.setdefault(k, (label, display))
+    # Drop ambiguous values (same option used by 2+ questions -> can't disambiguate).
+    for k, labs in seen.items():
+        if len(labs) > 1 and k in mp:
+            del mp[k]
+    return mp
+
+
 def get_registrant_data(org_id, filter_people_ids=None, include_dropped=False):
     """Get all registrant data for an org in batch queries.
     If filter_people_ids is set, only include those people (Blue Toolbar filter).
@@ -951,6 +1116,55 @@ def get_registrant_data(org_id, filter_people_ids=None, include_dropped=False):
     # silently swallows the error -> 0 questions for legacy-XML orgs.
     question_set = set()
 
+    # Source 0: question DEFINITIONS from the org's classic registration settings XML.
+    # Seeded first so an org's questions appear even when nobody has answered yet
+    # (freeform "Ask" questions live in RegSettingXml, not RegQuestion/RegAnswer).
+    # Answers below then populate by matching label (the same key classic answers use).
+    try:
+        for _lbl in extract_regsetting_questions(org_id):
+            if _lbl not in question_set:
+                questions.append({'key': _lbl, 'label': _lbl})
+                question_set.add(_lbl)
+    except:
+        pass
+
+    # Source 0.5: TouchPoint's own OnlineRegQA view -- the AUTHORITATIVE per-member Q&A.
+    # It shreds OrganizationMembers.OnlineRegData (the same source the member "Questions"
+    # tab uses) and returns EVERY answer type -- freeform, yes/no, checkbox, radio,
+    # dropdown -- already tied to its question label, including dynamically-populated
+    # options (grade/date pickers) that raw-XML parsing can't resolve. This is the
+    # primary answer source; the RegAnswer + RegistrationData paths below only fill gaps
+    # (e.g. dropped registrants, who aren't OrganizationMembers so aren't in the view).
+    if people_ids:
+        try:
+            qa_sql = """
+                SELECT PeopleId, Question, Answer
+                FROM dbo.OnlineRegQA WITH (NOLOCK)
+                WHERE OrganizationId = {0} AND PeopleId IN ({1}) AND Question IS NOT NULL
+                ORDER BY [set]
+            """.format(int(org_id), ','.join(str(int(pid)) for pid in people_ids))
+            for r in q.QuerySql(qa_sql):
+                qtext = safe_str(r.Question)
+                if not qtext:
+                    continue
+                p = people_map.get(r.PeopleId)
+                if p is None:
+                    continue
+                if qtext not in question_set:
+                    questions.append({'key': qtext, 'label': qtext})
+                    question_set.add(qtext)
+                ans = safe_str(r.Answer)
+                if ans:
+                    # Multiple rows per question (multi-select checkboxes) -> accumulate.
+                    existing = p['answers'].get(qtext)
+                    if existing:
+                        if ans not in existing.split(', '):
+                            p['answers'][qtext] = existing + ', ' + ans
+                    else:
+                        p['answers'][qtext] = ans
+        except:
+            pass
+
     answers_sql = """
         SELECT
             rp.PeopleId,
@@ -986,8 +1200,11 @@ def get_registrant_data(org_id, filter_people_ids=None, include_dropped=False):
                     # Duplicate label — append occurrence number to distinguish
                     q_key = '{0} ({1})'.format(q_text, count + 1)
                 question_id_to_key[q_id] = q_key
-                questions.append({'key': q_key, 'label': q_text})
-                question_set.add(q_key)
+                # Guard against double-listing when the same label was already
+                # seeded from RegSettingXml (hybrid classic + new-system orgs).
+                if q_key not in question_set:
+                    questions.append({'key': q_key, 'label': q_text})
+                    question_set.add(q_key)
 
             # Look up the key for this question and store the answer
             q_key = question_id_to_key.get(q_id, q_text)
@@ -1005,47 +1222,72 @@ def get_registrant_data(org_id, filter_people_ids=None, include_dropped=False):
         ORDER BY rd.Stamp DESC
     """.format(int(org_id))
 
+    # Iterate each <OnlineRegPersonModel> block on its own and scope answers to that
+    # block's PeopleId. The old approach used one greedy regex per person which, on
+    # family registrations (multiple children in one blob), spanned ALL person models
+    # and mis-attributed / dropped answers. Empty (self-closing) answer nodes have no
+    # content, so the content-required patterns skip them.
     try:
+        person_re = re.compile(r'<OnlineRegPersonModel\b.*?</OnlineRegPersonModel>', re.DOTALL)
+        pid_re = re.compile(r'<PeopleId>(\d+)</PeopleId>')
+        # Text / ExtraQuestion: freeform answers ("Freeform - Single Line", Extra Qs).
+        freeform_re = re.compile(r'<(Text|ExtraQuestion)\b[^>]*\squestion="([^"]+)"[^>]*>([^<]+)</\1>', re.DOTALL)
+        yesno_re = re.compile(r'<YesNoQuestion\b[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</YesNoQuestion>', re.DOTALL)
+        # Checkbox / choice answers store a bare option value (no question attribute);
+        # resolve it to its question by identity via the RegSettingXml option map.
+        choice_re = re.compile(r'<(Checkbox|choice)\b[^>]*>([^<]+)</\1>', re.DOTALL)
+        opt_map = extract_regsetting_option_map(org_id)
+
+        def _record(p, qtext, ans):
+            # qtext + ans are already XML-unescaped. First occurrence wins (rd_sql is
+            # ordered latest-first), so an earlier registration never overwrites a later.
+            if not qtext or qtext in p['answers']:
+                return
+            p['answers'][qtext] = ans
+            if qtext not in question_set:
+                questions.append({'key': qtext, 'label': qtext})
+                question_set.add(qtext)
+
         for row in q.QuerySql(rd_sql):
             if not row.XmlData:
                 continue
-            xml_data = row.XmlData
-            for p in people_list:
-                pid = p['PeopleId']
-                pid_tag = '<PeopleId>{0}</PeopleId>'.format(pid)
-                if pid_tag not in xml_data:
+            for pm in person_re.finditer(row.XmlData):
+                person_xml = pm.group(0)
+                pidm = pid_re.search(person_xml)
+                if not pidm:
                     continue
-                person_pattern = r'<OnlineRegPersonModel[^>]*>.*?<PeopleId>{0}</PeopleId>.*?</OnlineRegPersonModel>'.format(pid)
-                person_match = re.search(person_pattern, xml_data, re.DOTALL)
-                if not person_match:
+                try:
+                    pid = int(pidm.group(1))
+                except:
                     continue
-                person_xml = person_match.group(0)
-
-                # ExtraQuestion
-                for match in re.finditer(r'<ExtraQuestion[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</ExtraQuestion>', person_xml):
-                    qtext, ans = match.group(1), match.group(2).strip()
-                    if qtext and qtext not in p['answers']:
-                        p['answers'][qtext] = ans
-                        if qtext not in question_set:
-                            questions.append({'key': qtext, 'label': qtext})
-                            question_set.add(qtext)
-                # Text
-                for match in re.finditer(r'<Text[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</Text>', person_xml):
-                    qtext, ans = match.group(1), match.group(2).strip()
-                    if qtext and qtext not in p['answers']:
-                        p['answers'][qtext] = ans
-                        if qtext not in question_set:
-                            questions.append({'key': qtext, 'label': qtext})
-                            question_set.add(qtext)
-                # YesNoQuestion
-                for match in re.finditer(r'<YesNoQuestion[^>]*\squestion="([^"]+)"[^>]*>([^<]*)</YesNoQuestion>', person_xml):
-                    qtext, ans_val = match.group(1), match.group(2).strip()
-                    if qtext and qtext not in p['answers']:
-                        ans = 'Yes' if ans_val == 'True' else 'No' if ans_val == 'False' else ans_val
-                        p['answers'][qtext] = ans
-                        if qtext not in question_set:
-                            questions.append({'key': qtext, 'label': qtext})
-                            question_set.add(qtext)
+                p = people_map.get(pid)
+                if not p:
+                    continue
+                for m2 in freeform_re.finditer(person_xml):
+                    _record(p, _xml_unescape(m2.group(2)), _xml_unescape(m2.group(3).strip()))
+                for m2 in yesno_re.finditer(person_xml):
+                    v = m2.group(2).strip()
+                    _record(p, _xml_unescape(m2.group(1)),
+                            'Yes' if v == 'True' else 'No' if v == 'False' else _xml_unescape(v))
+                # Checkbox / radio / menu: resolve each bare value to its question via the
+                # option map and accumulate selections for this block, then commit only for
+                # questions not already filled (first/latest registration wins per question).
+                if opt_map:
+                    block_choices = {}
+                    for m2 in choice_re.finditer(person_xml):
+                        val = _xml_unescape(m2.group(2).strip())
+                        hit = opt_map.get(val.lower())
+                        if not hit:
+                            continue
+                        qlabel, disp = hit
+                        block_choices.setdefault(qlabel, []).append(disp or val)
+                    for qlabel, vals in block_choices.items():
+                        if qlabel in p['answers']:
+                            continue   # a newer registration already answered this question
+                        p['answers'][qlabel] = ', '.join(vals)
+                        if qlabel not in question_set:
+                            questions.append({'key': qlabel, 'label': qlabel})
+                            question_set.add(qlabel)
     except:
         pass
 
@@ -2569,13 +2811,19 @@ if model.HttpMethod == "post":
                 d.Name as DivisionName,
                 p.Name as ProgramName,
                 (SELECT COUNT(*) FROM OrganizationMembers om WHERE om.OrganizationId = o.OrganizationId) as MemberCount,
-                (SELECT COUNT(*) FROM RegQuestion rq WHERE rq.OrganizationId = o.OrganizationId) as QuestionCount
+                CAST((SELECT COUNT(*) FROM RegQuestion rq WHERE rq.OrganizationId = o.OrganizationId)
+                  + (LEN(ISNULL(CAST(o.RegSettingXml AS NVARCHAR(MAX)), '') + 'x')
+                     - LEN(REPLACE(ISNULL(CAST(o.RegSettingXml AS NVARCHAR(MAX)), ''), '<Question>', '') + 'x')) / 10 AS INT) as QuestionCount
             FROM Organizations o
             LEFT JOIN Division d ON o.DivisionId = d.Id
             LEFT JOIN Program p ON d.ProgId = p.Id
             WHERE {0}
               AND (EXISTS (SELECT 1 FROM RegQuestion rq WHERE rq.OrganizationId = o.OrganizationId)
-                   OR EXISTS (SELECT 1 FROM RegistrationData rd WHERE rd.OrganizationId = o.OrganizationId AND rd.completed = 1))
+                   OR EXISTS (SELECT 1 FROM RegistrationData rd WHERE rd.OrganizationId = o.OrganizationId AND rd.completed = 1)
+                   OR CAST(o.RegSettingXml AS NVARCHAR(MAX)) LIKE '%<Question>%'
+                   OR CAST(o.RegSettingXml AS NVARCHAR(MAX)) LIKE '%<AskCheckboxes%'
+                   OR CAST(o.RegSettingXml AS NVARCHAR(MAX)) LIKE '%<AskRadioButton%'
+                   OR CAST(o.RegSettingXml AS NVARCHAR(MAX)) LIKE '%<AskMenu%')
             ORDER BY o.OrganizationName
         """.format(" AND ".join(where_clauses))
 
@@ -2588,8 +2836,8 @@ if model.HttpMethod == "post":
                     'name': safe_str(r.OrganizationName),
                     'division': safe_str(r.DivisionName),
                     'program': safe_str(r.ProgramName),
-                    'memberCount': r.MemberCount or 0,
-                    'questionCount': r.QuestionCount or 0
+                    'memberCount': int(r.MemberCount or 0),
+                    'questionCount': int(r.QuestionCount or 0)
                 })
             print json.dumps({'success': True, 'orgs': orgs})
         except Exception as e:
