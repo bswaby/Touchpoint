@@ -1,21 +1,3 @@
-# Written By: Ben Swaby (TPxi Software, LLC)
-# Email: bswaby@fbchtn.org                                                                                                      
-# Website: https://tpxisoftware.com
-# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
-# ----------------------------------------------------------------                                                              
-# These tools are free because they should be.
-# If they've saved you time or helped your team, and you want to                                                                
-# support continued development, check out:                                                                                     
-#
-# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
-# https://displaycache.com                                
-#
-# TPxi Go(TM) - your church contacts, wherever you work.
-# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
-# or your phone. No tab switching, no lost context.
-# https://tpxigo.com                                                                                                            
-# ----------------------------------------------------------------
-
 """
 Geographic Distribution Map with Census Data Overlays
 ---------------------------
@@ -32,6 +14,51 @@ Features:
 - Export to CSV option
 
 Note: You will need a Google Maps API Key, and if you enable the census data, you will also need a census data api key.
+
+#
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub: https://github.com/bswaby/Touchpoint  (40+ free tools)
+# ----------------------------------------------------------------
+# These tools are free because they should be.
+# If they've saved you time or helped your team, and you want to
+# support continued development, check out:
+#
+# DisplayCache - church digital signage that integrates with TouchPoint
+# https://displaycache.com
+#
+# TPxi Go - your church contacts, wherever you work.
+# Look up anyone in TouchPoint, log calls and emails from Outlook
+# or your phone. No tab switching, no lost context.
+# https://tpxigo.com
+#
+# TPxi Scan - Scan your paper attendance rolls on the copier you already have. 
+# TPxi Scan reads the checkmarks and posts attendance to TouchPoint® 
+# you just glance at anything it wasn't sure about.
+# https://tpxiscan.com
+# ----------------------------------------------------------------
+
+Author: Ben Swaby
+Version: 1.1.0
+
+========= UPDATE NOTES / CHANGELOG =========
+
+1.1.0
+- Fixed: "Export to CSV" now honors a drawn area. Previously it always exported
+  every visible person, ignoring the polygon you drew. When a shape is drawn it
+  exports only the people inside it; with no shape drawn it exports all visible.
+- Replaced the Google Maps drawing tool. google.maps.drawing.DrawingManager was
+  removed in Maps JavaScript API v3.65, which broke map init and drawing. Drawing
+  is now a built-in click-to-place-points polygon (click "Enable Drawing Mode",
+  click points on the map, then "Finish Drawing" or double-click to close). The
+  finished shape is fully editable and still drives Tag Selected / Export.
+- Dropped the deprecated "drawing" library from the API load and added
+  loading=async to clear the Google Maps performance warning.
+
+1.0.0
+- Initial release: interactive distribution map with profile photos, address
+  grouping, street filtering, census overlays, area/street/selection tagging,
+  and CSV export.
 
 ========= COMPLETE API KEY SETUP INSTRUCTIONS =========
 
@@ -170,6 +197,8 @@ c. add this:  <Report name="GeographicDistributionMap" type="PyScript" role="Acc
 note: CustomReport changes can take 24 hrs to show due to how it's implemented on the TP servers
 --End Upload Instructions--
 
+Written By: Ben Swaby
+Email: bswaby@fbchtn.org
 """
 
 # ========= CONFIGURATION SETTINGS (EDIT THESE) =========
@@ -184,8 +213,8 @@ CHURCH_LONGITUDE = -86.567619  # Church address longitude
 DEFAULT_ZOOM = 12  # Default zoom level
 
 # API Keys (REPLACE THESE WITH YOUR OWN)
-GOOGLE_MAPS_API_KEY = ""  # Get from https://console.cloud.google.com/
-CENSUS_API_KEY = ""  # Get from https://api.census.gov/data/key_signup.html
+GOOGLE_MAPS_API_KEY = "AIzaSyBganAmSvTsOm7cNiTZUNOlUsRuO19vzjU"  # Get from https://console.cloud.google.com/
+CENSUS_API_KEY = "37776d81a2cca3a4f4bef3d99c005c9a73fcb22c"  # Get from https://api.census.gov/data/key_signup.html
 
 # Census data overlay options
 ENABLE_CENSUS_DATA = True  # Set to False to disable census data features
@@ -611,8 +640,12 @@ def render_map(data, config):
                 <div id="controls-content">
                     <div class="drawing-controls">
                         <button id="drawing-btn" onclick="toggleDrawingMode()">Enable Drawing Mode</button>
+                        <button id="finish-drawing-btn" onclick="finishDrawing()" disabled>Finish Drawing</button>
                         <button id="clear-drawing-btn" onclick="clearDrawing()" disabled>Clear Drawing</button>
                         <button id="tag-drawn-btn" onclick="tagDrawnArea()" disabled>Tag Selected</button>
+                    </div>
+                    <div id="drawing-hint" style="display:none;font-size:11px;color:#555;margin-bottom:8px;">
+                        Click on the map to add points. Click "Finish Drawing" or double-click to close the shape.
                     </div>
                     <div class="region-select">
                         <label>Street:</label>
@@ -711,8 +744,13 @@ def render_map(data, config):
             var visibleMarkers = [];
             var map;
             var infoWindow;
-            var drawingManager;
             var selectedShape;
+            var isDrawing = false;       // true while user is placing points
+            var drawingPath = [];        // array of google.maps.LatLng for the in-progress shape
+            var drawingPreview = null;   // polyline showing the in-progress shape
+            var drawingVertices = [];    // small markers for each placed point
+            var drawingClickListener = null;
+            var drawingDblClickListener = null;
             var drawnAreaPeopleIds = [];
             var currentPeopleIds = []; // For current selection to tag
             var currentTagSource = ""; // Source of the current selection for tag modal title
@@ -749,51 +787,10 @@ def render_map(data, config):
                     maxWidth: 350
                 });
                 
-                // Initialize drawing manager
-                drawingManager = new google.maps.drawing.DrawingManager({
-                    drawingMode: null,
-                    drawingControl: false,
-                    drawingControlOptions: {
-                        position: google.maps.ControlPosition.TOP_CENTER,
-                        drawingModes: [
-                            google.maps.drawing.OverlayType.POLYGON
-                        ]
-                    },
-                    polygonOptions: {
-                        fillColor: '#22AA22',
-                        fillOpacity: 0.3,
-                        strokeWeight: 2,
-                        strokeColor: '#22AA22',
-                        clickable: true,
-                        editable: true,
-                        zIndex: 1
-                    }
-                });
-                
-                // Add drawing event listeners
-                google.maps.event.addListener(drawingManager, 'overlaycomplete', function(e) {
-                    // Switch back to non-drawing mode after drawing a shape
-                    drawingManager.setDrawingMode(null);
-                    
-                    // Add an event listener that selects the newly-drawn shape
-                    var newShape = e.overlay;
-                    newShape.type = e.type;
-                    
-                    if (selectedShape) {
-                        selectedShape.setMap(null);
-                    }
-                    selectedShape = newShape;
-                    
-                    // Enable the clear button
-                    document.getElementById('clear-drawing-btn').disabled = false;
-                    
-                    // Find all markers inside the polygon
-                    updateDrawnAreaMarkers();
-                    
-                    // Expand controls if collapsed
-                    expandControls();
-                });
-                
+                // Manual polygon drawing (google.maps.drawing.DrawingManager was
+                // removed in Maps JavaScript API v3.65, so we draw by hand using
+                // map click events + a polyline preview).
+
                 // Add church marker
                 var churchMarker = new google.maps.Marker({
                     position: {lat: """ + str(default_lat) + """, lng: """ + str(default_lng) + """},
@@ -882,19 +879,149 @@ def render_map(data, config):
             }
             
             function toggleDrawingMode() {
-                if (drawingManager.map) {
-                    // Turn off drawing mode
-                    drawingManager.setMap(null);
-                    document.getElementById('drawing-btn').textContent = 'Enable Drawing Mode';
+                if (isDrawing) {
+                    // Cancel the in-progress drawing
+                    cancelDrawing();
                 } else {
-                    // Turn on drawing mode
-                    drawingManager.setMap(map);
-                    drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
-                    document.getElementById('drawing-btn').textContent = 'Cancel Drawing';
+                    startDrawing();
                 }
             }
-            
+
+            function startDrawing() {
+                // Remove any previously completed shape before starting a new one
+                clearDrawing();
+
+                isDrawing = true;
+                drawingPath = [];
+
+                document.getElementById('drawing-btn').textContent = 'Cancel Drawing';
+                document.getElementById('finish-drawing-btn').disabled = false;
+                document.getElementById('drawing-hint').style.display = 'block';
+
+                // Prevent the map from zooming when the user double-clicks to finish
+                map.setOptions({disableDoubleClickZoom: true, draggableCursor: 'crosshair'});
+
+                // Live preview line
+                drawingPreview = new google.maps.Polyline({
+                    map: map,
+                    path: drawingPath,
+                    strokeColor: '#22AA22',
+                    strokeWeight: 2,
+                    clickable: false,
+                    zIndex: 2
+                });
+
+                // Add a point on each click
+                drawingClickListener = google.maps.event.addListener(map, 'click', function(e) {
+                    addDrawingPoint(e.latLng);
+                });
+
+                // Double-click closes the shape
+                drawingDblClickListener = google.maps.event.addListener(map, 'dblclick', function(e) {
+                    finishDrawing();
+                });
+
+                expandControls();
+            }
+
+            function addDrawingPoint(latLng) {
+                drawingPath.push(latLng);
+                drawingPreview.setPath(drawingPath);
+
+                // Drop a small vertex marker so the user can see placed points
+                var vertex = new google.maps.Marker({
+                    position: latLng,
+                    map: map,
+                    clickable: false,
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        fillColor: '#22AA22',
+                        fillOpacity: 1,
+                        strokeWeight: 1,
+                        strokeColor: '#ffffff',
+                        scale: 4
+                    },
+                    zIndex: 3
+                });
+                drawingVertices.push(vertex);
+            }
+
+            function finishDrawing() {
+                if (!isDrawing) return;
+
+                // Need at least 3 points to form a polygon
+                if (drawingPath.length < 3) {
+                    alert('Please click at least 3 points on the map to draw an area.');
+                    return;
+                }
+
+                var finalPath = drawingPath.slice();
+
+                // Tear down the drawing UI/state
+                teardownDrawing();
+
+                // Create the finished polygon (used by geometry.poly.containsLocation)
+                selectedShape = new google.maps.Polygon({
+                    map: map,
+                    paths: finalPath,
+                    fillColor: '#22AA22',
+                    fillOpacity: 0.3,
+                    strokeWeight: 2,
+                    strokeColor: '#22AA22',
+                    clickable: true,
+                    editable: true,
+                    zIndex: 1
+                });
+
+                // Recompute selected people if the user edits the polygon vertices
+                var path = selectedShape.getPath();
+                google.maps.event.addListener(path, 'set_at', updateDrawnAreaMarkers);
+                google.maps.event.addListener(path, 'insert_at', updateDrawnAreaMarkers);
+                google.maps.event.addListener(path, 'remove_at', updateDrawnAreaMarkers);
+
+                document.getElementById('clear-drawing-btn').disabled = false;
+
+                updateDrawnAreaMarkers();
+                expandControls();
+            }
+
+            function cancelDrawing() {
+                teardownDrawing();
+            }
+
+            function teardownDrawing() {
+                isDrawing = false;
+
+                if (drawingClickListener) {
+                    google.maps.event.removeListener(drawingClickListener);
+                    drawingClickListener = null;
+                }
+                if (drawingDblClickListener) {
+                    google.maps.event.removeListener(drawingDblClickListener);
+                    drawingDblClickListener = null;
+                }
+                if (drawingPreview) {
+                    drawingPreview.setMap(null);
+                    drawingPreview = null;
+                }
+                for (var i = 0; i < drawingVertices.length; i++) {
+                    drawingVertices[i].setMap(null);
+                }
+                drawingVertices = [];
+                drawingPath = [];
+
+                map.setOptions({disableDoubleClickZoom: false, draggableCursor: null});
+
+                document.getElementById('drawing-btn').textContent = 'Enable Drawing Mode';
+                document.getElementById('finish-drawing-btn').disabled = true;
+                document.getElementById('drawing-hint').style.display = 'none';
+            }
+
             function clearDrawing() {
+                // If a drawing is in progress, cancel it
+                if (isDrawing) {
+                    teardownDrawing();
+                }
                 if (selectedShape) {
                     selectedShape.setMap(null);
                     selectedShape = null;
@@ -1042,10 +1169,23 @@ def render_map(data, config):
                 var csvContent = "data:text/csv;charset=utf-8,";
                 csvContent += "Name,Address,City,State,Zip,Phone,Email\\n";
                 
-                // Add visible markers data
+                // If the user has drawn an area, only export markers inside it.
+                // Otherwise export everything currently visible.
+                var exportMarkers = visibleMarkers;
+                if (selectedShape) {
+                    exportMarkers = [];
+                    for (var m = 0; m < visibleMarkers.length; m++) {
+                        if (google.maps.geometry.poly.containsLocation(
+                                visibleMarkers[m].getPosition(), selectedShape)) {
+                            exportMarkers.push(visibleMarkers[m]);
+                        }
+                    }
+                }
+
+                // Add marker data
                 var exportedData = [];
-                for (var i = 0; i < visibleMarkers.length; i++) {
-                    var marker = visibleMarkers[i];
+                for (var i = 0; i < exportMarkers.length; i++) {
+                    var marker = exportMarkers[i];
                     var title = marker.getTitle().replace(/,/g, " ");
                     var parts = title.split(", ");
                     
@@ -1551,8 +1691,8 @@ def render_map(data, config):
             });
         </script>
         
-        <!-- Load Google Maps API with drawing and geometry libraries -->
-        <script src="https://maps.googleapis.com/maps/api/js?key=""" + google_maps_api_key + """&libraries=drawing,geometry&callback=initMap" async defer></script>
+        <!-- Load Google Maps API with the geometry library (drawing library removed in v3.65) -->
+        <script src="https://maps.googleapis.com/maps/api/js?key=""" + google_maps_api_key + """&libraries=geometry&callback=initMap&loading=async" async defer></script>
     </body>
     </html>
     """
