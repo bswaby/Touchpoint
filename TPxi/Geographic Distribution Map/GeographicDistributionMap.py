@@ -213,8 +213,8 @@ CHURCH_LONGITUDE = -86.567619  # Church address longitude
 DEFAULT_ZOOM = 12  # Default zoom level
 
 # API Keys (REPLACE THESE WITH YOUR OWN)
-GOOGLE_MAPS_API_KEY = "AIzaSyBganAmSvTsOm7cNiTZUNOlUsRuO19vzjU"  # Get from https://console.cloud.google.com/
-CENSUS_API_KEY = "37776d81a2cca3a4f4bef3d99c005c9a73fcb22c"  # Get from https://api.census.gov/data/key_signup.html
+GOOGLE_MAPS_API_KEY = ""  # Get from https://console.cloud.google.com/
+CENSUS_API_KEY = ""  # Get from https://api.census.gov/data/key_signup.html
 
 # Census data overlay options
 ENABLE_CENSUS_DATA = True  # Set to False to disable census data features
