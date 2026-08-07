@@ -1,35 +1,40 @@
-# Written By: Ben Swaby (TPxi Software, LLC)
-# Email: bswaby@fbchtn.org                                                                                                      
-# Website: https://tpxisoftware.com
-# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
-# ----------------------------------------------------------------                                                              
-# These tools are free because they should be.
-# If they've saved you time or helped your team, and you want to                                                                
-# support continued development, check out:                                                                                     
-#
-# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
-# https://displaycache.com                                
-#
-# TPxi Go(TM) - your church contacts, wherever you work.
-# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
-# or your phone. No tab switching, no lost context.
-# https://tpxigo.com                                                                                                            
-# ----------------------------------------------------------------
-
 """
-Mission Dashboard 4.1.0
+Mission Dashboard 4.2.2 - Costs, Logistics, Tasks & Reporting
 ======================================================
 Purpose: Comprehensive mission trip management dashboard with sidebar navigation
 Author: Ben Swaby
 Email: bswaby@fbchtn.org
 
+INTAKE MODELS (Settings > Approval Workflow > Intake Model)
+----------------------------------------------------------
+- 'direct' (default, unchanged): one-to-one. People register on each trip and are
+  approved there, tracked by trip-approved / trip-denied subgroups on that trip.
+
+- 'hub': one-to-many (hub & spoke). Everyone applies through ONE Hub involvement and
+  names the trip they want via a dropdown question (chosen in Settings). The Review
+  page becomes a request queue: each submission shows its requested trip, and the
+  approver places the person onto any active trip. On approval the person is joined to
+  that trip, and THAT trip's cost/deposit drive the fee and the notification email.
+
+  Multiple requests per person: TouchPoint's new forms (RegistrationTypeId = 26) add a
+  new Registration/RegPeople row per submission instead of overwriting, so RegPeopleId
+  is a stable per-submission identity and one person can hold several independent
+  pending requests. Classic registrations overwrite OnlineRegData on re-register, so a
+  classic hub only ever exposes the latest request (the Settings page warns about this).
+
+  Decisions live in a per-PERSON extra value ('MissionsTripRequests') rather than on the
+  hub org, so history follows the person when the hub involvement is replaced (each
+  entry records its own hub_org_id) and two admins approving different people never
+  clobber a shared blob. The queue still costs one bulk PeopleExtra read.
+
 Features:
-- Sidebar navigation with expandable trip sections
-- Role-based views (Admins see all trips, Leaders see only their trips)
-- Trip-specific sections (Overview, Team, Meetings, Budget, Documents, Messages, Tasks)
-- Mobile-responsive collapsible sidebar
+- NEW: Sidebar navigation with expandable trip sections (like ManagedMissions)
+- NEW: Role-based views (Admins see all trips, Leaders see only their trips)
+- NEW: Trip-specific sections (Overview, Team, Meetings, Budget, Documents, Messages, Tasks)
+- NEW: Mobile-responsive collapsible sidebar
 - Prominent upcoming deadlines at top
-- Performance optimized queries (~1 second)
+- SQL debug output in HTML comments (when enabled)
+- Performance optimized queries (now ~1 second vs 47 seconds)
 - AJAX loading for detailed data
 
 Role-Based Access:
@@ -40,25 +45,6 @@ Role-Based Access:
 Financial Permissions:
 - Fee adjustments require one of: Finance, FinanceAdmin, or ManageTransactions role
 - Users with "Edit" role can VIEW financial data but cannot MODIFY without finance role
-
-Change Log:
-v4.1.0 - April 2026
-  - Added: Persistent configuration stored in Special Content (survives code updates)
-  - Added: Settings UI with tabbed layout (Approval Workflow, Quick Email Templates, Dashboard Configuration)
-  - Added: All Config class values editable from Dashboard Configuration tab
-  - Added: Dynamic church URL via model.CmsHost (removed hardcoded domain references)
-  - Added: Configurable "Share My Missions" link in settings
-  - Fixed: let/var conflict with queryStartTime declaration
-  - Changed: Config class now serves as defaults; saved settings in Special Content take priority
-  - Note: Existing code customizations to Config class continue to work until settings are saved
-    from the UI. After that, the UI-saved values take priority.
-
-v4.0.0 - March 2026
-  - Sidebar navigation redesign
-  - Role-based views
-  - Trip-specific sections
-  - Mobile-responsive collapsible sidebar
-  - Performance optimized queries
 
 --Upload Instructions Start--
 To upload code to Touchpoint, use the following steps:
@@ -78,24 +64,12 @@ To upload code to Touchpoint, use the following steps:
 # SCRIPT-LEVEL DEBUG REMOVED - model.Data not available at script level
 
 #####################################################################
-# CONFIGURATION SECTION
-#####################################################################
-# These values serve as DEFAULTS. Once you save settings from the
-# Dashboard Configuration tab (Settings > Dashboard Configuration),
-# your saved values are stored in Special Content as JSON and take
-# priority over these defaults on every script load.
-#
-# This means:
-#   1. You can safely update this script without losing your settings
-#   2. Settings saved from the UI survive code updates
-#   3. Any value NOT saved from the UI falls back to these defaults
-#   4. To reset a setting to default, delete the Special Content
-#      file named "TPxi_MissionsDashboard_Config"
+# CONFIGURATION SECTION - Customize for your environment
 #####################################################################
 
 # ::START:: Configuration
 class Config:
-    """Default configuration values. Overridden by saved settings in Special Content."""
+    """Centralized configuration for easy customization"""
     
     # Organization Settings
     ACTIVE_ORG_STATUS_ID = 30  # Organization status ID for active missions
@@ -131,6 +105,13 @@ class Config:
     ADMIN_ROLES = ["Edit", "Admin", "Finance", "MissionsDirector"]
     LEADER_MEMBER_TYPES = [140, 310, 320]  # MemberTypeIds that indicate leadership
 
+    # Roles allowed to SEE flight record locators, and then only on screen.
+    # A record locator plus a surname is enough to change or cancel someone's booking, so
+    # this list must stay small -- it is NOT the same as the admin list. Record locators are
+    # NEVER emailed or printed, whatever role you hold; the on-screen copy exists so whoever
+    # rebooks flights can read one out to the airline.
+    RECORD_LOCATOR_ROLES = ["MissionsDirector"]
+
     # Finance Roles - required for making financial adjustments (fees, transactions)
     # Users with admin roles can VIEW financial data but need one of these to MODIFY
     FINANCE_ROLES = ["Finance", "FinanceAdmin", "ManageTransactions"]
@@ -151,9 +132,11 @@ class Config:
         {'id': 'team', 'label': 'Team Members', 'icon': '&#128101;'},  # people icon
         {'id': 'meetings', 'label': 'Meetings', 'icon': '&#128197;'},  # calendar icon
         {'id': 'budget', 'label': 'Budget & Fundraising', 'icon': '&#128176;'},  # money icon
+        {'id': 'costs', 'label': 'Costs', 'icon': '&#129534;'},  # abacus icon - admin only (cost estimator)
+        {'id': 'logistics', 'label': 'Logistics', 'icon': '&#9992;'},  # airplane icon - admin now (leader later)
+        {'id': 'tasks', 'label': 'Tasks', 'icon': '&#9989;'},  # checkmark icon - admin (templated task system)
         # {'id': 'documents', 'label': 'Documents', 'icon': '&#128196;'},  # document icon - coming later
         {'id': 'messages', 'label': 'Messages', 'icon': '&#9993;'},  # envelope icon
-        # {'id': 'tasks', 'label': 'Tasks & Goals', 'icon': '&#9989;'}  # checkmark icon - coming later
     ]
     
     # Cache Settings (in seconds)
@@ -282,6 +265,51 @@ Blessings'''
 import datetime
 import re
 
+# ::CONFIG:: Version
+# Bump APP_VERSION on user-visible changes; keep the changelog short.
+APP_VERSION = "4.2.2"
+APP_VERSION_DATE = "2026-08-07"
+# Version history:
+#   4.0.0  - Sidebar navigation, role-based views, per-trip sections
+#   4.1.0  - Hub & spoke intake (one hub involvement -> many trips)
+#   4.2.2  - Task template columns relabelled: "How many days" and "Create how
+#            early", with visible units and a worked example, replacing the
+#            ambiguous "Offset / date"
+#   4.2.1  - Retired the Expense record and Scholarship ledger on the Costs tab
+#            (superseded by the estimator's Actual spend column and Underwriting
+#            per person). Cost Report "Actual" is now the Actual spend column
+#            alone, so nothing is double counted. Existing stored rows are left
+#            on the involvement, not deleted.
+#   4.2.0  - Costs / Logistics / Tasks modules + cross-trip reporting:
+#            COSTS      Estimator with per-line basis (per person, per person/day,
+#                       total, total/day), categories from Settings, planned-goer
+#                       divisor, days inherited from the trip dates. Added an
+#                       "Actual spend" column, renamed the deduction to
+#                       Underwriting, and split the footer into Per person total
+#                       + Underwriting total.
+#            LOGISTICS  Living itinerary (flights, ground, lodging, activities)
+#                       entered via a modal and rendered in TRIP ORDER. Printable
+#                       and emailable sheet in three audiences: team (no booking
+#                       refs), leader (confirmation numbers), admin (adds flight
+#                       record locators, ON SCREEN ONLY, gated by
+#                       Config.RECORD_LOCATOR_ROLES). Optional per-item private
+#                       note that prints on the leader copy only. Warns when the
+#                       gather time is after the first departure.
+#            TASKS      Template-driven per-trip task plans, per-trip enable gate,
+#                       morning-batch time release, native TouchPoint tasks via
+#                       model.CreateTaskNote (assignee, due date, notes, trip
+#                       link). Complete-with-note and Decline-with-reason write
+#                       through to TouchPoint. Created tasks become read-only here.
+#                       Type-ahead assignee picker replaces raw PeopleIds.
+#            REPORTING  Trip Readiness (logistics/costs/tasks per trip at a
+#                       glance), All Tasks roll-up with inline actions, Trip Cost
+#                       Report (estimate vs actual, avg paid/goer, outstanding,
+#                       underwriting; active / date-range / all), calendar source
+#                       filters + agenda view, and a date range on Statistics.
+#            SAFETY     Unsaved-change warnings on Costs / Tasks / Logistics, and
+#                       one-click morning-batch install with a warning banner when
+#                       tasks are enabled but the batch is not wired up.
+
 # Church base URL - dynamically set from TouchPoint
 CHURCH_URL = str(model.CmsHost) if hasattr(model, 'CmsHost') and model.CmsHost else 'https://myfbch.com'
 # Ensure it has https://
@@ -380,6 +408,23 @@ except:
             return config.CURRENCY_SYMBOL + formatted if use_symbol else formatted
         except:
             return "$0.00"
+
+# Both the shared _FunctionLibrary and the fallback above build a negative as
+# "$" + "-150" => "$-150", which reads as a typo rather than as a credit. Wrap
+# whichever one got loaded instead of forking the library (other scripts use it).
+# Zero still renders as "-" and whole numbers still drop the cents.
+_format_currency_base = format_currency
+
+
+def format_currency(amount, *args, **kwargs):
+    out = _format_currency_base(amount, *args, **kwargs)
+    try:
+        if isinstance(out, (str, unicode)) and out.startswith('$-'):
+            return '-$' + out[2:]
+    except:
+        pass
+    return out
+
 
 def format_date(date_str, format_type='short'):
     """Format date strings consistently - handle TouchPoint SQL dates properly"""
@@ -514,6 +559,19 @@ def get_mission_trip_totals_cte(include_closed=False):
         WHERE IsMissionTrip = 1 AND OrganizationStatusId = 30''' + closed_filter + '''
     ),
     TripGoers AS (
+        -- Who counts as a trip participant.
+        --
+        -- This used to INNER JOIN MemberTags on 'Goer', which silently hid anyone
+        -- without that tag -- and only TouchPoint's own mission-trip registration
+        -- applies it. model.JoinOrg (used when placing someone from the hub) does
+        -- not, and neither do manual adds. On fbchville that hid 156 real members,
+        -- including people with live balances, all showing as "Not Charged".
+        --
+        -- The tag's real job is to separate goers from Senders (supporters who only
+        -- donate), so exclude sender-only members explicitly instead. TouchPoint
+        -- makes senders MemberTypeId 230/InActive (all 115 on fbchville), and the
+        -- tag check catches any that are not. Someone tagged both Goer and Sender is
+        -- a goer.
         SELECT
             at.OrganizationId,
             at.Trip,
@@ -525,11 +583,24 @@ def get_mission_trip_totals_cte(include_closed=False):
             om.TranId
         FROM ActiveTrips at
         INNER JOIN dbo.OrganizationMembers om ON om.OrganizationId = at.OrganizationId
-        INNER JOIN dbo.OrgMemMemTags omm ON omm.OrgId = om.OrganizationId AND omm.PeopleId = om.PeopleId
-        INNER JOIN dbo.MemberTags mt ON mt.Id = omm.MemberTagId AND mt.Name = 'Goer'
         INNER JOIN dbo.People p ON p.PeopleId = om.PeopleId
         LEFT JOIN dbo.TransactionSummary ts ON ts.OrganizationId = om.OrganizationId
             AND ts.PeopleId = om.PeopleId AND ts.RegId = om.TranId
+        WHERE om.MemberTypeId NOT IN (230, 311)
+          AND NOT (
+                EXISTS (
+                    SELECT 1 FROM dbo.OrgMemMemTags s WITH (NOLOCK)
+                    INNER JOIN dbo.MemberTags smt WITH (NOLOCK) ON smt.Id = s.MemberTagId
+                    WHERE s.OrgId = om.OrganizationId AND s.PeopleId = om.PeopleId
+                      AND smt.Name = 'Sender'
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM dbo.OrgMemMemTags g WITH (NOLOCK)
+                    INNER JOIN dbo.MemberTags gmt WITH (NOLOCK) ON gmt.Id = g.MemberTagId
+                    WHERE g.OrgId = om.OrganizationId AND g.PeopleId = om.PeopleId
+                      AND gmt.Name = 'Goer'
+                )
+          )
     ),
     PaymentCalculations AS (
         SELECT
@@ -545,12 +616,15 @@ def get_mission_trip_totals_cte(include_closed=False):
                     FROM dbo.TransactionSummary ts
                     WHERE ts.RegId = tg.TranId AND ts.PeopleId = tg.PeopleId
                     ORDER BY ts.TranDate DESC), 0) AS IndPaid,
-            -- Supporter payments (replaces second part of TotalPaid function)
+            -- Supporter payments (replaces second part of TotalPaid function).
+            -- ISNULL(gsa.InActive, 0) = 0 matches Payment Manager: without it,
+            -- deactivated supporter rows still counted as money raised.
             ISNULL((SELECT SUM(gsa.Amount)
                     FROM dbo.GoerSenderAmounts gsa
                     INNER JOIN dbo.OrganizationMembers om ON om.OrganizationId = tg.OrganizationId AND om.PeopleId = tg.PeopleId
                     WHERE gsa.GoerId = tg.PeopleId
                     AND gsa.OrgId = tg.OrganizationId
+                    AND ISNULL(gsa.InActive, 0) = 0
                     AND gsa.Created > om.EnrollmentDate
                     AND gsa.SupporterId <> tg.PeopleId), 0) AS SupporterPaid
         FROM TripGoers tg
@@ -914,6 +988,33 @@ def render_sidebar(user_role, current_trip=None, current_section='overview', cur
             </a>
         '''.format(stats_active))
 
+        # Trip readiness (logistics + costs + tasks at a glance)
+        rd_active = 'active' if current_view == 'readiness' and not current_trip else ''
+        html.append('''
+            <a href="?view=readiness" class="nav-link {0}">
+                <span class="icon">&#128203;</span>
+                <span class="sidebar-text">Trip Readiness</span>
+            </a>
+        '''.format(rd_active))
+
+        # Trip cost report (estimate vs actual)
+        cr_active = 'active' if current_view == 'costreport' and not current_trip else ''
+        html.append('''
+            <a href="?view=costreport" class="nav-link {0}">
+                <span class="icon">&#128200;</span>
+                <span class="sidebar-text">Cost Report</span>
+            </a>
+        '''.format(cr_active))
+
+        # All trip tasks (cross-trip rollup)
+        tasks_active = 'active' if current_view == 'tasks' and not current_trip else ''
+        html.append('''
+            <a href="?view=tasks" class="nav-link {0}">
+                <span class="icon">&#9989;</span>
+                <span class="sidebar-text">All Tasks</span>
+            </a>
+        '''.format(tasks_active))
+
         # Calendar
         calendar_active = 'active' if current_view == 'calendar' and not current_trip else ''
         html.append('''
@@ -1007,8 +1108,8 @@ def render_sidebar(user_role, current_trip=None, current_section='overview', cur
             section_label = section['label']
             section_icon = section['icon']
 
-            # Hide Messages section for non-admins
-            if section_id == 'messages' and not is_admin:
+            # Hide Messages, Costs and Logistics sections for non-admins
+            if section_id in ('messages', 'costs', 'logistics', 'tasks') and not is_admin:
                 continue
 
             # Check if this section is active
@@ -1097,6 +1198,10 @@ def render_sidebar(user_role, current_trip=None, current_section='overview', cur
         html.append('</ul></div>')
 
     # Mobile close button at bottom of sidebar
+    # version, so anyone reporting a problem can say which build they are on
+    html.append('<div class="sidebar-version" title="Mission Dashboard ' + APP_VERSION
+                + ' (' + APP_VERSION_DATE + ')">v' + APP_VERSION + '</div>')
+
     html.append('<div class="mobile-close-btn"><button onclick="MissionsDashboard.closeMobile()">&#10005; Close Menu</button></div>')
 
     # Close sidebar
@@ -1263,10 +1368,21 @@ def _get_trip_status(trip):
 
 
 def _escape_html(text):
-    """Escape HTML special characters in text."""
+    """Escape HTML special characters in text.
+
+    Avoids str() on the input: IronPython tolerates str(u'Jurgen') because str and
+    unicode are both System.String there, but the same call raises UnicodeEncodeError
+    anywhere stricter. Names and trip titles routinely carry accents, so keep it
+    unicode-safe.
+    """
     if not text:
         return ''
-    return str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;')
+    if not isinstance(text, (str, unicode)):
+        try:
+            text = unicode(text)
+        except:
+            return ''
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;')
 
 
 def _escape_js_string(text):
@@ -1306,8 +1422,8 @@ def render_trip_section(org_id, section, user_role):
         section: Section name (overview, team, meetings, budget, documents, messages, tasks)
         user_role: User role info from get_user_role_and_trips()
     """
-    # Block non-admins from accessing the messages section
-    if section == 'messages' and not user_role.get('is_admin', False):
+    # Block non-admins from accessing the messages, costs and logistics sections
+    if section in ('messages', 'costs', 'logistics', 'tasks') and not user_role.get('is_admin', False):
         section = 'overview'  # Redirect to overview
 
     # Check if non-admin user is approved for this trip
@@ -1330,6 +1446,8 @@ def render_trip_section(org_id, section, user_role):
         'team': render_trip_team,
         'meetings': render_trip_meetings,
         'budget': render_trip_budget,
+        'costs': render_trip_costs,
+        'logistics': render_trip_logistics,
         'documents': render_trip_documents,
         'messages': render_trip_messages,
         'tasks': render_trip_tasks
@@ -3311,6 +3429,557 @@ def _get_registration_answers(org_id, people_id):
     return answers
 
 
+# =====================================================
+# SAFE JSON (IronPython)
+# =====================================================
+# IronPython 2.7's json.dumps blows up at the .NET interop boundary on non-ASCII --
+# a Latin umlaut raises UnicodeDecodeError, a smart quote sails through dumps and
+# then kills `print` with an ascii codec error. Both fail underneath the json module,
+# so they can't be caught there. Hub payloads are full of exactly that kind of text
+# (applicant names, trip answers, 30+ free-text application answers per submission),
+# so they are encoded by hand instead. See TPxi_InvolvementProcessor for the origin.
+
+def _json_escape_string(s):
+    """JSON-escape a string to pure ASCII, emitting \\uXXXX for every codepoint >= 0x7F."""
+    if not isinstance(s, (str, unicode)):
+        s = unicode(s)
+    parts = ['"']
+    for ch in s:
+        try:
+            code = ord(ch)
+        except Exception:
+            parts.append('\\ufffd')
+            continue
+        if   code == 0x22: parts.append('\\"')
+        elif code == 0x5C: parts.append('\\\\')
+        elif code == 0x08: parts.append('\\b')
+        elif code == 0x0C: parts.append('\\f')
+        elif code == 0x0A: parts.append('\\n')
+        elif code == 0x0D: parts.append('\\r')
+        elif code == 0x09: parts.append('\\t')
+        elif code > 0xFFFF:
+            # Astral char (emoji). JSON has no 5-digit \u escape, so emit a surrogate
+            # pair. IronPython's UCS-2 strings already hand us the pair char-by-char,
+            # but a wide build would otherwise produce invalid 'ὠ0'.
+            v = code - 0x10000
+            parts.append('\\u%04x\\u%04x' % (0xD800 + (v >> 10), 0xDC00 + (v & 0x3FF)))
+        elif code < 0x20 or code >= 0x7F:
+            parts.append('\\u%04x' % code)
+        else:
+            parts.append(chr(code))
+    parts.append('"')
+    return ''.join(parts)
+
+
+def _json_encode(obj):
+    """Recursive JSON encoder -- pure ASCII output, no json.dumps involved."""
+    if obj is None:
+        return 'null'
+    if obj is True:
+        return 'true'
+    if obj is False:
+        return 'false'
+    if isinstance(obj, bool):
+        return 'true' if obj else 'false'
+    if isinstance(obj, (int, long)):
+        return str(obj)
+    if isinstance(obj, float):
+        if obj != obj:  # NaN has no JSON representation
+            return 'null'
+        return repr(obj)
+    if isinstance(obj, (str, unicode)):
+        return _json_escape_string(obj)
+    if isinstance(obj, datetime.datetime):
+        return _json_escape_string(obj.isoformat())
+    if isinstance(obj, datetime.date):
+        return _json_escape_string(obj.isoformat())
+    if isinstance(obj, dict):
+        items = []
+        for k, v in obj.items():
+            key = k if isinstance(k, (str, unicode)) else unicode(k)
+            items.append(_json_escape_string(key) + ':' + _json_encode(v))
+        return '{' + ','.join(items) + '}'
+    if isinstance(obj, (list, tuple)):
+        return '[' + ','.join(_json_encode(x) for x in obj) + ']'
+    return _json_escape_string(unicode(obj))
+
+
+def safe_json(obj):
+    """Serialize to JSON without IronPython's broken json.dumps."""
+    try:
+        return _json_encode(obj)
+    except Exception as _exc:
+        try:
+            return '{"success":false,"message":' + _json_escape_string(
+                'safe_json failed: ' + repr(_exc)) + '}'
+        except Exception:
+            return '{"success":false,"message":"safe_json catastrophic failure"}'
+
+
+# =====================================================
+# HUB WORKFLOW (one-to-many / hub & spoke)
+# =====================================================
+#
+# Data model notes (verified against the TouchPoint source + fbchville data):
+#
+# TouchPoint's NEW forms (Organizations.RegistrationTypeId = 26) store answers in
+# Registration -> RegPeople -> RegAnswer -> RegQuestion. Every re-signup ADDS a new
+# Registration/RegPeople row rather than overwriting, so RegPeopleId (a guid) is a
+# stable per-submission identity. That is what makes a hub workable: one person can
+# hold several distinct pending trip requests at once.
+#
+# CLASSIC registrations overwrite OrganizationMembers.OnlineRegData on every
+# re-register, so they only ever expose the LATEST answer. A classic hub therefore
+# collapses to one open request per person. We support it, but the new-form path is
+# the one that preserves history.
+
+def _hub_clean_answer(val):
+    """Normalize a raw registration answer for display/matching.
+
+    RegAnswer.AnswerValue is JSON-encoded, so a dropdown answer arrives as '"Germany"'
+    (literal quotes) and checkbox answers as '["A","B"]'. Mirrors the Report Writer's
+    clean_answer_value, minus the HTML escaping (callers escape at render time).
+    """
+    if not val:
+        return ''
+    try:
+        s = unicode(val).strip()
+    except:
+        try:
+            s = str(val).strip()
+        except:
+            return ''
+
+    # JSON array (multi-select) -> comma separated
+    if s.startswith('[') and s.endswith(']'):
+        try:
+            import json as _j
+            items = _j.loads(s)
+            if isinstance(items, list):
+                return ', '.join([unicode(i).strip().strip('"') for i in items])
+        except:
+            pass
+
+    # Strip the surrounding JSON quotes
+    if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+        s = s[1:-1]
+
+    return s.replace('\\n', ' ').strip()
+
+
+def _get_person_request_ledger(people_id):
+    """Read one person's hub request ledger. Returns dict with 'requests' list."""
+    import json
+    try:
+        raw = model.ExtraValueText(int(people_id), HUB_REQUEST_LEDGER_FIELD)
+        if raw:
+            data = json.loads(raw)
+            if isinstance(data, dict) and isinstance(data.get('requests'), list):
+                return data
+    except:
+        pass
+    return {'requests': []}
+
+
+def _save_person_request_ledger(people_id, data):
+    """Write one person's hub request ledger."""
+    import json
+    try:
+        model.AddExtraValueText(int(people_id), HUB_REQUEST_LEDGER_FIELD, safe_json(data))
+        return True
+    except:
+        return False
+
+
+def _set_hub_request_status(people_id, req_key, status, extra=None):
+    """Record a decision against a single request (identified by req_key).
+
+    Only this person's blob is rewritten, so two admins working different people
+    never clobber each other.
+    """
+    import datetime
+    people_id = int(people_id)
+    data = _get_person_request_ledger(people_id)
+
+    entry = None
+    for r in data['requests']:
+        if r.get('key') == req_key:
+            entry = r
+            break
+    if entry is None:
+        entry = {'key': req_key}
+        data['requests'].append(entry)
+
+    entry['status'] = status
+    entry['decided_date'] = datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
+    try:
+        uid = model.UserPeopleId
+        entry['decided_by'] = uid
+        u = model.GetPerson(uid)
+        entry['decided_by_name'] = u.Name2 if u else ''
+    except:
+        pass
+
+    if extra:
+        entry.update(extra)
+
+    return _save_person_request_ledger(people_id, data)
+
+
+def _get_all_hub_ledgers():
+    """Bulk-read every person's ledger in ONE query.
+
+    Person-scoped storage stays cheap because PeopleExtra is indexed by Field --
+    no per-person round trips.
+    """
+    import json
+    ledgers = {}
+    try:
+        sql = '''
+        SELECT pe.PeopleId, CAST(pe.Data AS NVARCHAR(MAX)) AS Data
+        FROM PeopleExtra pe WITH (NOLOCK)
+        WHERE pe.Field = '{0}' AND pe.Data IS NOT NULL
+        '''.format(HUB_REQUEST_LEDGER_FIELD.replace("'", "''"))
+        for row in q.QuerySql(sql):
+            try:
+                data = json.loads(row.Data)
+                if isinstance(data, dict):
+                    by_key = {}
+                    for r in data.get('requests', []):
+                        if r.get('key'):
+                            by_key[r['key']] = r
+                    ledgers[row.PeopleId] = by_key
+            except:
+                continue
+    except:
+        pass
+    return ledgers
+
+
+def get_hub_questions(hub_org_id):
+    """List the question labels available on the hub involvement.
+
+    Covers both storage systems so the Settings dropdown works regardless of how the
+    hub form was built:
+      - new forms   -> RegQuestion (joined through RegAnswer so we only surface
+                       questions people have actually been asked)
+      - classic     -> dbo.OnlineRegQA
+    """
+    labels = []
+    seen = set()
+
+    try:
+        hub_org_id = int(hub_org_id)
+    except:
+        return labels
+
+    # New forms (RegistrationTypeId = 26)
+    try:
+        sql = '''
+        SELECT DISTINCT rq.Label, rq.QuestionTypeId, rq.[Order]
+        FROM Registration r WITH (NOLOCK)
+        JOIN RegPeople rp WITH (NOLOCK) ON rp.RegistrationId = r.RegistrationId
+        JOIN RegAnswer ra WITH (NOLOCK) ON ra.RegPeopleId = rp.RegPeopleId
+        JOIN RegQuestion rq WITH (NOLOCK) ON rq.RegQuestionId = ra.RegQuestionId
+        WHERE r.OrganizationId = {0} AND rq.Label IS NOT NULL AND rq.Label <> ''
+        ORDER BY rq.[Order]
+        '''.format(hub_org_id)
+        for row in q.QuerySql(sql):
+            lbl = (row.Label or '').strip()
+            if lbl and lbl not in seen:
+                seen.add(lbl)
+                # QuestionTypeId 6 = dropdown/select: the likely "which trip" question
+                labels.append({'label': lbl, 'is_dropdown': (row.QuestionTypeId == 6)})
+    except:
+        pass
+
+    # Classic registrations
+    try:
+        sql = '''
+        SELECT DISTINCT Question
+        FROM dbo.OnlineRegQA WITH (NOLOCK)
+        WHERE OrganizationId = {0} AND Question IS NOT NULL AND Question <> ''
+        '''.format(hub_org_id)
+        for row in q.QuerySql(sql):
+            lbl = (row.Question or '').strip()
+            if lbl and lbl not in seen:
+                seen.add(lbl)
+                labels.append({'label': lbl, 'is_dropdown': False})
+    except:
+        pass
+
+    return labels
+
+
+def _get_hub_requests(hub_org_id, trip_question, status_filter=None):
+    """Build the hub intake queue: one row per submission.
+
+    Returns list of dicts: key, people_id, name, email, phone, submitted, trip_answer,
+    status, placed_org_id, placed_org_name, decided_by_name, decided_date, reason.
+
+    New-form submissions are keyed by RegPeopleId, so a person who signs up three times
+    yields three independent requests. Classic hubs have no per-submission history, so
+    they collapse to a single request keyed by the org member row.
+    """
+    requests = []
+    try:
+        hub_org_id = int(hub_org_id)
+    except:
+        return requests
+
+    if not trip_question:
+        return requests
+
+    ledgers = _get_all_hub_ledgers()
+    q_esc = trip_question.replace("'", "''")
+
+    # ---- New forms: one request per RegPeopleId -------------------------------
+    try:
+        # The trip answer is fetched via a correlated subquery rather than a join, so a
+        # duplicated question Label (form revisions) or a multi-row answer can never
+        # multiply a submission into several queue rows.
+        sql = '''
+        SELECT
+            CAST(rp.RegPeopleId AS NVARCHAR(50)) AS ReqId,
+            rp.PeopleId,
+            p.Name2 AS Name,
+            p.EmailAddress,
+            p.CellPhone,
+            p.Age,
+            ISNULL(r.CompletedDate, r.CreatedDate) AS Submitted,
+            (
+                SELECT TOP 1 CAST(ra.AnswerValue AS NVARCHAR(MAX))
+                FROM RegAnswer ra WITH (NOLOCK)
+                JOIN RegQuestion rq WITH (NOLOCK) ON rq.RegQuestionId = ra.RegQuestionId
+                WHERE ra.RegPeopleId = rp.RegPeopleId
+                  AND rq.Label = '{1}'
+                  AND ra.AnswerValue IS NOT NULL
+                ORDER BY rq.[Order]
+            ) AS TripAnswer
+        FROM Registration r WITH (NOLOCK)
+        JOIN RegPeople rp WITH (NOLOCK) ON rp.RegistrationId = r.RegistrationId
+        JOIN People p WITH (NOLOCK) ON p.PeopleId = rp.PeopleId
+        WHERE r.OrganizationId = {0}
+          AND rp.PeopleId IS NOT NULL
+        ORDER BY ISNULL(r.CompletedDate, r.CreatedDate) DESC
+        '''.format(hub_org_id, q_esc)
+
+        for row in q.QuerySql(sql):
+            key = 'rp:' + str(row.ReqId).lower()
+            entry = ledgers.get(row.PeopleId, {}).get(key, {})
+            requests.append({
+                'key': key,
+                'people_id': row.PeopleId,
+                'name': row.Name or '',
+                'email': row.EmailAddress or '',
+                'phone': row.CellPhone or '',
+                'age': row.Age,
+                'submitted': row.Submitted,
+                'trip_answer': _hub_clean_answer(row.TripAnswer),
+                'status': entry.get('status', 'pending'),
+                'placed_org_id': entry.get('placed_org_id'),
+                'placed_org_name': entry.get('placed_org_name', ''),
+                'decided_by_name': entry.get('decided_by_name', ''),
+                'decided_date': entry.get('decided_date', ''),
+                'reason': entry.get('reason', ''),
+            })
+    except:
+        pass
+
+    # ---- Classic hub fallback: latest answer only ----------------------------
+    if not requests:
+        try:
+            sql = '''
+            SELECT
+                om.PeopleId,
+                p.Name2 AS Name,
+                p.EmailAddress,
+                p.CellPhone,
+                p.Age,
+                om.EnrollmentDate AS Submitted,
+                (
+                    SELECT TOP 1 qa.Answer
+                    FROM dbo.OnlineRegQA qa WITH (NOLOCK)
+                    WHERE qa.OrganizationId = om.OrganizationId
+                      AND qa.PeopleId = om.PeopleId
+                      AND qa.Question = '{1}'
+                      AND qa.Answer IS NOT NULL
+                ) AS TripAnswer
+            FROM OrganizationMembers om WITH (NOLOCK)
+            JOIN People p WITH (NOLOCK) ON p.PeopleId = om.PeopleId
+            WHERE om.OrganizationId = {0}
+              AND om.InactiveDate IS NULL
+            ORDER BY om.EnrollmentDate DESC
+            '''.format(hub_org_id, q_esc)
+
+            for row in q.QuerySql(sql):
+                key = 'om:{0}:{1}'.format(hub_org_id, row.PeopleId)
+                entry = ledgers.get(row.PeopleId, {}).get(key, {})
+                requests.append({
+                    'key': key,
+                    'people_id': row.PeopleId,
+                    'name': row.Name or '',
+                    'email': row.EmailAddress or '',
+                    'phone': row.CellPhone or '',
+                    'age': row.Age,
+                    'submitted': row.Submitted,
+                    'trip_answer': _hub_clean_answer(row.TripAnswer),
+                    'status': entry.get('status', 'pending'),
+                    'placed_org_id': entry.get('placed_org_id'),
+                    'placed_org_name': entry.get('placed_org_name', ''),
+                    'decided_by_name': entry.get('decided_by_name', ''),
+                    'decided_date': entry.get('decided_date', ''),
+                    'reason': entry.get('reason', ''),
+                })
+        except:
+            pass
+
+    if status_filter:
+        requests = [r for r in requests if r['status'] == status_filter]
+
+    return requests
+
+
+def _get_hub_request_answers(hub_org_id, people_id, req_key):
+    """All answers for ONE submission.
+
+    Scoping to the specific RegPeopleId matters: the dashboard's existing
+    _get_registration_answers merges every submission together, which would smear two
+    different trip requests into one list on a hub.
+    """
+    answers = []
+    try:
+        hub_org_id = int(hub_org_id)
+        people_id = int(people_id)
+    except:
+        return answers
+
+    if req_key and req_key.startswith('rp:'):
+        reg_people_id = req_key[3:]
+        # Guard the guid before interpolating it into SQL
+        if not re.match(r'^[0-9a-fA-F\-]{36}$', reg_people_id):
+            return answers
+        try:
+            sql = '''
+            SELECT rq.Label AS Question, CAST(ra.AnswerValue AS NVARCHAR(MAX)) AS Answer
+            FROM RegAnswer ra WITH (NOLOCK)
+            JOIN RegQuestion rq WITH (NOLOCK) ON rq.RegQuestionId = ra.RegQuestionId
+            WHERE ra.RegPeopleId = '{0}' AND rq.Label IS NOT NULL
+            ORDER BY rq.[Order]
+            '''.format(reg_people_id)
+            for row in q.QuerySql(sql):
+                answers.append({
+                    'question': row.Question or '',
+                    'answer': _hub_clean_answer(row.Answer),
+                })
+        except:
+            pass
+        return answers
+
+    # Classic hub -> reuse the existing per-member reader
+    return _get_registration_answers(hub_org_id, people_id)
+
+
+def get_active_trips_for_placement():
+    """Active trips offered in the placement dropdown, excluding the hub itself."""
+    trips = []
+    settings = get_global_settings()
+    hub_id = 0
+    try:
+        hub_id = int(settings.get('hub_org_id', 0) or 0)
+    except:
+        hub_id = 0
+
+    exclude = set(config.APPLICATION_ORG_IDS or [])
+    if hub_id:
+        exclude.add(hub_id)
+
+    try:
+        for t in get_all_trips_for_sidebar(include_closed=False):
+            if t.OrganizationId in exclude:
+                continue
+            trips.append({
+                'org_id': t.OrganizationId,
+                'name': t.OrganizationName or '',
+                'status': t.TripStatus or '',
+            })
+    except:
+        pass
+    return trips
+
+
+# Words too common across trip names to carry any signal.
+_MATCH_STOPWORDS = set(['stm', 'trip', 'trips', 'mission', 'missions', 'the', 'of',
+                        'and', 'a', 'an', 'to', 'for', 'only', 'ministry', 'students'])
+_MATCH_MONTHS = set(['january', 'february', 'march', 'april', 'may', 'june', 'july',
+                     'august', 'september', 'october', 'november', 'december'])
+
+
+def _match_tokens(s):
+    """Significant lowercase word tokens of a trip name/answer."""
+    if not s:
+        return set()
+    try:
+        text = unicode(s).lower()
+    except:
+        try:
+            text = str(s).lower()
+        except:
+            return set()
+    return set(w for w in re.findall(r'[a-z0-9]+', text) if w not in _MATCH_STOPWORDS)
+
+
+def suggest_trip_for_answer(trip_answer, trips):
+    """Best-guess the trip org for a hub answer. Returns org_id or None.
+
+    Word-order differs between the hub dropdown's text and the trip org's name
+    ("2026 Germany June Construction Mission Trip" vs "STM: 2026 June Germany
+    Construction Trip"), so this scores token overlap (Jaccard) rather than doing
+    substring matching.
+
+    Deliberately conservative -- a wrong guess silently places someone on the wrong
+    trip and bills them its fee, so it returns None whenever the answer is vague
+    ("Germany"), ambiguous (a tie), or clearly a different trip:
+      - a month named on both sides that disagrees disqualifies outright, otherwise
+        "...April Construction..." scores 0.6 against the June trip
+      - below-threshold or tied best scores yield no suggestion
+    Verified against all 10 distinct live answers on the fbchville hub (org 3117).
+    """
+    a = _match_tokens(trip_answer)
+    if not a or not trips:
+        return None
+
+    scored = []
+    for t in trips:
+        n = _match_tokens(t.get('name'))
+        if not n:
+            continue
+
+        a_months = a & _MATCH_MONTHS
+        n_months = n & _MATCH_MONTHS
+        if a_months and n_months and not (a_months & n_months):
+            continue  # e.g. an April request vs the June trip
+
+        union = len(a | n)
+        if not union:
+            continue
+        scored.append((float(len(a & n)) / union, t['org_id']))
+
+    if not scored:
+        return None
+
+    scored.sort(reverse=True)
+    best_score, best_org = scored[0]
+
+    if best_score < 0.5:
+        return None
+    # A tie means we cannot tell the trips apart -- make the approver choose.
+    if len(scored) > 1 and abs(scored[1][0] - best_score) < 0.001:
+        return None
+
+    return best_org
+
+
 def render_trip_team(org_id, user_role):
     """Render team members for a trip."""
     trip = _get_trip_info(org_id)
@@ -4224,10 +4893,14 @@ def render_trip_budget(org_id, user_role):
         om.PeopleId,
         p.Name2 as Name,
         p.EmailAddress,
+        p.CellPhone,
         ISNULL(mtt.TripCost, 0) as TripCost,
         ISNULL(mtt.Raised, 0) as TotalPaid,
         ISNULL(mtt.Due, 0) as Outstanding,
-        CASE WHEN mtt.PeopleId IS NULL THEN 1 ELSE 0 END as NotCharged
+        -- "Not Charged" must mean no charge on record, NOT "missing from the totals".
+        -- It used to be mtt.PeopleId IS NULL, which quietly doubled as "isn't tagged
+        -- Goer" and mislabelled charged members as Not Charged.
+        CASE WHEN mtt.PeopleId IS NULL OR mtt.TripCost IS NULL THEN 1 ELSE 0 END as NotCharged
     FROM OrganizationMembers om WITH (NOLOCK)
     JOIN People p WITH (NOLOCK) ON om.PeopleId = p.PeopleId
     LEFT JOIN MissionTripTotals mtt ON mtt.InvolvementId = om.OrganizationId
@@ -4329,8 +5002,6 @@ def render_trip_budget(org_id, user_role):
 
     html.append('<table class="mission-table">')
 
-    # Add actions column header for users with finance permissions
-    actions_header = '<th class="text-center">Actions</th>' if can_manage_finance else ''
     html.append('''
         <thead>
             <tr>
@@ -4339,12 +5010,11 @@ def render_trip_budget(org_id, user_role):
                 <th class="text-right">Paid</th>
                 <th class="text-right">Outstanding</th>
                 <th>Progress</th>
-                <th class="text-center">Remind</th>
-                {0}
+                <th class="text-center">Actions</th>
             </tr>
         </thead>
         <tbody>
-    '''.format(actions_header))
+    ''')
 
     # For JavaScript onclick handlers, use _escape_js_string (not _escape_html)
     trip_name_js = _escape_js_string(trip.OrganizationName or '')
@@ -4370,58 +5040,77 @@ def render_trip_budget(org_id, user_role):
             bar_class = 'bg-danger'
             status_text = '{0:.0f}%'.format(pct)
 
-        # Actions column for users with finance permissions
-        actions_cell = ''
-        if can_manage_finance:
-            # Use _escape_js_string for JavaScript onclick handlers
-            member_name_js_adj = _escape_js_string(member.Name or '')
-            actions_cell = '''
-                <td class="text-center">
-                    <button onclick="MissionsFee.openAdjust({6}, '{7}', '{0}', {1})"
-                            class="btn btn-sm" style="background: #ff9800; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer;">
-                        Adjust
-                    </button>
-                </td>
-            '''.format(
-                member_name_js_adj,
-                cost,
-                0, 0, 0, 0,  # placeholders for format positions 2-5
-                member.PeopleId,
-                org_id
-            )
-
-        # Individual goal reminder button
+        # ---- Payment options cell ----------------------------------------------
+        # Sending someone their own payment link is a normal leader task, so it needs
+        # only trip access. Recording money and adjusting fees need a Finance role.
+        member_name_js_adj = _escape_js_string(member.Name or '')
+        member_cell = getattr(member, 'CellPhone', '') or ''
         member_email = getattr(member, 'EmailAddress', '') or ''
-        # Use _escape_js_string for JavaScript onclick handlers
-        member_name_js = _escape_js_string(member.Name or '')
-        email_js = _escape_js_string(member_email)
-        # HTML-escaped name for title attribute (display purposes)
-        member_name_html = _escape_html(member.Name or '')
+        has_balance = (not not_charged) and outstanding > 0
 
+        pay_buttons = []
+
+        # One Email button. It opens the composer (pick a template, preview, edit,
+        # send) rather than firing a fixed message -- "remind them" and "send them
+        # their payment link" are the same job, just a different template.
         if member_email:
-            # Ensure we pass valid numeric values for cost and outstanding
-            # Use the actual float values, not formatted strings (which may contain "-")
-            numeric_cost = float(cost) if cost else 0.0
-            numeric_outstanding = float(outstanding) if outstanding else 0.0
-            remind_cell = '''
-                <td class="text-center">
-                    <button onclick="MissionsEmail.openIndividualGoalReminder({0}, '{1}', '{2}', '{3}', {4}, {5}, {6})"
-                            class="btn btn-sm" style="background: #2196F3; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer;" title="Send goal reminder to {7}">
-                        &#128276;
-                    </button>
-                </td>
-            '''.format(
-                member.PeopleId,
-                email_js,
-                member_name_js,
-                trip_name_js,
-                numeric_cost,  # Use actual numeric value
-                numeric_outstanding,  # Use actual numeric value
-                org_id,  # Pass org_id for Advanced Options link
-                member_name_html  # For title attribute (HTML context)
-            )
+            pay_buttons.append(
+                '<button onclick="MissionsEmail.openIndividualGoalReminder({0}, \'{1}\', \'{2}\', \'{3}\', {4}, {5}, {6})" '
+                'class="pay-btn pay-btn-link" title="Email {7} - choose a template, edit, and send">'
+                '<span class="pay-ico">&#9993;</span> Email</button>'.format(
+                    member.PeopleId,
+                    _escape_js_string(member_email),
+                    member_name_js_adj,
+                    trip_name_js,
+                    float(cost) if cost else 0.0,
+                    float(outstanding) if outstanding else 0.0,
+                    org_id,
+                    _escape_html(member.Name or '')))
         else:
-            remind_cell = '<td class="text-center text-muted">No email</td>'
+            pay_buttons.append(
+                '<button class="pay-btn pay-btn-off" disabled title="No email address on file">'
+                '<span class="pay-ico">&#9993;</span> Email</button>')
+
+        # Text -- the one-click counterpart to Email. Sends the giving link, which is
+        # useful whether or not there is a balance (they may still be raising support),
+        # so this is gated only on having a cell number.
+        if member_cell:
+            pay_buttons.append(
+                '<button onclick="MissionsPay.sendLink(this, {0}, {1}, \'{2}\', \'text\')" '
+                'class="pay-btn pay-btn-link" title="Text this person their giving link">'
+                '<span class="pay-ico">&#128241;</span> Text</button>'.format(
+                    member.PeopleId, org_id, member_name_js_adj))
+        else:
+            pay_buttons.append(
+                '<button class="pay-btn pay-btn-off" disabled title="No cell phone on file">'
+                '<span class="pay-ico">&#128241;</span> Text</button>')
+
+        if can_manage_finance:
+            pay_buttons.append(
+                '<button onclick="MissionsPay.openRecord({0}, {1}, \'{2}\', {3})" '
+                'class="pay-btn pay-btn-record" title="Record a check or cash payment">'
+                '<span class="pay-ico">&#128179;</span> Record Payment</button>'.format(
+                    member.PeopleId, org_id, member_name_js_adj, outstanding if not not_charged else 0))
+
+            pay_buttons.append(
+                '<button onclick="MissionsFee.openAdjust({0}, \'{1}\', \'{2}\', {3})" '
+                'class="pay-btn pay-btn-adjust" title="Adjust what this person owes">'
+                '<span class="pay-ico">&#9998;</span> Adjust</button>'.format(
+                    member.PeopleId, org_id, member_name_js_adj, cost))
+
+        # History is ADMIN only (Config.ADMIN_ROLES): it lists every gift and names
+        # who gave it, which leaders are deliberately not shown elsewhere in Budget.
+        if is_admin:
+            pay_buttons.append(
+                '<button onclick="MissionsPay.openHistory({0}, {1}, \'{2}\')" '
+                'class="pay-btn pay-btn-hist" title="Payment and email history">'
+                '<span class="pay-ico">&#8635;</span> History</button>'.format(
+                    member.PeopleId, org_id, member_name_js_adj))
+
+        actions_cell = '<td><div class="pay-btn-group">{0}</div></td>'.format(''.join(pay_buttons))
+
+        # The old separate "Remind" bell lived here. It opened the same composer the
+        # Email button above now opens, so it was the same action twice.
 
         # Format currency displays - show "Not Charged" indicator for trip cost if applicable
         cost_display = '<span style="color: #999;">Not Set</span>' if not_charged else format_currency(cost)
@@ -4430,7 +5119,7 @@ def render_trip_budget(org_id, user_role):
         outstanding_display = '<span style="color: #999;">--</span>' if not_charged else format_currency(outstanding)
 
         html.append('''
-            <tr{8}>
+            <tr{7}>
                 <td>{0}</td>
                 <td class="text-right">{1}</td>
                 <td class="text-right">{2}</td>
@@ -4439,10 +5128,9 @@ def render_trip_budget(org_id, user_role):
                     <div class="progress-container" style="min-width: 100px;">
                         <div class="progress-bar {4}" style="width: {5:.0f}%;"></div>
                     </div>
-                    <div class="progress-text">{9}</div>
+                    <div class="progress-text">{8}</div>
                 </td>
                 {6}
-                {7}
             </tr>
         '''.format(
             _escape_html(member.Name),
@@ -4451,7 +5139,6 @@ def render_trip_budget(org_id, user_role):
             outstanding_display,
             bar_class,
             pct if not not_charged else 0.0,
-            remind_cell,
             actions_cell,
             ' style="background-color: #fff3cd;"' if not_charged else '',
             status_text
@@ -5079,168 +5766,6 @@ def render_trip_messages(org_id, user_role):
     ''')
 
     return ''.join(html)
-
-
-def render_trip_tasks(org_id, user_role):
-    """Render tasks and milestones for a trip."""
-    trip = _get_trip_info(org_id)
-    if not trip:
-        return '<div class="alert alert-danger">Trip not found.</div>'
-
-    html = []
-
-    # Section header
-    html.append('''
-        <div class="section-header">
-            <div>
-                <div class="breadcrumb">
-                    <a href="?">Dashboard</a> &rsaquo;
-                    <a href="?trip={0}">{1}</a> &rsaquo; Tasks
-                </div>
-                <h2>Tasks & Milestones</h2>
-            </div>
-        </div>
-    '''.format(org_id, _escape_html(trip.OrganizationName)))
-
-    # Calculate milestones based on trip dates
-    milestones = _calculate_trip_milestones(trip)
-
-    html.append('<div class="card">')
-    html.append('<div class="card-header"><h4>Trip Milestones</h4></div>')
-    html.append('<div class="card-body">')
-
-    if milestones:
-        html.append('<div class="timeline">')
-
-        for milestone in milestones:
-            status_class = 'status-' + milestone['status']
-            html.append('''
-                <div class="timeline-item">
-                    <div class="timeline-date">{0}</div>
-                    <div class="timeline-content">
-                        <h4>{1}</h4>
-                        <p><span class="status-badge {2}">{3}</span></p>
-                    </div>
-                </div>
-            '''.format(
-                milestone['date'],
-                _escape_html(milestone['title']),
-                status_class,
-                milestone['status'].title()
-            ))
-
-        html.append('</div>')  # timeline
-    else:
-        html.append('<p class="text-muted">No trip dates set. Set trip dates to see milestones.</p>')
-
-    html.append('</div>')  # card-body
-    html.append('</div>')  # card
-
-    # Quick checklist
-    html.append('<div class="card mt-4">')
-    html.append('<div class="card-header"><h4>Pre-Trip Checklist</h4></div>')
-    html.append('<div class="card-body">')
-
-    checklist_items = [
-        ('Confirm all team members registered', True),
-        ('Collect passport information', True),
-        ('Complete background checks', True),
-        ('Schedule team meetings', True),
-        ('Send fundraising letters', False),
-        ('Book flights/transportation', False),
-        ('Arrange lodging', False),
-        ('Plan ministry activities', False),
-        ('Pack supplies', False),
-        ('Final team meeting', False)
-    ]
-
-    html.append('<ul class="list-group">')
-    for item, is_automated in checklist_items:
-        icon = '&#9744;'  # unchecked box
-        if is_automated:
-            icon = '&#128269;'  # magnifying glass - tracked automatically
-        html.append('''
-            <li class="list-group-item d-flex justify-content-between align-items-center">
-                <span>{0} {1}</span>
-                {2}
-            </li>
-        '''.format(
-            icon,
-            item,
-            '<small class="text-muted">(Auto-tracked)</small>' if is_automated else ''
-        ))
-    html.append('</ul>')
-
-    html.append('</div>')  # card-body
-    html.append('</div>')  # card
-
-    return ''.join(html)
-
-
-def _calculate_trip_milestones(trip):
-    """Calculate trip milestones based on trip dates."""
-    milestones = []
-    today = datetime.date.today()
-
-    if not trip.TripBegin:
-        return milestones
-
-    trip_start = trip.TripBegin
-    if hasattr(trip_start, 'date'):
-        trip_start = trip_start.date()
-
-    trip_end = trip.TripEnd
-    if trip_end and hasattr(trip_end, 'date'):
-        trip_end = trip_end.date()
-
-    # Registration deadline (8 weeks before)
-    reg_deadline = trip_start - datetime.timedelta(weeks=8)
-    milestones.append({
-        'date': reg_deadline.strftime('%b %d, %Y'),
-        'title': 'Registration Deadline',
-        'status': 'completed' if today > reg_deadline else 'pending'
-    })
-
-    # Passport deadline (6 weeks before)
-    passport_deadline = trip_start - datetime.timedelta(weeks=6)
-    milestones.append({
-        'date': passport_deadline.strftime('%b %d, %Y'),
-        'title': 'Passport Information Due',
-        'status': 'completed' if today > passport_deadline else 'pending'
-    })
-
-    # 50% payment (4 weeks before)
-    payment_50 = trip_start - datetime.timedelta(weeks=4)
-    milestones.append({
-        'date': payment_50.strftime('%b %d, %Y'),
-        'title': '50% Payment Due',
-        'status': 'completed' if today > payment_50 else 'pending'
-    })
-
-    # Full payment (2 weeks before)
-    payment_full = trip_start - datetime.timedelta(weeks=2)
-    milestones.append({
-        'date': payment_full.strftime('%b %d, %Y'),
-        'title': 'Full Payment Due',
-        'status': 'completed' if today > payment_full else 'pending'
-    })
-
-    # Trip start
-    milestones.append({
-        'date': trip_start.strftime('%b %d, %Y'),
-        'title': 'Trip Begins',
-        'status': 'active' if today == trip_start else ('completed' if today > trip_start else 'pending')
-    })
-
-    # Trip end
-    if trip_end:
-        milestones.append({
-            'date': trip_end.strftime('%b %d, %Y'),
-            'title': 'Trip Ends',
-            'status': 'completed' if today > trip_end else 'pending'
-        })
-
-    return milestones
 
 
 # ::END:: Trip Section Views
@@ -6402,6 +6927,15 @@ def get_modern_styles():
         -webkit-tap-highlight-color: transparent;
     }
 
+    /* Build version, so a problem report can name the build */
+    .sidebar-version {
+        padding: 10px 16px 14px;
+        font-size: 11px;
+        color: rgba(255,255,255,0.35);
+        letter-spacing: .5px;
+    }
+    .sidebar-collapsed .sidebar-version { display: none; }
+
     /* Mobile close button inside sidebar */
     .mobile-close-btn {
         display: none;
@@ -7420,9 +7954,45 @@ def get_popup_data_query(org_id, list_type):
     else:
         return None
 
-def get_enhanced_stats_queries():
-    """Get enhanced statistics queries for missions pastors"""
-    
+def _sql_date_or(val, fallback_sql, plus_one_day=False):
+    """A quoted SQL date literal for the range bound, or the given fallback expression when
+    that bound is not set. plus_one_day makes an end bound inclusive."""
+    v = str(val or '').strip()[:10].replace("'", "")
+    if not v:
+        return fallback_sql
+    return ("DATEADD(day, 1, '%s')" % v) if plus_one_day else ("'%s'" % v)
+
+
+def _stats_date_pred(date_from, date_to, alias='o'):
+    """WHERE fragment limiting to trips whose Main Event Start falls in the range.
+
+    Written as EXISTS against OrganizationExtra so it can be bolted onto any query that
+    already has the Organizations row in scope, without touching its joins or grouping.
+    Returns '' when no range is set, so the unfiltered behaviour is unchanged."""
+    f = str(date_from or '').strip()[:10]
+    t = str(date_to or '').strip()[:10]
+    if not f and not t:
+        return ''
+    conds = []
+    if f:
+        conds.append("oed.DateValue >= '%s'" % f.replace("'", ""))
+    if t:
+        # < day-after so the end date is inclusive whatever the time component is
+        conds.append("oed.DateValue < DATEADD(day, 1, '%s')" % t.replace("'", ""))
+    return ("\n                  AND EXISTS (SELECT 1 FROM OrganizationExtra oed WITH (NOLOCK)"
+            "\n                              WHERE oed.OrganizationId = " + alias + ".OrganizationId"
+            "\n                                AND oed.Field = 'Main Event Start' AND "
+            + " AND ".join(conds) + ")")
+
+
+def get_enhanced_stats_queries(date_from='', date_to=''):
+    """Get enhanced statistics queries for missions pastors.
+
+    date_from/date_to limit the trip-based stats to trips departing in that window. The
+    upcoming-deadlines query is deliberately NOT limited -- it is always about what is
+    coming up next, whatever period you are reviewing."""
+    date_pred = _stats_date_pred(date_from, date_to, 'o')
+
     # Get the mission trip totals CTE for ALL trips (including closed)
     mission_trip_cte_all = get_mission_trip_totals_cte(include_closed=True).replace('WITH ', '').strip()
     
@@ -7458,7 +8028,7 @@ def get_enhanced_stats_queries():
                 WHERE o.IsMissionTrip = ''' + str(config.MISSION_TRIP_FLAG) + '''
                   AND o.OrganizationStatusId = ''' + str(config.ACTIVE_ORG_STATUS_ID) + '''
                   AND (mtt.Name <> 'total' OR mtt.Name IS NULL)
-                  AND (mtt.SortOrder <> 'ZZZZZ' OR mtt.SortOrder IS NULL)
+                  AND (mtt.SortOrder <> 'ZZZZZ' OR mtt.SortOrder IS NULL)''' + date_pred + '''
                   AND NOT EXISTS (
                       SELECT 1 FROM OrganizationExtra oe WITH (NOLOCK)
                       WHERE oe.OrganizationId = o.OrganizationId
@@ -7480,7 +8050,7 @@ def get_enhanced_stats_queries():
                 WHERE o.IsMissionTrip = ''' + str(config.MISSION_TRIP_FLAG) + '''
                   AND o.OrganizationStatusId = ''' + str(config.ACTIVE_ORG_STATUS_ID) + '''
                   AND (mtt.Name <> 'total' OR mtt.Name IS NULL)
-                  AND (mtt.SortOrder <> 'ZZZZZ' OR mtt.SortOrder IS NULL)
+                  AND (mtt.SortOrder <> 'ZZZZZ' OR mtt.SortOrder IS NULL)''' + date_pred + '''
                   AND EXISTS (
                       SELECT 1 FROM OrganizationExtra oe WITH (NOLOCK)
                       WHERE oe.OrganizationId = o.OrganizationId 
@@ -7501,7 +8071,7 @@ def get_enhanced_stats_queries():
                 WHERE o.IsMissionTrip = ''' + str(config.MISSION_TRIP_FLAG) + '''
                   AND o.OrganizationStatusId = ''' + str(config.ACTIVE_ORG_STATUS_ID) + '''
                   AND (mtt.Name <> 'total' OR mtt.Name IS NULL)
-                  AND (mtt.SortOrder <> 'ZZZZZ' OR mtt.SortOrder IS NULL)
+                  AND (mtt.SortOrder <> 'ZZZZZ' OR mtt.SortOrder IS NULL)''' + date_pred + '''
             )
             SELECT 
                 TripStatus,
@@ -7527,10 +8097,13 @@ def get_enhanced_stats_queries():
             WHERE o.IsMissionTrip = {0}
               AND o.OrganizationStatusId = {1}
               AND oe.Field = 'Main Event Start'
-              AND oe.DateValue >= DATEADD(YEAR, -5, GETDATE())
+              AND oe.DateValue >= {2}
+              AND oe.DateValue < {3}
             GROUP BY YEAR(oe.DateValue)
             ORDER BY TripYear DESC
-        '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID),
+        '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID,
+                   _sql_date_or(date_from, "DATEADD(YEAR, -5, GETDATE())"),
+                   _sql_date_or(date_to, "DATEADD(YEAR, 5, GETDATE())", plus_one_day=True)),
         
         'participation_by_age': '''
             SELECT 
@@ -7560,7 +8133,7 @@ def get_enhanced_stats_queries():
             WHERE o.IsMissionTrip = {0}
               AND o.OrganizationStatusId = {1}
               AND om.InactiveDate IS NULL
-              AND p.Age IS NOT NULL
+              AND p.Age IS NOT NULL{2}
             GROUP BY 
                 CASE 
                     WHEN p.Age < 18 THEN 'Youth (Under 18)'
@@ -7581,7 +8154,7 @@ def get_enhanced_stats_queries():
                     WHEN p.Age > 65 THEN 6
                     ELSE 7
                 END)
-        '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID),
+        '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID, date_pred),
         
         'repeat_participants': '''
             SELECT 
@@ -7595,12 +8168,12 @@ def get_enhanced_stats_queries():
                 INNER JOIN Organizations o WITH (NOLOCK) ON om.OrganizationId = o.OrganizationId
                 WHERE o.IsMissionTrip = {0}
                   AND o.OrganizationStatusId IN (30, 40) -- Active and Inactive
-                  AND om.MemberTypeId <> {2}
+                  AND om.MemberTypeId <> {2}{3}
                 GROUP BY om.PeopleId
             ) tc
             GROUP BY TripCount
             ORDER BY TripCount
-        '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID, config.MEMBER_TYPE_LEADER),
+        '''.format(config.MISSION_TRIP_FLAG, config.ACTIVE_ORG_STATUS_ID, config.MEMBER_TYPE_LEADER, date_pred),
         
         'financial_by_year': '''
             {0}
@@ -8420,12 +8993,21 @@ def get_email_javascript(is_admin=False):
                 result = result.replace(/\\{\\{PersonName\\}\\}/g, firstName);
             }
 
-            // Financial placeholders
+            // Financial placeholders. Only filled where the amount is actually known
+            // (per-person budget emails); left as-is otherwise rather than guessing.
+            // Replacement functions, so a value containing "$" is never read as a
+            // regex backreference like $1.
             if (this.currentMemberData.tripCost) {
-                result = result.replace(/\\{\\{TripCost\\}\\}/g, this.currentMemberData.tripCost);
+                var _tc = this.currentMemberData.tripCost;
+                result = result.replace(/\\{\\{TripCost\\}\\}/g, function() { return _tc; });
+            }
+            if (this.currentMemberData.deposit) {
+                var _dp = this.currentMemberData.deposit;
+                result = result.replace(/\\{\\{DepositAmount\\}\\}/g, function() { return _dp; });
             }
             if (this.currentMemberData.outstanding) {
-                result = result.replace(/\\{\\{Outstanding\\}\\}/g, this.currentMemberData.outstanding);
+                var _os = this.currentMemberData.outstanding;
+                result = result.replace(/\\{\\{Outstanding\\}\\}/g, function() { return _os; });
             }
 
             // Keep server-side placeholders intact
@@ -8666,7 +9248,7 @@ def get_email_javascript(is_admin=False):
                 'Blessings';
 
             // Update modal fields
-            document.getElementById('emailModalTitle').textContent = 'Send Goal Reminder to ' + memberName;
+            document.getElementById('emailModalTitle').textContent = 'Email ' + memberName;
             document.getElementById('emailTo').value = email;
             document.getElementById('emailSubject').value = subject;
             this.setBodyContent(body, false);
@@ -8675,6 +9257,7 @@ def get_email_javascript(is_admin=False):
             var templateSelect = document.getElementById('emailTemplate');
             if (templateSelect) templateSelect.value = '';
             this.loadTemplates();
+
 
             // Update advanced link visibility (hidden for individual emails)
             this.updateAdvancedLink();
@@ -8916,6 +9499,472 @@ def get_email_javascript(is_admin=False):
         }
     });
 
+    </script>
+    '''
+
+
+def get_payment_actions_javascript():
+    """Per-person payment actions in Budget & Fundraising: payment link + record payment.
+
+    Ported from TPxi_PaymentManager. The Adjust button is handled by MissionsFee, which
+    already existed.
+    """
+    return '''
+    <style>
+    /* Two columns so four actions read as one compact block instead of a thin
+       four-high stack; collapses to one column on narrow screens. */
+    .pay-btn-group {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(118px, 1fr));
+        gap: 6px;
+        min-width: 250px;
+    }
+    @media (max-width: 900px) {
+        .pay-btn-group { grid-template-columns: 1fr; min-width: 0; }
+    }
+    .pay-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 6px;
+        padding: 7px 10px;
+        font-size: 0.83rem;
+        font-weight: 500;
+        line-height: 1.2;
+        border-radius: 5px;
+        cursor: pointer;
+        border: 1px solid transparent;
+        background: #fff;
+        white-space: nowrap;
+        transition: all 0.15s ease;
+    }
+    .pay-btn .pay-ico { font-size: 0.95rem; line-height: 1; }
+    .pay-btn:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 2px 5px rgba(0,0,0,0.12); }
+    .pay-btn-link { border-color: #90caf9; color: #1565c0; background: #f5fbff; }
+    .pay-btn-link:hover { background: #e3f2fd; border-color: #2196F3; }
+    .pay-btn-record { border-color: #a5d6a7; color: #2e7d32; background: #f6fdf7; }
+    .pay-btn-record:hover { background: #e8f5e9; border-color: #2e7d32; }
+    .pay-btn-adjust { border-color: #ffcc80; color: #e65100; background: #fffaf5; }
+    .pay-btn-adjust:hover { background: #fff3e0; border-color: #ff9800; }
+    .pay-btn-hist { border-color: #c5cdd6; color: #40566b; background: #f8fafb; }
+    .pay-btn-hist:hover { background: #eef2f5; border-color: #7d94a8; }
+    .pay-btn-off { border-color: #e9ecef; color: #b0b8bf; background: #f8f9fa; cursor: not-allowed; }
+
+    .pay-modal-overlay {
+        display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.6); z-index: 10002; align-items: center; justify-content: center;
+    }
+    .pay-modal-overlay.active { display: flex; }
+    .pay-modal {
+        background: #fff; border-radius: 10px; width: 95%; max-width: 440px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;
+    }
+    .pay-modal-header {
+        background: linear-gradient(135deg, #2e7d32 0%, #43a047 100%);
+        color: #fff; padding: 16px 20px; position: relative;
+    }
+    .pay-modal-header h3 { margin: 0; font-size: 1.15rem; }
+    .pay-modal-close {
+        position: absolute; top: 12px; right: 14px; background: none; border: none;
+        color: #fff; font-size: 22px; cursor: pointer; opacity: 0.85;
+    }
+    .pay-modal-body { padding: 20px; }
+    .pay-field { margin-bottom: 14px; }
+    .pay-field label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 5px; color: #333; }
+    .pay-field input, .pay-field select, .pay-field textarea {
+        width: 100%; padding: 9px 10px; border: 1px solid #ced4da;
+        border-radius: 6px; font-size: 14px; box-sizing: border-box;
+    }
+    .pay-modal-footer {
+        display: flex; justify-content: flex-end; gap: 10px;
+        padding: 14px 20px; background: #f8f9fa;
+    }
+    .pay-modal-footer button {
+        padding: 9px 18px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.92rem;
+    }
+    .pay-cancel { background: #6c757d; color: #fff; }
+    .pay-submit { background: #2e7d32; color: #fff; }
+    .pay-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+    .pay-status { margin-top: 10px; font-size: 13px; }
+    </style>
+
+    <style>
+    .hist-modal { max-width: 760px; }
+    .hist-tabs { display: flex; gap: 4px; border-bottom: 2px solid #dee2e6; margin-bottom: 14px; }
+    .hist-tab {
+        padding: 8px 16px; font-size: 13px; font-weight: 600; color: #888;
+        cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px;
+    }
+    .hist-tab.active { color: #0d6efd; border-bottom-color: #0d6efd; }
+    .hist-pane { display: none; }
+    .hist-pane.active { display: block; }
+    .hist-scroll { max-height: 340px; overflow-y: auto; }
+    table.hist-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    table.hist-table th {
+        text-align: left; padding: 7px 9px; background: #f1f3f5; position: sticky; top: 0;
+        font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #666;
+    }
+    table.hist-table td { padding: 7px 9px; border-bottom: 1px solid #f1f3f5; vertical-align: top; }
+    table.hist-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .hist-pill {
+        display: inline-block; padding: 1px 7px; border-radius: 9px;
+        font-size: 10px; font-weight: 600; background: #e9ecef; color: #495057;
+    }
+    .hist-pill.supporter { background: #e3f2fd; color: #1565c0; }
+    .hist-pill.refund { background: #fde8e6; color: #a6332b; }
+    .hist-empty { padding: 26px; text-align: center; color: #868e96; font-style: italic; }
+    </style>
+
+    <div id="pay-hist-overlay" class="pay-modal-overlay">
+        <div class="pay-modal hist-modal">
+            <div class="pay-modal-header" style="background: linear-gradient(135deg, #1d3557 0%, #457b9d 100%);">
+                <button class="pay-modal-close" onclick="MissionsPay.closeHistory()">&times;</button>
+                <h3>History</h3>
+                <div id="pay-hist-subtitle" style="opacity:0.9; font-size:0.9rem; margin-top:3px;"></div>
+            </div>
+            <div class="pay-modal-body">
+                <div class="hist-tabs">
+                    <div class="hist-tab active" id="hist-tab-pay" onclick="MissionsPay.showHistTab('pay')">Payments</div>
+                    <div class="hist-tab" id="hist-tab-email" onclick="MissionsPay.showHistTab('email')">Emails</div>
+                </div>
+                <div id="pay-hist-content">
+                    <div class="hist-empty">Loading history...</div>
+                </div>
+            </div>
+            <div class="pay-modal-footer">
+                <button class="pay-cancel" onclick="MissionsPay.closeHistory()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="pay-record-overlay" class="pay-modal-overlay">
+        <div class="pay-modal">
+            <div class="pay-modal-header">
+                <button class="pay-modal-close" onclick="MissionsPay.closeRecord()">&times;</button>
+                <h3>Record Payment</h3>
+                <div id="pay-record-subtitle" style="opacity:0.9; font-size:0.9rem; margin-top:3px;"></div>
+            </div>
+            <div class="pay-modal-body">
+                <div class="pay-field">
+                    <label for="pay-record-amount">Amount</label>
+                    <input type="number" id="pay-record-amount" min="0.01" step="0.01" placeholder="0.00">
+                    <div id="pay-record-owed" style="margin-top:5px; font-size:12px; color:#6c757d;"></div>
+                </div>
+                <div class="pay-field">
+                    <label for="pay-record-type">Payment Type</label>
+                    <select id="pay-record-type">
+                        <option value="check">Check</option>
+                        <option value="cash">Cash</option>
+                    </select>
+                </div>
+                <div class="pay-field">
+                    <label for="pay-record-desc">Note (check number, who paid, etc.)</label>
+                    <input type="text" id="pay-record-desc" placeholder="e.g. Check #1234">
+                </div>
+                <div id="pay-record-status" class="pay-status"></div>
+            </div>
+            <div class="pay-modal-footer">
+                <button class="pay-cancel" onclick="MissionsPay.closeRecord()">Cancel</button>
+                <button class="pay-submit" id="pay-record-submit" onclick="MissionsPay.submitRecord()">Record Payment</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    var MissionsPay = {
+        peopleId: null,
+        orgId: null,
+        name: null,
+
+        ajaxUrl: function() {
+            return window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
+        },
+
+        // ---- Payment link (email / text) ----
+        // btn is passed in from the onclick rather than read off window.event, which
+        // is non-standard and absent in some browsers.
+        sendLink: function(btn, peopleId, orgId, name, channel) {
+            var what = channel === 'text' ? 'text' : 'email';
+            if (!confirm('Send ' + name + ' their payment link by ' + what + '?')) { return; }
+
+            var original = btn ? btn.innerHTML : null;
+            if (btn) { btn.disabled = true; btn.innerHTML = 'Sending...'; }
+
+            $.ajax({
+                url: this.ajaxUrl(),
+                type: 'POST',
+                data: {
+                    ajax: 'true',
+                    action: 'send_payment_link',
+                    people_id: peopleId,
+                    org_id: orgId,
+                    channel: channel
+                },
+                success: function(response) {
+                    var r;
+                    try {
+                        r = typeof response === 'string' ? JSON.parse(response) : response;
+                    } catch (e) {
+                        alert('Could not read the response. The link may not have been sent.');
+                        if (btn) { btn.disabled = false; btn.innerHTML = original; }
+                        return;
+                    }
+                    alert(r.message || (r.success ? 'Sent.' : 'Could not send.'));
+                    if (btn) { btn.disabled = false; btn.innerHTML = original; }
+                },
+                error: function(xhr, status, error) {
+                    alert('Could not send: ' + error);
+                    if (btn) { btn.disabled = false; btn.innerHTML = original; }
+                }
+            });
+        },
+
+        // ---- History (admin only; the server re-checks) ----
+        histData: null,
+
+        openHistory: function(peopleId, orgId, name) {
+            var self = this;
+            document.getElementById('pay-hist-subtitle').textContent = name;
+            document.getElementById('pay-hist-content').innerHTML =
+                '<div class="hist-empty">Loading history...</div>';
+            document.getElementById('pay-hist-overlay').classList.add('active');
+            this.showHistTab('pay', true);
+
+            $.ajax({
+                url: this.ajaxUrl(),
+                type: 'POST',
+                data: {
+                    ajax: 'true',
+                    action: 'get_member_history',
+                    people_id: peopleId,
+                    org_id: orgId
+                },
+                success: function(response) {
+                    var r;
+                    try {
+                        r = typeof response === 'string' ? JSON.parse(response) : response;
+                    } catch (e) {
+                        document.getElementById('pay-hist-content').innerHTML =
+                            '<div class="hist-empty">Could not read the response.</div>';
+                        return;
+                    }
+                    if (!r.success) {
+                        document.getElementById('pay-hist-content').innerHTML =
+                            '<div class="hist-empty">' + self.esc(r.message || 'Could not load history.') + '</div>';
+                        return;
+                    }
+                    self.histData = r;
+                    self.renderHistory();
+                },
+                error: function(xhr, status, error) {
+                    document.getElementById('pay-hist-content').innerHTML =
+                        '<div class="hist-empty">Could not load history: ' + self.esc(error) + '</div>';
+                }
+            });
+        },
+
+        histTab: 'pay',
+
+        showHistTab: function(which, skipRender) {
+            this.histTab = which;
+            var t1 = document.getElementById('hist-tab-pay');
+            var t2 = document.getElementById('hist-tab-email');
+            if (t1) { t1.className = 'hist-tab' + (which === 'pay' ? ' active' : ''); }
+            if (t2) { t2.className = 'hist-tab' + (which === 'email' ? ' active' : ''); }
+            if (!skipRender && this.histData) { this.renderHistory(); }
+        },
+
+        renderHistory: function() {
+            var d = this.histData;
+            if (!d) { return; }
+            var html = '';
+
+            if (this.histTab === 'pay') {
+                var rows = d.rows || [];
+                if (!rows.length) {
+                    html = '<div class="hist-empty">No payments or charges recorded for this trip.</div>';
+                } else {
+                    html = '<div class="hist-scroll"><table class="hist-table"><thead><tr>' +
+                           '<th>Date</th><th>Type</th><th>Detail</th>' +
+                           '<th class="num">Charge</th><th class="num">Paid</th><th class="num">Balance</th>' +
+                           '</tr></thead><tbody>';
+                    for (var i = 0; i < rows.length; i++) {
+                        var r = rows[i];
+                        var pill = 'hist-pill';
+                        if (r.kind === 'Supporter') { pill += ' supporter'; }
+                        else if (r.kind.indexOf('Refund') !== -1) { pill += ' refund'; }
+                        var detail = r.supporter
+                            ? 'Supporter: ' + this.esc(r.supporter)
+                            : this.esc(r.detail || '');
+                        html += '<tr>' +
+                            '<td>' + this.esc(r.date) + '</td>' +
+                            '<td><span class="' + pill + '">' + this.esc(r.kind) + '</span></td>' +
+                            '<td>' + detail + '</td>' +
+                            '<td class="num">' + (r.charge ? this.money(r.charge) : '') + '</td>' +
+                            '<td class="num">' + (r.payment ? this.money(r.payment) : '') + '</td>' +
+                            '<td class="num"><strong>' + this.money(r.balance) + '</strong></td>' +
+                            '</tr>';
+                    }
+                    html += '</tbody></table></div>';
+                    html += '<div style="margin-top:10px; font-size:12px; color:#6c757d;">' +
+                            'Supporter gifts are money given toward this person\\'s trip. ' +
+                            'Final balance: <strong>' + this.money(d.final_balance) + '</strong>' +
+                            (d.final_balance < 0 ? ' (credit)' : '') + '</div>';
+                }
+            } else {
+                var em = d.emails || [];
+                if (!em.length) {
+                    html = '<div class="hist-empty">No emails on record for this person.</div>';
+                } else {
+                    html = '<div class="hist-scroll"><table class="hist-table"><thead><tr>' +
+                           '<th>Sent</th><th>Subject</th><th>From</th><th class="num">Opened</th>' +
+                           '</tr></thead><tbody>';
+                    for (var j = 0; j < em.length; j++) {
+                        var e = em[j];
+                        html += '<tr>' +
+                            '<td>' + this.esc(e.sent || 'not sent') + '</td>' +
+                            '<td><a href="/Manage/Emails/' + e.message_id + '" target="_blank">' +
+                                this.esc(e.subject) + '</a></td>' +
+                            '<td>' + this.esc(e.from) + '</td>' +
+                            '<td class="num">' + (e.opened > 0 ? '&#10003; ' + e.opened : '') + '</td>' +
+                            '</tr>';
+                    }
+                    html += '</tbody></table></div>';
+                    html += '<div style="margin-top:10px; font-size:12px; color:#6c757d;">' +
+                            'Last 25 emails to this person, newest first. Opens are tracked; clicks are not.</div>';
+                }
+            }
+
+            document.getElementById('pay-hist-content').innerHTML = html;
+        },
+
+        closeHistory: function() {
+            document.getElementById('pay-hist-overlay').classList.remove('active');
+        },
+
+        money: function(v) {
+            var n = parseFloat(v) || 0;
+            var s = '$' + Math.abs(n).toLocaleString(undefined,
+                {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            return n < 0 ? '-' + s : s;
+        },
+
+        esc: function(s) {
+            if (s === null || s === undefined) { return ''; }
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        },
+
+        // ---- Record payment ----
+        openRecord: function(peopleId, orgId, name, outstanding) {
+            this.peopleId = peopleId;
+            this.orgId = orgId;
+            this.name = name;
+
+            document.getElementById('pay-record-subtitle').textContent = name;
+            document.getElementById('pay-record-amount').value = '';
+            document.getElementById('pay-record-desc').value = '';
+            document.getElementById('pay-record-type').value = 'check';
+            document.getElementById('pay-record-status').textContent = '';
+
+            var owed = document.getElementById('pay-record-owed');
+            var amt = parseFloat(outstanding) || 0;
+            if (amt > 0) {
+                owed.innerHTML = 'Currently owes <strong>$' + amt.toLocaleString(undefined,
+                    {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '</strong> ' +
+                    '<a href="#" onclick="MissionsPay.fillFull(' + amt + '); return false;">pay in full</a>';
+            } else {
+                owed.textContent = 'Nothing currently owed.';
+            }
+
+            var btn = document.getElementById('pay-record-submit');
+            btn.disabled = false;
+            btn.textContent = 'Record Payment';
+
+            document.getElementById('pay-record-overlay').classList.add('active');
+            document.getElementById('pay-record-amount').focus();
+        },
+
+        fillFull: function(amount) {
+            document.getElementById('pay-record-amount').value = amount.toFixed(2);
+        },
+
+        closeRecord: function() {
+            document.getElementById('pay-record-overlay').classList.remove('active');
+        },
+
+        submitRecord: function() {
+            var self = this;
+            var amountEl = document.getElementById('pay-record-amount');
+            var statusEl = document.getElementById('pay-record-status');
+            var btn = document.getElementById('pay-record-submit');
+
+            var amount = parseFloat(amountEl.value);
+            if (!amountEl.value.trim() || isNaN(amount) || amount <= 0) {
+                statusEl.textContent = 'Enter an amount greater than zero.';
+                statusEl.style.color = '#dc3545';
+                amountEl.focus();
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Recording...';
+            statusEl.textContent = '';
+
+            $.ajax({
+                url: this.ajaxUrl(),
+                type: 'POST',
+                data: {
+                    ajax: 'true',
+                    action: 'record_payment',
+                    people_id: self.peopleId,
+                    org_id: self.orgId,
+                    amount: amount,
+                    pay_type: document.getElementById('pay-record-type').value,
+                    description: document.getElementById('pay-record-desc').value
+                },
+                success: function(response) {
+                    var r;
+                    try {
+                        r = typeof response === 'string' ? JSON.parse(response) : response;
+                    } catch (e) {
+                        statusEl.textContent = 'Could not read the response. Check the payment before retrying.';
+                        statusEl.style.color = '#dc3545';
+                        btn.disabled = false;
+                        btn.textContent = 'Record Payment';
+                        return;
+                    }
+                    if (r.success) {
+                        statusEl.textContent = r.message + ' Refreshing...';
+                        statusEl.style.color = '#2e7d32';
+                        setTimeout(function() { window.location.reload(); }, 900);
+                    } else {
+                        statusEl.textContent = r.message || 'Could not record the payment.';
+                        statusEl.style.color = '#dc3545';
+                        btn.disabled = false;
+                        btn.textContent = 'Record Payment';
+                    }
+                },
+                error: function(xhr, status, error) {
+                    statusEl.textContent = 'Could not record the payment: ' + error;
+                    statusEl.style.color = '#dc3545';
+                    btn.disabled = false;
+                    btn.textContent = 'Record Payment';
+                }
+            });
+        }
+    };
+
+    window.MissionsPay = MissionsPay;
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            var o = document.getElementById('pay-record-overlay');
+            if (o && o.classList.contains('active')) { MissionsPay.closeRecord(); }
+            var h = document.getElementById('pay-hist-overlay');
+            if (h && h.classList.contains('active')) { MissionsPay.closeHistory(); }
+        }
+    });
     </script>
     '''
 
@@ -10363,62 +11412,76 @@ def get_approval_workflow_javascript():
             });
         },
 
-        // Show approval email prompt with editable email form
+        // Show approval email prompt with editable email form.
+        //
+        // The wording is NOT kept here. It comes from the server with the approval
+        // response: the "Registration Approved" template (Settings > Quick Email
+        // Templates), which is the user's saved version if they customised it and the
+        // built-in default otherwise. A second copy of the wording living in this file
+        // is exactly what made template edits look like they were being ignored, so
+        // the only thing below is a bare safety net for when the template cannot be
+        // read at all -- and it says so on screen instead of quietly using it.
+        // Fill a raw template string. Replacements are supplied as functions so that a
+        // value containing "$" (every currency amount does) can never be read as a
+        // regex replacement pattern like $1 or $&.
+        fillApprovalText: function(raw, costStr) {
+            var d = ApprovalWorkflow.pendingApprovalEmail;
+            if (!d) { return raw || ''; }
+            var trip = d.trip, person = d.person;
+            var depositStr = trip.deposit > 0 ? '$' + trip.deposit.toLocaleString() : '[Deposit Amount]';
+            return (raw || '')
+                .replace(/\\{\\{TripName\\}\\}/g, function() { return trip.name; })
+                .replace(/\\{\\{PersonName\\}\\}/g, function() { return person.first_name; })
+                .replace(/\\{\\{TripCost\\}\\}/g, function() { return costStr; })
+                .replace(/\\{\\{DepositAmount\\}\\}/g, function() { return depositStr; })
+                .replace(/\\\\n/g, '\\n')     // built-in templates store newlines as literal \\n
+                // A template saved through the browser editor comes back with CRLF, but a
+                // textarea's value property always reports LF. Normalise so the text we
+                // generate matches what the textarea will hold.
+                .replace(/\\r\\n?/g, '\\n');
+        },
+
         showApprovalEmailPrompt: function(approvalData) {
             var self = this;
             var person = approvalData.person;
             var trip = approvalData.trip;
-            var depositStr = trip.deposit > 0 ? '$' + trip.deposit.toLocaleString() : '[Deposit Amount]';
             var costStr = trip.cost > 0 ? '$' + trip.cost.toLocaleString() : '[Trip Cost]';
+            // Shown in the fee box below. The deposit is a property of the trip and is
+            // never affected by a per-person fee override.
+            var depositStr = trip.deposit > 0 ? '$' + trip.deposit.toLocaleString() : '[Deposit Amount]';
 
-            // Store the approval data for the email
+            var tpl = approvalData.template || {};
+            var templateMissing = !tpl.body;
+
+            var rawSubject = tpl.subject || '{{TripName}} - Registration Approved!';
+            var rawBody = tpl.body ||
+                'Dear {{PersonName}},\\n\\nYour registration for {{TripName}} has been approved.\\n\\n' +
+                'Trip Cost: {{TripCost}}\\nRequired Deposit: {{DepositAmount}}\\n\\n' +
+                '{{MyGivingLink}}\\n\\nBlessings';
+
+            // Keep the RAW template around. A fee override re-renders from it rather
+            // than editing the rendered text: patching the rendered text meant a
+            // half-typed fee like "$1" matched inside the deposit "$150" and mangled it
+            // into "$1,20050". Re-rendering can only ever touch {{TripCost}}.
             ApprovalWorkflow.pendingApprovalEmail = {
                 person: person,
-                trip: trip
+                trip: trip,
+                costStr: costStr,
+                rawSubject: rawSubject,
+                rawBody: rawBody,
+                // Set by a real keystroke in the subject/message boxes (wired up after
+                // the modal is inserted). Programmatic re-renders don't fire input
+                // events, so this stays false while we own the text.
+                //
+                // This used to compare the box against a remembered copy of what we
+                // generated, which silently broke: a template saved through the browser
+                // stores CRLF, a textarea reports LF, so the two never matched and every
+                // fee change was treated as "user edited" and refused to update.
+                userEdited: false
             };
 
-            // Load the approval notification template from MissionsEmail templates
-            var defaultSubject = trip.name + ' - Registration Approved!';
-            var defaultBody = 'Dear ' + person.first_name + ',\\n\\n' +
-                'Great news! Your registration for ' + trip.name + ' has been approved!\\n\\n' +
-                'TRIP DETAILS:\\n' +
-                '- Trip Cost: ' + costStr + '\\n' +
-                '- Required Deposit: ' + depositStr + '\\n\\n' +
-                'NEXT STEPS:\\n' +
-                '1. Pay your deposit as soon as possible to secure your spot\\n' +
-                '2. Start fundraising for the remaining balance\\n' +
-                '3. Share your personal fundraising page with friends and family\\n\\n' +
-                'PAYMENT OPTIONS:\\n' +
-                'View your payment status and make payments here:\\n' +
-                '{{MyGivingLink}}\\n\\n' +
-                'FUNDRAISING:\\n' +
-                'Share this link with supporters who want to help fund your trip:\\n' +
-                '{{SupportLink}}\\n\\n' +
-                'If you have any questions, please do not hesitate to reach out.\\n\\n' +
-                'We are excited to have you on this mission trip!\\n\\n' +
-                'Blessings';
-
-            // Try to load the approval_notification template
-            if (typeof MissionsEmail !== 'undefined' && MissionsEmail.templates && MissionsEmail.templates.length > 0) {
-                for (var i = 0; i < MissionsEmail.templates.length; i++) {
-                    if (MissionsEmail.templates[i].id === 'approval_notification') {
-                        var tpl = MissionsEmail.templates[i];
-                        // Replace placeholders
-                        defaultSubject = (tpl.subject || defaultSubject)
-                            .replace(/\\{\\{TripName\\}\\}/g, trip.name)
-                            .replace(/\\{\\{PersonName\\}\\}/g, person.first_name);
-                        defaultBody = (tpl.body || defaultBody)
-                            .replace(/\\{\\{TripName\\}\\}/g, trip.name)
-                            .replace(/\\{\\{PersonName\\}\\}/g, person.first_name)
-                            .replace(/\\{\\{TripCost\\}\\}/g, costStr)
-                            .replace(/\\{\\{DepositAmount\\}\\}/g, depositStr);
-                        break;
-                    }
-                }
-            }
-
-            // Convert \\n to actual newlines for textarea display
-            var bodyForTextarea = defaultBody.replace(/\\\\n/g, '\\n');
+            var defaultSubject = ApprovalWorkflow.fillApprovalText(rawSubject, costStr);
+            var bodyForTextarea = ApprovalWorkflow.fillApprovalText(rawBody, costStr);
 
             // Create the approval email modal with editable form
             var modalHtml = '<div id="approval-email-prompt-modal" class="email-modal-overlay active">' +
@@ -10431,13 +11494,34 @@ def get_approval_workflow_javascript():
                         '<div style="background: #d4edda; border: 1px solid #c3e6cb; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;">' +
                             '<strong style="color: #155724;">' + person.name + '</strong> has been approved for <strong style="color: #155724;">' + trip.name + '</strong>' +
                         '</div>' +
+                        (templateMissing
+                            ? '<div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; color: #721c24;">' +
+                                  '<strong>&#9888; The &ldquo;Registration Approved&rdquo; template could not be read.</strong>' +
+                                  '<br><span style="font-size: 13px;">This is a plain stand-in message &mdash; edit it before sending, ' +
+                                  'and check Settings &gt; Quick Email Templates.</span>' +
+                              '</div>'
+                            : '') +
                         '<div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;">' +
-                            '<div style="display: flex; align-items: center; gap: 10px;">' +
+                            '<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">' +
                                 '<span style="font-size: 20px;">&#128176;</span>' +
-                                '<div>' +
-                                    '<strong style="color: #856404;">Trip Fee to be Set:</strong> ' +
-                                    '<span style="font-size: 18px; font-weight: bold; color: #856404;">' + costStr + '</span>' +
-                                    (trip.deposit > 0 ? '<br><small style="color: #856404;">Deposit required: ' + depositStr + '</small>' : '') +
+                                '<div style="flex: 1; min-width: 220px;">' +
+                                    '<label for="approval-fee-input" style="display:block; font-weight:600; color:#856404; margin-bottom:4px;">Trip Fee to Set</label>' +
+                                    '<div style="display:flex; align-items:center; gap:6px;">' +
+                                        '<span style="font-size:18px; font-weight:bold; color:#856404;">$</span>' +
+                                        '<input type="number" id="approval-fee-input" min="0" step="1" ' +
+                                            'value="' + (trip.cost > 0 ? trip.cost : '') + '" ' +
+                                            'placeholder="0" ' +
+                                            'oninput="ApprovalWorkflow.onFeeChange()" ' +
+                                            'style="width:130px; padding:6px 8px; font-size:16px; font-weight:bold; color:#856404; ' +
+                                            'border:1px solid #ffc107; border-radius:4px; background:#fff;">' +
+                                        '<span id="approval-fee-note" style="font-size:11px; color:#856404;">' +
+                                            (trip.cost > 0 ? 'Trip default' : 'No trip cost set') + '</span>' +
+                                    '</div>' +
+                                    '<small style="display:block; margin-top:5px; color:#856404;">' +
+                                        'Charged to this person only. Override to bill a different amount &mdash; ' +
+                                        'the message below updates to match.' +
+                                        (trip.deposit > 0 ? '<br>Deposit required: ' + depositStr : '') +
+                                    '</small>' +
                                 '</div>' +
                             '</div>' +
                         '</div>' +
@@ -10455,7 +11539,8 @@ def get_approval_workflow_javascript():
                             '<label style="display: block; font-weight: 600; margin-bottom: 6px; color: #333;">Message:</label>' +
                             '<textarea id="approval-email-body" rows="12" ' +
                                 'style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; font-size: 14px; resize: vertical; box-sizing: border-box;">' + bodyForTextarea + '</textarea>' +
-                            '<p style="margin: 6px 0 0 0; font-size: 12px; color: #888;">Tip: Edit the default template in Settings > Quick Email Templates > "Registration Approved"</p>' +
+                            '<div id="approval-msg-warning" style="display: none; margin-top: 8px; padding: 8px 10px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; font-size: 12px; color: #856404;"></div>' +
+                            '<p style="margin: 6px 0 0 0; font-size: 12px; color: #888;">Edits here apply to this one email. To change the wording for everyone, edit Settings &gt; Quick Email Templates &gt; &ldquo;Registration Approved&rdquo;.</p>' +
                         '</div>' +
                     '</div>' +
                     '<div class="email-modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding: 15px 20px; background: #f8f9fa;">' +
@@ -10469,6 +11554,76 @@ def get_approval_workflow_javascript():
             document.getElementById('approval-email-prompt-modal').addEventListener('click', function(e) {
                 if (e.target === this) ApprovalWorkflow.closeApprovalEmailPrompt();
             });
+
+            // Mark the message as hand-edited only when someone actually types in it.
+            // Setting .value from code does not fire 'input', so re-rendering after a
+            // fee change leaves this flag alone.
+            var markEdited = function() {
+                if (ApprovalWorkflow.pendingApprovalEmail) {
+                    ApprovalWorkflow.pendingApprovalEmail.userEdited = true;
+                }
+            };
+            var subjEl = document.getElementById('approval-email-subject');
+            var bodyEl = document.getElementById('approval-email-body');
+            if (subjEl) subjEl.addEventListener('input', markEdited);
+            if (bodyEl) bodyEl.addEventListener('input', markEdited);
+        },
+
+        // Keep the notification honest when the fee is overridden by RE-RENDERING the
+        // message from the raw template with the new amount. It deliberately does not
+        // find-and-replace inside the rendered text: an in-progress fee of "$1" is a
+        // substring of the deposit "$150", so replacing turned it into "$1,20050".
+        // Re-rendering substitutes {{TripCost}} only, and cannot touch the deposit.
+        onFeeChange: function() {
+            var data = ApprovalWorkflow.pendingApprovalEmail;
+            if (!data) return;
+
+            var input = document.getElementById('approval-fee-input');
+            var note = document.getElementById('approval-fee-note');
+            if (!input) return;
+
+            var raw = input.value.trim();
+            var amount = parseFloat(raw);
+            var valid = raw !== '' && !isNaN(amount) && amount >= 0;
+
+            if (note) {
+                if (!valid) {
+                    note.textContent = raw === '' ? 'No fee will be set' : 'Enter a valid amount';
+                    note.style.color = raw === '' ? '#856404' : '#dc3545';
+                } else if (amount === (data.trip.cost || 0)) {
+                    note.textContent = 'Trip default';
+                    note.style.color = '#856404';
+                } else {
+                    note.textContent = 'Overridden (trip default ' +
+                        (data.trip.cost > 0 ? '$' + data.trip.cost.toLocaleString() : 'none') + ')';
+                    note.style.color = '#0d6efd';
+                }
+            }
+            if (!valid) return;
+
+            var newCostStr = amount > 0 ? '$' + amount.toLocaleString() : '[Trip Cost]';
+            if (newCostStr === data.costStr) return;
+
+            var subjectEl = document.getElementById('approval-email-subject');
+            var bodyEl = document.getElementById('approval-email-body');
+            var warnEl = document.getElementById('approval-msg-warning');
+
+            // Only re-render a message nobody has typed into; otherwise their wording
+            // would be thrown away without warning.
+            if (data.userEdited) {
+                data.costStr = newCostStr;
+                if (warnEl) {
+                    warnEl.style.display = 'block';
+                    warnEl.innerHTML = '&#9888; You have edited this message, so the amounts in it were left alone. ' +
+                                       'Check it still says <strong>' + newCostStr + '</strong>.';
+                }
+                return;
+            }
+
+            if (subjectEl) subjectEl.value = ApprovalWorkflow.fillApprovalText(data.rawSubject, newCostStr);
+            if (bodyEl) bodyEl.value = ApprovalWorkflow.fillApprovalText(data.rawBody, newCostStr);
+            data.costStr = newCostStr;
+            if (warnEl) warnEl.style.display = 'none';
         },
 
         closeApprovalEmailPrompt: function() {
@@ -10502,6 +11657,29 @@ def get_approval_workflow_javascript():
                 return;
             }
 
+            // Fee actually charged = whatever is in the box (may override the trip default).
+            var feeInput = document.getElementById('approval-fee-input');
+            var feeRaw = feeInput ? feeInput.value.trim() : '';
+            var feeAmount = parseFloat(feeRaw);
+
+            if (feeRaw !== '' && (isNaN(feeAmount) || feeAmount < 0)) {
+                alert('Enter a valid trip fee (0 or greater), or clear it to set no fee.');
+                if (feeInput) feeInput.focus();
+                return;
+            }
+            if (feeRaw === '') {
+                feeAmount = 0;
+            }
+
+            if (feeAmount !== (data.trip.cost || 0)) {
+                var defaultTxt = data.trip.cost > 0 ? '$' + data.trip.cost.toLocaleString() : 'no fee';
+                var newTxt = feeAmount > 0 ? '$' + feeAmount.toLocaleString() : 'no fee';
+                if (!confirm('Charge ' + data.person.name + ' ' + newTxt +
+                             ' instead of the trip default of ' + defaultTxt + '?')) {
+                    return;
+                }
+            }
+
             // Disable the send button and show loading
             var sendBtn = document.getElementById('approval-send-btn');
             if (sendBtn) {
@@ -10515,8 +11693,8 @@ def get_approval_workflow_javascript():
             var encodedBody = body.replace(/</g, '&lt;').replace(/>/g, '&gt;')
                                   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-            // Step 1: First adjust the fee (trip cost)
-            var tripCost = data.trip.cost || 0;
+            // Step 1: First adjust the fee (trip cost, or the override entered above)
+            var tripCost = feeAmount;
 
             function sendEmailAfterFee() {
                 // Step 2: Now send the email
@@ -10571,7 +11749,11 @@ def get_approval_workflow_javascript():
                         people_id: data.person.people_id,
                         org_id: data.trip.org_id,
                         amount: -tripCost,  // Negative to increase what they owe
-                        description: 'Trip fee set upon approval'
+                        // Say so when the amount isn't the trip default, so finance can
+                        // see from the transaction why this person was billed differently.
+                        description: (tripCost !== (data.trip.cost || 0) && data.trip.cost > 0)
+                            ? 'Trip fee set upon approval (override; trip default $' + data.trip.cost + ')'
+                            : 'Trip fee set upon approval'
                     },
                     success: function(response) {
                         try {
@@ -11105,6 +12287,4232 @@ def format_popup_data(data, list_type):
     html += '</div>'
     return html
 
+# ============================================================================
+# TRIP COSTS  (cost estimator + income. Expense record / scholarship ledger retired.)
+# Stored as JSON on the involvement (OrgExtra 'TPxi_TripCosts'). Admin-only.
+# ============================================================================
+COSTS_EV_NAME = 'TPxi_TripCosts'
+
+
+def _default_costs():
+    return {
+        'estimate': {'items': [
+            {'item': 'Plane ticket', 'category': 'Flights', 'basis': 'perPerson', 'amount': 0, 'days': 0},
+            {'item': 'Airport / ground transport', 'category': 'Ground', 'basis': 'total', 'amount': 0, 'days': 0},
+            {'item': 'Lodging', 'category': 'Lodging', 'basis': 'perPersonDay', 'amount': 0, 'days': 0},
+            {'item': 'Meals', 'category': 'Food', 'basis': 'perPersonDay', 'amount': 0, 'days': 0},
+            {'item': 'Insurance', 'category': 'Insurance', 'basis': 'perPersonDay', 'amount': 0, 'days': 0},
+            {'item': 'Other', 'category': 'Other', 'basis': 'total', 'amount': 0, 'days': 0},
+        ], 'scholarshipPerPerson': 0, 'plannedGoers': 0},
+        'expenses': {'items': []},
+        'scholarships': {'budget': 0, 'budgetCode': '', 'items': []},
+    }
+
+
+def load_trip_costs(org_id):
+    import json
+    try:
+        raw = model.ExtraValueTextOrg(int(org_id), COSTS_EV_NAME)
+        if raw:
+            d = json.loads(raw)
+            base = _default_costs()
+            for k in ('estimate', 'expenses', 'scholarships'):
+                if k not in d or not isinstance(d[k], dict):
+                    d[k] = base[k]
+            d['estimate'].setdefault('items', [])
+            d['estimate'].setdefault('scholarshipPerPerson', 0)
+            d['estimate'].setdefault('plannedGoers', 0)
+            d['expenses'].setdefault('items', [])
+            d['scholarships'].setdefault('items', [])
+            d['scholarships'].setdefault('budget', 0)
+            d['scholarships'].setdefault('budgetCode', '')
+            return d
+    except:
+        pass
+    return _default_costs()
+
+
+def _cf(v):
+    try:
+        return float(v)
+    except:
+        return 0.0
+
+
+def _get_trip_cost_rollup(org_id):
+    """Trip-level income: goers, total charged (TouchPoint fee), raised, outstanding."""
+    try:
+        cte = get_mission_trip_totals_cte(include_closed=True)
+        sql = cte + '''
+        SELECT ISNULL(mtt.TripCost,0) AS TripCost, ISNULL(mtt.Raised,0) AS Raised, ISNULL(mtt.Due,0) AS Due
+        FROM OrganizationMembers om WITH (NOLOCK)
+        LEFT JOIN MissionTripTotals mtt ON mtt.InvolvementId = om.OrganizationId
+             AND mtt.PeopleId = om.PeopleId AND mtt.SortOrder <> 'ZZZZZ' AND mtt.Name <> 'total'
+        WHERE om.OrganizationId = {0} AND om.MemberTypeId NOT IN (230, 311) AND om.InactiveDate IS NULL
+        '''.format(int(org_id))
+        rows = list(q.QuerySql(sql))
+        return {'goers': len(rows),
+                'charged': sum(_cf(getattr(r, 'TripCost', 0)) for r in rows),
+                'raised': sum(_cf(getattr(r, 'Raised', 0)) for r in rows),
+                'due': sum(_cf(getattr(r, 'Due', 0)) for r in rows)}
+    except Exception as e:
+        return {'goers': 0, 'charged': 0.0, 'raised': 0.0, 'due': 0.0, 'error': str(e)}
+
+
+def _mc_attr(v):
+    # unicode-safe: never str() a non-ASCII value (see _escape_html note)
+    if isinstance(v, unicode):
+        s = v
+    else:
+        try:
+            s = unicode(v)
+        except:
+            s = u''
+    return _escape_html(s).replace('"', '&quot;')
+
+
+_EST_BASES = [('perPerson', 'Per person'), ('perPersonDay', 'Per person / day'),
+              ('total', 'Total (\xc3\xb7 goers)'.decode('utf-8')), ('totalDay', 'Total / day (\xc3\xb7 goers)'.decode('utf-8'))]
+
+
+def _mc_basis_select(val):
+    v = val or 'perPerson'
+    opts = ''.join('<option value="%s"%s>%s</option>' % (b, (' selected' if v == b else ''), lbl) for (b, lbl) in _EST_BASES)
+    return '<select class="mc-in mc-basis" onchange="MC.calc()">' + opts + '</select>'
+
+
+# Suggested cost categories (free-text: a datalist gives suggestions but any value is
+# allowed). The list is admin-configurable in Settings; this is the fallback default.
+COST_CATEGORIES_EV = 'TPxi_MissionsCostCategories'
+_DEFAULT_EST_CATEGORIES = ['Flights', 'Ground', 'Lodging', 'Food', 'Insurance', 'Supplies', 'Registration', 'Medical', 'Other']
+
+
+def load_cost_categories():
+    """Admin-configurable cost-category suggestions (Special Content, comma/newline list)."""
+    try:
+        raw = model.TextContent(COST_CATEGORIES_EV)
+        if raw:
+            parts = [p.strip() for p in raw.replace('\n', ',').split(',')]
+            cats = [p for p in parts if p]
+            if cats:
+                return cats
+    except:
+        pass
+    return list(_DEFAULT_EST_CATEGORIES)
+
+
+def _mc_cat_input(val, cats):
+    v = (val or '').strip()
+    opts = ['<option value=""%s>(uncategorized)</option>' % ('' if v else ' selected')]
+    seen = False
+    for c in cats:
+        sel = ' selected' if v and v == c else ''
+        if sel:
+            seen = True
+        opts.append('<option value="%s"%s>%s</option>' % (_mc_attr(c), sel, _escape_html(c)))
+    if v and not seen:
+        # preserve an existing value that is not in the current settings list
+        opts.append('<option value="%s" selected>%s</option>' % (_mc_attr(v), _escape_html(v)))
+    return '<select class="mc-in mc-cat" onchange="MC.regroup()">' + ''.join(opts) + '</select>'
+
+
+def _trip_days_from_dates(start, end):
+    """Inclusive calendar-day count between two YYYY-MM-DD strings (0 if unknown)."""
+    try:
+        s = datetime.datetime.strptime((start or '')[:10], '%Y-%m-%d')
+        e = datetime.datetime.strptime((end or '')[:10], '%Y-%m-%d')
+        n = (e - s).days + 1
+        return n if n > 0 else 0
+    except:
+        return 0
+
+
+def _est_per_person(it, goers, default_days=0):
+    b = it.get('basis', 'perPerson')
+    amt = _cf(it.get('amount', 0))
+    days = _cf(it.get('days', 0)) or default_days   # blank/0 line -> inherit trip length
+    g = goers if goers and goers > 0 else 1
+    if b == 'perPersonDay':
+        return amt * days
+    if b == 'total':
+        return amt / g
+    if b == 'totalDay':
+        return (amt * days) / g
+    return amt  # perPerson
+
+
+def _mc_est_row(it, cats=None):
+    if cats is None:
+        cats = load_cost_categories()
+    basis = it.get('basis', 'perPerson')
+    is_daily = basis in ('perPersonDay', 'totalDay')
+    if is_daily:
+        # blank means "inherit the trip length"; only show a real per-line override
+        days_val = _mc_attr(it.get('days', '')) if _cf(it.get('days', 0)) > 0 else ''
+        days_attr = ''
+    else:
+        # non-daily bases don't use days -- show a plain 0, disabled, no ghost placeholder
+        days_val = '0'
+        days_attr = ' disabled'
+    return ('<tr class="mc-erow">'
+            '<td data-label="Item"><input type="text" class="mc-in mc-item" value="' + _mc_attr(it.get('item', '')) + '"></td>'
+            '<td data-label="Category">' + _mc_cat_input(it.get('category', ''), cats) + '</td>'
+            '<td data-label="Basis">' + _mc_basis_select(basis) + '</td>'
+            '<td data-label="Amount">$<input type="number" step="0.01" class="mc-in mc-amt" value="' + _mc_attr(it.get('amount', 0)) + '" oninput="MC.calc()"></td>'
+            '<td data-label="# days"><input type="number" step="1" class="mc-in mc-dy" value="' + days_val + '"' + days_attr + ' oninput="MC.calc()"></td>'
+            '<td data-label="Per person" class="mc-etot num">$0.00</td>'
+            '<td data-label="Actual spend" class="num">$<input type="number" step="0.01" class="mc-in mc-act" '
+            'value="' + _mc_attr(it.get('actual', '') if _cf(it.get('actual', 0)) else '') + '" '
+            'placeholder="0.00" title="What this line actually cost (whole-trip amount, not per person)" '
+            'oninput="MC.calc()"></td>'
+            '<td data-label=""><button type="button" class="mc-x" onclick="MC.del(this)">&times;</button></td></tr>')
+
+
+def render_trip_costs(org_id, user_role):
+    if not user_role.get('is_admin', False):
+        return '<div class="alert alert-danger">Costs are visible to trip administrators only.</div>'
+    trip = _get_trip_info(org_id)
+    if not trip:
+        return '<div class="alert alert-danger">Trip not found.</div>'
+    costs = load_trip_costs(org_id)
+    roll = _get_trip_cost_rollup(org_id)
+    cur = getattr(config, 'CURRENCY_SYMBOL', '$')
+
+    cats = load_cost_categories()
+    est_rows = ''.join(_mc_est_row(it, cats) for it in costs['estimate']['items']) or _mc_est_row({'item': ''}, cats)
+    sch_pp = _mc_attr(costs['estimate'].get('scholarshipPerPerson', 0))
+
+    h = []
+    h.append(MC_STYLE)
+    h.append('<div class="section-header"><div><div class="breadcrumb">'
+             '<a href="?">Dashboard</a> &rsaquo; <a href="?trip=' + str(org_id) + '">'
+             + _escape_html(trip.OrganizationName) + '</a> &rsaquo; Costs</div><h2>Costs</h2></div>'
+             '<div><button type="button" class="mc-save" onclick="MC.save()">&#128190; Save costs</button>'
+             '<span id="mc-status" class="mc-status"></span></div></div>')
+
+    # Divisor for the "Total (/ goers)" bases: the planned goer count if the leader
+    # set one (roster still filling up), otherwise the actual active goer count.
+    actual_goers = int(roll['goers'] or 0)
+    planned_goers = int(_cf(costs['estimate'].get('plannedGoers', 0)))
+    eff_goers = planned_goers if planned_goers > 0 else actual_goers
+
+    # Default # days for the "/ day" bases: the trip length from the trip dates.
+    # Each daily line can override it via its own # days column.
+    _cdates = _lg_trip_dates(org_id)
+    trip_days_calc = _trip_days_from_dates(_cdates.get('start'), _cdates.get('end'))
+
+    # income vs cost rollup (server-computed)
+    published = 0.0
+    for it in costs['estimate']['items']:
+        published += _est_per_person(it, eff_goers, trip_days_calc)
+    published -= _cf(costs['estimate'].get('scholarshipPerPerson', 0))
+    h.append('<div class="mc-cards">')
+    h.append(_mc_card('Published cost / person', cur + _mc_money(published), 'from estimator', val_id='mc-card-pub'))
+    h.append(_mc_card('Goers', str(roll['goers']), 'active team members'))
+    h.append(_mc_card('Charged (TouchPoint)', cur + _mc_money(roll['charged']), 'fees on record'))
+    h.append(_mc_card('Raised', cur + _mc_money(roll['raised']), 'paid + supporter gifts', good=True))
+    h.append(_mc_card('Outstanding', cur + _mc_money(roll['due']), 'still owed', warn=True))
+    h.append('</div>')
+
+    # estimator (category is a real <select> built from the Settings list, per row)
+    goers_val = str(planned_goers) if planned_goers > 0 else ''
+    _dl = ((_cdates.get('start') or '?') + ' to ' + (_cdates.get('end') or '?'))
+    if trip_days_calc > 0:
+        _days_hint = ('Daily (<b>/ day</b>) costs default to the trip length &mdash; <b>' + str(trip_days_calc)
+                      + ' days</b> (' + _dl + '). Set <b># days</b> on a line to override just that one.')
+    else:
+        _days_hint = ('Daily (<b>/ day</b>) costs use the <b># days</b> you enter on each line '
+                      '(trip dates are not set on this involvement, so there is no default length).')
+    h.append('<div class="mc-block"><h3>Trip cost estimator</h3>'
+             '<div class="mc-goers-bar">Split <b>total</b>-based costs across '
+             '<input type="number" step="1" min="0" id="mc-goers" value="' + goers_val + '" placeholder="' + str(actual_goers) + '" oninput="MC.calc()"> goers '
+             '<button type="button" class="mc-linkbtn" onclick="MC.useRoster()">Use roster count (' + str(actual_goers) + ')</button>'
+             '<div class="mc-note" style="margin:4px 0 0">Leave blank (or click the button) to track the <b>' + str(actual_goers) + '</b> actually signed up &mdash; it updates as people register. '
+             'Type a number to plan for an expected team size while sign-ups come in.</div>'
+             '<div class="mc-note" style="margin:8px 0 0;border-top:1px dashed #e2e8f0;padding-top:8px">' + _days_hint + '</div></div>'
+             '<table class="mc-tbl mc-resp" id="mc-est"><thead><tr><th>Item</th><th>Category</th><th>Basis</th>'
+             '<th>Amount</th><th># days</th><th>Per person</th><th>Actual spend</th><th></th></tr></thead>'
+             '<tbody>' + est_rows + '</tbody>'
+             '<tfoot><tr><td colspan="5" class="r"><b>Grand total / person</b></td>'
+             '<td class="num" id="mc-grand">$0.00</td><td class="num muted" id="mc-acthdr"></td><td></td></tr>'
+             '<tr><td colspan="5" class="r">Subtract underwriting / person</td>'
+             '<td class="num">$<input type="number" step="0.01" id="mc-schpp" value="' + sch_pp + '" oninput="MC.calc()"></td><td></td><td></td></tr>'
+             '<tr class="mc-pub"><td colspan="5" class="r"><b>Published cost / person</b></td>'
+             '<td class="num" id="mc-pub">$0.00</td><td></td><td></td></tr>'
+             '<tr class="mc-tot"><td colspan="5" class="r"><b>Per person total</b> <span id="mc-tot-lbl" class="muted"></span></td>'
+             '<td class="num" id="mc-trip">$0.00</td>'
+             '<td class="num" id="mc-acttot" title="Total actual spend entered above">$0.00</td><td></td></tr>'
+             '<tr class="mc-tot mc-uw"><td colspan="5" class="r"><b>Underwriting total</b> <span id="mc-uw-lbl" class="muted"></span></td>'
+             '<td class="num" id="mc-uwtot">$0.00</td><td></td><td></td></tr></tfoot></table>'
+             '<div id="mc-subtotals" class="mc-subtot"></div>'
+             '<button type="button" class="mc-add" onclick="MC.add(\'est\')">+ Add item</button>'
+             '<p class="mc-note" style="margin:12px 0 0"><b>How each line becomes a per-person cost:</b><br>'
+             '&bull; <b>Per person</b> &rarr; the amount, as-is (# days ignored).<br>'
+             '&bull; <b>Per person / day</b> &rarr; amount &times; # days.<br>'
+             '&bull; <b>Total (&divide; goers)</b> &rarr; amount split across the goer count set above (# days ignored).<br>'
+             '&bull; <b>Total / day (&divide; goers)</b> &rarr; amount &times; # days, then split across that goer count.<br>'
+             '<span style="color:#94a3b8">Lines with the same <b>category</b> are grouped together (with a heading when there\'s more than one) and summed under <b>Subtotals by category</b> above. On a daily line, a blank <b># days</b> uses the trip length (type a number to override just that line), and the box shows a greyed <b>0</b> on bases that don\'t use days.</span></p></div>')
+
+    # hidden row templates + config + JS
+    h.append('<template id="mc-tpl-est"><table><tbody>' + _mc_est_row({'item': ''}, cats) + '</tbody></table></template>')
+    h.append('<script>var MC_ORG="' + str(org_id) + '";var MC_CUR="' + cur + '";var MC_GOERS=' + str(int(roll['goers'] or 0)) + ';var MC_TRIPDAYS=' + str(int(trip_days_calc)) + ';</script>')
+    h.append(MC_JS)
+    return ''.join(h)
+
+
+def _mc_money(v):
+    try:
+        return '{:,.2f}'.format(float(v))
+    except:
+        return '0.00'
+
+
+def _mc_card(label, val, sub='', good=False, warn=False, val_id=''):
+    cls = 'mc-card' + (' good' if good else '') + (' warn' if warn else '')
+    idattr = (' id="' + val_id + '"') if val_id else ''
+    return ('<div class="' + cls + '"><div class="mc-cl">' + _escape_html(label) + '</div>'
+            '<div class="mc-cv"' + idattr + '>' + val + '</div><div class="mc-cs">' + _escape_html(sub) + '</div></div>')
+
+
+MC_STYLE = '''<style>
+.mc-cards{display:flex;gap:12px;flex-wrap:wrap;margin:0 0 18px}
+.mc-card{flex:1;min-width:150px;border:1px solid #e2e8f0;border-top:3px solid #1f6f54;border-radius:10px;padding:12px 14px;background:#fff}
+.mc-card.good{border-top-color:#166534}.mc-card.warn{border-top-color:#b45309}
+.mc-cl{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#64748b;font-weight:600}
+.mc-cv{font-size:22px;font-weight:800;color:#1f6f54;margin-top:3px}.mc-card.good .mc-cv{color:#166534}.mc-card.warn .mc-cv{color:#b45309}
+.mc-cs{font-size:11px;color:#94a3b8}
+.mc-block{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin:0 0 16px}
+.mc-block h3{margin:0 0 10px;color:#1f6f54;font-size:16px}
+.mc-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.mc-tbl th{background:#eef2f7;text-align:left;padding:5px 8px;font-size:11px;text-transform:uppercase;color:#334155}
+.mc-tbl td{padding:4px 8px;border-bottom:1px solid #f1f5f9}
+.mc-tbl td.num,.mc-tbl th.num{text-align:right}.mc-tbl td.r{text-align:right}
+.mc-in{width:100%;box-sizing:border-box;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px;font-size:13px}
+.mc-tbl input[type=number]{width:110px}
+.mc-x{background:none;border:0;color:#b91c1c;font-size:18px;cursor:pointer;line-height:1}
+.mc-add{margin-top:8px;background:#eef2f7;border:1px solid #cbd5e1;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;color:#1f6f54;font-weight:600}
+.mc-save{background:#1f6f54;color:#fff;border:0;border-radius:6px;padding:8px 16px;font-size:14px;cursor:pointer}
+.mc-status{margin-left:10px;font-size:13px}
+.mc-pub td{background:#f0fdf4;font-size:14px}
+.mc-tot td{background:#eef6ff;font-size:14px;border-top:1px solid #cbd5e1}
+.mc-tot .muted{font-weight:400;font-size:12px}
+tfoot .num{font-variant-numeric:tabular-nums}
+.mc-grp td{font-weight:700;color:#1f6f54;font-size:13px;padding:8px 8px 2px 10px;box-shadow:inset 3px 0 0 #1f6f54}
+.mc-gmem td:first-child{box-shadow:inset 3px 0 0 #cfe8dd}
+.mc-subtot{margin:10px 0 0;max-width:360px}
+.mc-subtot-t{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#64748b;font-weight:600;margin:0 0 4px}
+.mc-subtot-l{list-style:none;margin:0;padding:0;border:1px solid #eef2f7;border-radius:8px}
+.mc-subtot-l li{display:flex;justify-content:space-between;padding:5px 10px;font-size:13px;border-bottom:1px solid #f1f5f9}
+.mc-subtot-l li:last-child{border-bottom:0}
+.mc-subtot-l b{font-variant-numeric:tabular-nums;color:#1f6f54}
+.mc-cat{min-width:120px}
+.mc-tbl input:disabled{background:#f1f5f9;color:#cbd5e1;cursor:not-allowed;border-style:dashed}
+.mc-goers-bar{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;margin:0 0 12px;font-size:13px;color:#334155}
+.mc-goers-bar input{width:80px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px;font-size:13px;margin:0 4px}
+.mc-linkbtn{background:none;border:0;color:#1f6f54;font-weight:600;font-size:13px;cursor:pointer;text-decoration:underline;padding:0 4px}
+@media(max-width:760px){
+  .mc-resp thead{display:none}
+  .mc-resp tbody tr{display:block;border:1px solid #e2e8f0;border-radius:8px;margin:0 0 10px;padding:6px 8px;background:#fff}
+  .mc-resp tbody td{display:flex;justify-content:space-between;align-items:center;gap:10px;border:0;padding:4px 0}
+  .mc-resp tbody td:before{content:attr(data-label);font-size:11px;text-transform:uppercase;color:#64748b;font-weight:600}
+  .mc-resp tbody td[data-label=""]:before{content:""}
+  .mc-resp .mc-in{width:auto;flex:1;max-width:60%}
+  .mc-resp input[type=number]{width:auto}
+  .mc-resp .mc-etot{font-weight:700}
+  .mc-resp tbody tr.mc-grp{border:0;margin:10px 0 0;padding:0;background:none}
+  .mc-resp tbody tr.mc-grp td{display:block;padding:2px 0}
+  .mc-resp tbody tr.mc-grp td:before{content:""}
+}
+</style>'''
+
+MC_JS = '''<script>
+var MC = {
+  money: function(n){ return MC_CUR + (isNaN(n)?0:n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); },
+  num: function(el,sel){ var i=el.querySelector(sel); return i?(parseFloat(i.value)||0):0; },
+  esc: function(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); },
+  calc: function(){
+    // NB: `actual` further down already means the actual GOER COUNT -- do not reuse it here
+    var grand=0, cats={}, order=[], actSpend=0;
+    var planned=parseFloat((document.getElementById('mc-goers')||{}).value)||0;
+    var actual=(typeof MC_GOERS!=='undefined' && MC_GOERS>0)?MC_GOERS:0;
+    var g = planned>0 ? planned : (actual>0 ? actual : 1);
+    var defDays=(typeof MC_TRIPDAYS!=='undefined' && MC_TRIPDAYS>0)?MC_TRIPDAYS:0;   // trip length from the trip dates
+    document.querySelectorAll('#mc-est tbody .mc-erow').forEach(function(r){
+      var bsel=r.querySelector('.mc-basis'); var basis=bsel?bsel.value:'perPerson';
+      var amt=MC.num(r,'.mc-amt');
+      var usesDays=(basis==='perPersonDay'||basis==='totalDay');
+      var dy=r.querySelector('.mc-dy');
+      if(dy){
+        if(usesDays){
+          dy.disabled=false; dy.placeholder=(defDays>0?String(defDays):'0');
+          dy.title='Days this cost spans. Blank = trip length ('+(defDays||0)+')';
+        } else {
+          // non-daily bases don't use days -- keep it a plain 0, greyed, no ghost placeholder
+          dy.disabled=true; dy.placeholder=''; dy.value='0';
+          dy.title='Not used for this basis (only the two \\u201c/ day\\u201d bases multiply by days)';
+        }
+      }
+      var lineDays=dy?(parseFloat(dy.value)||0):0;
+      var days = usesDays ? (lineDays>0 ? lineDays : defDays) : 0;   // blank daily line -> inherit trip length
+      var pp = basis==='perPersonDay' ? amt*days : basis==='total' ? amt/g : basis==='totalDay' ? amt*days/g : amt;
+      r.querySelector('.mc-etot').textContent=MC.money(pp); grand+=pp;
+      actSpend += MC.num(r,'.mc-act');    // whole-trip amount, not per person
+      var ci=r.querySelector('.mc-cat'); var cat=(ci?ci.value.trim():'')||'Uncategorized';
+      if(!(cat in cats)){ cats[cat]=0; order.push(cat); }
+      cats[cat]+=pp;
+    });
+    document.getElementById('mc-grand').textContent=MC.money(grand);
+    // category sums panel below the estimator
+    var sub=document.getElementById('mc-subtotals');
+    if(sub){
+      if(order.length>1 || (order.length===1 && order[0]!=='Uncategorized')){
+        var html='<div class="mc-subtot-t">Subtotals by category</div><ul class="mc-subtot-l">';
+        order.sort(function(a,b){ return cats[b]-cats[a]; });
+        order.forEach(function(c){ html+='<li><span>'+MC.esc(c)+'</span><b>'+MC.money(cats[c])+'</b></li>'; });
+        html+='</ul>'; sub.innerHTML=html;
+      } else { sub.innerHTML=''; }
+    }
+    var schpp=parseFloat((document.getElementById('mc-schpp')||{}).value)||0;
+    var pub=grand-schpp;
+    document.getElementById('mc-pub').textContent=MC.money(pub);
+    var pubCard=document.getElementById('mc-card-pub'); if(pubCard){ pubCard.textContent=MC.money(pub); }
+    // whole-team total = published per-person x the goer count used above
+    var tripEl=document.getElementById('mc-trip');
+    if(tripEl){ tripEl.textContent=MC.money(pub*g);
+      var lbl=document.getElementById('mc-tot-lbl'); if(lbl){ lbl.textContent='('+MC.money(pub)+' \\u00d7 '+g+' goers)'; } }
+    // what underwriting covers across the team
+    var uwEl=document.getElementById('mc-uwtot');
+    if(uwEl){ uwEl.textContent=MC.money(schpp*g);
+      var ulbl=document.getElementById('mc-uw-lbl'); if(ulbl){ ulbl.textContent='('+MC.money(schpp)+' \\u00d7 '+g+' goers)'; } }
+    // actual spend recorded on the estimate lines
+    var actEl=document.getElementById('mc-acttot'); if(actEl){ actEl.textContent=MC.money(actSpend); }
+    var actHdr=document.getElementById('mc-acthdr');
+    if(actHdr){
+      var est=grand*g;   // what the whole trip was estimated to cost, before underwriting
+      actHdr.textContent = actSpend>0 ? ((actSpend>est?'over ':'under ')+MC.money(Math.abs(actSpend-est))) : '';
+      actHdr.style.color = actSpend>est ? '#b91c1c' : '#166534';
+    }
+  },
+  useRoster: function(){ var el=document.getElementById('mc-goers'); if(el){ el.value=''; } MC.calc(); },
+  // Cluster the estimator rows under a header per category, with a subtotal row
+  // after each group. Rows keep their inputs (nodes are just repositioned), so
+  // editing amount/days/basis never regroups -- only add/delete/category-change do.
+  group: function(){
+    var tbody=document.querySelector('#mc-est tbody'); if(!tbody) return;
+    var rows=Array.prototype.slice.call(tbody.querySelectorAll('.mc-erow'));
+    // drop any existing header rows
+    Array.prototype.slice.call(tbody.querySelectorAll('.mc-grp')).forEach(function(x){ x.parentNode.removeChild(x); });
+    var groups={}, order=[];
+    rows.forEach(function(r){
+      var ci=r.querySelector('.mc-cat'); var cat=(ci?ci.value.trim():'')||'Uncategorized';
+      if(!(cat in groups)){ groups[cat]=[]; order.push(cat); }
+      groups[cat].push(r);
+    });
+    rows.forEach(function(r){ if(r.parentNode) r.parentNode.removeChild(r); });
+    order.forEach(function(cat){
+      var multi=groups[cat].length>1;
+      // a plain bold text header only when the category has more than one line
+      if(multi){
+        var hdr=document.createElement('tr'); hdr.className='mc-grp'; hdr.setAttribute('data-cat',cat);
+        hdr.innerHTML='<td colspan="7">'+MC.esc(cat)+'</td>';
+        tbody.appendChild(hdr);
+      }
+      groups[cat].forEach(function(r){
+        if(multi){ r.classList.add('mc-gmem'); } else { r.classList.remove('mc-gmem'); }
+        tbody.appendChild(r);
+      });
+    });
+  },
+  regroup: function(){ MC.group(); MC.calc(); },
+  add: function(kind){
+    var tpl=document.getElementById('mc-tpl-'+kind);
+    var row=tpl.content.querySelector('tr').cloneNode(true);
+    document.querySelector('#mc-'+kind+' tbody').appendChild(row);
+    if(kind==='est'){ MC.group(); }
+    MC.calc(); MC.touch();
+  },
+  del: function(btn){ var r=btn.closest('tr'); var wasEst=r.classList.contains('mc-erow'); r.parentNode.removeChild(r); if(wasEst){ MC.group(); } MC.calc(); MC.touch(); },
+  gather: function(){
+    var est=[]; document.querySelectorAll('#mc-est tbody .mc-erow').forEach(function(r){
+      var item=r.querySelector('.mc-item').value.trim();
+      var ci=r.querySelector('.mc-cat'); var cat=ci?ci.value.trim():'';
+      var bsel=r.querySelector('.mc-basis'); var basis=bsel?bsel.value:'perPerson';
+      var amt=parseFloat(r.querySelector('.mc-amt').value)||0, dy=parseFloat(r.querySelector('.mc-dy').value)||0;
+      var act=parseFloat((r.querySelector('.mc-act')||{}).value)||0;
+      if(item||amt||dy||act) est.push({item:item,category:cat,basis:basis,amount:amt,days:dy,actual:act});
+    });
+    return {estimate:{items:est,scholarshipPerPerson:parseFloat(document.getElementById('mc-schpp').value)||0,plannedGoers:parseFloat((document.getElementById('mc-goers')||{}).value)||0},
+           };
+  },
+  save: function(){
+    var st=document.getElementById('mc-status'); st.textContent='Saving...'; st.style.color='#64748b';
+    var url=window.location.pathname.replace('/PyScript/','/PyScriptForm/');
+    var fd=new FormData(); fd.append('action','save_trip_costs'); fd.append('org',MC_ORG); fd.append('payload',JSON.stringify(MC.gather()));
+    fetch(url,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.text();}).then(function(t){
+      var ok=false; try{ ok=JSON.parse(t).success; }catch(e){}
+      st.textContent= ok?'Saved \\u2713':'Save failed'; st.style.color= ok?'#166534':'#b91c1c';
+      if(ok){ MC.dirty=false; setTimeout(function(){ window.location.reload(); }, 600); }
+    }).catch(function(){ st.textContent='Save failed'; st.style.color='#b91c1c'; });
+  },
+  // Costs are saved by the button, not automatically -- so warn before the work is lost.
+  dirty: false,
+  touch: function(){
+    if(MC.dirty) return;
+    MC.dirty=true;
+    var st=document.getElementById('mc-status');
+    if(st){ st.textContent='Unsaved changes'; st.style.color='#b45309'; }
+  },
+  watch: function(){
+    var mark=function(){ MC.touch(); };
+    ['mc-est'].forEach(function(id){
+      var el=document.getElementById(id);
+      if(el){ el.addEventListener('input', mark); el.addEventListener('change', mark); }
+    });
+    ['mc-goers','mc-schpp'].forEach(function(id){
+      var el=document.getElementById(id);
+      if(el){ el.addEventListener('input', mark); }
+    });
+    window.addEventListener('beforeunload', function(e){
+      if(!MC.dirty) return;
+      e.preventDefault(); e.returnValue='You have unsaved cost changes.';
+      return e.returnValue;
+    });
+  }
+};
+MC.init=function(){ MC.group(); MC.calc(); MC.watch(); };
+if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', MC.init); }
+else { MC.init(); }
+</script>'''
+
+
+def handle_save_trip_costs():
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required.'})
+            return True
+        org_id = int(str(getattr(Data, 'org', '0')).strip() or '0')
+        payload = str(getattr(Data, 'payload', '') or '')
+        data = json.loads(payload)
+        # keep only the known structure
+        clean = _default_costs()
+        if isinstance(data.get('estimate'), dict):
+            _valid_bases = ('perPerson', 'perPersonDay', 'total', 'totalDay')
+            _est_items = []
+            for it in data['estimate'].get('items', []):
+                if not isinstance(it, dict):
+                    continue
+                b = it.get('basis', 'perPerson')
+                if b not in _valid_bases:
+                    b = 'perPerson'
+                _est_items.append({'item': it.get('item', ''), 'category': it.get('category', ''), 'basis': b,
+                                   'amount': _cf(it.get('amount', 0)), 'days': _cf(it.get('days', 0)),
+                                   'actual': _cf(it.get('actual', 0))})
+            clean['estimate']['items'] = _est_items
+            clean['estimate']['scholarshipPerPerson'] = _cf(data['estimate'].get('scholarshipPerPerson', 0))
+            _pg = int(_cf(data['estimate'].get('plannedGoers', 0)))
+            clean['estimate']['plannedGoers'] = _pg if _pg > 0 else 0
+        # The Expense record and Scholarship ledger were retired (superseded by the
+        # estimator's Actual spend column and Underwriting per person). The form no longer
+        # sends them, so carry any existing values straight through rather than blanking
+        # data that is still sitting on the involvement.
+        _prior = load_trip_costs(org_id)
+        clean['expenses'] = _prior.get('expenses', {'items': []})
+        clean['scholarships'] = _prior.get('scholarships', {'budget': 0, 'budgetCode': '', 'items': []})
+        model.AddExtraValueTextOrg(org_id, COSTS_EV_NAME, safe_json(clean))
+        print json.dumps({'success': True, 'rollup': _get_trip_cost_rollup(org_id)})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+# ============================================================================
+# TRIP LOGISTICS  (Phase 2: the "Mission Trip Logistics" sheet)
+# Stored as JSON on the involvement (OrgExtra 'TPxi_TripLogistics'). Admin now;
+# trip-leader exposure comes in a later phase.
+# ============================================================================
+LOG_EV_NAME = 'TPxi_TripLogistics'
+DEFAULT_CONTACT_EV = 'TPxi_MissionsDefaultContact'   # church-wide default First Baptist contact
+
+
+def load_default_contact():
+    import json
+    try:
+        raw = model.TextContent(DEFAULT_CONTACT_EV)
+        if raw:
+            d = json.loads(raw)
+            return {'name': d.get('name', ''), 'phone': d.get('phone', ''), 'email': d.get('email', '')}
+    except:
+        pass
+    return {'name': '', 'phone': '', 'email': ''}
+
+
+def handle_save_default_contact():
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required.'})
+            return True
+        d = {'name': str(getattr(Data, 'name', '') or '').strip(),
+             'phone': str(getattr(Data, 'phone', '') or '').strip(),
+             'email': str(getattr(Data, 'email', '') or '').strip()}
+        model.WriteContentText(DEFAULT_CONTACT_EV, safe_json(d), "")
+        print json.dumps({'success': True})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+# flight legs (outbound / return) are LISTS so a trip can have any number of
+# connecting flights; lodging is a list too. Everything else is a flat group.
+_LG_LIST_KEYS = ('flights', 'lodging', 'ground', 'activities')
+
+
+def _empty_leg():
+    return {'direction': 'Outbound', 'airline': '', 'flightNum': '', 'recordLocator': '', 'fromCity': '',
+            'toCity': '', 'departs': '', 'arrives': '', 'notes': ''}
+
+
+_DIR_OPTIONS = ('Outbound', 'In-country', 'Return', 'Other')
+_DIR_RANK = {'Outbound': 0, 'In-country': 1, 'Return': 2, 'Other': 3}
+
+
+def _empty_ground():
+    return {'direction': 'Outbound', 'mode': '', 'fromLoc': '', 'toLoc': '', 'when': '', 'provider': '', 'notes': ''}
+
+
+def _default_logistics():
+    return {
+        # dates + team leader(s) are inherited from the trip itself (not stored here);
+        # only logistics-specific summary fields live in this blob.
+        'summary': {'meetingPlace': '', 'meetingTime': ''},
+        'flights': [],
+        'ground': [],
+        'lodging': [],
+        'activities': [],
+        'contacts': {'fbchName': '', 'fbchPhone': '', 'fbchEmail': '', 'inCountryName': '', 'inCountryPhone': ''},
+    }
+
+
+def load_trip_logistics(org_id):
+    import json
+    try:
+        raw = model.ExtraValueTextOrg(int(org_id), LOG_EV_NAME)
+        if raw:
+            d = json.loads(raw)
+            base = _default_logistics()
+            for k in base:
+                if k in _LG_LIST_KEYS:
+                    if not isinstance(d.get(k), list) or not d[k]:
+                        d[k] = base[k]
+                elif not isinstance(d.get(k), dict):
+                    d[k] = base[k]
+                else:
+                    for fk in base[k]:
+                        d[k].setdefault(fk, '')
+            return d
+    except:
+        pass
+    return _default_logistics()
+
+
+def _lg_trip_dates(org_id):
+    # Trip dates come from the involvement's Main Event Start/End. Read them straight
+    # from OrganizationExtra (the same source the sidebar/trip list uses) -- the
+    # model.ExtraValueDateOrg path was returning nothing for some trips. ISO via
+    # CONVERT(...,126) avoids the US-format date-string gotcha.
+    sql = '''
+    SELECT
+      CONVERT(varchar(10), s.DateValue, 126) AS StartDate,
+      CONVERT(varchar(10), e.DateValue, 126) AS EndDate
+    FROM Organizations o WITH (NOLOCK)
+    LEFT JOIN OrganizationExtra s WITH (NOLOCK) ON s.OrganizationId = o.OrganizationId AND s.Field = 'Main Event Start'
+    LEFT JOIN OrganizationExtra e WITH (NOLOCK) ON e.OrganizationId = o.OrganizationId AND e.Field = 'Main Event End'
+    WHERE o.OrganizationId = {0}
+    '''.format(int(org_id))
+    try:
+        rows = list(q.QuerySql(sql))
+        if rows:
+            r = rows[0]
+            return {'start': (getattr(r, 'StartDate', '') or ''), 'end': (getattr(r, 'EndDate', '') or '')}
+    except:
+        pass
+    return {'start': '', 'end': ''}
+
+
+def _lg_trip_leaders(org_id):
+    # team leader(s) come from the involvement's leader-type members
+    types = ','.join(str(x) for x in config.LEADER_MEMBER_TYPES)
+    sql = '''
+    SELECT p.Name2 AS Name, ISNULL(p.CellPhone, '') AS Cell
+    FROM OrganizationMembers om WITH (NOLOCK)
+    JOIN People p WITH (NOLOCK) ON p.PeopleId = om.PeopleId
+    WHERE om.OrganizationId = {0} AND om.MemberTypeId IN ({1}) AND om.InactiveDate IS NULL
+    ORDER BY p.Name2
+    '''.format(int(org_id), types or '140,310,320')
+    out = []
+    try:
+        for r in q.QuerySql(sql):
+            out.append({'name': _u(r.Name) if '_u' in globals() else (r.Name or ''),
+                        'cell': r.Cell or ''})
+    except:
+        pass
+    return out
+
+
+#####################################################################
+# ITINERARY REPORT -- printable / emailable trip logistics sheet
+#####################################################################
+
+def _it_dt(val):
+    """'2026-08-01T14:30' or '2026-08-01' -> ('Sat, Aug 1, 2026', '2:30 PM'). Empty parts
+    come back as ''. Never str()s a .NET DateTime (US-format gotcha) -- these are the ISO
+    strings the logistics form stores."""
+    s = str(val or '').strip().replace(' ', 'T')
+    if not s:
+        return ('', '')
+    d, t = (s.split('T', 1) + [''])[:2]
+    day = ''
+    try:
+        dt = datetime.datetime.strptime(d[:10], '%Y-%m-%d')
+        day = dt.strftime('%a, %b ') + str(dt.day) + dt.strftime(', %Y')
+    except:
+        day = d
+    tm = ''
+    if t:
+        try:
+            hh, mm = int(t[0:2]), int(t[3:5])
+            ap = 'AM' if hh < 12 else 'PM'
+            h12 = hh % 12
+            tm = '%d:%02d %s' % (12 if h12 == 0 else h12, mm, ap)
+        except:
+            tm = t
+    return (day, tm)
+
+
+def _it_when(val):
+    """One-line 'Sat, Aug 1, 2026 2:30 PM'."""
+    d, t = _it_dt(val)
+    return (d + (' ' + t if t else '')) if d else ''
+
+
+def _it_layover(prev_arrives, next_departs):
+    """Human layover between two legs, e.g. '2h 15m'. '' if either end is missing or the
+    gap is negative (bad data / crossing an unknown timezone)."""
+    def _p(v):
+        s = str(v or '').strip().replace(' ', 'T')
+        try:
+            return datetime.datetime(int(s[0:4]), int(s[5:7]), int(s[8:10]),
+                                     int(s[11:13]), int(s[14:16]))
+        except:
+            return None
+    a, b = _p(prev_arrives), _p(next_departs)
+    if not a or not b:
+        return ''
+    mins = int((b - a).total_seconds() // 60)
+    if mins <= 0:
+        return ''
+    return (('%dh ' % (mins // 60)) if mins >= 60 else '') + ('%dm' % (mins % 60))
+
+
+def _it_legs(flights, direction):
+    """Flights for one direction, in departure order, each with the layover that follows."""
+    legs = [f for f in (flights or []) if (f.get('direction') or 'Outbound') == direction]
+    legs.sort(key=lambda f: (str(f.get('departs') or 'zzz')))
+    for i, leg in enumerate(legs):
+        leg['layoverAfter'] = (_it_layover(leg.get('arrives'), legs[i + 1].get('departs'))
+                               if i + 1 < len(legs) else '')
+    return legs
+
+
+def build_itinerary(org_id):
+    """Everything the printed/emailed itinerary needs, resolved from the trip + logistics.
+    Mirrors the fields on the church's Mission Trip Logistics sheet."""
+    trip = _get_trip_info(org_id)
+    lg = load_trip_logistics(org_id)
+    dates = _lg_trip_dates(org_id)
+    leaders = _lg_trip_leaders(org_id)
+    contacts = lg.get('contacts', {}) or {}
+    default_contact = {}
+    try:
+        default_contact = load_default_contact() or {}
+    except:
+        pass
+    dep_day, _x = _it_dt(dates.get('start', ''))
+    ret_day, _y = _it_dt(dates.get('end', ''))
+    meet_day, meet_time = _it_dt((lg.get('summary', {}) or {}).get('meetingTime', ''))
+    ground = list(lg.get('ground', []) or [])
+    ground.sort(key=lambda g: (str(g.get('when') or 'zzz')))
+    lodging = list(lg.get('lodging', []) or [])
+    acts = list(lg.get('activities', []) or [])
+    acts.sort(key=lambda a: (str(a.get('when') or 'zzz')))
+    return {
+        'orgId': int(org_id),
+        'tripName': (trip.OrganizationName if trip else ('Trip %s' % org_id)),
+        'departureDate': dep_day,
+        'returnDate': ret_day,
+        'leaders': leaders,
+        'meetingPlace': (lg.get('summary', {}) or {}).get('meetingPlace', ''),
+        'meetingDay': meet_day,
+        'meetingTime': meet_time,
+        # raw ISO so the gather slots into the chronological itinerary correctly
+        'meetingSort': (lg.get('summary', {}) or {}).get('meetingTime', ''),
+        'outbound': _it_legs(lg.get('flights', []), 'Outbound'),
+        'inCountryAir': _it_legs(lg.get('flights', []), 'In-country'),
+        'otherAir': _it_legs(lg.get('flights', []), 'Other'),
+        'returnLegs': _it_legs(lg.get('flights', []), 'Return'),
+        'ground': ground,
+        'lodging': lodging,
+        'activities': acts,
+        'fbchName': contacts.get('fbchName', '') or default_contact.get('name', ''),
+        'fbchPhone': contacts.get('fbchPhone', '') or default_contact.get('phone', ''),
+        'fbchEmail': contacts.get('fbchEmail', '') or default_contact.get('email', ''),
+        'inCountryName': contacts.get('inCountryName', ''),
+        'inCountryPhone': contacts.get('inCountryPhone', ''),
+    }
+
+
+# A blank that the reader should NOTICE. Used only for fields that matter on a travel
+# document -- a missing record locator or driver phone needs to be obvious before someone
+# is standing at an airport, not silently absent.
+IT_MISSING = '<span class="it-na">&mdash;</span>'
+
+
+def _it_row(label, value, required=False):
+    """One label/value row. Blank values vanish, EXCEPT when required=True, which prints a
+    dash placeholder instead. `required` means "if this item exists, this field matters" --
+    it never forces a whole section to appear, so a trip with no flights still shows no
+    flight rows at all."""
+    if not value and not required:
+        return ''
+    return ('<tr><th>' + _escape_html(label) + '</th><td>'
+            + (_escape_html(value) if value else IT_MISSING) + '</td></tr>')
+
+
+def _it_row_raw(label, value, extra_html='', required=False):
+    """Like _it_row but appends already-safe markup (e.g. a tracker link) after the value."""
+    if not value and not required:
+        return ''
+    return ('<tr><th>' + _escape_html(label) + '</th><td>'
+            + (_escape_html(value) if value else IT_MISSING)
+            + (extra_html or '') + '</td></tr>')
+
+
+def _it_track_link(airline, flight_no):
+    """Flight-status lookup, same form the Logistics timeline uses (LG.track). A real
+    anchor: the itinerary is HTML in both the email and the print popup."""
+    q_ = ' '.join(x for x in [(airline or '').strip(), (flight_no or '').strip()] if x)
+    if not q_:
+        return ''
+    return (' <a class="it-trk" target="_blank" href="https://www.google.com/search?q='
+            + _url_quote(q_ + ' flight status') + '">Track &#9992;</a>')
+
+
+def _it_prepared_on():
+    """When this copy of the sheet was generated -- printed itineraries get carried around
+    for weeks, so a reader needs to know how old the one in their hand is."""
+    try:
+        now = datetime.datetime.now()
+        hh = now.hour % 12
+        return (now.strftime('%b ') + str(now.day) + now.strftime(', %Y')
+                + ' at %d:%02d %s' % (12 if hh == 0 else hh, now.minute,
+                                      'AM' if now.hour < 12 else 'PM'))
+    except:
+        return ''
+
+
+def _url_quote(s):
+    """Minimal percent-encoding for a query-string value (IronPython-safe)."""
+    safe = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~'
+    out = []
+    try:
+        raw = s.encode('utf-8') if isinstance(s, unicode) else str(s)
+    except:
+        raw = str(s)
+    for ch in raw:
+        out.append(ch if ch in safe else ('+' if ch == ' ' else '%%%02X' % ord(ch)))
+    return ''.join(out)
+
+
+def _it_section(title):
+    return '<tr class="it-sec"><th colspan="2">' + _escape_html(title) + '</th></tr>'
+
+
+def _it_flight_rows(legs, label):
+    """Airline/flight, departure, connection, layover, arrival -- the spreadsheet's shape,
+    repeated per leg so multi-leg journeys read in order."""
+    if not legs:
+        return ''
+    h = []
+    for i, f in enumerate(legs):
+        n = ('' if len(legs) == 1 else ' %d' % (i + 1))
+        air = ' '.join(x for x in [(f.get('airline') or ''), (f.get('flightNum') or '')] if x)
+        h.append(_it_row_raw(label + n + ' airline and flight number', air,
+                             _it_track_link(f.get('airline'), f.get('flightNum')), required=True))
+        h.append(_it_row(label + n + ' confirmation / record locator', f.get('recordLocator', ''), required=True))
+        h.append(_it_row(label + n + ' departs', _it_place_when(f.get('fromCity', ''), _it_when(f.get('departs'))), required=True))
+        h.append(_it_row(label + n + ' arrives', _it_place_when(f.get('toCity', ''), _it_when(f.get('arrives'))), required=True))
+        if f.get('layoverAfter'):
+            h.append(_it_row('Layover in ' + (f.get('toCity') or 'connecting city'), f['layoverAfter']))
+        h.append(_it_row(label + n + ' notes', f.get('notes', '')))
+    return ''.join(h)
+
+
+def _it_place_when(place, when):
+    """'BNA - Sat, Aug 1, 2026 6:15 AM' from whichever parts exist."""
+    return ' - '.join(x for x in [(place or '').strip(), (when or '').strip()] if x)
+
+
+# Inlined so the table survives being pasted into an email or a print popup, where no
+# external stylesheet is available.
+IT_CSS = (
+    'table.it-tbl{border-collapse:collapse;width:100%;max-width:780px;font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#222}'
+    'table.it-tbl th,table.it-tbl td{border:1px solid #b8b8b8;padding:6px 9px;text-align:left;vertical-align:top}'
+    'table.it-tbl th{width:42%;font-weight:700;background:#f4f6f8}'
+    'table.it-tbl tr.it-sec th{background:#1f6f54;color:#fff;width:auto;font-size:13px;letter-spacing:.3px;text-transform:uppercase}'
+    'table.it-tbl tr.it-title th{background:#fff;color:#111;text-align:center;font-size:19px;border:0;padding:4px 0 12px;text-transform:none;letter-spacing:0}'
+    'table.it-tbl td.it-empty{color:#888;font-style:italic}'
+    'table.it-tbl tr.it-prep td{border:0;padding:0 0 10px;color:#666;font-size:11px;text-align:center}'
+    'a.it-trk{margin-left:8px;font-size:11px;font-weight:700;color:#1f6f54;text-decoration:none;white-space:nowrap}'
+    'span.it-na{color:#b45309;font-weight:700}'
+    'table.it-tbl th.it-when{width:30%;white-space:nowrap;font-weight:700;color:#0f172a}'
+    'table.it-tbl div.it-t{font-weight:700;margin:0 0 3px}'
+    'table.it-tbl div.it-d{font-size:12px;color:#444;margin:1px 0}'
+    'table.it-tbl div.it-d span{color:#777}'
+    'table.it-tbl div.it-priv{background:#fffbeb;border-left:3px solid #d97706;padding:2px 6px;margin:3px 0 0}'
+    'table.it-tbl div.it-priv span{color:#92400e;font-weight:700}'
+)
+
+
+def _lg_gather_conflict(lg):
+    """The gather time should come before the first thing the team travels on. If it does
+    not, the itinerary reads as if everyone meets after their plane has left -- almost always
+    a mistyped meeting time. Returns a message, or '' when the order is fine."""
+    meet = str((lg.get('summary', {}) or {}).get('meetingTime', '') or '').strip().replace(' ', 'T')
+    if len(meet) < 16:
+        return ''   # no time set (or date only) -- nothing to compare
+    firsts = []
+    for f in (lg.get('flights', []) or []):
+        d = str(f.get('departs') or '').strip().replace(' ', 'T')
+        if len(d) >= 16:
+            firsts.append((d, 'flight ' + ' '.join(x for x in [(f.get('airline') or ''),
+                                                               (f.get('flightNum') or '')] if x).strip()))
+    for g in (lg.get('ground', []) or []):
+        d = str(g.get('when') or '').strip().replace(' ', 'T')
+        if len(d) >= 16:
+            firsts.append((d, (g.get('mode') or 'ground transport')))
+    if not firsts:
+        return ''
+    firsts.sort()
+    first_dt, what = firsts[0]
+    if meet <= first_dt:
+        return ''
+    return ('The meeting time (%s) is <b>after</b> the first departure &mdash; %s at %s. '
+            'The itinerary will list the gather last. Check the meeting time.'
+            % (_it_when(meet), _escape_html(what), _it_when(first_dt)))
+
+
+def _it_can_see_locators():
+    """Only the small role list in Config may see record locators, and only on screen."""
+    for role in (getattr(config, 'RECORD_LOCATOR_ROLES', []) or []):
+        try:
+            if model.UserIsInRole(role):
+                return True
+        except:
+            pass
+    return False
+
+
+def _it_sort_key(iso, bucket=5):
+    """Sort by real datetime; undated items fall to the end in a stable order."""
+    s = str(iso or '').strip().replace(' ', 'T')
+    return (s[:16] if len(s) >= 10 else 'zzzz') + ('%02d' % bucket)
+
+
+def _it_detail(label, value):
+    """A sub-line under an itinerary entry. Blank shows the amber dash -- these are the
+    fields that matter on a travel document, so a gap should be noticed."""
+    return ('<div class="it-d"><span>' + _escape_html(label) + ':</span> '
+            + (_escape_html(value) if value else IT_MISSING) + '</div>')
+
+
+def build_itinerary_events(itin, audience):
+    """The whole trip as ONE chronological list -- gather, flights, ground, hotel check
+    in/out and scheduled activities interleaved by time. Grouping by type (all flights, then
+    all ground) reads wrong on a travel day, where the bus to the airport comes before the
+    flight it feeds.
+
+    audience: 'admin'  -> on-screen, may include record locators
+              'leader' -> confirmation numbers, no record locators
+              'team'   -> no booking references at all
+    """
+    show_conf = audience in ('admin', 'leader')
+    show_loc = (audience == 'admin')
+    show_private = audience in ('admin', 'leader')   # private notes never reach the team copy
+
+    def _private(it):
+        """The leaders-only note for one item, or nothing."""
+        v = (it.get('privateNote') or '').strip()
+        if not v or not show_private:
+            return []
+        return ['<div class="it-d it-priv"><span>Private (leaders):</span> ' + _escape_html(v) + '</div>']
+
+    evs = []
+
+    # Titled to match the field on the Logistics form ("Meeting point (departure)") so it is
+    # findable by the name people already know.
+    if itin['meetingDay'] or itin['meetingTime'] or itin['meetingPlace']:
+        when = (itin['meetingDay'] + (' ' + itin['meetingTime'] if itin['meetingTime'] else '')).strip()
+        evs.append({'sort': _it_sort_key(itin.get('meetingSort') or '', 0), 'when': when or '&mdash;',
+                    'title': '&#128681; Meeting point (departure)',
+                    'lines': [_it_detail('Where to meet', itin['meetingPlace']),
+                              _it_detail('Leave the meeting point', itin['meetingTime'] or '')]})
+
+    for key, lbl in (('outbound', 'Flight'), ('inCountryAir', 'In-country flight'),
+                     ('otherAir', 'Flight'), ('returnLegs', 'Return flight')):
+        for f in itin[key]:
+            air = ' '.join(x for x in [(f.get('airline') or ''), (f.get('flightNum') or '')] if x)
+            lines = [_it_detail('From', _it_place_when(f.get('fromCity', ''), _it_when(f.get('departs')))),
+                     _it_detail('To', _it_place_when(f.get('toCity', ''), _it_when(f.get('arrives'))))]
+            if show_loc:
+                lines.append(_it_detail('Record locator', f.get('recordLocator', '')))
+            if f.get('layoverAfter'):
+                lines.append(_it_detail('Layover in ' + (f.get('toCity') or 'connecting city'), f['layoverAfter']))
+            if f.get('notes'):
+                lines.append(_it_detail('Notes', f.get('notes')))
+            lines += _private(f)
+            evs.append({'sort': _it_sort_key(f.get('departs'), 2),
+                        'when': _it_when(f.get('departs')) or '&mdash;',
+                        'title': '&#9992; ' + _escape_html(lbl + (' ' + air if air else ''))
+                                 + _it_track_link(f.get('airline'), f.get('flightNum')),
+                        'lines': lines})
+
+    for g in itin['ground']:
+        route = ' to '.join(x for x in [(g.get('fromLoc') or ''), (g.get('toLoc') or '')] if x)
+        lines = [_it_detail('Route', route),
+                 _it_detail('Driver / provider', g.get('provider', ''))]
+        if g.get('notes'):
+            lines.append(_it_detail('Notes', g.get('notes')))
+        lines += _private(g)
+        evs.append({'sort': _it_sort_key(g.get('when'), 1),
+                    'when': _it_when(g.get('when')) or '&mdash;',
+                    'title': '&#128652; ' + _escape_html(' '.join(
+                        x for x in [(g.get('direction') or ''), (g.get('mode') or 'Ground')] if x)),
+                    'lines': lines})
+
+    for l in itin['lodging']:
+        base = [_it_detail('Address', l.get('address', '')),
+                _it_detail('Phone', l.get('phone', ''))]
+        if show_conf:
+            base.append(_it_detail('Confirmation #', l.get('confirmation', '')))
+        nights = _it_dt(l.get('checkOut'))[0]
+        evs.append({'sort': _it_sort_key(l.get('checkIn'), 6),
+                    'when': _it_dt(l.get('checkIn'))[0] or '&mdash;',
+                    'title': '&#127976; Check in - ' + _escape_html(l.get('name') or 'lodging'),
+                    'lines': base + ([_it_detail('Check out', nights)] if nights else []) + _private(l)})
+        if nights:
+            evs.append({'sort': _it_sort_key(l.get('checkOut'), 1),
+                        'when': nights, 'title': '&#127976; Check out - '
+                        + _escape_html(l.get('name') or 'lodging'), 'lines': []})
+
+    for a in itin['activities']:
+        sd, stm = _it_dt(a.get('when'))
+        ed, etm = _it_dt(a.get('ends'))
+        when = sd + ((' ' + stm) if stm else '')
+        if ed or etm:
+            when += ' to ' + ((etm or '') if (ed == sd and etm) else (ed + ((' ' + etm) if etm else '')))
+        lines = [_it_detail('Where', a.get('location', ''))]
+        if a.get('notes'):
+            lines.append(_it_detail('Notes', a.get('notes')))
+        lines += _private(a)
+        evs.append({'sort': _it_sort_key(a.get('when'), 4),
+                    'when': when or '&mdash;',
+                    'title': '&#128204; ' + _escape_html(a.get('title') or 'Activity'),
+                    'lines': lines})
+
+    evs.sort(key=lambda e: e['sort'])
+    return evs
+
+
+def render_itinerary_table(itin, audience='team'):
+    """The itinerary as a self-contained HTML table (inline-safe for email and print).
+
+    Everything that happens on the trip is listed in ONE chronological block rather than
+    grouped by type: on a travel day the bus to the airport has to come before the flight it
+    feeds, and grouping put it after. Empty fields are omitted unless they matter (see
+    _it_row's `required`).
+
+    audience gates booking references -- see build_itinerary_events.
+    """
+    h = ['<table class="it-tbl" cellspacing="0" cellpadding="0">',
+         '<tr class="it-title"><th colspan="2">Mission Trip Logistics</th></tr>',
+         '<tr class="it-prep"><td colspan="2">Prepared ' + _escape_html(_it_prepared_on())
+         + '. Details can change &mdash; check with your trip leader for the latest.'
+         + ('' if audience == 'team' else ' Leader copy &mdash; contains booking references.')
+         + '</td></tr>']
+
+    # These apply to every trip regardless of how it travels, so a gap is worth showing.
+    h.append(_it_row('Trip name', itin['tripName'], required=True))
+    h.append(_it_row('Departure date', itin['departureDate'], required=True))
+    h.append(_it_row('Return date', itin['returnDate'], required=True))
+    if itin['leaders']:
+        for ld in itin['leaders']:
+            h.append(_it_row('Team leader', ld.get('name', ''), required=True))
+            h.append(_it_row('Team leader cell number', ld.get('cell', ''), required=True))
+    else:
+        h.append(_it_row('Team leader', '', required=True))
+        h.append(_it_row('Team leader cell number', '', required=True))
+
+    events = build_itinerary_events(itin, audience)
+    if events:
+        h.append(_it_section('Itinerary'))
+        for e in events:
+            h.append('<tr><th class="it-when">' + e['when'] + '</th><td>'
+                     + '<div class="it-t">' + e['title'] + '</div>'
+                     + ''.join(e['lines']) + '</td></tr>')
+
+    # The church contact applies to every trip, so it always prints (with dashes if unset).
+    # The in-country contact only appears when there is one -- a domestic trip has none.
+    h.append(_it_section('Contacts'))
+    h.append(_it_row('First Baptist contact person', itin['fbchName'], required=True))
+    h.append(_it_row('First Baptist contact phone', itin['fbchPhone'], required=True))
+    h.append(_it_row('First Baptist contact email', itin['fbchEmail'], required=True))
+    if itin['inCountryName'] or itin['inCountryPhone']:
+        h.append(_it_row('In-country contact person', itin['inCountryName'], required=True))
+        h.append(_it_row('In-country contact phone', itin['inCountryPhone'], required=True))
+
+    h.append('</table>')
+    return ''.join(h)
+
+
+
+def render_itinerary_document(itin, standalone=True, audience='team'):
+    """The table plus its CSS. standalone=True wraps it for a print popup / full page."""
+    body = render_itinerary_table(itin, audience)
+    if not standalone:
+        return '<style>' + IT_CSS + '</style>' + body
+    return ('<style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;'
+            'color-adjust:exact!important}body{margin:0;padding:22px;background:#fff}' + IT_CSS
+            + '</style>' + body)
+
+
+def _lg_input(group, key, val, ph='', itype='text', extra=''):
+    """One logistics field. data-group/data-k are what LG.gather() reads back."""
+    return ('<input type="' + itype + '" class="lg-in" data-group="' + group + '" data-k="' + key + '" value="'
+            + _mc_attr(val) + '" placeholder="' + _mc_attr(ph) + '"' + ((' ' + extra) if extra else '') + '>')
+
+
+def _lg_row(label, group, key, val, full=False, itype='text', ph=''):
+    cls = 'lg-row lg-full' if full else 'lg-row'
+    return ('<div class="' + cls + '"><label>' + _escape_html(label) + '</label>'
+            + _lg_input(group, key, val, ph, itype) + '</div>')
+
+
+def _lg_card(title, group, fields, data):
+    # fields = (label, key, full[, itype])
+    rows = ''.join(_lg_row(f[0], group, f[1], data.get(f[1], ''), f[2], f[3] if len(f) > 3 else 'text')
+                   for f in fields)
+    return '<div class="mc-block"><h3>' + _escape_html(title) + '</h3><div class="lg-grid">' + rows + '</div></div>'
+
+
+def render_trip_logistics(org_id, user_role):
+    if not user_role.get('is_admin', False):
+        return '<div class="alert alert-danger">Logistics are visible to trip administrators only.</div>'
+    trip = _get_trip_info(org_id)
+    if not trip:
+        return '<div class="alert alert-danger">Trip not found.</div>'
+    lg = load_trip_logistics(org_id)
+
+    h = []
+    h.append(MC_STYLE)
+    h.append(LG_STYLE)
+    h.append('<div class="section-header"><div><div class="breadcrumb">'
+             '<a href="?">Dashboard</a> &rsaquo; <a href="?trip=' + str(org_id) + '">'
+             + _escape_html(trip.OrganizationName) + '</a> &rsaquo; Logistics</div>'
+             '<h2>Trip Logistics</h2></div>'
+             '<div><button type="button" class="mc-save" onclick="LG.save()">&#128190; Save logistics</button>'
+             '<span id="lg-status" class="mc-status"></span></div></div>')
+    h.append('<p class="mc-note">The trip leader\'s logistics sheet &mdash; flights, lodging, ground transport, and '
+             'contacts. Stored on the involvement.</p>')
+
+    # Share bar: the printed / emailed itinerary is generated from everything below, so it
+    # can never drift from the real flight and hotel details.
+    _gconf = _lg_gather_conflict(lg)
+    if _gconf:
+        h.append('<div class="lg-warn">&#9888; ' + _gconf + '</div>')
+
+    _locators = _it_can_see_locators()
+    h.append('<div class="lg-share">'
+             '<b>Itinerary sheet:</b> '
+             '<button type="button" class="mc-add" onclick="LG.printItin(\'leader\')">&#128424; Print leader copy</button> '
+             '<button type="button" class="mc-add" onclick="LG.printItin(\'team\')">&#128424; Print team copy</button> '
+             + ('<button type="button" class="mc-add" onclick="LG.viewItin()">&#128065; View with record locators</button> '
+                if _locators else '')
+             + '<button type="button" class="mc-add" onclick="LG.emailItin(\'me\')">&#9993; Email to me</button> '
+             '<button type="button" class="mc-add" onclick="LG.emailItin(\'leaders\')">&#9993; Email trip leaders</button> '
+             '<button type="button" class="mc-add" onclick="LG.emailItin(\'team\')">&#9993; Email whole team</button>'
+             '<span id="lg-sharestatus" class="mc-status"></span>'
+             '<div class="mc-note" style="margin:6px 0 0">'
+             '<b>Leader copy</b> includes hotel confirmation numbers; the <b>team copy</b> does not. '
+             '<b>Flight record locators are never printed or emailed</b> &mdash; they can change or cancel a booking. '
+             + ('They show only in the on-screen view above, for the roles listed in the script config.'
+                if _locators else
+                'To read one on screen you need a role listed in <code>RECORD_LOCATOR_ROLES</code> in the script config.')
+             + ' Save your changes first &mdash; the sheet is built from what is stored. Email wording is editable under '
+             '<a href="?view=settings">Settings &rsaquo; Quick Email Templates &rsaquo; Trip Itinerary / Logistics</a>.'
+             '</div></div>'
+             '<div id="lg-itview" class="mc-block" style="display:none"></div>')
+
+    # dates + team leader(s) are inherited from the trip. The itinerary below is
+    # the live, editable timeline -- add flights/ground/lodging via the modal and
+    # each drops into date/time order with Edit / Delete controls.
+    dates = _lg_trip_dates(org_id)
+    leaders = _lg_trip_leaders(org_id)
+    dl = (dates.get('start') or '?') + u' – ' + (dates.get('end') or '?')
+    who = u'; '.join((ldr['name'] + ((u' · ' + ldr['cell']) if ldr['cell'] else u'')) for ldr in leaders) or u'(no leader set on trip)'
+    h.append('<div class="mc-block lg-itin"><h3>Itinerary</h3>'
+             '<div class="lg-itin-head"><b>Dates:</b> ' + _escape_html(dl)
+             + ' &nbsp;&middot;&nbsp; <b>Leader(s):</b> ' + _escape_html(who) + '</div>'
+             '<p class="mc-note" style="margin:0 0 10px">Add flights, ground transportation, and lodging &mdash; '
+             'each drops into the timeline in date/time order. Click <b>Edit</b> on any item to change or remove it. '
+             'Trip dates and leader(s) come from the trip itself.</p>'
+             '<div class="lg-toolbar">'
+             '<button type="button" class="mc-add" onclick="LG.openModal(\'flight\',null)">&#9992; Add flight</button>'
+             '<button type="button" class="mc-add" onclick="LG.openModal(\'ground\',null)">&#128652; Add ground</button>'
+             '<button type="button" class="mc-add" onclick="LG.openModal(\'lodging\',null)">&#127976; Add lodging</button>'
+             '<button type="button" class="mc-add" onclick="LG.openModal(\'activity\',null)">&#128204; Add activity</button>'
+             '</div>'
+             '<ul class="lg-itin-list" id="lg-itin-list"></ul></div>')
+
+    h.append(_lg_card('Meeting point (departure)', 'summary', [
+        ('Where to meet / gather (church, parking lot, etc.)', 'meetingPlace', True),
+        ('Meeting time (when the team departs the meeting point)', 'meetingTime', True, 'datetime-local'),
+    ], lg['summary']))
+    h.append('<p class="mc-note" style="margin:-6px 0 16px">This is just where and when the team gathers to leave &mdash; '
+             'it does not have to be an airport. Airport shuttles and all other rides go in '
+             '<b>Ground transportation</b> below (set Direction to Outbound / Return).</p>')
+
+    # Flights, ground, and lodging are all managed through the itinerary above
+    # (add/edit via the modal). Contacts stay as a card below.
+
+    # Contacts: First Baptist contact inherits a church-wide default (Settings)
+    # unless overridden per-trip. In-country contact is per-trip.
+    dflt = load_default_contact()
+    c = lg['contacts']
+    h.append('<div class="mc-block"><h3>Contacts</h3>')
+    if dflt.get('name') or dflt.get('phone') or dflt.get('email'):
+        h.append('<p class="mc-note" style="margin:0 0 8px">Church default First Baptist contact: <b>'
+                 + _escape_html(dflt.get('name') or '(unset)') + '</b> &middot; ' + _escape_html(dflt.get('phone'))
+                 + ' &middot; ' + _escape_html(dflt.get('email'))
+                 + '. Leave the First Baptist fields blank to use it, or fill them to override for this trip.</p>')
+    else:
+        h.append('<p class="mc-note" style="margin:0 0 8px">No church default First Baptist contact set yet. '
+                 'Fill the First Baptist fields and click &ldquo;Set as church default&rdquo; to reuse across trips.</p>')
+    h.append('<div class="lg-grid">')
+    h.append(_lg_row('First Baptist contact - name', 'contacts', 'fbchName', c.get('fbchName', ''), False, 'text', dflt.get('name', '')))
+    h.append(_lg_row('First Baptist contact - phone', 'contacts', 'fbchPhone', c.get('fbchPhone', ''), False, 'tel', dflt.get('phone', '')))
+    h.append(_lg_row('First Baptist contact - email', 'contacts', 'fbchEmail', c.get('fbchEmail', ''), True, 'email', dflt.get('email', '')))
+    h.append(_lg_row('In-country contact - name', 'contacts', 'inCountryName', c.get('inCountryName', ''), False))
+    h.append(_lg_row('In-country contact - phone', 'contacts', 'inCountryPhone', c.get('inCountryPhone', ''), False, 'tel'))
+    h.append('</div>')
+    h.append('<button type="button" class="mc-add" onclick="LG.setDefaultContact()">'
+             '&#11088; Set First Baptist fields as church default</button>'
+             '<span id="lg-dstatus" class="mc-status"></span></div>')
+
+    # add/edit modal (single reusable dialog for flight / ground / lodging)
+    h.append('<div id="lg-modal" class="lg-modal" style="display:none">'
+             '<div class="lg-modal-box">'
+             '<div class="lg-modal-head"><span id="lg-modal-title">Add</span>'
+             '<button type="button" class="lg-modal-x" onclick="LG.closeModal()">&times;</button></div>'
+             '<div id="lg-modal-body" class="lg-modal-body"></div>'
+             '<div class="lg-modal-foot">'
+             '<button type="button" class="mc-add" onclick="LG.closeModal()">Cancel</button>'
+             '<button type="button" class="mc-save" onclick="LG.saveModal()">Save item</button>'
+             '</div></div></div>')
+    h.append('<script>var LG_ORG="' + str(org_id) + '";'
+             'var LG_DIRS=' + safe_json(list(_DIR_OPTIONS)) + ';'
+             'var LG_TRIP=' + safe_json({'start': dates.get('start', ''), 'end': dates.get('end', ''), 'leaders': leaders}) + ';'
+             'var LG_DATA=' + safe_json(lg) + ';</script>')
+    h.append(LG_JS)
+    return ''.join(h)
+
+
+LG_STYLE = '''<style>
+.lg-share{border:1px solid #cbd5e1;border-left:4px solid #1f6f54;border-radius:8px;padding:10px 14px;margin:0 0 16px;background:#f8fafc}
+.lg-share b{margin-right:6px}
+.lg-warn{border:1px solid #fed7aa;border-left:4px solid #d97706;background:#fffbeb;border-radius:8px;padding:10px 14px;margin:0 0 14px;font-size:13px;color:#92400e}
+.lg-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px}
+.lg-row{display:flex;flex-direction:column;gap:2px}
+.lg-row.lg-full{grid-column:1 / -1}
+.lg-row label{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#64748b;font-weight:600}
+.lg-in{width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #cbd5e1;border-radius:5px;font-size:13px}
+.mc-note{color:#64748b;font-size:13px;margin:0 0 14px;max-width:820px}
+.lg-itin{border-top:3px solid #1f6f54}
+.lg-itin-head{font-size:13px;color:#334155;margin:0 0 8px}
+.lg-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.lg-itin-list{list-style:none;margin:0;padding:0}
+.lg-itin-list li{display:flex;align-items:center;gap:10px;padding:8px 6px;border-bottom:1px solid #eef2f7;font-size:13px}
+.lg-itin-list li:hover{background:#f8fafc}
+.lg-itin-icon{flex:0 0 22px;text-align:center;font-size:15px}
+.lg-itin-when{flex:0 0 158px;color:#1f6f54;font-weight:600}
+.lg-itin-text{flex:1 1 auto}
+.lg-itin-act{flex:0 0 auto;display:flex;gap:12px}
+.lg-itin-act a{font-size:12px;font-weight:600;text-decoration:none;color:#1f6f54}
+.lg-itin-act a.lg-del{color:#b91c1c}
+.lg-trk-link{margin-left:8px;font-size:12px;font-weight:600;white-space:nowrap}
+.lg-empty{color:#64748b;font-style:italic;padding:10px 6px}
+.muted{color:#94a3b8}
+.lg-modal{position:fixed;inset:0;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,.5);z-index:99999;display:flex;align-items:flex-start;justify-content:center;padding:40px 12px;overflow:auto}
+.lg-modal-box{background:#fff;border-radius:12px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.lg-modal-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e2e8f0}
+.lg-modal-head span{font-size:16px;font-weight:700;color:#1f6f54;text-transform:capitalize}
+.lg-modal-x{background:none;border:0;font-size:24px;line-height:1;cursor:pointer;color:#64748b}
+.lg-modal-body{padding:16px 18px;display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+.lg-mrow{display:flex;flex-direction:column;gap:3px}
+.lg-mrow.lg-mfull{grid-column:1 / -1}
+.lg-mrow label{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#64748b;font-weight:600}
+.lg-min{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px}
+.lg-modal-foot{padding:14px 18px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;gap:8px}
+@media(max-width:640px){
+  .lg-grid{grid-template-columns:1fr}
+  .lg-modal-body{grid-template-columns:1fr}
+  .lg-itin-list li{flex-wrap:wrap}
+  .lg-itin-when{flex:0 0 auto}
+  .lg-itin-text{flex:1 1 100%;order:3}
+  .lg-itin-act{order:4}
+}
+</style>'''
+
+LG_JS = '''<script>
+var LG = {
+  data: (typeof LG_DATA!=='undefined'?LG_DATA:{summary:{},contacts:{},flights:[],ground:[],lodging:[],activities:[]}),
+  listKey: {flight:'flights', ground:'ground', lodging:'lodging', activity:'activities'},
+  titles: {flight:'flight leg', ground:'ground transport', lodging:'lodging', activity:'activity'},
+  fields: {
+    flight:[['direction','Direction','select'],['airline','Airline','text'],['flightNum','Flight #','text'],
+            ['recordLocator','Record locator','text'],['fromCity','From','text'],['toCity','To','text'],
+            ['departs','Departs','datetime-local'],['arrives','Arrives','datetime-local'],['notes','Layover / notes','text'],
+            ['privateNote','Private note (leaders only)','text']],
+    ground:[['direction','Direction','select'],['mode','Mode / type','text'],['fromLoc','From','text'],
+            ['toLoc','To','text'],['when','When','datetime-local'],['provider','Driver / provider (name & phone)','text'],
+            ['notes','Notes','text'],['privateNote','Private note (leaders only)','text']],
+    lodging:[['name','Name','text'],['address','Address','text'],['phone','Phone / contact','tel'],
+             ['confirmation','Confirmation #','text'],['checkIn','Check-in','date'],['checkOut','Check-out','date'],
+             ['privateNote','Private note (leaders only)','text']],
+    activity:[['title','Activity','text'],['when','Starts','datetime-local'],['ends','Ends (optional)','datetime-local'],
+              ['location','Location','text'],['notes','Notes','text'],
+              ['privateNote','Private note (leaders only)','text']]
+  },
+  esc: function(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); },
+  attr: function(s){ return LG.esc(s).replace(/'/g,'&#39;'); },
+  fmtWhen: function(iso){
+    if(!iso) return '';
+    var m;
+    if(iso.indexOf('T')>-1){
+      m=/^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2})/.exec(iso); if(!m) return iso;
+      return LG._fmt(new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]), true);
+    }
+    m=/^(\\d{4})-(\\d{2})-(\\d{2})/.exec(iso); if(!m) return iso;
+    return LG._fmt(new Date(+m[1],+m[2]-1,+m[3]), false);
+  },
+  _fmt: function(d, withTime){
+    var days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], mons=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var s=days[d.getDay()]+' '+mons[d.getMonth()]+' '+d.getDate();
+    if(withTime){ var h=d.getHours(), mm=d.getMinutes(), ap=h<12?'AM':'PM', h12=h%12; if(h12===0)h12=12; s+=', '+h12+':'+(mm<10?'0':'')+mm+' '+ap; }
+    return s;
+  },
+  build: function(){
+    var items=[], arrow=' \\u2192 ';
+    if(LG_TRIP.start) items.push({sort:LG_TRIP.start+'T00:00', when:LG_TRIP.start, icon:'\\ud83d\\udcc5', text:'Trip departure day'});
+    var s=LG.data.summary||{};
+    if(s.meetingTime||s.meetingPlace) items.push({sort:s.meetingTime||'zzz', when:s.meetingTime||'', icon:'\\ud83d\\udccd', text:'Gather / depart from '+(s.meetingPlace||'church'), kind:'meeting'});
+    (LG.data.flights||[]).forEach(function(f,i){
+      var route=(f.fromCity||f.toCity)?((f.fromCity||'')+arrow+(f.toCity||'')):'';
+      var flt=((f.airline||'')+' '+(f.flightNum||'')).trim();
+      var label=((f.direction||'')+' flight '+flt+' '+route).replace(/\\s+/g,' ').trim();
+      if(f.departs||route||f.airline||f.flightNum) items.push({sort:f.departs||'zzz', when:f.departs||'', icon:'\\u2708', text:label, kind:'flight', idx:i, track:flt});
+    });
+    (LG.data.ground||[]).forEach(function(g,i){
+      var route=(g.fromLoc||g.toLoc)?((g.fromLoc||'')+arrow+(g.toLoc||'')):'';
+      var prov=g.provider?(' ('+g.provider+')'):'';
+      var label=((g.direction||'')+' ground: '+(g.mode||'')+' '+route+prov).replace(/\\s+/g,' ').trim();
+      if(g.when||route||g.mode) items.push({sort:g.when||'zzz', when:g.when||'', icon:'\\ud83d\\ude8c', text:label, kind:'ground', idx:i});
+    });
+    (LG.data.lodging||[]).forEach(function(l,i){
+      if(!(l.name||l.checkIn||l.checkOut)) return;
+      if(l.checkIn) items.push({sort:l.checkIn+'T00:00', when:l.checkIn, icon:'\\ud83c\\udfe8', text:'Check in: '+(l.name||''), kind:'lodging', idx:i});
+      if(l.checkOut) items.push({sort:l.checkOut+'T23:59', when:l.checkOut, icon:'\\ud83c\\udfe8', text:'Check out: '+(l.name||''), kind:'lodging', idx:i});
+    });
+    (LG.data.activities||[]).forEach(function(a,i){
+      if(!(a.title||a.when||a.location)) return;
+      var loc=a.location?(' @ '+a.location):'';
+      var span=(a.ends&&a.when)?(' \\u2013 '+LG.fmtWhen(a.ends)):'';
+      items.push({sort:a.when||'zzz', when:a.when||'', icon:'\\ud83d\\udccc', text:(a.title||'Activity')+loc+span, kind:'activity', idx:i});
+    });
+    if(LG_TRIP.end) items.push({sort:LG_TRIP.end+'T23:59', when:LG_TRIP.end, icon:'\\ud83d\\udcc5', text:'Trip return day'});
+    items.sort(function(a,b){ return a.sort<b.sort?-1:(a.sort>b.sort?1:0); });
+    return items;
+  },
+  renderItin: function(){
+    var host=document.getElementById('lg-itin-list'); if(!host) return;
+    var real=LG.build().filter(function(x){ return x.text; });
+    if(!real.length){ host.innerHTML='<li class="lg-empty">Nothing scheduled yet. Use the buttons above to add a flight, ground transport, lodging, or activity.</li>'; return; }
+    var html='';
+    real.forEach(function(it){
+      var w=(it.when && it.when!=='zzz')?LG.fmtWhen(it.when):'<span class="muted">(time TBD)</span>';
+      var act='';
+      if(it.kind==='flight'||it.kind==='ground'||it.kind==='lodging'||it.kind==='activity'){
+        act='<span class="lg-itin-act">'
+          +'<a href="#" onclick="LG.openModal(&#39;'+it.kind+'&#39;,'+it.idx+');return false;">Edit</a>'
+          +'<a href="#" class="lg-del" onclick="LG.deleteItem(&#39;'+it.kind+'&#39;,'+it.idx+');return false;">Delete</a></span>';
+      } else if(it.kind==='meeting'){
+        act='<span class="lg-itin-act"><a href="#" onclick="LG.editMeeting();return false;">Edit</a></span>';
+      }
+      var trk='';
+      if(it.track){ trk=' <a class="lg-trk-link" target="_blank" href="https://www.google.com/search?q='+encodeURIComponent(it.track+' flight status')+'">Track \\u2708</a>'; }
+      html+='<li><span class="lg-itin-icon">'+it.icon+'</span>'
+           +'<span class="lg-itin-when">'+w+'</span>'
+           +'<span class="lg-itin-text">'+LG.esc(it.text)+trk+'</span>'+act+'</li>';
+    });
+    host.innerHTML=html;
+  },
+  openModal: function(kind, idx){
+    var flds=LG.fields[kind];
+    var rec=(idx==null)?{}:(LG.data[LG.listKey[kind]][idx]||{});
+    var body='';
+    flds.forEach(function(f, fi){
+      var key=f[0], label=f[1], type=f[2], val=rec[key]||'';
+      var full=(fi===0||type==='text'&&(key==='address'||key==='notes'||key==='provider'||key==='privateNote'));
+      var inp;
+      if(type==='select'){
+        var opts=LG_DIRS.map(function(o){ return '<option'+(o===(val||'Outbound')?' selected':'')+'>'+LG.esc(o)+'</option>'; }).join('');
+        inp='<select class="lg-min" data-k="'+key+'">'+opts+'</select>';
+      } else {
+        inp='<input type="'+type+'" class="lg-min" data-k="'+key+'" value="'+LG.attr(val)+'">';
+      }
+      body+='<div class="lg-mrow'+(full?' lg-mfull':'')+'"><label>'+LG.esc(label)+'</label>'+inp+'</div>';
+    });
+    document.getElementById('lg-modal-title').textContent=(idx==null?'Add ':'Edit ')+LG.titles[kind];
+    document.getElementById('lg-modal-body').innerHTML=body;
+    var mo=document.getElementById('lg-modal');
+    mo.setAttribute('data-kind',kind); mo.setAttribute('data-idx',(idx==null?'':idx));
+    mo.style.display='flex';
+    var first=mo.querySelector('.lg-min'); if(first) first.focus();
+  },
+  closeModal: function(){ document.getElementById('lg-modal').style.display='none'; },
+  saveModal: function(){
+    var mo=document.getElementById('lg-modal');
+    var kind=mo.getAttribute('data-kind'), idxs=mo.getAttribute('data-idx');
+    var rec={};
+    mo.querySelectorAll('.lg-min').forEach(function(i){ rec[i.getAttribute('data-k')]=i.value.trim(); });
+    var lk=LG.listKey[kind];
+    if(!LG.data[lk]) LG.data[lk]=[];
+    if(idxs===''){ LG.data[lk].push(rec); } else { LG.data[lk][parseInt(idxs,10)]=rec; }
+    LG.closeModal(); LG.renderItin(); LG.persist();
+  },
+  deleteItem: function(kind, idx){
+    if(!confirm('Remove this '+LG.titles[kind]+' from the itinerary?')) return;
+    LG.data[LG.listKey[kind]].splice(idx,1);
+    LG.renderItin(); LG.persist();
+  },
+  editMeeting: function(){
+    var el=document.querySelector('.lg-in[data-group="summary"][data-k="meetingPlace"]');
+    if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); el.focus(); }
+  },
+  setDefaultContact: function(){
+    function v(k){ var el=document.querySelector('.lg-in[data-group="contacts"][data-k="'+k+'"]'); return el?(el.value.trim()||el.getAttribute('placeholder')||''):''; }
+    var st=document.getElementById('lg-dstatus'); st.textContent='Saving default...'; st.style.color='#64748b';
+    var url=window.location.pathname.replace('/PyScript/','/PyScriptForm/');
+    var fd=new FormData(); fd.append('action','save_default_contact');
+    fd.append('name',v('fbchName')); fd.append('phone',v('fbchPhone')); fd.append('email',v('fbchEmail'));
+    fetch(url,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.text();}).then(function(t){
+      var ok=false; try{ ok=JSON.parse(t).success; }catch(e){}
+      st.textContent= ok?'Church default saved \\u2713':'Failed'; st.style.color= ok?'#166534':'#b91c1c';
+    }).catch(function(){ st.textContent='Failed'; st.style.color='#b91c1c'; });
+  },
+  gather: function(){
+    var out={summary:{},contacts:{},flights:(LG.data.flights||[]),lodging:(LG.data.lodging||[]),ground:(LG.data.ground||[]),activities:(LG.data.activities||[])};
+    document.querySelectorAll('.lg-in[data-group]').forEach(function(i){
+      var g=i.getAttribute('data-group');
+      if(g==='summary'||g==='contacts') out[g][i.getAttribute('data-k')]=i.value.trim();
+    });
+    LG.data.summary=out.summary; LG.data.contacts=out.contacts;
+    return out;
+  },
+  persist: function(){
+    var st=document.getElementById('lg-status'); if(st){ st.textContent='Saving...'; st.style.color='#64748b'; }
+    var payload=JSON.stringify(LG.gather());   // gather() also syncs LG.data.summary/contacts
+    LG.renderItin();                           // reflect meeting-point edits in the itinerary immediately
+    var url=window.location.pathname.replace('/PyScript/','/PyScriptForm/');
+    var fd=new FormData(); fd.append('action','save_trip_logistics'); fd.append('org',LG_ORG); fd.append('payload',payload);
+    fetch(url,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.text();}).then(function(t){
+      var ok=false; try{ ok=JSON.parse(t).success; }catch(e){}
+      if(ok) LG.dirty=false;
+      if(st){ st.textContent= ok?'Saved \\u2713':'Save failed'; st.style.color= ok?'#166534':'#b91c1c'; }
+    }).catch(function(){ if(st){ st.textContent='Save failed'; st.style.color='#b91c1c'; } });
+  },
+  save: function(){ LG.persist(); },
+  // Itinerary items persist the moment their modal is saved; the meeting point and contact
+  // cards do NOT -- they wait for the Save button, so those are what this guards.
+  dirty: false,
+  touch: function(){
+    if(LG.dirty) return;
+    LG.dirty=true;
+    var st=document.getElementById('lg-status');
+    if(st){ st.textContent='Unsaved changes'; st.style.color='#b45309'; }
+  },
+  watchDirty: function(){
+    var f=document.querySelectorAll('.lg-in[data-group]');
+    for(var i=0;i<f.length;i++){ f[i].addEventListener('input', function(){ LG.touch(); }); }
+    window.addEventListener('beforeunload', function(e){
+      if(!LG.dirty) return;
+      e.preventDefault(); e.returnValue='You have unsaved logistics changes.';
+      return e.returnValue;
+    });
+  },
+  post: function(action, extra, cb){
+    var url=window.location.pathname.replace('/PyScript/','/PyScriptForm/');
+    var fd=new FormData(); fd.append('action',action); fd.append('org',LG_ORG);
+    if(extra){ for(var k in extra){ fd.append(k, extra[k]); } }
+    fetch(url,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.text();})
+      .then(function(t){ var j={}; try{ j=JSON.parse(t); }catch(e){} cb(j); })
+      .catch(function(){ cb({success:false,message:'network error'}); });
+  },
+  viewItin: function(){
+    var box=document.getElementById('lg-itview');
+    if(box && box.style.display!=='none'){ box.style.display='none'; box.innerHTML=''; return; }
+    var st=document.getElementById('lg-sharestatus');
+    if(st){ st.textContent='Loading...'; st.style.color='#64748b'; }
+    // audience=admin is screen-only; the server refuses it for printing
+    LG.post('get_itinerary', {audience:'admin'}, function(j){
+      if(!j.success){ if(st){ st.textContent=(j.message||'Could not load'); st.style.color='#b91c1c'; } return; }
+      if(st){ st.textContent=''; }
+      if(box){
+        box.innerHTML='<p class="mc-note" style="margin:0 0 10px"><b>On-screen copy with record locators.</b> '
+          +'Do not print or forward this &mdash; use the leader copy for that.</p>'+j.html;
+        box.style.display='';
+        box.scrollIntoView({behavior:'smooth',block:'start'});
+      }
+    });
+  },
+  printItin: function(audience){
+    var st=document.getElementById('lg-sharestatus');
+    if(st){ st.textContent='Building sheet...'; st.style.color='#64748b'; }
+    LG.post('get_itinerary', {audience:(audience||'team'), forprint:'1'}, function(j){
+      if(!j.success){ if(st){ st.textContent=(j.message||'Could not build the itinerary'); st.style.color='#b91c1c'; } return; }
+      if(st){ st.textContent=''; }
+      // A popup, NOT an @media print block: TouchPoint's page CSS strips background
+      // colours out of hidden/print-toggled elements.
+      var pw=window.open('', '_blank');
+      if(!pw){ alert('Popup blocked - please allow popups for this site, then try again.'); return; }
+      pw.document.write('<!DOCTYPE html><html><head><title>'+LG.esc(j.tripName||'Trip Itinerary')+'</title>');
+      pw.document.write(j.html);
+      pw.document.write('</head><body></body></html>');
+      pw.document.close(); pw.focus();
+      setTimeout(function(){ pw.print(); }, 300);   // let it render before the dialog
+    });
+  },
+  emailItin: function(who){
+    var label = who==='me' ? 'yourself' : (who==='leaders' ? 'the trip leader(s)' : 'the WHOLE TEAM');
+    if(who!=='me' && !confirm('Email the itinerary to '+label+'?\\n\\nThis sends a real email now. Save your logistics changes first if you have not.')) return;
+    var st=document.getElementById('lg-sharestatus');
+    if(st){ st.textContent='Sending...'; st.style.color='#64748b'; }
+    LG.post('send_itinerary', {who:who}, function(j){
+      if(st){ st.textContent=(j.message||(j.success?'Sent':'Failed')); st.style.color=j.success?'#166534':'#b91c1c'; }
+      else if(!j.success){ alert(j.message||'Failed'); }
+    });
+  },
+  // keep the itinerary's gather/meeting line in sync as the meeting-point fields are typed
+  summaryChanged: function(){ LG.gather(); LG.renderItin(); },
+  init: function(){
+    LG.renderItin();
+    var m=document.querySelectorAll('.lg-in[data-group="summary"]');
+    for(var i=0;i<m.length;i++){ m[i].addEventListener('input', LG.summaryChanged); }
+    LG.watchDirty();
+  }
+};
+if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', LG.init); }
+else { LG.init(); }
+</script>'''
+
+
+def handle_save_trip_logistics():
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required.'})
+            return True
+        org_id = int(str(getattr(Data, 'org', '0')).strip() or '0')
+        data = json.loads(str(getattr(Data, 'payload', '') or ''))
+        clean = _default_logistics()
+        for k in ('summary', 'contacts'):
+            if isinstance(data.get(k), dict):
+                for fk in clean[k]:
+                    clean[k][fk] = data[k].get(fk, '')
+        # privateNote is leaders-only: it shows on screen and on the leader copy, never on
+        # the team copy (see build_itinerary_events).
+        leg_keys = ('direction', 'airline', 'flightNum', 'recordLocator', 'fromCity', 'toCity',
+                    'departs', 'arrives', 'notes', 'privateNote')
+        # flights/ground/lodging come from the itinerary model; keep only rows that
+        # actually carry data (drop blank direction-only entries) and allow empty lists.
+        if isinstance(data.get('flights'), list):
+            clean['flights'] = [dict((fk, it.get(fk, '')) for fk in leg_keys)
+                                for it in data['flights']
+                                if isinstance(it, dict) and any((it.get(fk) or '').strip()
+                                                                for fk in leg_keys if fk != 'direction')]
+        gr_keys = ('direction', 'mode', 'fromLoc', 'toLoc', 'when', 'provider', 'notes', 'privateNote')
+        if isinstance(data.get('ground'), list):
+            clean['ground'] = [dict((fk, it.get(fk, '')) for fk in gr_keys)
+                               for it in data['ground']
+                               if isinstance(it, dict) and any((it.get(fk) or '').strip()
+                                                               for fk in gr_keys if fk != 'direction')]
+        lod_keys = ('name', 'address', 'phone', 'confirmation', 'checkIn', 'checkOut', 'privateNote')
+        if isinstance(data.get('lodging'), list):
+            clean['lodging'] = [dict((fk, it.get(fk, '')) for fk in lod_keys)
+                                for it in data['lodging']
+                                if isinstance(it, dict) and any((it.get(fk) or '').strip() for fk in lod_keys)]
+        act_keys = ('title', 'when', 'ends', 'location', 'notes', 'privateNote')
+        if isinstance(data.get('activities'), list):
+            clean['activities'] = [dict((fk, it.get(fk, '')) for fk in act_keys)
+                                   for it in data['activities']
+                                   if isinstance(it, dict) and any((it.get(fk) or '').strip() for fk in act_keys)]
+        model.AddExtraValueTextOrg(org_id, LOG_EV_NAME, safe_json(clean))
+        print json.dumps({'success': True})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+# ============================================================================
+# TRIP TASKS  (Phase 3: templated task system)
+# Church-wide task TEMPLATES (Special Content 'TPxi_MissionsTaskTemplates') are
+# applied to each trip to generate dated task INSTANCES stored on the involvement
+# (OrgExtra 'TPxi_TripTasks'). Each instance can also push a native TouchPoint task
+# (model.AddTask) with the trip name embedded so owners see it in their task list /
+# other apps. Admin-only for now (leader exposure is a later phase).
+# ============================================================================
+TASK_TEMPLATES_EV = 'TPxi_MissionsTaskTemplates'   # church-wide, Special Content
+TRIP_TASKS_EV = 'TPxi_TripTasks'                   # per-trip, OrgExtra
+TASKS_DEFAULT_ENABLED_EV = 'TPxi_MissionsTasksDefaultEnabled'   # church-wide '1'/'0'
+
+
+def _tasks_default_enabled():
+    """Whether a newly-generated trip's tasks start enabled. Church-wide Settings toggle
+    (default OFF: the pastor enables each trip after reviewing it)."""
+    try:
+        raw = model.TextContent(TASKS_DEFAULT_ENABLED_EV)
+        if raw is not None and str(raw).strip() != '':
+            return str(raw).strip() == '1'
+    except:
+        pass
+    return False
+
+
+def handle_save_tasks_default():
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required.'})
+            return True
+        val = '1' if str(getattr(Data, 'enabled', '0')).strip() in ('1', 'true', 'True', 'on') else '0'
+        model.WriteContentText(TASKS_DEFAULT_ENABLED_EV, val, '')
+        print json.dumps({'success': True, 'enabled': val == '1'})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+_TASK_ANCHORS = [
+    ('depBefore', 'days before departure'),
+    ('depAfter', 'days after departure'),
+    ('retBefore', 'days before return'),
+    ('retAfter', 'days after return'),
+    ('fixed', 'on a fixed date'),
+]
+_TASK_ANCHOR_KEYS = ('depBefore', 'depAfter', 'retBefore', 'retAfter', 'fixed')
+
+
+DEFAULT_TASK_CREATE_LEAD = 21   # days before due that a native task is time-released by the morning batch
+
+
+def _default_task_templates():
+    def t(i, title, anchor, offset, lead=DEFAULT_TASK_CREATE_LEAD, atype='leader'):
+        return {'id': 't' + str(i), 'title': title, 'notes': '', 'anchor': anchor, 'offset': offset,
+                'createLead': lead, 'fixedDate': '', 'assigneeType': atype, 'assigneePeopleId': 0,
+                'assigneeName': 'Trip Leader' if atype == 'leader' else ''}
+    return [
+        t(1, 'Confirm registration / roster', 'depBefore', 60, 14),
+        t(2, 'Book flights', 'depBefore', 90, 30),
+        t(3, 'Collect passport information', 'depBefore', 45, 21),
+        t(4, 'Complete background checks', 'depBefore', 30, 21),
+        t(5, 'Final team meeting', 'depBefore', 3, 7),
+        t(6, 'Submit receipts & trip debrief', 'retAfter', 14, 7),
+    ]
+
+
+def load_task_templates():
+    import json
+    try:
+        raw = model.TextContent(TASK_TEMPLATES_EV)
+        if raw:
+            data = json.loads(raw)
+            if isinstance(data, list):
+                out = []
+                for tp in data:
+                    if not isinstance(tp, dict):
+                        continue
+                    anc = tp.get('anchor', 'depBefore')
+                    if anc not in _TASK_ANCHOR_KEYS:
+                        anc = 'depBefore'
+                    atype = 'person' if tp.get('assigneeType') == 'person' else 'leader'
+                    out.append({
+                        'id': str(tp.get('id', '') or ''),
+                        'title': tp.get('title', ''),
+                        'notes': tp.get('notes', ''),
+                        'anchor': anc,
+                        'offset': int(_cf(tp.get('offset', 0))),
+                        'createLead': int(_cf(tp.get('createLead', DEFAULT_TASK_CREATE_LEAD))),
+                        'fixedDate': (tp.get('fixedDate', '') or '')[:10],
+                        'assigneeType': atype,
+                        'assigneePeopleId': int(_cf(tp.get('assigneePeopleId', 0))),
+                        'assigneeName': tp.get('assigneeName', ''),
+                    })
+                return out
+    except:
+        pass
+    return _default_task_templates()
+
+
+def handle_save_task_templates():
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required.'})
+            return True
+        data = json.loads(str(getattr(Data, 'payload', '') or '[]'))
+        clean, i = [], 0
+        for tp in (data if isinstance(data, list) else []):
+            if not isinstance(tp, dict):
+                continue
+            title = (tp.get('title', '') or '').strip()
+            if not title:
+                continue
+            i += 1
+            anc = tp.get('anchor', 'depBefore')
+            if anc not in _TASK_ANCHOR_KEYS:
+                anc = 'depBefore'
+            atype = 'person' if tp.get('assigneeType') == 'person' else 'leader'
+            pid = int(_cf(tp.get('assigneePeopleId', 0))) if atype == 'person' else 0
+            clean.append({
+                'id': str(tp.get('id') or ('t' + str(i))),
+                'title': title,
+                'notes': tp.get('notes', ''),
+                'anchor': anc,
+                'offset': int(_cf(tp.get('offset', 0))),
+                'createLead': int(_cf(tp.get('createLead', DEFAULT_TASK_CREATE_LEAD))),
+                'fixedDate': (tp.get('fixedDate', '') or '')[:10],
+                'assigneeType': atype,
+                'assigneePeopleId': pid,
+                'assigneeName': (tp.get('assigneeName', '') or '').strip() or ('Trip Leader' if atype == 'leader' else ''),
+            })
+        model.WriteContentText(TASK_TEMPLATES_EV, safe_json(clean), '')
+        print json.dumps({'success': True, 'count': len(clean)})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+def load_trip_tasks(org_id):
+    import json
+    try:
+        raw = model.ExtraValueTextOrg(int(org_id), TRIP_TASKS_EV)
+        if raw:
+            data = json.loads(raw)
+            if isinstance(data, dict) and isinstance(data.get('tasks'), list):
+                # Done and Skip used to share one flag. Anything marked done that was never
+                # created in TouchPoint can only have meant "we decided not to do this", so
+                # migrate it to skipped -- Done now belongs solely to real created tasks.
+                for it in data['tasks']:
+                    if it.get('done') and not it.get('nativeTaskIds') and 'skipped' not in it:
+                        it['skipped'] = True
+                        it['done'] = False
+                return data
+    except:
+        pass
+    return {'tasks': []}
+
+
+def _resolve_trip_leaders(org_id):
+    """Trip leader(s): active leader-type members (PeopleId + Name2)."""
+    types = ','.join(str(x) for x in config.LEADER_MEMBER_TYPES) or '140,310,320'
+    sql = '''
+    SELECT p.PeopleId, p.Name2 AS Name
+    FROM OrganizationMembers om WITH (NOLOCK)
+    JOIN People p WITH (NOLOCK) ON p.PeopleId = om.PeopleId
+    WHERE om.OrganizationId = {0} AND om.MemberTypeId IN ({1}) AND om.InactiveDate IS NULL
+    ORDER BY p.Name2
+    '''.format(int(org_id), types)
+    out = []
+    try:
+        for r in q.QuerySql(sql):
+            out.append({'peopleId': int(r.PeopleId), 'name': (_u(r.Name) if '_u' in globals() else (r.Name or ''))})
+    except:
+        pass
+    return out
+
+
+def _task_due(anchor, offset, fixed_date, dep, ret):
+    """Compute an ISO (YYYY-MM-DD) due date from the anchor/offset and trip dep/ret ISO strings."""
+    try:
+        if anchor == 'fixed':
+            return (fixed_date or '')[:10]
+        base = dep if anchor in ('depBefore', 'depAfter') else ret
+        if not base:
+            return ''
+        d = datetime.datetime.strptime(base[:10], '%Y-%m-%d')
+        off = int(offset or 0)
+        if anchor in ('depBefore', 'retBefore'):
+            d = d - datetime.timedelta(days=off)
+        else:
+            d = d + datetime.timedelta(days=off)
+        return d.strftime('%Y-%m-%d')
+    except:
+        return ''
+
+
+def _date_minus_days(iso, days):
+    """ISO date string minus N days (empty if the input is empty/invalid)."""
+    try:
+        if not iso:
+            return ''
+        d = datetime.datetime.strptime(iso[:10], '%Y-%m-%d') - datetime.timedelta(days=int(days or 0))
+        return d.strftime('%Y-%m-%d')
+    except:
+        return ''
+
+
+def _date_plus_days(iso, days):
+    """ISO date string plus N days (empty if the input is empty/invalid)."""
+    return _date_minus_days(iso, -int(days or 0))
+
+
+def _task_assignees(tp, leaders):
+    """Resolve a template's assignee to a list of {peopleId,name}."""
+    if tp.get('assigneeType') == 'person' and int(_cf(tp.get('assigneePeopleId', 0))) > 0:
+        return [{'peopleId': int(_cf(tp.get('assigneePeopleId', 0))),
+                 'name': tp.get('assigneeName', '') or ('Person %s' % int(_cf(tp.get('assigneePeopleId', 0))))}]
+    return list(leaders)   # 'Trip Leader' -> every current leader
+
+
+def handle_generate_trip_tasks():
+    """(Re)build this trip's task instances from the church-wide templates.
+    Existing instances (matched by templateId) keep their done state + native ids;
+    only the due date/title/assignees are refreshed. Custom tasks are untouched."""
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required.'})
+            return True
+        org_id = int(str(getattr(Data, 'org', '0')).strip() or '0')
+        templates = load_task_templates()
+        existing = load_trip_tasks(org_id)
+        by_tpl = {}
+        customs = []
+        for it in existing.get('tasks', []):
+            if it.get('source') == 'custom' or not it.get('templateId'):
+                customs.append(it)
+            else:
+                by_tpl[str(it.get('templateId'))] = it
+        dates = _lg_trip_dates(org_id)
+        dep, ret = dates.get('start', ''), dates.get('end', '')
+        leaders = _resolve_trip_leaders(org_id)
+        out, i = [], 0
+        for tp in templates:
+            i += 1
+            tid = str(tp.get('id') or ('t' + str(i)))
+            due = _task_due(tp.get('anchor'), tp.get('offset'), tp.get('fixedDate'), dep, ret)
+            lead = int(_cf(tp.get('createLead', DEFAULT_TASK_CREATE_LEAD)))
+            create_on = _date_minus_days(due, lead)
+            prev = by_tpl.get(tid)
+            # a row whose assignee was picked by hand keeps it; everything else re-resolves
+            if prev and prev.get('assigneeOverride') and (prev.get('assignees') or []):
+                assignees = prev.get('assignees')
+                atype = prev.get('assigneeType', 'leader')
+            else:
+                assignees = _task_assignees(tp, leaders)
+                atype = tp.get('assigneeType', 'leader')
+            inst = {
+                'id': (prev.get('id') if prev else ('inst_%s_%d' % (tid, i))),
+                'title': tp.get('title', ''),
+                'notes': (prev.get('notes') if prev else tp.get('notes', '')),
+                'due': due,
+                'createLead': lead,
+                'createOn': create_on,
+                'assigneeType': atype,
+                'assignees': assignees,
+                'assigneeOverride': bool(prev.get('assigneeOverride')) if prev else False,
+                'done': bool(prev.get('done')) if prev else False,
+                'skipped': bool(prev.get('skipped')) if prev else False,
+                'nativeTaskIds': (prev.get('nativeTaskIds') if prev else []) or [],
+                'source': 'template',
+                'templateId': tid,
+            }
+            out.append(inst)
+            by_tpl.pop(tid, None)
+        # A template removed from the church-wide list would otherwise silently delete that
+        # row from every trip on the next Generate -- including rows already pushed to
+        # TouchPoint. Keep any leftover instance that has real state, re-tagged as custom so
+        # it stops tracking the (now gone) template.
+        for leftover in by_tpl.values():
+            if leftover.get('nativeTaskIds') or leftover.get('done') or leftover.get('skipped'):
+                leftover['source'] = 'custom'
+                leftover['templateId'] = ''
+                leftover['orphaned'] = True
+                out.append(leftover)
+        out.extend(customs)
+        # preserve the trip's enable state; first generate uses the church-wide default
+        enabled = existing.get('enabled', _tasks_default_enabled()) if isinstance(existing, dict) else _tasks_default_enabled()
+        model.AddExtraValueTextOrg(org_id, TRIP_TASKS_EV, safe_json({'enabled': bool(enabled), 'tasks': out}))
+        print json.dumps({'success': True, 'count': len(out), 'enabled': bool(enabled)})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+def handle_save_trip_tasks():
+    """Persist edited instances (done toggles, due edits, notes, custom add/delete)."""
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required.'})
+            return True
+        org_id = int(str(getattr(Data, 'org', '0')).strip() or '0')
+        data = json.loads(str(getattr(Data, 'payload', '') or '{}'))
+        clean, i = [], 0
+        for it in (data.get('tasks', []) if isinstance(data, dict) else []):
+            if not isinstance(it, dict):
+                continue
+            title = (it.get('title', '') or '').strip()
+            if not title:
+                continue
+            i += 1
+            assignees = []
+            for a in (it.get('assignees', []) or []):
+                if isinstance(a, dict) and (a.get('peopleId') or a.get('name')):
+                    assignees.append({'peopleId': int(_cf(a.get('peopleId', 0))), 'name': a.get('name', '')})
+            due = (it.get('due', '') or '')[:10]
+            lead = int(_cf(it.get('createLead', DEFAULT_TASK_CREATE_LEAD)))
+            clean.append({
+                'id': str(it.get('id') or ('inst_%d' % i)),
+                'title': title,
+                'notes': it.get('notes', ''),
+                'due': due,
+                'createLead': lead,
+                'createOn': _date_minus_days(due, lead),
+                'assigneeType': ('person' if it.get('assigneeType') == 'person' else 'leader'),
+                'assignees': assignees,
+                # a per-row assignee pick survives the next Generate
+                'assigneeOverride': bool(it.get('assigneeOverride')),
+                'done': bool(it.get('done')),
+                'skipped': bool(it.get('skipped')),
+                'nativeTaskIds': [int(_cf(x)) for x in (it.get('nativeTaskIds', []) or []) if _cf(x) > 0],
+                'source': ('custom' if it.get('source') == 'custom' else 'template'),
+                'templateId': str(it.get('templateId', '') or ''),
+            })
+        enabled = bool(data.get('enabled', False)) if isinstance(data, dict) else False
+        model.AddExtraValueTextOrg(org_id, TRIP_TASKS_EV, safe_json({'enabled': enabled, 'tasks': clean}))
+        print json.dumps({'success': True, 'count': len(clean), 'enabled': enabled})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+# dbo.TaskNote.StatusId -- the real task lifecycle. NOTE this is NOT lookup.TaskStatus
+# (10/20/.../40 Completed/70 Declined): that lookup belongs to the legacy, empty dbo.Task
+# table. Confirmed against TPxi/Enterprise Reporting and TPxi/Task Runner.
+_TN_COMPLETED, _TN_PENDING, _TN_ACCEPTED, _TN_DECLINED, _TN_ARCHIVED = 1, 2, 3, 4, 5
+_TN_STATUS_LABEL = {
+    _TN_COMPLETED: 'Completed', _TN_PENDING: 'Pending', _TN_ACCEPTED: 'Accepted',
+    _TN_DECLINED: 'Declined', _TN_ARCHIVED: 'Archived',
+}
+_TN_CLOSED = (_TN_COMPLETED, _TN_ARCHIVED)   # off the assignee's plate
+_TN_NEEDS_ATTENTION = (_TN_DECLINED,)        # someone actively refused it
+
+_NATIVE_TASK_CACHE = {}   # TaskNoteId -> {'status': int, 'done': bool}, primed per render
+
+
+def _tn_label(status):
+    return _TN_STATUS_LABEL.get(int(status or 0), 'Open')
+
+
+def _prime_native_task_cache(tasks):
+    """One batched TaskNote read for every native id on the page, so the per-row status
+    lookup doesn't fire a query per task. Returns the number of ids resolved."""
+    ids = []
+    for it in (tasks or []):
+        for x in (it.get('nativeTaskIds', []) or []):
+            if _cf(x) > 0:
+                ids.append(int(x))
+    ids = sorted(set(ids))
+    _NATIVE_TASK_CACHE.clear()   # scoped to one render / one trip in the batch loop
+    if not ids:
+        return 0
+    try:
+        sql = '''SELECT TaskNoteId, ISNULL(StatusId, 0) AS StatusId,
+                        CASE WHEN StatusId = 1 OR CompletedDate IS NOT NULL THEN 1 ELSE 0 END AS Done
+                 FROM TaskNote WITH (NOLOCK)
+                 WHERE IsNote = 0 AND TaskNoteId IN ({0})'''.format(','.join(str(x) for x in ids))
+        for r in q.QuerySql(sql):
+            _NATIVE_TASK_CACHE[int(r.TaskNoteId)] = {
+                'status': int(getattr(r, 'StatusId', 0) or 0),
+                'done': (int(getattr(r, 'Done', 0) or 0) == 1),
+            }
+    except:
+        pass
+    return len(_NATIVE_TASK_CACHE)
+
+
+def _native_task_state(task_ids):
+    """Full state of the native tasks behind one instance: how many exist, how many are
+    complete, and how many are sitting in each live status (so a Declined task is visible
+    instead of just silently 'not done')."""
+    ids = [int(x) for x in (task_ids or []) if _cf(x) > 0]
+    st = {'total': len(ids), 'done': 0, 'declined': 0, 'pending': 0,
+          'accepted': 0, 'archived': 0, 'unknown': 0, 'labels': []}
+    if not ids:
+        return st
+    if not all(i in _NATIVE_TASK_CACHE for i in ids):
+        _prime_native_task_cache([{'nativeTaskIds': ids}])
+    for i in ids:
+        row = _NATIVE_TASK_CACHE.get(i)
+        if not row:
+            st['unknown'] += 1
+            continue
+        s = row.get('status', 0)
+        if row.get('done'):
+            st['done'] += 1
+        elif s == _TN_DECLINED:
+            st['declined'] += 1
+        elif s == _TN_ACCEPTED:
+            st['accepted'] += 1
+        elif s == _TN_PENDING:
+            st['pending'] += 1
+        elif s == _TN_ARCHIVED:
+            st['archived'] += 1
+        else:
+            st['unknown'] += 1
+        st['labels'].append(_tn_label(s))
+    return st
+
+
+def _sync_native_task_completion(org_id, data):
+    """If every native task behind an instance is completed in TouchPoint, mark the
+    instance done here too -- the same tracking loop the Re-Engagement Pipeline runs in
+    _sync_open_tasks. Persists only when something actually changed. Returns count."""
+    tasks = data.get('tasks', []) or []
+    _prime_native_task_cache(tasks)
+    if not _NATIVE_TASK_CACHE:
+        return 0
+    synced = 0
+    for it in tasks:
+        if it.get('done'):
+            continue
+        ids = [int(x) for x in (it.get('nativeTaskIds', []) or []) if _cf(x) > 0]
+        known = [_NATIVE_TASK_CACHE[i].get('done') for i in ids if i in _NATIVE_TASK_CACHE]
+        if known and len(known) == len(ids) and all(known):
+            it['done'] = True
+            it['doneVia'] = 'touchpoint'
+            synced += 1
+    if synced:
+        try:
+            model.AddExtraValueTextOrg(int(org_id), TRIP_TASKS_EV,
+                                       safe_json({'enabled': bool(data.get('enabled')),
+                                                  'tasks': tasks}))
+        except:
+            pass
+    return synced
+
+
+def _native_task_status(task_ids):
+    """Given native TouchPoint task ids (TaskNoteIds), return (total, completed).
+
+    Tasks live in dbo.TaskNote with IsNote = 0 -- the legacy dbo.Task table is empty
+    on current builds, so querying it always returned 0/0. StatusId = 1 means the task
+    was completed; this is the same convention the Re-Engagement Pipeline relies on
+    (TPxi_pipeDashboard._sync_open_tasks / _get_tasks_from_db)."""
+    ids = [int(x) for x in (task_ids or []) if _cf(x) > 0]
+    if not ids:
+        return (0, 0)
+    # served from the batched page-level read when it's available
+    if _NATIVE_TASK_CACHE and all(i in _NATIVE_TASK_CACHE for i in ids):
+        return (len(ids), len([i for i in ids if _NATIVE_TASK_CACHE[i].get('done')]))
+    try:
+        sql = '''SELECT COUNT(*) AS Total,
+                        SUM(CASE WHEN StatusId = 1 OR CompletedDate IS NOT NULL THEN 1 ELSE 0 END) AS Done
+                 FROM TaskNote WITH (NOLOCK)
+                 WHERE IsNote = 0 AND TaskNoteId IN ({0})'''.format(','.join(str(x) for x in ids))
+        r = q.QuerySql(sql)
+        if r:
+            return (int(getattr(r[0], 'Total', 0) or 0), int(getattr(r[0], 'Done', 0) or 0))
+    except:
+        pass
+    return (0, 0)
+
+
+def _iso_to_datetime(iso):
+    """'YYYY-MM-DD' -> datetime, or None if it isn't a usable date."""
+    s = str(iso or '').strip()[:10]
+    if len(s) != 10:
+        return None
+    try:
+        return datetime.datetime(int(s[0:4]), int(s[5:7]), int(s[8:10]))
+    except:
+        return None
+
+
+def _task_id_from(res):
+    """model.AddTask returns the new TaskNoteId; stay tolerant of build differences."""
+    try:
+        return int(res)
+    except:
+        pass
+    for attr in ('TaskNoteId', 'Id', 'TaskId', 'id'):
+        if hasattr(res, attr):
+            try:
+                return int(getattr(res, attr))
+            except:
+                pass
+    return 0
+
+
+# Whether creating a native task emails the assignee. This is TouchPoint's own default for
+# CreateTaskNote, and assigning someone work without telling them is worse -- but flip it to
+# False if a bulk "Create all in TouchPoint now" shouldn't notify everyone at once.
+TASK_SEND_EMAILS = True
+
+# Why a native task didn't get created. Populated by _create_native_task /
+# _release_trip_native_tasks and echoed back to the browser -- silently returning 0 made
+# "Create now" look like it worked while doing nothing.
+_TASK_ERRORS = []
+
+
+def _current_user_id():
+    """Current user's PeopleId. This script treats model.UserPeopleId as a PROPERTY, but
+    some builds/scripts expose it as a method -- accept either, and 0 if neither works."""
+    try:
+        u = model.UserPeopleId
+        if callable(u):
+            u = u()
+        return int(u or 0)
+    except:
+        return 0
+
+
+def _trip_links(org_id):
+    """(label, url) pairs pointing a native task back at its trip. Full URLs so they work
+    wherever the task is read -- TouchPoint, TPGo, Outlook."""
+    base = (CHURCH_URL or '').rstrip('/')
+    oid = str(int(org_id))
+    return [('Trip page', base + '/Org/' + oid),
+            ('Trip tasks', base + '/PyScriptForm/Mission_Dashboard?trip=' + oid + '&section=tasks')]
+
+
+def _build_task_note_body(subject, notes, org_id):
+    """The task's Notes field, in order:
+        1. the subject (involvement name + task) repeated, so the note stands alone
+        2. the optional notes, if any
+        3. the trip links
+
+    PLAIN TEXT ONLY. TouchPoint's task view does NOT render HTML in TaskNote.Notes --
+    anchors come through as raw markup (verified on live), so write bare URLs and let the
+    reader copy them. Don't "improve" this with <a> tags or <br>."""
+    parts = [subject]
+    if notes:
+        parts.append(notes)
+    if _cf(org_id) > 0:
+        parts.append('\n'.join(lbl + ': ' + url for (lbl, url) in _trip_links(org_id)))
+    return '\n\n'.join(parts)
+
+
+def _create_native_task(assignee_pid, about_pid, title, notes, due_iso, trip_name, org_id=0):
+    """Create the native TouchPoint task and return its TaskNoteId (0 on failure).
+
+    Uses model.CreateTaskNote, the method Ben's other production scripts rely on
+    (TPxi/Lapsed Attenders, Volunteer Recruiter, Enterprise Reporting, Task Runner,
+    Compliance). It is the documented API and, unlike model.AddTask, it takes an explicit
+    assigneeId + dueDate + notes in one call -- so the task actually lands on the assignee's
+    list with its due date. model.AddTask is NOT in the API Explorer's method list, so it is
+    only kept as a last-ditch fallback.
+
+    Positional arg order for CreateTaskNote differs between installs (compare Task Runner
+    with Lapsed Attenders), so this calls it with KEYWORD arguments, which is what the
+    documented signature and the Lapsed Attenders/Volunteer Recruiter call sites use."""
+    subject = ('[' + (trip_name or 'Mission Trip') + '] ' + (title or 'Task'))
+    body = _build_task_note_body(subject, (notes or ''), org_id)
+    try:
+        assignee_pid = int(assignee_pid)
+        about_pid = int(about_pid or assignee_pid)
+        owner_pid = _current_user_id() or assignee_pid
+        due_dt = _iso_to_datetime(due_iso)
+        try:
+            tid = _task_id_from(model.CreateTaskNote(
+                ownerId=owner_pid,
+                aboutPersonId=about_pid,
+                assigneeId=assignee_pid,
+                roleId=None,
+                isNote=False,
+                instructions=subject,
+                notes=body,
+                dueDate=due_dt,
+                keywordIdList=None,
+                sendEmails=TASK_SEND_EMAILS,
+            ))
+            if tid:
+                return tid
+            _TASK_ERRORS.append('CreateTaskNote returned no id.')
+        except Exception as ec:
+            _TASK_ERRORS.append('CreateTaskNote: ' + repr(ec))
+        # Fallback: older builds that only expose AddTask(owner, about, description)
+        try:
+            tid = _task_id_from(model.AddTask(assignee_pid, about_pid, subject))
+            if tid:
+                _TASK_ERRORS.append('Used the AddTask fallback (no due date/assignee set).')
+                return tid
+            _TASK_ERRORS.append('AddTask fallback returned no id either.')
+        except Exception as ea:
+            _TASK_ERRORS.append('AddTask fallback: ' + repr(ea))
+        return 0
+    except Exception as e:
+        _TASK_ERRORS.append('Task create failed for assignee=%s: %s' % (assignee_pid, repr(e)))
+        return 0
+
+
+def _today_iso():
+    try:
+        return datetime.date.today().strftime('%Y-%m-%d')
+    except:
+        return ''
+
+
+def _release_trip_native_tasks(org_id, trip_name, force, only_id=None):
+    """Create native TouchPoint tasks for a trip's instances. Only runs if the trip's
+    tasks are ENABLED. force=True (manual push) ignores the create window; force=False
+    (morning batch) only creates those whose create window (today >= createOn) has arrived
+    and are not stale. only_id limits to a single instance. Idempotent: skips instances
+    already pushed or marked done. Returns (created, failed)."""
+    data = load_trip_tasks(org_id)
+    if not data.get('enabled'):
+        _TASK_ERRORS.append('Tasks are not enabled for this trip.')
+        return (0, 0)   # tasks not enabled for this trip -> the batch/manual push does nothing
+    if only_id and not any(str(t.get('id')) == str(only_id) for t in data.get('tasks', [])):
+        _TASK_ERRORS.append('Task "%s" is not in this trip\'s saved plan yet - save the '
+                            'task list first, then use Create now.' % only_id)
+        return (0, 0)
+    today = _today_iso()
+    stale_cutoff = _date_minus_days(today, 30)   # don't auto-create long-past tasks in batch
+    created, failed, changed = 0, 0, False
+    for it in data.get('tasks', []):
+        if only_id and str(it.get('id')) != str(only_id):
+            continue
+        if it.get('nativeTaskIds') or it.get('done') or it.get('skipped'):
+            if only_id:
+                _TASK_ERRORS.append(
+                    'Nothing to create: that task is %s.'
+                    % ('already in TouchPoint' if it.get('nativeTaskIds')
+                       else ('marked done' if it.get('done') else 'skipped')))
+            continue   # already created, already finished, or explicitly skipped
+        if not force:
+            con = it.get('createOn', '') or _date_minus_days(it.get('due', ''), it.get('createLead', DEFAULT_TASK_CREATE_LEAD))
+            if not con or (today and con > today):
+                continue   # create window not reached yet
+            due = it.get('due', '')
+            if due and stale_cutoff and due < stale_cutoff:
+                continue   # too far in the past to bother releasing
+        ids = []
+        valid_assignees = [a for a in (it.get('assignees', []) or [])
+                           if int(_cf(a.get('peopleId', 0))) > 0]
+        if not valid_assignees:
+            _TASK_ERRORS.append('"%s" has no assignee with a PeopleId - pick a person (or set '
+                                'a trip leader) and Save before creating it.'
+                                % (it.get('title', '') or it.get('id', '')))
+            continue
+        for a in valid_assignees:
+            pid = int(_cf(a.get('peopleId', 0)))
+            tid = _create_native_task(pid, pid, it.get('title', ''), it.get('notes', ''),
+                                      it.get('due', ''), trip_name, org_id)
+            if tid:
+                ids.append(tid)
+            else:
+                failed += 1
+        if ids:
+            it['nativeTaskIds'] = ids
+            created += 1
+            changed = True
+    if changed:
+        model.AddExtraValueTextOrg(int(org_id), TRIP_TASKS_EV,
+                                   safe_json({'enabled': bool(data.get('enabled')), 'tasks': data.get('tasks', [])}))
+    return (created, failed)
+
+
+def _name_search_where(search_term, alias='p'):
+    """Tokenized name-search WHERE fragment (no leading WHERE/AND). Same pattern as
+    TPxi/Task Runner and TPxi_DayOfRegistration:
+        "Last, First" / "swa, b" -> starts-with on LastName + FirstName/NickName
+        "ben swa"                -> every token must match somewhere in
+                                    FirstName/LastName/NickName/Name2
+    Returns '1=0' for empty input so the surrounding query stays valid."""
+    term = (search_term or '').strip()
+    if not term:
+        return '1=0'
+    a = alias
+    if ',' in term:
+        parts = term.split(',', 1)
+        last_tok = parts[0].strip().replace("'", "''")
+        first_tok = parts[1].strip().replace("'", "''")
+        clauses = []
+        if last_tok:
+            clauses.append("{0}.LastName LIKE '{1}%'".format(a, last_tok))
+        if first_tok:
+            clauses.append("({0}.FirstName LIKE '{1}%' OR {0}.NickName LIKE '{1}%')".format(a, first_tok))
+        return ' AND '.join(clauses) if clauses else '1=0'
+    tokens = [t for t in term.split() if t]
+    if not tokens:
+        return '1=0'
+    out = []
+    for raw in tokens:
+        tok = raw.replace("'", "''")
+        out.append("({0}.FirstName LIKE '%{1}%' OR {0}.LastName LIKE '%{1}%' "
+                   "OR {0}.NickName LIKE '%{1}%' OR {0}.Name2 LIKE '%{1}%')".format(a, tok))
+    return ' AND '.join(out)
+
+
+def get_itinerary_email_template():
+    """The itinerary email's subject/body, placeholders unresolved. The user's customised
+    version if they edited it under Settings > Quick Email Templates, else the built-in."""
+    try:
+        for t in get_dropdown_templates():
+            if t.get('id') == ITINERARY_TEMPLATE_ID:
+                return {'subject': t.get('subject') or '', 'body': t.get('body') or ''}
+    except:
+        pass
+    return {'subject': '', 'body': ''}
+
+
+def _itinerary_recipients(org_id, who):
+    """PeopleIds for the itinerary email. 'me' = the logged-in user, 'leaders' = the trip's
+    leader-type members, 'team' = every active member (leaders included)."""
+    if who == 'me':
+        pid = _current_user_id()
+        return [pid] if pid else []
+    if who == 'leaders':
+        types = ','.join(str(x) for x in config.LEADER_MEMBER_TYPES) or '140,310,320'
+        where = 'AND om.MemberTypeId IN ({0})'.format(types)
+    else:
+        # everyone actually going: same exclusions the trip roster uses
+        where = 'AND om.MemberTypeId NOT IN (230, 311)'
+    sql = '''
+        SELECT DISTINCT om.PeopleId
+        FROM OrganizationMembers om WITH (NOLOCK)
+        JOIN People p WITH (NOLOCK) ON p.PeopleId = om.PeopleId
+        WHERE om.OrganizationId = {0} AND om.InactiveDate IS NULL
+          AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+          AND ISNULL(p.EmailAddress, '') <> ''
+          {1}
+    '''.format(int(org_id), where)
+    out = []
+    try:
+        for r in q.QuerySql(sql):
+            out.append(int(r.PeopleId))
+    except:
+        pass
+    return out
+
+
+def handle_send_itinerary():
+    """Email the trip itinerary to the current user, the trip leaders, or the whole team.
+
+    Wording comes from the editable 'Trip Itinerary / Logistics' template; the table is
+    generated from the trip's Logistics tab, so it can't drift from the real details."""
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        org_id = int(str(getattr(Data, 'org', '0')).strip() or '0')
+        if not (user_role.get('is_admin', False) or has_trip_access(user_role, org_id)):
+            print json.dumps({'success': False, 'message': 'You do not have access to this trip.'})
+            return True
+        who = str(getattr(Data, 'who', 'me') or 'me').strip().lower()
+        if who not in ('me', 'leaders', 'team'):
+            who = 'me'
+        # only an admin may mail the whole team / leaders; anyone with trip access can self-send
+        if who != 'me' and not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required to email the team.'})
+            return True
+
+        pids = _itinerary_recipients(org_id, who)
+        if not pids:
+            print json.dumps({'success': False,
+                              'message': ('No recipients found with an email address.'
+                                          if who != 'me' else
+                                          'Could not determine your PeopleId.')})
+            return True
+
+        itin = build_itinerary(org_id)
+        tpl = get_itinerary_email_template()
+        subject = tpl['subject'] or ('%s - Trip Itinerary' % itin['tripName'])
+        body = tpl['body'] or '{{ItineraryTable}}'
+
+        # Leaders (and your own copy) get confirmation numbers; the team does not. Record
+        # locators are never emailed to anyone -- 'admin' is a screen-only audience.
+        audience = 'team' if who == 'team' else 'leader'
+        table = render_itinerary_document(itin, standalone=False, audience=audience)
+        meet = _it_place_when(itin['meetingPlace'],
+                              (itin['meetingDay'] + (' ' + itin['meetingTime'] if itin['meetingTime'] else ''))
+                              if itin['meetingDay'] else itin['meetingTime'])
+        subs = {
+            '{{TripName}}': itin['tripName'],
+            '{{DepartureDate}}': itin['departureDate'],
+            '{{ReturnDate}}': itin['returnDate'],
+            '{{MeetingPlace}}': meet,
+            '{{TeamLeader}}': ', '.join(l.get('name', '') for l in itin['leaders']),
+        }
+        for k, v in subs.items():
+            subject = subject.replace(k, v)
+            body = body.replace(k, v)
+        # Built-in templates store newlines as a LITERAL backslash-n (see the JS that does
+        # .replace(/\\n/g,...) when rendering them), so unescape those first or the reader
+        # literally sees "\n" in the email. Then real newlines.
+        body = body.replace('\\r\\n', '\n').replace('\\n', '\n').replace('\r\n', '\n')
+        # newline -> <br> BEFORE the table goes in, so the table's own markup isn't mangled
+        body = body.replace('\n', '<br>')
+        body = body.replace('{{ItineraryTable}}', table)
+        subject = subject.replace('\\n', ' ').replace('\n', ' ').strip()
+
+        from_email, from_name = '', 'Missions Dashboard'
+        uid = _current_user_id()
+        try:
+            me = model.GetPerson(uid)
+            if me:
+                from_email = me.EmailAddress or ''
+                from_name = me.Name or from_name
+        except:
+            pass
+
+        sent, errs = 0, []
+        for pid in pids:
+            try:
+                personal = _personalize_email_body(body, pid, org_id)
+                model.Email('PeopleId={0}'.format(int(pid)), uid, from_email, from_name,
+                            subject, personal, None)
+                sent += 1
+            except Exception as e1:
+                errs.append(str(e1))
+        if sent:
+            msg = 'Itinerary emailed to %d recipient%s.' % (sent, '' if sent == 1 else 's')
+            if errs:
+                msg += ' %d failed.' % len(errs)
+            print safe_json({'success': True, 'sent': sent, 'message': msg})
+        else:
+            print safe_json({'success': False,
+                             'message': 'Nothing was sent. ' + ('; '.join(errs[:2]) if errs else '')})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+def handle_get_itinerary():
+    """Return the rendered itinerary HTML.
+
+    audience: 'team'   -> no booking references (the copy that goes to goers)
+              'leader' -> hotel confirmation numbers, still NO record locators
+              'admin'  -> on-screen only, adds record locators for the RECORD_LOCATOR_ROLES
+
+    The 'admin' copy is refused for printing: record locators must not end up on paper or in
+    an inbox, so the only way to see one is on the screen of someone in that role."""
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        org_id = int(str(getattr(Data, 'org', '0')).strip() or '0')
+        if not (user_role.get('is_admin', False) or has_trip_access(user_role, org_id)):
+            print json.dumps({'success': False, 'message': 'You do not have access to this trip.'})
+            return True
+        audience = str(getattr(Data, 'audience', 'team') or 'team').strip().lower()
+        if audience not in ('team', 'leader', 'admin'):
+            audience = 'team'
+        for_print = str(getattr(Data, 'forprint', '0')).strip() == '1'
+        if audience == 'admin' and (for_print or not _it_can_see_locators()):
+            # never printable, and never available to a role outside the config list
+            audience = 'leader'
+        itin = build_itinerary(org_id)
+        print safe_json({'success': True, 'tripName': itin['tripName'], 'audience': audience,
+                         'html': render_itinerary_document(itin, standalone=True, audience=audience)})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+def handle_decline_task():
+    """Decline a task with a reason, or undo a decline.
+
+    Declining means "we are not doing this, and here is why". If the task already exists in
+    TouchPoint it is declined THERE too via model.TaskNoteDecline, so the assignee's list
+    agrees with the dashboard. If it was never created, the decision is recorded locally and
+    the task is never created. The stored flag is still `skipped` (no migration needed);
+    `declineReason` carries the why."""
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required.'})
+            return True
+        org_id = int(str(getattr(Data, 'org', '0')).strip() or '0')
+        task_id = str(getattr(Data, 'taskId', '') or '').strip()
+        want = str(getattr(Data, 'declined', '1')).strip() not in ('0', 'false', 'False', '')
+        reason = str(getattr(Data, 'reason', '') or '').strip()
+        data = load_trip_tasks(org_id)
+        hit = None
+        for it in data.get('tasks', []):
+            if str(it.get('id')) == task_id:
+                hit = it
+                break
+        if hit is None:
+            print json.dumps({'success': False, 'message': 'Task not found on this trip.'})
+            return True
+
+        native, failed = 0, []
+        for tid in [int(_cf(x)) for x in (hit.get('nativeTaskIds', []) or []) if _cf(x) > 0]:
+            try:
+                if want:
+                    model.TaskNoteDecline(tid, reason or 'Declined from the Missions Dashboard.')
+                else:
+                    model.SetTaskNoteStatus(tid, 'Pending')
+                native += 1
+            except Exception as e1:
+                failed.append(repr(e1))
+        hit['skipped'] = bool(want)
+        hit['declineReason'] = (reason if want else '')
+        if want:
+            hit['done'] = False
+        model.AddExtraValueTextOrg(org_id, TRIP_TASKS_EV,
+                                   safe_json({'enabled': bool(data.get('enabled')),
+                                              'tasks': data.get('tasks', [])}))
+        msg = ('Declined.' if want else 'Reopened.')
+        if failed:
+            msg += ' TouchPoint did not update %d task(s): %s' % (len(failed), failed[0])
+        print safe_json({'success': True, 'declined': bool(want), 'native': native, 'message': msg})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+def handle_search_people():
+    """Type-ahead people search for the assignee pickers, so nobody has to know a
+    PeopleId. Admin-gated; returns at most 20 matches."""
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required.'})
+            return True
+        term = str(getattr(Data, 'term', '') or '').strip()
+        if len(term) < 2:
+            print json.dumps({'success': True, 'people': []})
+            return True
+        sql = '''
+            SELECT TOP 20 p.PeopleId, ISNULL(p.Name2, '') AS Name2,
+                   ISNULL(p.EmailAddress, '') AS Email
+            FROM People p WITH (NOLOCK)
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 AND ({0})
+            ORDER BY p.LastName, p.FirstName
+        '''.format(_name_search_where(term, 'p'))
+        people = []
+        for r in q.QuerySql(sql):
+            people.append({'peopleId': int(r.PeopleId),
+                           'name': (getattr(r, 'Name2', '') or ''),
+                           'email': (getattr(r, 'Email', '') or '')})
+        print safe_json({'success': True, 'people': people})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+def handle_set_native_task_done():
+    """Admin marks a task complete (or reopens it) from the dashboard, even when the task
+    is assigned to someone else -- e.g. the assignee is out and the work still got done.
+
+    This WRITES THROUGH to TouchPoint via model.TaskNoteComplete / model.SetTaskNoteStatus
+    (the same API TPxi/Task Runner and the Re-Engagement Pipeline use), so the dashboard and
+    the assignee's real task list never disagree. Read-only SQL is preserved; no UPDATEs."""
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required.'})
+            return True
+        org_id = int(str(getattr(Data, 'org', '0')).strip() or '0')
+        task_id = str(getattr(Data, 'taskId', '') or '').strip()
+        want_done = str(getattr(Data, 'done', '1')).strip() not in ('0', 'false', 'False', '')
+        who = ''
+        try:
+            me = model.GetPerson(_current_user_id())
+            who = (me.Name if me else '') or ''
+        except:
+            pass
+        note = (str(getattr(Data, 'note', '') or '').strip()
+                or ('Completed by %s from the Missions Dashboard.' % (who or 'an administrator')))
+
+        data = load_trip_tasks(org_id)
+        target = None
+        for it in data.get('tasks', []):
+            if str(it.get('id')) == task_id:
+                target = it
+                break
+        if target is None:
+            print json.dumps({'success': False, 'message': 'Task not found on this trip.'})
+            return True
+
+        changed, failed = 0, 0
+        for tid in [int(_cf(x)) for x in (target.get('nativeTaskIds', []) or []) if _cf(x) > 0]:
+            try:
+                if want_done:
+                    model.TaskNoteComplete(tid, note, [])
+                else:
+                    # reopen: put it back on the assignee's plate
+                    model.SetTaskNoteStatus(tid, 'Pending')
+                changed += 1
+            except:
+                failed += 1
+        target['done'] = bool(want_done)
+        target['doneVia'] = ('admin' if want_done else '')
+        model.AddExtraValueTextOrg(org_id, TRIP_TASKS_EV,
+                                   safe_json({'enabled': bool(data.get('enabled')),
+                                              'tasks': data.get('tasks', [])}))
+        print json.dumps({'success': True, 'done': bool(want_done),
+                          'updated': changed, 'failed': failed})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+def handle_push_native_tasks():
+    """Manual 'Create in TouchPoint now' -- pushes not-yet-created, not-done tasks.
+    Optional Data.taskId limits it to a single task. Requires the trip to be enabled."""
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required.'})
+            return True
+        org_id = int(str(getattr(Data, 'org', '0')).strip() or '0')
+        if not load_trip_tasks(org_id).get('enabled'):
+            print json.dumps({'success': False, 'message': 'Tasks are not enabled for this trip yet. Turn on "Tasks enabled for this trip" first.'})
+            return True
+        only_id = str(getattr(Data, 'taskId', '') or '').strip() or None
+        trip = _get_trip_info(org_id)
+        trip_name = trip.OrganizationName if trip else ('Trip %d' % org_id)
+        del _TASK_ERRORS[:]
+        created, failed = _release_trip_native_tasks(org_id, trip_name, force=True, only_id=only_id)
+        # Creating nothing is NOT success -- reporting it as such made the page reload
+        # unchanged with no explanation of why.
+        if created > 0:
+            print safe_json({'success': True, 'created': created, 'failed': failed,
+                             'errors': _TASK_ERRORS[:5]})
+        else:
+            msg = (_TASK_ERRORS[0] if _TASK_ERRORS
+                   else 'Nothing was created and TouchPoint gave no reason.')
+            if len(_TASK_ERRORS) > 1:
+                msg += ' (' + str(len(_TASK_ERRORS) - 1) + ' more)'
+            print safe_json({'success': False, 'created': 0, 'failed': failed,
+                             'message': msg, 'errors': _TASK_ERRORS[:5]})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+# Markers used to add/remove our block in the MorningBatch script without disturbing
+# anything else that shares it. Same approach as TPxi_OpsCheckList.
+_MB_MARKER_START = "# >>> TPxi_MissionsDashboard tasks batch start (managed by app, do not edit) >>>"
+_MB_MARKER_END = "# <<< TPxi_MissionsDashboard tasks batch end <<<"
+
+
+def _mb_read():
+    try:
+        return model.PythonContent("MorningBatch") or ""
+    except:
+        return ""
+
+
+def _mb_installed():
+    return _MB_MARKER_START in _mb_read()
+
+
+def _tasks_in_use():
+    """True when at least one trip has its tasks ENABLED -- i.e. the morning batch is
+    actually needed. A plan that exists but is switched off releases nothing, so nagging
+    about the batch would be noise."""
+    try:
+        for r in q.QuerySql("SELECT DISTINCT OrganizationId FROM OrganizationExtra WITH (NOLOCK) "
+                            "WHERE Field = '{0}'".format(TRIP_TASKS_EV)):
+            if load_trip_tasks(int(r.OrganizationId)).get('enabled'):
+                return True
+    except:
+        pass
+    return False
+
+
+def render_batch_warning():
+    """The banner only (no script) -- it is dropped into #mb-slot, which MB.refresh() can
+    also repaint after the enable switch is flipped, so the warning appears the moment it
+    becomes true instead of on the next page load."""
+    if _mb_installed() or not _tasks_in_use():
+        return ''
+    return ('<div class="mb-warn">'
+            '<b>&#9888; Tasks are enabled, but this script is not in the morning batch.</b>'
+            '<div>Task due dates are calculated, but nothing will be created in TouchPoint on its '
+            'create date until the morning batch calls this script. You can still create tasks by hand '
+            'with &ldquo;Create now&rdquo;.</div>'
+            '<div style="margin-top:8px">'
+            '<button type="button" class="mc-save" onclick="MB.install()">Add to morning batch</button>'
+            '<span id="mb-status" class="mc-status"></span></div></div>')
+
+
+def render_batch_slot():
+    """The banner in a repaintable slot, plus its script. Use this on any page that shows
+    the warning."""
+    return '<div id="mb-slot">' + render_batch_warning() + '</div>' + MB_JS
+
+
+MB_JS = '''<script>
+var MB = {
+  // Re-ask the server whether the warning applies. Enabling tasks on a trip is what makes
+  // it true, and that happens over AJAX with no page load.
+  refresh: function(){
+    var slot=document.getElementById('mb-slot'); if(!slot) return;
+    var url=window.location.pathname.replace('/PyScript/','/PyScriptForm/');
+    var fd=new FormData(); fd.append('action','check_morning_batch');
+    fetch(url,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.text();})
+      .then(function(t){ var j={}; try{ j=JSON.parse(t); }catch(e){} if(j.success) slot.innerHTML=j.html||''; })
+      .catch(function(){});
+  },
+  install: function(){
+    if(!confirm('Add this script to the TouchPoint morning batch?\\n\\nIt appends a small managed block to the MorningBatch script; anything else in there is left alone.')) return;
+    var st=document.getElementById('mb-status');
+    if(st){ st.textContent='Installing...'; st.style.color='#64748b'; }
+    // the script name is only knowable from the URL (TouchPoint does not expose it to Python)
+    var parts=window.location.pathname.split('/'), name='';
+    for(var i=0;i<parts.length;i++){
+      if(parts[i]==='PyScript'||parts[i]==='PyScriptForm'){ if(i+1<parts.length) name=parts[i+1].split('?')[0]; break; }
+    }
+    var url=window.location.pathname.replace('/PyScript/','/PyScriptForm/');
+    var fd=new FormData(); fd.append('action','install_morning_batch'); fd.append('scriptName',name);
+    fetch(url,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.text();})
+      .then(function(t){
+        var j={}; try{ j=JSON.parse(t); }catch(e){}
+        if(st){ st.textContent=(j.message||(j.success?'Added':'Failed')); st.style.color=j.success?'#166534':'#b91c1c'; }
+        if(j.success) setTimeout(function(){ window.location.reload(); }, 1200);
+      })
+      .catch(function(){ if(st){ st.textContent='Failed'; st.style.color='#b91c1c'; } });
+  }
+};
+</script>'''
+
+
+def handle_check_morning_batch():
+    """Re-render the batch banner for the client after something changed that could make it
+    apply (or stop applying)."""
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required.'})
+            return True
+        print safe_json({'success': True, 'installed': _mb_installed(),
+                         'html': render_batch_warning()})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+def handle_install_morning_batch():
+    """Append our managed block to the MorningBatch script. Idempotent, and it never
+    rewrites anything outside our own markers."""
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print json.dumps({'success': False, 'message': 'Admin role required.'})
+            return True
+        name = str(getattr(Data, 'scriptName', '') or '').strip()
+        if not name:
+            print json.dumps({'success': False,
+                              'message': "Could not work out this script's name from the URL."})
+            return True
+        existing = _mb_read()
+        if _MB_MARKER_START in existing:
+            print json.dumps({'success': True, 'message': 'Already in the morning batch.'})
+            return True
+        block = (_MB_MARKER_START + "\n"
+                 "try:\n"
+                 "    Data.run_batch = 'true'\n"
+                 "    model.CallScript('" + name.replace("'", "") + "')\n"
+                 "except Exception as _mtrip_e:\n"
+                 "    print 'Missions task batch error: ' + str(_mtrip_e)\n"
+                 + _MB_MARKER_END + "\n")
+        new_content = existing.rstrip() + ("\n\n" if existing.strip() else "") + block
+        model.WriteContentPython("MorningBatch", new_content)
+        print json.dumps({'success': True,
+                          'message': 'Added. Tasks will be released on the next morning batch run.'})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+def run_task_time_release_batch():
+    """Morning-batch entry: time-release native tasks for every trip that has task
+    instances. Activated by the managed block this script writes into the MorningBatch
+    special content (Data.run_batch='true' + model.CallScript) -- use the "Add to morning
+    batch" button on the Tasks tab rather than wiring it by hand. Only creates
+    tasks whose create window (today >= createOn) has arrived; idempotent."""
+    sql = "SELECT DISTINCT OrganizationId FROM OrganizationExtra WITH (NOLOCK) WHERE Field = '{0}'".format(TRIP_TASKS_EV)
+    try:
+        rows = list(q.QuerySql(sql))
+    except:
+        rows = []
+    orgs, total_c, total_f, total_s = 0, 0, 0, 0
+    for r in rows:
+        try:
+            oid = int(r.OrganizationId)
+        except:
+            continue
+        trip = _get_trip_info(oid)
+        tname = trip.OrganizationName if trip else ('Trip %d' % oid)
+        # pull completions back from TouchPoint first, so a task finished natively
+        # is marked done here even on trips nobody has opened in the dashboard
+        try:
+            total_s += _sync_native_task_completion(oid, load_trip_tasks(oid))
+        except:
+            pass
+        c, f = _release_trip_native_tasks(oid, tname, force=False)
+        orgs += 1
+        total_c += c
+        total_f += f
+    try:
+        model.DebugPrint('Missions task batch: %d trips scanned, %d native tasks created, %d failed, %d synced complete'
+                         % (orgs, total_c, total_f, total_s))
+    except:
+        pass
+    return (orgs, total_c, total_f, total_s)
+
+
+# ----- Tasks: rendering -----------------------------------------------------
+def _tk_json_attr(obj):
+    return safe_json(obj).replace('&', '&amp;').replace("'", '&#39;')
+
+
+def _tk_anchor_opts(sel):
+    return ''.join('<option value="%s"%s>%s</option>' % (k, (' selected' if k == sel else ''), lbl)
+                   for (k, lbl) in _TASK_ANCHORS)
+
+
+def _tk_atype_opts(sel):
+    return ('<option value="leader"%s>Trip Leader</option>'
+            '<option value="person"%s>Specific person</option>'
+            % ((' selected' if sel != 'person' else ''), (' selected' if sel == 'person' else '')))
+
+
+def _tk_tpl_row(tp):
+    anc = tp.get('anchor', 'depBefore')
+    is_fixed = (anc == 'fixed')
+    is_person = (tp.get('assigneeType') == 'person')
+    off_disp = 'none' if is_fixed else ''
+    fx_disp = '' if is_fixed else 'none'
+    ps_disp = '' if is_person else 'none'
+    return ('<tr class="tk-trow">'
+            '<td data-label="Task"><input class="tk-in tk-t-title" value="' + _mc_attr(tp.get('title', '')) + '"></td>'
+            '<td data-label="When"><select class="tk-in tk-t-anchor" onchange="TK.tplAnchor(this)">' + _tk_anchor_opts(anc) + '</select></td>'
+            '<td data-label="How many days">'
+            '<span class="tk-nowrap tk-offwrap" style="display:' + ('none' if is_fixed else '') + '">'
+            '<input type="number" step="1" class="tk-in tk-t-offset" title="How many days before or after the trip date this task is due"'
+            ' value="' + _mc_attr(tp.get('offset', 0)) + '"><span class="tk-unit">days</span></span>'
+            '<input type="date" class="tk-in tk-t-fixed" value="' + _mc_attr(tp.get('fixedDate', '')) + '" style="display:' + fx_disp + '"></td>'
+            '<td data-label="Create how early"><span class="tk-nowrap">'
+            '<input type="number" step="1" class="tk-in tk-t-lead" title="How many days BEFORE the due date the task appears in TouchPoint"'
+            ' value="' + _mc_attr(tp.get('createLead', DEFAULT_TASK_CREATE_LEAD)) + '">'
+            '<span class="tk-unit">days early</span></span></td>'
+            '<td data-label="Assignee"><select class="tk-in tk-t-atype" onchange="TK.tplAtype(this)">' + _tk_atype_opts(tp.get('assigneeType', 'leader')) + '</select>'
+            '<span class="tk-person" style="display:' + ps_disp + '">'
+            + _tk_people_picker('tk-t', tp.get('assigneePeopleId', 0) or '', tp.get('assigneeName', ''))
+            + '</span></td>'
+            '<td data-label=""><button type="button" class="mc-x" onclick="TK.del(this)">&times;</button></td></tr>')
+
+
+def _tk_task_row(it):
+    assignees = it.get('assignees', []) or []
+    if assignees:
+        names = ', '.join((a.get('name', '') or ('#' + str(a.get('peopleId', '')))) for a in assignees)
+    else:
+        names = '(no leader set yet)' if it.get('assigneeType') != 'person' else '(unassigned)'
+    ntotal, ndone = _native_task_status(it.get('nativeTaskIds', []))
+    created = bool(it.get('nativeTaskIds'))
+    skipped = bool(it.get('skipped'))
+    rid = _mc_attr(it.get('id', ''))
+    # Once the task exists in TouchPoint, editing the title/notes/due here would change
+    # nothing over there -- so don't offer a box that looks like it works. Read-only inputs
+    # still submit, so the stored values are preserved on save.
+    ro = (' readonly title="This task is already in TouchPoint - edit it there."' if created else '')
+    ro_cls = (' tk-ro' if created else '')
+    # Done belongs only to a task that actually exists in TouchPoint. A task that hasn't
+    # been created can only be Skipped (a deliberate "we decided not to do this" record,
+    # unlike the X which just deletes the row).
+    if created:
+        st = _native_task_state(it.get('nativeTaskIds', []))
+        bits = []
+        if st['done']:
+            bits.append('%d done' % st['done'])
+        if st['accepted']:
+            bits.append('%d accepted' % st['accepted'])
+        if st['pending']:
+            bits.append('%d pending' % st['pending'])
+        if st['archived']:
+            bits.append('%d archived' % st['archived'])
+        cls = 'ok' if (st['total'] and st['done'] == st['total']) else ''
+        badge = ('<span class="tk-badge ' + cls + '">In TouchPoint'
+                 + ((' &middot; ' + ', '.join(bits)) if bits else '') + '</span>')
+        if st['declined']:
+            badge += (' <span class="tk-badge tk-decl" title="The assignee declined this task '
+                      'in TouchPoint. Reassign it or handle it yourself.">%d declined</span>' % st['declined'])
+        if not it.get('done'):
+            badge += (' <a href="#" class="tk-mk1 tk-skiplink" onclick="TK.decline(&#39;' + rid
+                      + '&#39;);return false;" title="Decline this task with a reason. It is declined '
+                      'in TouchPoint too, so the assignee\'s list agrees.">Decline</a>')
+        done_cell = ('<input type="checkbox" class="tk-done" data-id="' + rid + '" onchange="TK.doneChanged(this)"'
+                     ' title="Completing this here completes it in TouchPoint too, even if it is assigned'
+                     ' to someone else."' + (' checked' if it.get('done') else '') + '>')
+    elif skipped:
+        why = (it.get('declineReason') or '').strip()
+        badge = ('<span class="tk-badge tk-skip">Declined</span> '
+                 + (('<span class="tk-why" title="' + _mc_attr(why) + '">' + _escape_html(why[:40])
+                     + ('&hellip;' if len(why) > 40 else '') + '</span> ') if why else '')
+                 + '<a href="#" class="tk-mk1" onclick="TK.unskip(&#39;' + rid + '&#39;);return false;">Undo</a>')
+        done_cell = '<span class="tk-na" title="Declined - not created in TouchPoint">&mdash;</span>'
+    else:
+        badge = ('<span class="tk-badge">Not created</span> '
+                 '<a href="#" class="tk-mk1" onclick="TK.pushOne(&#39;' + rid + '&#39;);return false;">Create now</a> '
+                 '<a href="#" class="tk-mk1 tk-skiplink" onclick="TK.decline(&#39;' + rid + '&#39;);return false;" '
+                 'title="Record that this task is deliberately not being done, with a reason. Use the X instead to remove the row entirely.">Decline</a>')
+        done_cell = '<span class="tk-na" title="Nothing to complete yet - this task has not been created in TouchPoint">&mdash;</span>'
+    return ('<tr class="tk-row" data-id="' + _mc_attr(it.get('id', '')) + '" data-tpl="' + _mc_attr(it.get('templateId', '')) + '"'
+            ' data-src="' + _mc_attr(it.get('source', 'template')) + '" data-atype="' + _mc_attr(it.get('assigneeType', 'leader')) + '"'
+            ' data-lead="' + _mc_attr(it.get('createLead', DEFAULT_TASK_CREATE_LEAD)) + '"'
+            ' data-skip="' + ('1' if skipped else '0') + '"'
+            ' data-aover="' + ('1' if it.get('assigneeOverride') else '0') + '"'
+            ' data-apid="' + _mc_attr((assignees[0].get('peopleId') if (it.get('assigneeType') == 'person' and assignees) else '')) + '"'
+            " data-native='" + _tk_json_attr(it.get('nativeTaskIds', []) or []) + "'"
+            " data-assignees='" + _tk_json_attr(assignees) + "'>"
+            '<td data-label="Done">' + done_cell + '</td>'
+            '<td data-label="Due"><input type="date" class="tk-in tk-due' + ro_cls + '" value="'
+            + _mc_attr(it.get('due', '')) + '"' + ro + '></td>'
+            '<td data-label="Task"><input class="tk-in tk-title' + ro_cls + '" value="'
+            + _mc_attr(it.get('title', '')) + '"' + ro + '>'
+            '<input class="tk-in tk-notes' + ro_cls + '" placeholder="'
+            + ('notes' if created else 'notes (optional)') + '" value="'
+            + _mc_attr(it.get('notes', '')) + '"' + ro + '></td>'
+            '<td data-label="Assignee">' + _tk_assignee_cell(it, created, rid, names) + '</td>'
+            '<td data-label="In TouchPoint" class="tk-native">' + badge + '</td>'
+            '<td data-label=""><button type="button" class="mc-x" onclick="TK.del(this)">&times;</button></td></tr>')
+
+
+def _tk_people_picker(cls_prefix, pid_val, name_val, placeholder='Type a name...'):
+    """Reusable type-ahead person picker: a visible name box + a hidden PeopleId, backed by
+    the search_people AJAX. Nobody should have to know a PeopleId to assign a task."""
+    return ('<span class="tk-pick">'
+            '<input class="tk-in ' + cls_prefix + '-aname tk-pick-in" autocomplete="off" '
+            'placeholder="' + _mc_attr(placeholder) + '" value="' + _mc_attr(name_val or '') + '" '
+            'oninput="TK.pick(this)" onfocus="TK.pick(this)" onblur="TK.pickBlur(this)">'
+            '<input type="hidden" class="' + cls_prefix + '-apid" value="' + _mc_attr(pid_val or '') + '">'
+            '<span class="tk-pick-menu" style="display:none"></span></span>')
+
+
+def _tk_assignee_cell(it, created, rid, names):
+    """Assignee for one task instance. Editable until the task exists in TouchPoint;
+    after that it's the real task's assignee and has to be changed there."""
+    if created:
+        return ('<span title="This task already exists in TouchPoint. Change who it belongs to '
+                'from the task itself.">' + _escape_html(names) + '</span>')
+    is_person = (it.get('assigneeType') == 'person')
+    people = it.get('assignees', []) or []
+    pid = (people[0].get('peopleId') if (is_person and people) else '')
+    pname = (people[0].get('name') if (is_person and people) else '')
+    return ('<select class="tk-in tk-atype" onchange="TK.rowAtype(this)">'
+            '<option value="leader"' + ('' if is_person else ' selected') + '>Trip leader(s)</option>'
+            '<option value="person"' + (' selected' if is_person else '') + '>Specific person</option>'
+            '</select>'
+            '<span class="tk-rowperson" style="display:' + ('' if is_person else 'none') + '">'
+            + _tk_people_picker('tk-r', pid, pname) + '</span>'
+            + ('' if is_person else '<div class="mc-note tk-leadhint">' + _escape_html(names) + '</div>'))
+
+
+def _render_task_template_editor_inner(context_note=''):
+    """The church-wide task-template table + Add/Save buttons + hidden add-row template.
+    Reused on the Tasks tab and on the Settings > Task Templates tab. Requires the TK
+    namespace (TK_JS) and TK vars to be present on the page."""
+    tpl_rows = ''.join(_tk_tpl_row(tp) for tp in load_task_templates())
+    return ('<p class="mc-note">This is the <b>default list</b> a trip starts from &mdash; it is <b>not</b> pushed out to '
+            'trips on its own. Editing it changes <b>nothing</b> anywhere until someone opens a specific trip and clicks '
+            '<b>Generate / refresh from templates</b> there, and even then nothing reaches TouchPoint until that trip\'s '
+            '<b>Tasks enabled</b> switch is on. Each trip keeps its own copy, so per-trip edits and custom tasks are safe. '
+            '<br><b>One caveat:</b> clicking Generate again on a trip re-syncs that trip\'s template-sourced rows to this '
+            'list (titles and due dates), so trip-level edits to those are overwritten. Tasks you added with '
+            '<b>Add custom task</b>, any assignee you picked by hand on a trip, plus every Done/skip mark and anything '
+            'already created in TouchPoint, are left alone. '
+            + (context_note or '')
+            + '</p>'
+            '<p class="mc-note tk-legend"><b>Reading a row:</b> the two number boxes do different jobs.<br>'
+            '&bull; <b>When</b> + <b>How many days</b> set the <b>due date</b>. '
+            '&ldquo;days before departure&rdquo; with <b>60</b> means due 60 days before the team leaves. '
+            'Pick <b>on a fixed date</b> and the days box turns into a date picker.<br>'
+            '&bull; <b>Create how early</b> is how far ahead of that due date the task actually shows up in '
+            'TouchPoint. <b>14</b> means it appears two weeks before it is due, so nobody sees a task about a '
+            'trip that is still months away.<br>'
+            '<span style="color:#94a3b8">Example: <i>days before departure</i> &middot; <b>60</b> days &middot; '
+            'create <b>14</b> days early, on a trip leaving Aug 1, is due Jun 2 and appears on May 19.</span></p>'
+            '<table class="mc-tbl tk-resp" id="tk-tpl"><thead><tr><th>Task</th><th>When</th><th>How many days</th>'
+            '<th>Create how early</th><th>Assignee</th><th></th></tr></thead><tbody>' + tpl_rows + '</tbody></table>'
+            '<button type="button" class="mc-add" onclick="TK.addTemplate()">+ Add template</button> '
+            '<button type="button" class="mc-save" onclick="TK.saveTemplates()">&#128190; Save templates</button>'
+            '<span id="tk-tstatus" class="mc-status"></span>'
+            '<template id="tk-tpl-row"><table><tbody>'
+            + _tk_tpl_row({'anchor': 'depBefore', 'offset': 30, 'createLead': DEFAULT_TASK_CREATE_LEAD, 'assigneeType': 'leader', 'assigneeName': 'Trip Leader'})
+            + '</tbody></table></template>')
+
+
+def render_task_templates_settings():
+    """Standalone task-template editor for the Settings > Task Templates tab (no trip context)."""
+    def_en = _tasks_default_enabled()
+    en_chk = ' checked' if def_en else ''
+    default_box = ('<div class="tk-enable' + ('' if def_en else ' off') + '" id="tk-defbar" style="max-width:820px">'
+                   '<label class="tk-switch"><input type="checkbox" id="tk-defenabled"' + en_chk + ' onchange="TK.saveDefault(this)"> '
+                   '<b>New trips: enable tasks by default</b></label>'
+                   '<div class="mc-note" id="tk-defnote" style="margin:4px 0 0">' + (
+                       'On &mdash; when a trip generates its tasks, they start <b>enabled</b> (the morning batch will release them). '
+                       'A pastor can still turn an individual trip off.'
+                       if def_en else
+                       'Off &mdash; each trip starts <b>disabled</b>; a pastor reviews the tasks on the trip\'s Tasks tab, then enables it. '
+                       '(Recommended.)'
+                   ) + '</div><span id="tk-defstatus" class="mc-status"></span></div>')
+    return (MC_STYLE + TK_STYLE
+            + '<div class="mc-block"><h3>Default task list for mission trips</h3>'
+            + default_box
+            + _render_task_template_editor_inner('Since there is no trip open here, the &ldquo;due&rdquo; preview stays blank &mdash; each trip dates the tasks from its own departure/return.')
+            + '</div>'
+            + '<script>var TK_ORG="0";var TK_DEP="";var TK_RET="";var TK_ENABLED=false;var TK_LEADERS=[];</script>'
+            + TK_JS)
+
+
+#####################################################################
+# TRIP READINESS -- Logistics + Costs + Tasks for every trip at a glance
+#####################################################################
+
+def _rd_logistics(lg, dates):
+    """Counts + concrete gaps for one trip's logistics. Gaps use the same notion of
+    'required' as the printed itinerary: a field only counts as missing when the item it
+    belongs to actually exists, so a trip with no flights is never called incomplete for
+    having no record locators."""
+    fl = lg.get('flights', []) or []
+    gr = lg.get('ground', []) or []
+    lo = lg.get('lodging', []) or []
+    ac = lg.get('activities', []) or []
+    gaps = []
+    if not fl and not gr:
+        gaps.append('no travel entered')
+    if not (lg.get('summary', {}) or {}).get('meetingPlace'):
+        gaps.append('no meeting place')
+    miss_loc = len([f for f in fl if not (f.get('recordLocator') or '').strip()])
+    if miss_loc:
+        gaps.append('%d flight%s missing record locator' % (miss_loc, '' if miss_loc == 1 else 's'))
+    miss_dep = len([f for f in fl if not (f.get('departs') or '').strip()])
+    if miss_dep:
+        gaps.append('%d flight%s missing times' % (miss_dep, '' if miss_dep == 1 else 's'))
+    miss_conf = len([l for l in lo if not (l.get('confirmation') or '').strip()])
+    if miss_conf:
+        gaps.append('%d hotel%s missing confirmation' % (miss_conf, '' if miss_conf == 1 else 's'))
+    miss_drv = len([g for g in gr if not (g.get('provider') or '').strip()])
+    if miss_drv:
+        gaps.append('%d ride%s missing driver' % (miss_drv, '' if miss_drv == 1 else 's'))
+    c = lg.get('contacts', {}) or {}
+    if not (c.get('fbchName') or '').strip():
+        try:
+            if not (load_default_contact() or {}).get('name'):
+                gaps.append('no church contact')
+        except:
+            pass
+    return {'flights': len(fl), 'ground': len(gr), 'lodging': len(lo), 'activities': len(ac),
+            'gaps': gaps, 'any': bool(fl or gr or lo or ac)}
+
+
+def _rd_costs(org_id, costs):
+    """Published per-person + income for one trip, using the same maths as the Costs tab."""
+    roll = _get_trip_cost_rollup(org_id)
+    est = costs.get('estimate', {}) or {}
+    items = est.get('items', []) or []
+    actual = int(roll.get('goers') or 0)
+    planned = int(_cf(est.get('plannedGoers', 0)))
+    eff = planned if planned > 0 else actual
+    d = _lg_trip_dates(org_id)
+    days = _trip_days_from_dates(d.get('start'), d.get('end'))
+    grand = 0.0
+    for it in items:
+        grand += _est_per_person(it, eff, days)
+    underwriting_pp = _cf(est.get('scholarshipPerPerson', 0))
+    published = grand - underwriting_pp
+    # 'actual' on an estimate line is a whole-trip figure, as is an expense row
+    actual_lines = sum(_cf(it.get('actual', 0)) for it in items)
+    # Retired Expense record. Kept as a read-only figure for trips that still have rows
+    # stored, but it no longer feeds actualTotal -- the estimator's Actual spend column is
+    # the single source, so nothing is counted twice.
+    expenses = sum(_cf(x.get('total', 0)) for x in (costs.get('expenses', {}) or {}).get('items', []) or [])
+    return {'published': published, 'grand': grand, 'underwritingPerPerson': underwriting_pp,
+            'goers': actual, 'plannedGoers': planned, 'effGoers': eff,
+            'estTotal': grand * eff, 'publishedTotal': published * eff,
+            'underwritingTotal': underwriting_pp * eff,
+            'actualLines': actual_lines, 'expenses': expenses,
+            'actualTotal': actual_lines,
+            'charged': roll.get('charged', 0.0), 'raised': roll.get('raised', 0.0),
+            'due': roll.get('due', 0.0), 'hasEstimate': bool(items),
+            'avgPaidPerGoer': (roll.get('raised', 0.0) / actual) if actual else 0.0}
+
+
+def _rd_tasks(data, today):
+    """Task counts for one trip: total open, overdue, declined, and whether it is armed."""
+    tasks = data.get('tasks', []) or []
+    open_t = [t for t in tasks if not t.get('done') and not t.get('skipped')]
+    overdue = [t for t in open_t if t.get('due') and t['due'] < today]
+    declined = 0
+    for t in open_t:
+        declined += _native_task_state(t.get('nativeTaskIds', []))['declined']
+    return {'total': len(tasks), 'open': len(open_t), 'overdue': len(overdue),
+            'declined': declined, 'enabled': bool(data.get('enabled')),
+            'created': len([t for t in open_t if t.get('nativeTaskIds')])}
+
+
+def _rd_setup(name, dates, leaders):
+    """Gaps in the trip record itself, before any logistics/costs/tasks exist. A trip with
+    no dates can't date its tasks and can't build an itinerary, so this is the first thing
+    to fix."""
+    gaps = []
+    if not dates.get('start') and not dates.get('end'):
+        gaps.append('no dates set')
+    elif not dates.get('start'):
+        gaps.append('no start date')
+    elif not dates.get('end'):
+        gaps.append('no end date')
+    if not leaders:
+        gaps.append('no leader')
+    return gaps
+
+
+def _rd_future_meetings():
+    """{orgId: count} of meetings still to come, in ONE query -- used to decide whether a
+    past-dated trip genuinely has nothing left."""
+    sql = '''
+        SELECT m.OrganizationId AS OrgId, COUNT(*) AS N
+        FROM Meetings m WITH (NOLOCK)
+        JOIN Organizations o WITH (NOLOCK) ON o.OrganizationId = m.OrganizationId
+        WHERE o.IsMissionTrip = {0} AND m.MeetingDate >= GETDATE()
+        GROUP BY m.OrganizationId
+    '''.format(config.MISSION_TRIP_FLAG)
+    out = {}
+    try:
+        for r in q.QuerySql(sql):
+            out[int(r.OrgId)] = int(r.N or 0)
+    except:
+        pass
+    return out
+
+
+def build_trip_readiness(include_closed=False, include_undated=False, include_finished=False):
+    """One row per trip with its Logistics / Costs / Tasks state.
+
+    Involvements with NO dates at all are almost always intake forms rather than trips
+    ("... Interest Form", "Master Short Term Mission Trip Application", "... Prospects"),
+    so they are held back by default -- but counted and revealed on request, because a real
+    trip that simply has not had its dates entered would otherwise vanish silently.
+
+    Costs need a query per trip (the fee/giving rollup), so this is the heaviest page in the
+    dashboard. It is admin-only and not loaded anywhere else."""
+    today = _today_iso()
+    rows, undated, finished = [], [], []
+    try:
+        trips = list(get_all_trips_for_sidebar(include_closed))
+    except:
+        trips = []
+    future_meetings = _rd_future_meetings()
+    for t in trips:
+        oid = int(t.OrganizationId)
+        name = (getattr(t, 'OrganizationName', '') or ('Trip %d' % oid))
+        lgd = _lg_trip_dates(oid)
+        if not lgd.get('start') and not lgd.get('end') and not include_undated:
+            undated.append({'orgId': oid, 'name': name})
+            continue
+        lg = load_trip_logistics(oid)
+        # prime the native-task cache per trip so _rd_tasks doesn't fire a query per task
+        tdata = load_trip_tasks(oid)
+        _prime_native_task_cache(tdata.get('tasks', []) or [])
+        tasks = _rd_tasks(tdata, today)
+        # A trip that has come home, has nothing left to do and nothing left scheduled is
+        # finished -- keeping it on a readiness page just buries the trips that need work.
+        end = lgd.get('end') or lgd.get('start') or ''
+        if (not include_finished and end and end < today
+                and not tasks['open'] and not future_meetings.get(oid)):
+            finished.append({'orgId': oid, 'name': name, 'end': end})
+            continue
+        leaders = [l.get('name', '') for l in _lg_trip_leaders(oid)]
+        rows.append({
+            'orgId': oid,
+            'name': name,
+            'status': (getattr(t, 'TripStatus', '') or ''),
+            'start': lgd.get('start', ''), 'end': lgd.get('end', ''),
+            'leaders': leaders,
+            'setup': _rd_setup(name, lgd, leaders),
+            'lg': _rd_logistics(lg, lgd),
+            'costs': _rd_costs(oid, load_trip_costs(oid)),
+            'tasks': tasks,
+        })
+    return rows, undated, finished
+
+
+def _rd_chip(text, tone=''):
+    return '<span class="rd-chip ' + tone + '">' + text + '</span>'
+
+
+def _rd_span(start, end):
+    """'Aug 1-8' / 'Aug 28 - Sep 4, 2026' / '' -- compact date range for the row header."""
+    sd, _ = _it_dt(start)
+    ed, _ = _it_dt(end)
+    if not sd and not ed:
+        return ''
+    if not ed:
+        return sd
+    try:
+        s = datetime.datetime.strptime(start[:10], '%Y-%m-%d')
+        e = datetime.datetime.strptime(end[:10], '%Y-%m-%d')
+        if s.year == e.year and s.month == e.month:
+            return '%s %d-%d, %d' % (s.strftime('%b'), s.day, e.day, s.year)
+        if s.year == e.year:
+            return '%s %d - %s %d, %d' % (s.strftime('%b'), s.day, e.strftime('%b'), e.day, s.year)
+    except:
+        pass
+    return sd + ' - ' + ed
+
+
+def render_readiness_view(user_role):
+    """Logistics + Costs + Tasks for every trip, in one scannable grid."""
+    if not user_role.get('is_admin', False):
+        print '<div class="alert alert-danger">Trip readiness is visible to administrators only.</div>'
+        return
+    include_closed = str(getattr(model.Data, 'closed', '') or '') == '1'
+    include_undated = str(getattr(model.Data, 'undated', '') or '') == '1'
+    include_finished = str(getattr(model.Data, 'finished', '') or '') == '1'
+    rows, undated, finished = build_trip_readiness(include_closed, include_undated, include_finished)
+    _keep = ('&closed=1' if include_closed else '') + ('&undated=1' if include_undated else '') \
+        + ('&finished=1' if include_finished else '')
+    cur = getattr(config, 'CURRENCY_SYMBOL', '$')
+
+    print MC_STYLE + TK_STYLE + RD_STYLE
+    print ('<div class="section-header"><div><h2>Trip readiness</h2>'
+           '<div class="mc-note">Logistics, costs, and tasks for every trip. Click any cell to open '
+           'that trip\'s tab.</div></div></div>')
+
+    n_setup = len([r for r in rows if r['setup']])
+    n_nolog = len([r for r in rows if r['lg']['gaps']])
+    n_noest = len([r for r in rows if not r['costs']['hasEstimate']])
+    n_overdue = sum(r['tasks']['overdue'] for r in rows)
+    n_offtasks = len([r for r in rows if r['tasks']['total'] and not r['tasks']['enabled']])
+    print '<div class="mc-cards">'
+    print _mc_card('Trips', str(len(rows)), 'closed included' if include_closed else 'open trips')
+    print _mc_card('Setup gaps', str(n_setup), 'no dates or no leader', warn=(n_setup > 0))
+    print _mc_card('Logistics gaps', str(n_nolog), 'trips with something missing', warn=(n_nolog > 0))
+    print _mc_card('No cost estimate', str(n_noest), 'nothing budgeted yet', warn=(n_noest > 0))
+    print _mc_card('Overdue tasks', str(n_overdue), 'across all trips', warn=(n_overdue > 0))
+    print _mc_card('Tasks not enabled', str(n_offtasks), 'planned but not armed', warn=(n_offtasks > 0))
+    print '</div>'
+
+    def _toggle(param, on, label_on, label_off):
+        keep = _keep.replace('&' + param + '=1', '')
+        return ('<a href="?view=readiness' + keep + ('' if on else '&' + param + '=1') + '">'
+                + (label_on if on else label_off) + '</a>')
+    print ('<p class="mc-note">'
+           + _toggle('closed', include_closed, 'Hide closed trips', 'Include closed trips')
+           + ' &nbsp;&middot;&nbsp; '
+           + _toggle('finished', include_finished, 'Hide finished trips', 'Include finished trips')
+           + '</p>')
+
+    # Undated involvements are almost always intake forms. Say so and how many, rather than
+    # dropping them without a word.
+    if undated and not include_undated:
+        names = ', '.join(_escape_html(u['name']) for u in undated[:3])
+        print ('<div class="rd-hidden"><b>' + str(len(undated)) + '</b> involvement'
+               + ('' if len(undated) == 1 else 's') + ' with no dates set '
+               'are hidden &mdash; these are normally applications and interest forms ('
+               + names + (', &hellip;' if len(undated) > 3 else '') + '). '
+               + _toggle('undated', False, '', 'Show them anyway')
+               + ' if one of these is a real trip that still needs its dates.</div>')
+    elif include_undated:
+        print ('<div class="rd-hidden">Showing undated involvements too. '
+               + _toggle('undated', True, 'Hide them', '') + '</div>')
+
+    # Trips that have come home with nothing outstanding are done -- listing them buries
+    # the trips that still need work.
+    if finished and not include_finished:
+        names = ', '.join(_escape_html(f['name']) for f in finished[:3])
+        print ('<div class="rd-hidden"><b>' + str(len(finished)) + '</b> finished trip'
+               + ('' if len(finished) == 1 else 's') + ' hidden &mdash; returned, no open tasks, '
+               'nothing scheduled (' + names + (', &hellip;' if len(finished) > 3 else '') + '). '
+               + _toggle('finished', False, '', 'Show them') + '.</div>')
+
+    if not rows:
+        print '<div class="mc-block"><p class="mc-note">No mission trips found.</p></div>'
+        return
+
+    h = ['<div class="mc-block"><table class="mc-tbl rd-tbl"><thead><tr>'
+         '<th>Trip</th><th>Logistics</th><th>Costs</th><th>Tasks</th></tr></thead><tbody>']
+    for r in rows:
+        base = '?trip=' + str(r['orgId'])
+        span = _rd_span(r['start'], r['end'])
+        who = ', '.join(x for x in r['leaders'] if x)
+        # Setup gaps link straight to where they get fixed: trip dates are OrgExtra fields
+        # on the involvement itself, leaders come from the team roster.
+        if span:
+            sub = _escape_html(span)
+        else:
+            sub = ('<a class="rd-fix" target="_blank" href="' + CHURCH_URL.rstrip('/')
+                   + '/Org/' + str(r['orgId']) + '">set trip dates</a>')
+        if who:
+            sub += ' &middot; ' + _escape_html(who)
+        else:
+            sub += ' &middot; <a class="rd-fix" href="' + base + '&section=team">assign a leader</a>'
+        h.append('<tr><td data-label="Trip"><a class="rd-trip" href="' + base + '">'
+                 + _escape_html(r['name']) + '</a>'
+                 + '<div class="rd-sub">' + sub + '</div></td>')
+
+        # --- logistics
+        lg = r['lg']
+        bits = []
+        if lg['flights']:
+            bits.append('&#9992;%d' % lg['flights'])
+        if lg['lodging']:
+            bits.append('&#127976;%d' % lg['lodging'])
+        if lg['ground']:
+            bits.append('&#128652;%d' % lg['ground'])
+        if lg['activities']:
+            bits.append('&#128204;%d' % lg['activities'])
+        cell = '<a class="rd-cell" href="' + base + '&section=logistics">'
+        cell += (' '.join(bits) if bits else '<i class="rd-none">nothing entered</i>')
+        if lg['gaps']:
+            cell += '<div class="rd-sub rd-warn">' + _escape_html('; '.join(lg['gaps'][:2]))
+            if len(lg['gaps']) > 2:
+                cell += ' +%d more' % (len(lg['gaps']) - 2)
+            cell += '</div>'
+        elif lg['any']:
+            cell += '<div class="rd-sub rd-ok">complete</div>'
+        cell += '</a>'
+        h.append('<td data-label="Logistics">' + cell + '</td>')
+
+        # --- costs
+        c = r['costs']
+        cell = '<a class="rd-cell" href="' + base + '&section=costs">'
+        if c['hasEstimate']:
+            cell += '<b>' + cur + _mc_money(c['published']) + '</b>/person'
+        else:
+            cell += '<i class="rd-none">no estimate</i>'
+        cell += ('<div class="rd-sub">' + str(c['goers']) + ' goer' + ('' if c['goers'] == 1 else 's')
+                 + (' &middot; <span class="rd-warn">' + cur + _mc_money(c['due']) + ' outstanding</span>'
+                    if c['due'] > 0 else
+                    (' &middot; <span class="rd-ok">paid up</span>' if c['charged'] > 0 else ''))
+                 + '</div></a>')
+        h.append('<td data-label="Costs">' + cell + '</td>')
+
+        # --- tasks
+        t = r['tasks']
+        cell = '<a class="rd-cell" href="' + base + '&section=tasks">'
+        if not t['total']:
+            cell += '<i class="rd-none">no task plan</i>'
+        else:
+            cell += '<b>' + str(t['open']) + '</b> open of ' + str(t['total'])
+            sub = []
+            if t['overdue']:
+                sub.append('<span class="rd-warn">' + str(t['overdue']) + ' overdue</span>')
+            if t['declined']:
+                sub.append('<span class="rd-warn">' + str(t['declined']) + ' declined</span>')
+            if not t['enabled']:
+                sub.append('<span class="rd-warn">not enabled</span>')
+            elif not t['overdue']:
+                sub.append('<span class="rd-ok">on track</span>')
+            cell += '<div class="rd-sub">' + ' &middot; '.join(sub) + '</div>'
+        cell += '</a>'
+        h.append('<td data-label="Tasks">' + cell + '</td></tr>')
+    h.append('</tbody></table></div>')
+    print ''.join(h)
+
+
+AT_JS = '''<script>
+// Act on a task from the cross-trip roll-up. Each call carries its own org, since this
+// page spans trips -- it cannot use the per-trip TK namespace.
+var AT = {
+  post: function(org, action, extra, cb){
+    var url=window.location.pathname.replace('/PyScript/','/PyScriptForm/');
+    var fd=new FormData(); fd.append('action',action); fd.append('org',org);
+    if(extra){ for(var k in extra){ fd.append(k, extra[k]); } }
+    fetch(url,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.text();})
+      .then(function(t){ var j={}; try{ j=JSON.parse(t); }catch(e){} cb(j); })
+      .catch(function(){ cb({success:false,message:'network error'}); });
+  },
+  say: function(msg, good){
+    var st=document.getElementById('at-status');
+    if(st){ st.textContent=msg; st.style.color=good?'#166534':'#b91c1c'; }
+  },
+  done: function(j){
+    if(j && j.success){ window.location.reload(); }
+    else { AT.say((j&&j.message)||'Failed', false); }
+  },
+  act: function(org, id, what){
+    if(what==='create'){
+      if(!confirm('Create this task in TouchPoint now?')) return;
+      AT.say('Working...', true);
+      AT.post(org,'push_native_tasks',{taskId:id}, AT.done);
+      return;
+    }
+    if(what==='done'){
+      // note is optional -- Cancel abandons, an empty box just completes it
+      var note=prompt('Complete this task.\\n\\nAdd a note (optional) - it is saved on the TouchPoint task:', '');
+      if(note===null) return;
+      AT.say('Working...', true);
+      AT.post(org,'set_native_task_done',{taskId:id, done:'1', note:note}, AT.done);
+      return;
+    }
+    if(what==='decline'){
+      var why=prompt('Decline this task.\\n\\nWhy are we not doing it? (this is recorded, and sent to TouchPoint if the task exists there):', '');
+      if(why===null) return;
+      if(!why.replace(/\\s/g,'')){ alert('Please give a reason so the decision is on record.'); return; }
+      AT.say('Working...', true);
+      AT.post(org,'decline_task',{taskId:id, declined:'1', reason:why}, AT.done);
+      return;
+    }
+    if(what==='reopen'){
+      if(!confirm('Reopen this task?')) return;
+      AT.say('Working...', true);
+      // clears both a completion and a decline
+      AT.post(org,'decline_task',{taskId:id, declined:'0'}, function(j){
+        if(!j || !j.success){ AT.say((j&&j.message)||'Failed', false); return; }
+        AT.post(org,'set_native_task_done',{taskId:id, done:'0'}, AT.done);
+      });
+    }
+  }
+};
+</script>'''
+
+RD_STYLE = '''<style>
+.rd-tbl td{vertical-align:top}
+.rd-fix{color:#b45309;font-weight:700;text-decoration:none;border-bottom:1px dotted #b45309}
+.rd-hidden{border:1px solid #cbd5e1;border-left:4px solid #64748b;border-radius:8px;padding:9px 13px;margin:0 0 14px;background:#f8fafc;font-size:12.5px;color:#475569}
+.rd-acts{white-space:nowrap}
+.rd-act{font-size:12px;font-weight:600;text-decoration:none;color:#1f6f54;margin-right:8px}
+.rd-act-skip{color:#92400e}
+.rd-trip{font-weight:700;color:#0f172a;text-decoration:none}
+.rd-trip:hover{text-decoration:underline}
+.rd-cell{display:block;color:#0f172a;text-decoration:none}
+.rd-cell:hover{background:#f8fafc}
+.rd-sub{font-size:11.5px;color:#64748b;margin-top:2px}
+.rd-warn{color:#b45309;font-weight:600}
+.rd-ok{color:#166534;font-weight:600}
+.rd-none{color:#94a3b8}
+.rd-chip{display:inline-block;padding:1px 7px;border-radius:9px;background:#eef2f7;font-size:11px;margin-right:4px}
+@media(max-width:820px){
+  .rd-tbl thead{display:none}
+  .rd-tbl tbody tr{display:block;border:1px solid #e2e8f0;border-radius:8px;margin:0 0 10px;padding:8px;background:#fff}
+  .rd-tbl tbody td{display:block;border:0;padding:4px 0}
+  .rd-tbl tbody td:before{content:attr(data-label);display:block;font-size:10px;text-transform:uppercase;color:#94a3b8;font-weight:700}
+}
+</style>'''
+
+
+#####################################################################
+# TRIP COST REPORT -- estimate vs actual, per trip and over time
+#####################################################################
+
+def build_cost_report(scope='active', date_from='', date_to=''):
+    """Financial summary per trip: what it was estimated to cost, what it actually cost,
+    what goers paid, what is still owed, and what underwriting covered.
+
+    scope 'active'  -> trips that have not returned yet (today <= end date)
+          'range'   -> trips whose departure falls inside date_from..date_to
+          'all'     -> every trip with dates, closed included
+
+    The point is accuracy: comparing estimate against actual over several trips shows
+    whether trip pricing is systematically high or low."""
+    today = _today_iso()
+    rows = []
+    try:
+        trips = list(get_all_trips_for_sidebar(scope != 'active'))
+    except:
+        trips = []
+    for t in trips:
+        oid = int(t.OrganizationId)
+        d = _lg_trip_dates(oid)
+        start, end = d.get('start', ''), d.get('end', '')
+        if not start and not end:
+            continue          # intake forms, same rule as readiness
+        if scope == 'active':
+            if end and end < today:
+                continue      # already returned
+        elif scope == 'range':
+            ref = start or end
+            if date_from and ref < date_from:
+                continue
+            if date_to and ref > date_to:
+                continue
+        c = _rd_costs(oid, load_trip_costs(oid))
+        c['orgId'] = oid
+        c['name'] = (getattr(t, 'OrganizationName', '') or ('Trip %d' % oid))
+        c['start'], c['end'] = start, end
+        c['variance'] = c['actualTotal'] - c['estTotal']
+        c['variancePct'] = ((c['variance'] / c['estTotal'] * 100.0) if c['estTotal'] else 0.0)
+        c['hasActual'] = c['actualTotal'] > 0
+        rows.append(c)
+    rows.sort(key=lambda r: (r['start'] or 'zzzz'))
+    return rows
+
+
+def _cr_money(cur, v, muted_zero=True):
+    if not v and muted_zero:
+        return '<span class="cr-zero">&mdash;</span>'
+    return cur + _mc_money(v)
+
+
+def render_cost_report_view(user_role):
+    """Estimate-vs-actual across trips, for the missions pastor."""
+    if not user_role.get('is_admin', False):
+        print '<div class="alert alert-danger">The cost report is visible to administrators only.</div>'
+        return
+    cur = getattr(config, 'CURRENCY_SYMBOL', '$')
+    scope = str(getattr(model.Data, 'scope', '') or 'active').strip().lower()
+    if scope not in ('active', 'range', 'all'):
+        scope = 'active'
+    date_from = str(getattr(model.Data, 'from', '') or '').strip()[:10]
+    date_to = str(getattr(model.Data, 'to', '') or '').strip()[:10]
+    if scope == 'range' and not (date_from or date_to):
+        # sensible default window: the last two years of departures
+        date_from = _date_minus_days(_today_iso(), 730)
+        date_to = _today_iso()
+    rows = build_cost_report(scope, date_from, date_to)
+
+    print MC_STYLE + RD_STYLE + CR_STYLE
+    print ('<div class="section-header"><div><h2>Trip cost report</h2>'
+           '<div class="mc-note">What each trip was estimated to cost against what it actually cost, '
+           'what goers paid, and what underwriting covered. Use the range view to see whether trip '
+           'pricing runs high or low over time.</div></div></div>')
+
+    est_t = sum(r['estTotal'] for r in rows)
+    act_t = sum(r['actualTotal'] for r in rows)
+    raised_t = sum(r['raised'] for r in rows)
+    due_t = sum(r['due'] for r in rows)
+    uw_t = sum(r['underwritingTotal'] for r in rows)
+    goers_t = sum(r['goers'] for r in rows)
+    priced = [r for r in rows if r['hasActual'] and r['estTotal']]
+    var_t = act_t - est_t
+    var_pct = (var_t / est_t * 100.0) if est_t else 0.0
+
+    print '<div class="mc-cards">'
+    print _mc_card('Trips', str(len(rows)),
+                   {'active': 'not yet returned', 'range': 'in the date range', 'all': 'all with dates'}[scope])
+    print _mc_card('Estimated', cur + _mc_money(est_t), '%d goers' % goers_t)
+    print _mc_card('Actual recorded', cur + _mc_money(act_t),
+                   ('%d of %d trips have actuals' % (len(priced), len(rows))) if rows else '')
+    if priced:
+        print _mc_card('Estimate accuracy',
+                       ('%+.1f%%' % var_pct),
+                       ('over by ' if var_t > 0 else 'under by ') + cur + _mc_money(abs(var_t)),
+                       warn=(var_t > 0), good=(var_t <= 0))
+    print _mc_card('Avg paid / goer', cur + _mc_money((raised_t / goers_t) if goers_t else 0), 'across these trips')
+    print _mc_card('Outstanding', cur + _mc_money(due_t), 'still owed', warn=(due_t > 0))
+    print _mc_card('Underwriting', cur + _mc_money(uw_t), 'covered by the church')
+    print '</div>'
+
+    def _sc(key, label):
+        sel = ' class="cr-on"' if scope == key else ''
+        return '<a href="?view=costreport&scope=' + key + '"' + sel + '>' + label + '</a>'
+    print ('<div class="cr-bar">' + ' &nbsp;&middot;&nbsp; '.join(
+        [_sc('active', 'Active trips'), _sc('range', 'Date range'), _sc('all', 'All trips')]) + '</div>')
+    if scope == 'range':
+        print ('<form method="get" class="cr-form"><input type="hidden" name="view" value="costreport">'
+               '<input type="hidden" name="scope" value="range">'
+               '<label>Departures from <input type="date" name="from" value="' + _mc_attr(date_from) + '"></label> '
+               '<label>to <input type="date" name="to" value="' + _mc_attr(date_to) + '"></label> '
+               '<button type="submit" class="mc-add">Apply</button></form>')
+
+    if not rows:
+        print ('<div class="mc-block"><p class="mc-note">No trips match. Trips need their '
+               'Main Event Start/End dates set to appear here.</p></div>')
+        return
+
+    h = ['<div class="mc-block"><table class="mc-tbl cr-tbl"><thead><tr>'
+         '<th>Trip</th><th class="num">Goers</th><th class="num">Est / person</th>'
+         '<th class="num">Estimated</th><th class="num">Actual</th><th class="num">Variance</th>'
+         '<th class="num">Avg paid / goer</th><th class="num">Outstanding</th>'
+         '<th class="num">Underwriting</th></tr></thead><tbody>']
+    for r in rows:
+        vcls = ('cr-over' if r['variance'] > 0 else 'cr-under') if r['hasActual'] and r['estTotal'] else ''
+        vtxt = ('&mdash;' if not (r['hasActual'] and r['estTotal'])
+                else ('%s%s (%+.0f%%)' % ('+' if r['variance'] > 0 else '-',
+                                          cur + _mc_money(abs(r['variance'])), r['variancePct'])))
+        h.append('<tr><td data-label="Trip"><a class="rd-trip" href="?trip=' + str(r['orgId'])
+                 + '&section=costs">' + _escape_html(r['name']) + '</a>'
+                 '<div class="rd-sub">' + _escape_html(_rd_span(r['start'], r['end']) or 'no dates') + '</div></td>'
+                 '<td data-label="Goers" class="num">' + str(r['goers']) + '</td>'
+                 '<td data-label="Est / person" class="num">'
+                 + (cur + _mc_money(r['grand']) if r['hasEstimate'] else '<span class="cr-zero">no estimate</span>')
+                 + '</td>'
+                 '<td data-label="Estimated" class="num">' + _cr_money(cur, r['estTotal']) + '</td>'
+                 '<td data-label="Actual" class="num">' + _cr_money(cur, r['actualTotal']) + '</td>'
+                 '<td data-label="Variance" class="num ' + vcls + '">' + vtxt + '</td>'
+                 '<td data-label="Avg paid / goer" class="num">' + _cr_money(cur, r['avgPaidPerGoer']) + '</td>'
+                 '<td data-label="Outstanding" class="num' + (' cr-over' if r['due'] > 0 else '') + '">'
+                 + _cr_money(cur, r['due']) + '</td>'
+                 '<td data-label="Underwriting" class="num">' + _cr_money(cur, r['underwritingTotal']) + '</td></tr>')
+    h.append('<tr class="cr-tot"><td><b>Total</b></td><td class="num">' + str(goers_t) + '</td><td></td>'
+             '<td class="num">' + cur + _mc_money(est_t) + '</td>'
+             '<td class="num">' + cur + _mc_money(act_t) + '</td>'
+             '<td class="num ' + ('cr-over' if var_t > 0 else 'cr-under') + '">'
+             + (('%s%s (%+.0f%%)' % ('+' if var_t > 0 else '-', cur + _mc_money(abs(var_t)), var_pct))
+                if est_t and act_t else '&mdash;') + '</td>'
+             '<td class="num">' + cur + _mc_money((raised_t / goers_t) if goers_t else 0) + '</td>'
+             '<td class="num">' + cur + _mc_money(due_t) + '</td>'
+             '<td class="num">' + cur + _mc_money(uw_t) + '</td></tr>')
+    h.append('</tbody></table>'
+             '<p class="mc-note" style="margin:10px 0 0"><b>Estimated</b> is the full per-person estimate '
+             '(before underwriting) &times; goers. <b>Actual</b> is the <b>Actual spend</b> column on each '
+             'trip\'s estimator. <b>Avg paid / goer</b> is what has actually come in (payments plus '
+             'supporter gifts) divided by goers.</p></div>')
+    print ''.join(h)
+
+
+CR_STYLE = '''<style>
+.cr-bar{margin:0 0 10px;font-size:13px}
+.cr-bar a{color:#64748b;text-decoration:none;font-weight:600}
+.cr-bar a.cr-on{color:#0f3460;text-decoration:underline}
+.cr-form{margin:0 0 14px;font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.cr-form input[type=date]{padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px}
+.cr-tbl td.num,.cr-tbl th.num{text-align:right;white-space:nowrap}
+.cr-over{color:#b91c1c;font-weight:700}
+.cr-under{color:#166534;font-weight:700}
+.cr-zero{color:#cbd5e1}
+.cr-tot td{border-top:2px solid #cbd5e1;font-weight:700;background:#f8fafc}
+@media(max-width:900px){
+  .cr-tbl thead{display:none}
+  .cr-tbl tbody tr{display:block;border:1px solid #e2e8f0;border-radius:8px;margin:0 0 10px;padding:8px;background:#fff}
+  .cr-tbl tbody td{display:flex;justify-content:space-between;border:0;padding:3px 0;text-align:right}
+  .cr-tbl tbody td:before{content:attr(data-label);font-size:11px;text-transform:uppercase;color:#94a3b8;font-weight:700}
+}
+</style>'''
+
+
+def _all_task_trips():
+    """Every trip that has a task plan saved, with its name + dates. One query."""
+    sql = '''
+    SELECT oe.OrganizationId AS OrgId,
+           o.OrganizationName AS Name,
+           CONVERT(varchar(10), s.DateValue, 126) AS StartDate,
+           CONVERT(varchar(10), e.DateValue, 126) AS EndDate
+    FROM (SELECT DISTINCT OrganizationId FROM OrganizationExtra WITH (NOLOCK) WHERE Field = '{0}') oe
+    JOIN Organizations o WITH (NOLOCK) ON o.OrganizationId = oe.OrganizationId
+    LEFT JOIN OrganizationExtra s WITH (NOLOCK) ON s.OrganizationId = oe.OrganizationId AND s.Field = 'Main Event Start'
+    LEFT JOIN OrganizationExtra e WITH (NOLOCK) ON e.OrganizationId = oe.OrganizationId AND e.Field = 'Main Event End'
+    '''.format(TRIP_TASKS_EV)
+    out = []
+    try:
+        for r in q.QuerySql(sql):
+            out.append({'orgId': int(r.OrgId),
+                        'name': (getattr(r, 'Name', '') or ('Trip %s' % r.OrgId)),
+                        'start': (getattr(r, 'StartDate', '') or ''),
+                        'end': (getattr(r, 'EndDate', '') or '')})
+    except:
+        pass
+    return out
+
+
+def collect_open_tasks(include_done=False):
+    """3b: flatten every trip's task plan into one list of rows for the admin rollup.
+    Native completion is resolved for ALL trips in a single batched TaskNote read."""
+    trips = _all_task_trips()
+    loaded = []
+    every_task = []
+    for t in trips:
+        data = load_trip_tasks(t['orgId'])
+        tasks = data.get('tasks', []) or []
+        if not tasks:
+            continue
+        loaded.append((t, data, tasks))
+        every_task.extend(tasks)
+    _prime_native_task_cache(every_task)   # one TaskNote read for the whole page
+    rows = []
+    for (t, data, tasks) in loaded:
+        enabled = bool(data.get('enabled'))
+        for it in tasks:
+            done = bool(it.get('done'))
+            skipped = bool(it.get('skipped'))
+            if (done or skipped) and not include_done:
+                continue   # "open" means neither finished nor deliberately skipped
+            created = bool(it.get('nativeTaskIds'))
+            nst = _native_task_state(it.get('nativeTaskIds', []))
+            ntotal, ndone = nst['total'], nst['done']
+            rows.append({
+                'declined': nst['declined'], 'pending': nst['pending'], 'accepted': nst['accepted'],
+                'orgId': t['orgId'], 'trip': t['name'],
+                'tripStart': t['start'], 'enabled': enabled,
+                'id': it.get('id', ''), 'title': it.get('title', ''),
+                'due': it.get('due', ''), 'createOn': it.get('createOn', ''),
+                'assignees': it.get('assignees', []) or [],
+                'created': created, 'done': done, 'skipped': skipped,
+                'nativeTotal': ntotal, 'nativeDone': ndone,
+            })
+    # undated tasks sort last, then by due date, then trip
+    rows.sort(key=lambda r: (r['due'] == '', r['due'], r['trip']))
+    return rows
+
+
+def _tk_roll_row(r, today):
+    overdue = bool(r['due']) and r['due'] < today and not r['done'] and not r.get('skipped')
+    due_cls = ' style="color:#b91c1c;font-weight:700"' if overdue else ''
+    names = ', '.join((a.get('name', '') or ('#' + str(a.get('peopleId', '')))) for a in r['assignees'])
+    if r['done']:
+        badge = '<span class="tk-badge ok">Done</span>'
+    elif r.get('skipped'):
+        badge = '<span class="tk-badge tk-skip">Skipped</span>'
+    elif r['created']:
+        cls = 'ok' if (r['nativeTotal'] and r['nativeDone'] == r['nativeTotal']) else ''
+        badge = ('<span class="tk-badge ' + cls + '">In TouchPoint'
+                 + ((' &middot; %d/%d done' % (r['nativeDone'], r['nativeTotal'])) if r['nativeTotal'] else '') + '</span>')
+        if r.get('declined'):
+            badge += ' <span class="tk-badge tk-decl">%d declined</span>' % r['declined']
+    elif not r['enabled']:
+        badge = '<span class="tk-badge">Trip not enabled</span>'
+    else:
+        badge = '<span class="tk-badge">Scheduled' + ((' for ' + r['createOn']) if r['createOn'] else '') + '</span>'
+    # Act on a task without leaving the roll-up. Every action carries its own org because
+    # this page spans trips.
+    rid, oid = _mc_attr(r['id']), str(r['orgId'])
+
+    def _a(what, label, cls=''):
+        return ('<a href="#" class="rd-act ' + cls + '" onclick="AT.act(\'' + oid + '\',\''
+                + rid + '\',\'' + what + '\');return false;">' + label + '</a>')
+    acts = []
+    if r['done'] or r.get('skipped'):
+        acts.append(_a('reopen', 'Reopen'))
+    else:
+        # complete always offers a note; decline always asks for a reason
+        acts.append(_a('done', 'Complete'))
+        acts.append(_a('decline', 'Decline', 'rd-act-skip'))
+        if not r['created']:
+            acts.append(_a('create', 'Create now'))
+    return ('<tr>'
+            '<td data-label="Due"' + due_cls + '>' + (_escape_html(r['due']) if r['due'] else '&mdash;')
+            + ('  <b>OVERDUE</b>' if overdue else '') + '</td>'
+            '<td data-label="Trip"><a href="?trip=' + str(r['orgId']) + '&section=tasks">'
+            + _escape_html(r['trip']) + '</a></td>'
+            '<td data-label="Task">' + _escape_html(r['title']) + '</td>'
+            '<td data-label="Assignee">' + _escape_html(names or '(no leader set)') + '</td>'
+            '<td data-label="Status">' + badge + '</td>'
+            '<td data-label="Action" class="rd-acts">' + ' '.join(acts) + '</td></tr>')
+
+
+def render_all_tasks_view(user_role):
+    """3b: cross-trip rollup of every open task, so nothing gets lost between trips."""
+    if not user_role.get('is_admin', False):
+        print '<div class="alert alert-danger">The task rollup is visible to administrators only.</div>'
+        return
+    show_done = str(getattr(model.Data, 'showdone', '') or '') == '1'
+    win = str(getattr(model.Data, 'win', '') or 'all')
+    today = _today_iso()
+    rows = collect_open_tasks(include_done=show_done)
+
+    # window filter
+    if win == 'overdue':
+        rows = [r for r in rows if r['due'] and r['due'] < today and not r['done']]
+    elif win in ('14', '30', '90'):
+        cutoff = _date_plus_days(today, int(win))
+        rows = [r for r in rows if r['due'] and r['due'] <= cutoff]
+
+    overdue_n = len([r for r in rows if r['due'] and r['due'] < today and not r['done'] and not r.get('skipped')])
+    week_n = len([r for r in rows if r['due'] and today <= r['due'] <= _date_plus_days(today, 7)])
+    notcreated_n = len([r for r in rows if not r['created'] and not r['done'] and not r.get('skipped')])
+    disabled_n = len(set(r['orgId'] for r in rows if not r['enabled']))
+
+    print MC_STYLE + TK_STYLE
+    print ('<div class="section-header"><div><h2>All trip tasks</h2>'
+           '<div class="mc-note">Every task across every mission trip that has a task plan. '
+           'Click a trip to open its Tasks tab.</div></div></div>')
+    print render_batch_slot()
+
+    print '<div class="mc-cards">'
+    declined_n = len([r for r in rows if r.get('declined')])
+    print _mc_card('Overdue', str(overdue_n), '', warn=(overdue_n > 0))
+    print _mc_card('Due next 7 days', str(week_n), '')
+    print _mc_card('Declined', str(declined_n), 'assignee refused', warn=(declined_n > 0))
+    print _mc_card('Not yet created', str(notcreated_n), 'no TouchPoint task yet')
+    print _mc_card('Trips not enabled', str(disabled_n), 'nothing will be created', warn=(disabled_n > 0))
+    print '</div>'
+
+    def _lnk(lbl, key):
+        sel = ' style="font-weight:700;text-decoration:underline"' if win == key else ''
+        return ('<a href="?view=tasks&win=' + key + ('&showdone=1' if show_done else '') + '"' + sel + '>' + lbl + '</a>')
+    print ('<p class="mc-note">Show: ' + ' &middot; '.join([
+        _lnk('Overdue', 'overdue'), _lnk('Next 14 days', '14'), _lnk('Next 30 days', '30'),
+        _lnk('Next 90 days', '90'), _lnk('All', 'all')]) + ' &nbsp;|&nbsp; '
+        + '<a href="?view=tasks&win=' + win + ('' if show_done else '&showdone=1') + '">'
+        + ('Hide completed &amp; skipped' if show_done else 'Include completed &amp; skipped') + '</a></p>')
+
+    if not rows:
+        print ('<div class="mc-block"><p class="mc-note">Nothing to show for this filter. '
+               'Tasks appear here once a trip\'s Tasks tab has been generated.</p></div>')
+        return
+    print ('<div class="mc-block"><table class="mc-tbl tk-resp"><thead><tr><th>Due</th><th>Trip</th>'
+           '<th>Task</th><th>Assignee</th><th>Status</th><th>Action</th></tr></thead><tbody>'
+           + ''.join(_tk_roll_row(r, today) for r in rows) + '</tbody></table>'
+           '<span id="at-status" class="mc-status"></span></div>')
+    print AT_JS
+
+
+def render_trip_tasks(org_id, user_role):
+    if not user_role.get('is_admin', False):
+        return '<div class="alert alert-danger">Tasks are visible to trip administrators only.</div>'
+    trip = _get_trip_info(org_id)
+    if not trip:
+        return '<div class="alert alert-danger">Trip not found.</div>'
+    dates = _lg_trip_dates(org_id)
+    dep, ret = dates.get('start', ''), dates.get('end', '')
+    leaders = _resolve_trip_leaders(org_id)
+    templates = load_task_templates()
+    tdata = load_trip_tasks(org_id)
+    # pull completion back from TouchPoint before painting (one batched TaskNote read)
+    _sync_native_task_completion(org_id, tdata)
+    tasks = tdata.get('tasks', [])
+    enabled = bool(tdata.get('enabled'))
+
+    h = [MC_STYLE, TK_STYLE]
+    h.append('<div class="section-header"><div><div class="breadcrumb">'
+             '<a href="?">Dashboard</a> &rsaquo; <a href="?trip=' + str(org_id) + '">'
+             + _escape_html(trip.OrganizationName) + '</a> &rsaquo; Tasks</div><h2>Tasks</h2></div>'
+             '<div><button type="button" class="mc-save" onclick="TK.saveTasks()">&#128190; Save tasks</button>'
+             '<span id="tk-status" class="mc-status"></span></div></div>')
+
+    # trip date context
+    if dep or ret:
+        h.append('<p class="mc-note">Due dates are calculated from this trip\'s dates: <b>'
+                 + _escape_html((dep or '?') + ' – ' + (ret or '?')) + '</b>. '
+                 'Leader(s): <b>' + _escape_html(', '.join(l['name'] for l in leaders) or '(none set on trip)') + '</b>.</p>')
+    else:
+        h.append('<p class="mc-note" style="color:#b45309"><b>No trip dates set.</b> Set the trip\'s Main Event Start/End so '
+                 'task due dates can be calculated, then Generate.</p>')
+
+    # if tasks are live anywhere but the batch is not wired up, nothing ever auto-releases
+    h.append(render_batch_slot())
+
+    # enable switch + action bar
+    _chk = ' checked' if enabled else ''
+    h.append('<div class="tk-enable' + ('' if enabled else ' off') + '" id="tk-enablebar">'
+             '<label class="tk-switch"><input type="checkbox" id="tk-enabled"' + _chk + ' onchange="TK.toggleEnabled(this)"> '
+             '<b>Tasks enabled for this trip</b></label>'
+             '<div class="mc-note" id="tk-enablenote" style="margin:4px 0 0">' + (
+                 'Enabled &mdash; the morning batch will create each native TouchPoint task on its create date. '
+                 'Review/adjust the tasks below first; use &ldquo;Create in TouchPoint now&rdquo; to fire any early.'
+                 if enabled else
+                 'Not enabled &mdash; nothing is created in TouchPoint yet. Generate + adjust the tasks below, then turn this on.'
+             ) + '</div></div>')
+    h.append('<div class="tk-bar">'
+             '<button type="button" class="mc-add" onclick="TK.generate()">&#128260; Generate / refresh from templates</button> '
+             '<button type="button" class="mc-add" onclick="TK.pushNative()">&#9993; Create all in TouchPoint now</button>'
+             '<span id="tk-pstatus" class="mc-status"></span>'
+             '<div class="mc-note" style="margin:6px 0 0">Generate builds the task plan (dated to this trip) &mdash; it does <b>not</b> create anything in TouchPoint. '
+             'Once <b>enabled</b>, the morning batch releases each native task on its create date; the buttons here (or per-row <b>Create now</b>) fire them immediately.</div></div>')
+
+    # task list
+    task_rows = ''.join(_tk_task_row(it) for it in tasks)
+    h.append('<div class="mc-block"><h3>This trip\'s tasks</h3>'
+             '<table class="mc-tbl tk-resp" id="tk-tasks"><thead><tr><th>Done</th><th>Due</th><th>Task</th>'
+             '<th>Assignee</th><th>In TouchPoint</th><th></th></tr></thead><tbody>' + task_rows + '</tbody></table>'
+             '<button type="button" class="mc-add" onclick="TK.addTask()">+ Add custom task</button>'
+             '<span class="mc-note" style="display:inline;margin-left:8px">Custom tasks are assigned to the trip leader(s).</span>'
+             '<p class="mc-note" style="margin:8px 0 0"><b>Done</b> only applies once a task exists in TouchPoint. '
+             'It ticks itself when the assignee finishes it there, and ticking it here <b>completes the real TouchPoint '
+             'task</b> on their behalf &mdash; use that when someone is out. Unticking reopens it as Pending. '
+             'The <b>In TouchPoint</b> column shows each task\'s live state (Pending, Accepted, Declined, Completed); '
+             'a <b>Declined</b> badge means the assignee refused it and it needs reassigning. '
+             'Once a task is <b>In TouchPoint</b> its due date, title, and notes become read-only here &mdash; the real '
+             'task is the one in TouchPoint, so edit it there. '
+             '<b>Decline</b> records that you deliberately are not doing a task, with a reason. If the task already '
+             'exists in TouchPoint it is declined there too, so the assignee\'s list agrees; if it was never created, '
+             'it never will be. To remove a task from the plan entirely, use the <b>&times;</b> instead.</p></div>')
+
+    # template editor (collapsible) -- church-wide (also available in Settings > Task Templates)
+    h.append('<details class="tk-details"><summary>&#9881; Default task list (the starting point when you click Generate)</summary>'
+             '<div class="mc-block">' + _render_task_template_editor_inner('You can also edit these in <b>Settings &rsaquo; Task Templates</b>.')
+             + '</div></details>')
+
+    # hidden row templates + config + JS
+    h.append('<template id="tk-tpl-task"><table><tbody>'
+             + _tk_task_row({'id': '', 'title': '', 'due': '', 'source': 'custom', 'assigneeType': 'leader',
+                             'assignees': leaders, 'nativeTaskIds': [], 'createLead': DEFAULT_TASK_CREATE_LEAD})
+             + '</tbody></table></template>')
+    h.append('<script>var TK_ORG="' + str(org_id) + '";var TK_DEP="' + (dep or '') + '";var TK_RET="' + (ret or '')
+             + '";var TK_ENABLED=' + ('true' if enabled else 'false') + ';var TK_LEADERS=' + safe_json(leaders) + ';</script>')
+    h.append(TK_JS)
+    return ''.join(h)
+
+
+TK_STYLE = '''<style>
+.tk-enable{border:1px solid #cbd5e1;border-left:4px solid #1f6f54;border-radius:8px;padding:10px 14px;margin:0 0 12px;background:#f0fdf4}
+.tk-enable.off{border-left-color:#b45309;background:#fffbeb}
+.tk-switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:14px}
+.tk-switch input{width:16px;height:16px}
+.tk-mk1{font-size:12px;font-weight:600;text-decoration:none;color:#1f6f54;white-space:nowrap}
+.tk-bar{margin:0 0 16px}
+.tk-in{width:100%;box-sizing:border-box;padding:4px 6px;border:1px solid #cbd5e1;border-radius:5px;font-size:13px}
+.tk-in.tk-notes{margin-top:3px;font-size:12px;color:#475569}
+.tk-in.tk-ro{background:#f8fafc;border-color:#e2e8f0;color:#475569;cursor:default}
+.tk-in.tk-ro:focus{outline:none;box-shadow:none}
+#tk-tpl input[type=number]{width:70px}
+.tk-nowrap{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.tk-unit{font-size:11.5px;color:#64748b}
+.tk-legend{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 13px;margin:0 0 12px}
+.tk-pick{position:relative;display:inline-block;min-width:170px}
+.tk-pick-in{width:100%;box-sizing:border-box}
+.tk-pick-menu{position:absolute;z-index:50;left:0;top:100%;min-width:230px;max-height:240px;overflow-y:auto;
+  background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 6px 18px rgba(15,23,42,.14)}
+.tk-pick-item{display:block;padding:6px 10px;font-size:13px;color:#0f172a;text-decoration:none;border-bottom:1px solid #f1f5f9}
+.tk-pick-item:last-child{border-bottom:0}
+.tk-pick-item:hover{background:#eff6ff}
+.tk-pick-item small{display:block;color:#64748b;font-size:11px}
+.tk-pick-none{display:block;padding:6px 10px;font-size:12px;color:#94a3b8}
+.tk-atype{min-width:150px;margin-bottom:4px}
+.tk-leadhint{margin:2px 0 0;font-size:12px}
+.tk-t-atype,.tk-t-anchor{min-width:120px}
+.tk-person{display:inline-flex;gap:4px;margin-top:4px}
+.tk-t-due{font-size:12px;color:#1f6f54;font-weight:600;white-space:nowrap}
+.tk-native{font-size:12px}
+.tk-badge{display:inline-block;padding:2px 8px;border-radius:10px;background:#eef2f7;color:#64748b;font-size:11px;font-weight:600}
+.tk-badge.ok{background:#dcfce7;color:#166534}
+.tk-badge.tk-skip{background:#fef3c7;color:#92400e}
+.tk-badge.tk-decl{background:#fee2e2;color:#991b1b}
+.mb-warn{border:1px solid #fecaca;border-left:4px solid #dc2626;background:#fef2f2;border-radius:8px;padding:11px 14px;margin:0 0 14px;font-size:13px;color:#7f1d1d}
+.mb-warn>div{font-size:12.5px;color:#991b1b;margin-top:4px}
+.tk-skiplink{color:#92400e}
+.tk-na{color:#94a3b8}
+.tk-details{margin:14px 0 0}
+.tk-details>summary{cursor:pointer;font-weight:600;color:#1f6f54;font-size:14px;padding:8px 0}
+.tk-row td:first-child{text-align:center}
+@media(max-width:820px){
+  .tk-resp thead{display:none}
+  .tk-resp tbody tr{display:block;border:1px solid #e2e8f0;border-radius:8px;margin:0 0 10px;padding:6px 8px;background:#fff}
+  .tk-resp tbody td{display:flex;justify-content:space-between;align-items:center;gap:10px;border:0;padding:4px 0}
+  .tk-resp tbody td:before{content:attr(data-label);font-size:11px;text-transform:uppercase;color:#64748b;font-weight:600}
+  .tk-resp tbody td[data-label=""]:before{content:""}
+  .tk-resp .tk-in{width:auto;flex:1;max-width:62%}
+}
+</style>'''
+
+TK_JS = '''<script>
+var TK = {
+  esc: function(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); },
+  post: function(action, extra, cb){
+    var url=window.location.pathname.replace('/PyScript/','/PyScriptForm/');
+    var fd=new FormData(); fd.append('action',action); fd.append('org',TK_ORG);
+    if(extra){ for(var k in extra){ fd.append(k, extra[k]); } }
+    fetch(url,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.text();})
+      .then(function(t){ var j={}; try{ j=JSON.parse(t); }catch(e){} cb(j); })
+      .catch(function(){ cb({success:false,message:'network error'}); });
+  },
+  del: function(btn){ var r=btn.closest('tr'); r.parentNode.removeChild(r); },
+  addTask: function(){
+    var tpl=document.getElementById('tk-tpl-task');
+    var row=tpl.content.querySelector('tr').cloneNode(true);
+    document.querySelector('#tk-tasks tbody').appendChild(row);
+  },
+  addTemplate: function(){
+    var tpl=document.getElementById('tk-tpl-row');
+    var row=tpl.content.querySelector('tr').cloneNode(true);
+    document.querySelector('#tk-tpl tbody').appendChild(row);
+    TK.tplDue(row);
+  },
+  fmtDate: function(iso){
+    var m=/^(\\d{4})-(\\d{2})-(\\d{2})/.exec(iso||''); if(!m) return '';
+    var d=new Date(+m[1],+m[2]-1,+m[3]);
+    var mons=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return mons[d.getMonth()]+' '+d.getDate()+', '+d.getFullYear();
+  },
+  computeDue: function(anchor, offset, fixed){
+    if(anchor==='fixed') return (fixed||'').slice(0,10);
+    var base=(anchor==='depBefore'||anchor==='depAfter')?TK_DEP:TK_RET;
+    if(!base) return '';
+    var m=/^(\\d{4})-(\\d{2})-(\\d{2})/.exec(base); if(!m) return '';
+    var d=new Date(+m[1],+m[2]-1,+m[3]);
+    var off=parseInt(offset,10)||0;
+    if(anchor==='depBefore'||anchor==='retBefore') d.setDate(d.getDate()-off); else d.setDate(d.getDate()+off);
+    var mm=('0'+(d.getMonth()+1)).slice(-2), dd=('0'+d.getDate()).slice(-2);
+    return d.getFullYear()+'-'+mm+'-'+dd;
+  },
+  tplAnchor: function(sel){
+    var r=sel.closest('tr'); var fixed=(sel.value==='fixed');
+    // the whole "60 days" group swaps for a date picker, so the unit does not linger
+    var ow=r.querySelector('.tk-offwrap'); if(ow) ow.style.display=fixed?'none':'';
+    r.querySelector('.tk-t-fixed').style.display=fixed?'':'none';
+    TK.tplDue(r);
+  },
+  tplAtype: function(sel){
+    var r=sel.closest('tr'); r.querySelector('.tk-person').style.display=(sel.value==='person')?'':'none';
+  },
+  tplDue: function(r){
+    var anc=r.querySelector('.tk-t-anchor').value;
+    var off=r.querySelector('.tk-t-offset').value;
+    var fx=r.querySelector('.tk-t-fixed').value;
+    var due=TK.computeDue(anc, off, fx);
+    var cell=r.querySelector('.tk-t-due'); if(cell){ cell.textContent = due? ('due '+TK.fmtDate(due)) : (TK_DEP||TK_RET?'':'set trip dates'); }
+  },
+  gatherTemplates: function(){
+    var out=[];
+    document.querySelectorAll('#tk-tpl tbody tr').forEach(function(r){
+      var title=(r.querySelector('.tk-t-title').value||'').trim(); if(!title) return;
+      var atype=r.querySelector('.tk-t-atype').value;
+      out.push({title:title, anchor:r.querySelector('.tk-t-anchor').value,
+                offset:parseInt(r.querySelector('.tk-t-offset').value,10)||0,
+                fixedDate:r.querySelector('.tk-t-fixed').value||'',
+                createLead:parseInt(r.querySelector('.tk-t-lead').value,10)||0,
+                assigneeType:atype,
+                assigneePeopleId:(atype==='person')?(parseInt(r.querySelector('.tk-t-apid').value,10)||0):0,
+                assigneeName:(atype==='person')?((r.querySelector('.tk-t-aname').value||'').trim()):'Trip Leader'});
+    });
+    return out;
+  },
+  gatherTasks: function(){
+    var out=[];
+    document.querySelectorAll('#tk-tasks tbody tr').forEach(function(r){
+      var title=(r.querySelector('.tk-title').value||'').trim(); if(!title) return;
+      var assignees=[]; try{ assignees=JSON.parse(r.getAttribute('data-assignees')||'[]'); }catch(e){}
+      var native=[]; try{ native=JSON.parse(r.getAttribute('data-native')||'[]'); }catch(e){}
+      // an uncreated row can have its assignee re-picked inline; a created row is fixed
+      var atype=r.getAttribute('data-atype')||'leader';
+      var origPid=r.getAttribute('data-apid')||'';
+      var override=(r.getAttribute('data-aover')==='1');
+      var sel=r.querySelector('.tk-atype');
+      if(sel){
+        var newType=sel.value;
+        if(newType==='person'){
+          var pid=r.querySelector('.tk-r-apid'), nm=r.querySelector('.tk-r-aname');
+          var pv=pid?(pid.value||'').trim():'', nv=nm?(nm.value||'').trim():'';
+          if(pv){ assignees=[{peopleId:parseInt(pv,10)||0, name:nv}]; }
+          if(pv!==origPid) override=true;               // picked a different person
+        } else if(newType==='leader'){
+          assignees=TK_LEADERS||[];
+        }
+        // switching type is an explicit choice: to a person pins it, back to the trip
+        // leader(s) releases the row so it tracks the template again
+        if(newType!==atype) override=(newType==='person');
+        atype=newType;
+      }
+      out.push({id:r.getAttribute('data-id')||'', templateId:r.getAttribute('data-tpl')||'',
+                source:r.getAttribute('data-src')||'template', assigneeType:atype,
+                assigneeOverride:override,
+                createLead:parseInt(r.getAttribute('data-lead'),10)||0,
+                assignees:assignees, nativeTaskIds:native,
+                title:title, notes:(r.querySelector('.tk-notes').value||'').trim(),
+                due:r.querySelector('.tk-due').value||'',
+                done:(function(){ var d=r.querySelector('.tk-done'); return d?d.checked:false; })(),
+                skipped:(r.getAttribute('data-skip')==='1')});
+    });
+    return out;
+  },
+  _pickTimer: null,
+  pick: function(inp){
+    var wrap=inp.parentNode, menu=wrap.querySelector('.tk-pick-menu');
+    var hid=wrap.querySelector('input[type=hidden]');
+    var term=(inp.value||'').trim();
+    if(hid) hid.value='';                       // typing invalidates the previous pick
+    if(TK._pickTimer) clearTimeout(TK._pickTimer);
+    if(term.length<2){ menu.style.display='none'; menu.innerHTML=''; return; }
+    TK._pickTimer=setTimeout(function(){
+      TK.post('search_people', {term:term}, function(j){
+        var list=(j&&j.success&&j.people)?j.people:[];
+        if(!list.length){ menu.innerHTML='<i class="tk-pick-none">No match</i>'; menu.style.display='block'; return; }
+        var h='';
+        for(var i=0;i<list.length;i++){
+          h+='<a href="#" class="tk-pick-item" data-pid="'+list[i].peopleId+'" data-name="'+TK.esc(list[i].name)+'">'
+             +TK.esc(list[i].name)+'<small>'+TK.esc(list[i].email||'')+'</small></a>';
+        }
+        menu.innerHTML=h; menu.style.display='block';
+        menu.querySelectorAll('.tk-pick-item').forEach(function(a){
+          a.addEventListener('mousedown', function(ev){   // mousedown beats blur
+            ev.preventDefault();
+            inp.value=a.getAttribute('data-name')||'';
+            if(hid) hid.value=a.getAttribute('data-pid')||'';
+            menu.style.display='none'; menu.innerHTML='';
+          });
+        });
+      });
+    }, 250);
+  },
+  pickBlur: function(inp){
+    var wrap=inp.parentNode, menu=wrap.querySelector('.tk-pick-menu');
+    var hid=wrap.querySelector('input[type=hidden]');
+    setTimeout(function(){
+      if(menu){ menu.style.display='none'; }
+      // a typed name that was never chosen from the list isn't a real person
+      if(hid && !hid.value && (inp.value||'').trim()){
+        inp.value=''; inp.placeholder='Pick a name from the list';
+      }
+    }, 150);
+  },
+  rowAtype: function(sel){
+    var td=sel.parentNode, sp=td.querySelector('.tk-rowperson'), hint=td.querySelector('.tk-leadhint');
+    var isP=(sel.value==='person');
+    if(sp) sp.style.display=isP?'':'none';
+    if(hint) hint.style.display=isP?'none':'';
+    if(isP){ var i=sp?sp.querySelector('.tk-pick-in'):null; if(i) i.focus(); }
+  },
+  doneChanged: function(cb){
+    var id=cb.getAttribute('data-id')||'', want=!!cb.checked, note='';
+    if(want){
+      // optional note, saved on the real TouchPoint task; Cancel abandons the change
+      note=prompt('Complete this task in TouchPoint?\\n\\nThis completes it for whoever it is assigned to \\u2014 use this when they are out or the work is already done.\\n\\nAdd a note (optional):', '');
+      if(note===null){ cb.checked=false; return; }
+    } else {
+      if(!confirm('Reopen this task in TouchPoint?\\n\\nIt goes back on the assignee\\u2019s list as Pending.')){ cb.checked=true; return; }
+    }
+    cb.disabled=true;
+    var st=document.getElementById('tk-status'); if(st){ st.textContent='Updating TouchPoint...'; st.style.color='#64748b'; }
+    TK.post('set_native_task_done', {taskId:id, done:want?'1':'0', note:note}, function(j){
+      cb.disabled=false;
+      if(j.success){ window.location.reload(); }
+      else { cb.checked=!want; alert('Failed'+(j.message?': '+j.message:'')); if(st) st.textContent=''; }
+    });
+  },
+  decline: function(id){
+    var why=prompt('Decline this task.\\n\\nWhy are we not doing it? (recorded here, and sent to TouchPoint if the task exists there):', '');
+    if(why===null) return;
+    if(!why.replace(/\\s/g,'')){ alert('Please give a reason so the decision is on record.'); return; }
+    // save first: an unsaved row would not be found server-side
+    TK.saveTasks(function(sj){
+      if(!sj.success){ alert('Could not save the task list first'+(sj.message?': '+sj.message:'')); return; }
+      TK.post('decline_task', {taskId:id, declined:'1', reason:why}, function(j){
+        if(j.success){ window.location.reload(); } else { alert(j.message||'Failed'); }
+      });
+    });
+  },
+  unskip: function(id){
+    TK.post('decline_task', {taskId:id, declined:'0'}, function(j){
+      if(j.success){ window.location.reload(); } else { alert(j.message||'Failed'); }
+    });
+  },
+  saveTasks: function(cb){
+    var st=document.getElementById('tk-status'); st.textContent='Saving...'; st.style.color='#64748b';
+    TK.post('save_trip_tasks', {payload:JSON.stringify({enabled:TK_ENABLED, tasks:TK.gatherTasks()})}, function(j){
+      st.textContent=j.success?'Saved \\u2713':('Save failed'+(j.message?': '+j.message:'')); st.style.color=j.success?'#166534':'#b91c1c';
+      if(j.success) TK.dirty=false;
+      if(cb) cb(j);
+    });
+  },
+  // the task list is saved by the button, not automatically
+  dirty: false,
+  touch: function(){
+    if(TK.dirty) return;
+    TK.dirty=true;
+    var st=document.getElementById('tk-status');
+    if(st){ st.textContent='Unsaved changes'; st.style.color='#b45309'; }
+  },
+  watch: function(){
+    var mark=function(){ TK.touch(); };
+    var t=document.getElementById('tk-tasks');
+    if(t){ t.addEventListener('input', mark); t.addEventListener('change', mark); }
+    window.addEventListener('beforeunload', function(e){
+      if(!TK.dirty) return;
+      e.preventDefault(); e.returnValue='You have unsaved task changes.';
+      return e.returnValue;
+    });
+  },
+  toggleEnabled: function(cb){
+    TK_ENABLED = !!cb.checked;
+    var bar=document.getElementById('tk-enablebar'); if(bar){ bar.className='tk-enable'+(TK_ENABLED?'':' off'); }
+    var note=document.getElementById('tk-enablenote');
+    if(note){ note.innerHTML = TK_ENABLED
+      ? 'Enabled \\u2014 the morning batch will create each native TouchPoint task on its create date. Use \\u201cCreate now\\u201d to fire any early.'
+      : 'Not enabled \\u2014 nothing is created in TouchPoint yet. Adjust the tasks below, then turn this on.'; }
+    // Enabling tasks is exactly what makes the morning-batch warning apply, and this is an
+    // AJAX save with no page load -- so repaint the banner instead of waiting for a refresh.
+    TK.saveTasks(function(){ if(typeof MB!=='undefined' && MB.refresh) MB.refresh(); });
+  },
+  pushOne: function(id){
+    if(!TK_ENABLED){ alert('Turn on \\u201cTasks enabled for this trip\\u201d first.'); var e=document.getElementById('tk-enabled'); if(e) e.focus(); return; }
+    if(!confirm('Create this task in TouchPoint now?')) return;
+    // Save first: the server creates from the SAVED plan, so an unsaved assignee/due/title
+    // edit would otherwise be ignored (or the row not exist server-side at all).
+    TK.saveTasks(function(sj){
+      if(!sj.success){ alert('Could not save the task list first'+(sj.message?': '+sj.message:'')); return; }
+      TK.post('push_native_tasks', {taskId:id}, function(j){
+        if(j.success){ window.location.reload(); }
+        else { alert('Nothing was created.\\n\\n'+(j.message||'No reason given.')); }
+      });
+    });
+  },
+  saveTemplates: function(){
+    var st=document.getElementById('tk-tstatus'); st.textContent='Saving...'; st.style.color='#64748b';
+    TK.post('save_task_templates', {payload:JSON.stringify(TK.gatherTemplates())}, function(j){
+      st.textContent=j.success?('Saved \\u2713 ('+j.count+')'):('Failed'+(j.message?': '+j.message:'')); st.style.color=j.success?'#166534':'#b91c1c';
+    });
+  },
+  saveDefault: function(cb){
+    var on=!!cb.checked;
+    var bar=document.getElementById('tk-defbar'); if(bar){ bar.className='tk-enable'+(on?'':' off'); }
+    var note=document.getElementById('tk-defnote');
+    if(note){ note.innerHTML = on
+      ? 'On \\u2014 when a trip generates its tasks, they start <b>enabled</b>. A pastor can still turn an individual trip off.'
+      : 'Off \\u2014 each trip starts <b>disabled</b>; a pastor reviews then enables it. (Recommended.)'; }
+    var st=document.getElementById('tk-defstatus'); if(st){ st.textContent='Saving...'; st.style.color='#64748b'; }
+    TK.post('save_tasks_default', {enabled: on?'1':'0'}, function(j){
+      if(st){ st.textContent=j.success?'Saved \\u2713':'Failed'; st.style.color=j.success?'#166534':'#b91c1c'; }
+    });
+  },
+  generate: function(){
+    if(!confirm('Rebuild this trip\\'s task list from the church-wide templates? Existing template tasks keep their done state; custom tasks are kept.')) return;
+    var st=document.getElementById('tk-pstatus'); st.textContent='Generating...'; st.style.color='#64748b';
+    TK.post('generate_trip_tasks', {}, function(j){
+      if(j.success){ st.textContent='Generated \\u2713'; st.style.color='#166534'; setTimeout(function(){ window.location.reload(); }, 500); }
+      else { st.textContent='Failed'+(j.message?': '+j.message:''); st.style.color='#b91c1c'; }
+    });
+  },
+  pushNative: function(){
+    if(!TK_ENABLED){ alert('Turn on \\u201cTasks enabled for this trip\\u201d first.'); var e=document.getElementById('tk-enabled'); if(e) e.focus(); return; }
+    if(!confirm('Create native TouchPoint tasks now for all not-yet-created tasks? Normally the morning batch does this on each task\\'s create date.')) return;
+    var st=document.getElementById('tk-pstatus'); st.textContent='Saving...'; st.style.color='#64748b';
+    // same reason as pushOne: the server creates from the SAVED plan
+    TK.saveTasks(function(sj){
+      if(!sj.success){ st.textContent='Could not save first'+(sj.message?': '+sj.message:''); st.style.color='#b91c1c'; return; }
+      st.textContent='Creating...';
+      TK.post('push_native_tasks', {}, function(j){
+        if(j.success){ st.textContent='Created '+j.created+(j.failed?(', '+j.failed+' failed'):''); st.style.color=j.failed?'#b45309':'#166534'; setTimeout(function(){ window.location.reload(); }, 700); }
+        else { st.textContent=(j.message||'Nothing was created'); st.style.color='#b91c1c'; }
+      });
+    });
+  }
+};
+// the Tasks tab loads via a full-page navigation, so the script often runs after DOM ready
+if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', function(){ TK.watch(); }); }
+else { TK.watch(); }
+</script>'''
+
+
 def handle_ajax_request():
     """Handle AJAX requests for popup data and section loading"""
     import json
@@ -11150,6 +16558,18 @@ def handle_ajax_request():
     elif action == 'adjust_fee':
         # AJAX request to adjust member fee (admin only)
         return handle_fee_adjustment()
+
+    elif action == 'send_payment_link':
+        # AJAX request to email/text a member their payment link
+        return handle_send_payment_link()
+
+    elif action == 'record_payment':
+        # AJAX request to record a check/cash payment (finance only)
+        return handle_record_payment()
+
+    elif action == 'get_member_history':
+        # AJAX request for a member's payment ledger + email history (admin only)
+        return handle_get_member_history()
 
     elif action == 'update_dates':
         # AJAX request to update trip dates (admin only)
@@ -11211,6 +16631,68 @@ def handle_ajax_request():
         # AJAX request to save dashboard configuration
         return handle_save_config()
 
+    elif action == 'save_trip_costs':
+        # AJAX request to save a trip's cost estimator
+        return handle_save_trip_costs()
+
+    elif action == 'save_trip_logistics':
+        # AJAX request to save a trip's logistics sheet
+        return handle_save_trip_logistics()
+
+    elif action == 'save_default_contact':
+        # AJAX request to save the church-wide default First Baptist contact
+        return handle_save_default_contact()
+
+    elif action == 'save_task_templates':
+        # AJAX request to save the church-wide task templates
+        return handle_save_task_templates()
+
+    elif action == 'save_tasks_default':
+        # AJAX request to save the church-wide "tasks enabled by default" toggle
+        return handle_save_tasks_default()
+
+    elif action == 'generate_trip_tasks':
+        # AJAX request to (re)generate a trip's task instances from templates
+        return handle_generate_trip_tasks()
+
+    elif action == 'save_trip_tasks':
+        # AJAX request to save a trip's task instances (done toggles, edits, custom)
+        return handle_save_trip_tasks()
+
+    elif action == 'push_native_tasks':
+        # AJAX request to create native TouchPoint tasks now (manual override)
+        return handle_push_native_tasks()
+
+    elif action == 'get_itinerary':
+        # AJAX: rendered itinerary HTML for the print popup
+        return handle_get_itinerary()
+
+    elif action == 'send_itinerary':
+        # AJAX: email the itinerary to me / trip leaders / the whole team
+        return handle_send_itinerary()
+
+    elif action == 'check_morning_batch':
+        # AJAX: repaint the batch banner after tasks are enabled/disabled
+        return handle_check_morning_batch()
+
+    elif action == 'install_morning_batch':
+        # AJAX: wire this script into the MorningBatch script so tasks actually release
+        return handle_install_morning_batch()
+
+    elif action in ('decline_task', 'set_task_skipped'):
+        # AJAX: decline a task with a reason (or undo). The old 'set_task_skipped' name is
+        # accepted so a cached page doesn't break.
+        return handle_decline_task()
+
+    elif action == 'search_people':
+        # AJAX type-ahead behind the assignee pickers (tasks + templates)
+        return handle_search_people()
+
+    elif action == 'set_native_task_done':
+        # AJAX request for an admin to complete/reopen a task in TouchPoint on
+        # someone else's behalf (assignee out sick, work already done, etc.)
+        return handle_set_native_task_done()
+
     elif action == 'get_global_settings':
         # AJAX request to get global dashboard settings
         return handle_get_global_settings()
@@ -11262,6 +16744,34 @@ def handle_ajax_request():
     elif action == 'set_member_type':
         # AJAX request to set member type (Leader/Member)
         return handle_set_member_type()
+
+    # =====================================================
+    # HUB WORKFLOW AJAX HANDLERS
+    # =====================================================
+
+    elif action == 'get_hub_candidates':
+        # AJAX request for involvements that can serve as the Hub
+        return handle_get_hub_candidates()
+
+    elif action == 'get_hub_questions':
+        # AJAX request for the questions on a Hub involvement
+        return handle_get_hub_questions()
+
+    elif action == 'get_hub_request_detail':
+        # AJAX request for one hub submission's answers + placement options
+        return handle_get_hub_request_detail()
+
+    elif action == 'approve_hub_request':
+        # AJAX request to approve a hub request and place the person on a trip
+        return handle_approve_hub_request()
+
+    elif action == 'deny_hub_request':
+        # AJAX request to deny a hub request
+        return handle_deny_hub_request()
+
+    elif action == 'revoke_hub_request':
+        # AJAX request to return a hub request to pending
+        return handle_revoke_hub_request()
 
     # DEBUG: If we got here with an ajax=1 parameter, log what action we received
     if hasattr(model.Data, 'ajax') and str(model.Data.ajax) == '1':
@@ -11557,6 +17067,26 @@ def _record_passport_request(org_id, people_id, person_name):
         pass
 
 
+def _build_giving_links(people_id, org_id):
+    """The two mission-trip money links for a person.
+
+    Mission trips are funded through TouchPoint's goer/sender DONATION flow, not the
+    registration checkout that model.GetPayLink returns -- that is the right link for
+    ordinary event fees (what Payment Manager deals with) but the wrong one here.
+
+    Returns (my_giving_link, support_link):
+      my_giving_link -- the goer's own registrations tab, where they see and pay their
+                        balance (requires them to be logged in)
+      support_link   -- the public link for giving toward this goer's trip; also what a
+                        goer uses to put money toward their own trip
+    """
+    my_giving_link = "{0}/Person2/{1}#tab-registrations".format(CHURCH_URL, people_id)
+    support_link = ""
+    if org_id:
+        support_link = "{0}/OnlineReg/{1}?goerid={2}".format(CHURCH_URL, org_id, people_id)
+    return my_giving_link, support_link
+
+
 def _personalize_email_body(body, people_id, org_id):
     """
     Replace personalized link placeholders in email body.
@@ -11573,14 +17103,7 @@ def _personalize_email_body(body, people_id, org_id):
     person = model.GetPerson(int(people_id))
     person_name = person.Name if person else ""
 
-    # Build personalized links
-    my_giving_link = "{0}/Person2/{1}#tab-registrations".format(CHURCH_URL, people_id)
-
-    # Support link requires org_id
-    if org_id:
-        support_link = "{0}/OnlineReg/{1}?goerid={2}".format(CHURCH_URL, org_id, people_id)
-    else:
-        support_link = ""
+    my_giving_link, support_link = _build_giving_links(people_id, org_id)
 
     # Replace placeholders (case-insensitive)
     result = body
@@ -11703,6 +17226,360 @@ def handle_send_email():
 
     except Exception as e:
         print json.dumps({'success': False, 'message': 'Error: ' + str(e)})
+
+    return True
+
+
+# =====================================================
+# PAYMENT ACTIONS (payment link / record payment)
+# =====================================================
+# Ported from TPxi_PaymentManager. Money-moving actions require a Finance role;
+# sending someone their own payment link does not, so trip leaders can chase their
+# own team's balances.
+
+# Transaction description prefixes -- kept identical to Payment Manager so payments
+# recorded here are recognised by its reporting (it keys off the CHK|/CSH| signature).
+PAYMENT_TYPE_PREFIXES = {
+    'check': 'CHK|',
+    'cash': 'CSH|',
+}
+
+
+def _fmt_money(amount):
+    """'$1,200.00' / '-$300.00' -- a negative balance is a credit, not '$-300.00'."""
+    try:
+        return ('$' + '{:,.2f}'.format(float(amount))).replace('$-', '-$')
+    except:
+        return '$0.00'
+
+
+def _get_member_balance(people_id, org_id):
+    """Current amount this person still owes on this trip.
+
+    Negative means they are in credit (overpaid). Returns 0 when unknown.
+    """
+    try:
+        sql = '''
+        SELECT SUM(ISNULL(IndDue, 0)) AS IndDue
+        FROM dbo.TransactionSummary WITH (NOLOCK)
+        WHERE PeopleId = {0} AND OrganizationId = {1}
+        '''.format(int(people_id), int(org_id))
+        rows = list(q.QuerySql(sql))
+        if rows and rows[0].IndDue is not None:
+            return float(rows[0].IndDue)
+    except:
+        pass
+    return 0.0
+
+
+def handle_send_payment_link():
+    """Text a member their mission-trip giving link.
+
+    Email deliberately does NOT go through here -- the Email button opens the composer
+    so staff can pick a template, read it, edit it and send. That is the same job the
+    old Remind button did, and it keeps one path for wording.
+
+    The link is the goer/sender DONATION link (/OnlineReg/<org>?goerid=<person>), the
+    same one {{SupportLink}} uses. Mission trips are funded through that flow, not the
+    registration checkout model.GetPayLink returns.
+    """
+    try:
+        user_role = get_user_role_and_trips()
+        people_id = str(model.Data.people_id) if hasattr(model.Data, 'people_id') and model.Data.people_id else None
+        org_id = str(model.Data.org_id) if hasattr(model.Data, 'org_id') and model.Data.org_id else None
+
+        if not people_id or not org_id:
+            print safe_json({'success': False, 'message': 'Missing person or trip'})
+            return True
+
+        # Leaders may text their own team; admins any trip.
+        if not has_trip_access(user_role, org_id):
+            print safe_json({'success': False, 'message': 'Access denied for this trip.'})
+            return True
+
+        people_id_int = int(people_id)
+        org_id_int = int(org_id)
+
+        person = model.GetPerson(people_id_int)
+        if not person:
+            print safe_json({'success': False, 'message': 'Person not found'})
+            return True
+
+        if not person.CellPhone:
+            print safe_json({'success': False,
+                             'message': (person.Name2 or 'This person') + ' has no cell phone on file.'})
+            return True
+
+        trip = _get_trip_info(org_id_int)
+        trip_name = trip.OrganizationName if trip else 'your mission trip'
+
+        my_giving_link, support_link = _build_giving_links(people_id_int, org_id_int)
+        if not support_link:
+            print safe_json({'success': False, 'message': 'Could not build a giving link for this trip.'})
+            return True
+
+        balance = _get_member_balance(people_id_int, org_id_int)
+        first_name = person.NickName or person.FirstName or 'there'
+
+        try:
+            sms_group = q.QuerySqlInt("SELECT TOP 1 ID FROM SmsGroups")
+        except:
+            sms_group = None
+
+        if not sms_group:
+            print safe_json({'success': False,
+                             'message': 'No SMS group is configured in TouchPoint.'})
+            return True
+
+        # A balance is not required: someone may want to keep raising support even at
+        # $0 due. Only mention the amount when there is one.
+        amount_part = ''
+        if balance > 0:
+            amount_part = ' Your balance is ' + _fmt_money(balance) + '.'
+
+        body = ('Hi ' + first_name + ', here is your giving link for ' + trip_name + '.' +
+                amount_part + ' ' + support_link +
+                '  (This is a one-way message; we will not receive replies.)')
+
+        try:
+            model.SendSms('PeopleId = ' + str(people_id_int), int(sms_group),
+                          trip_name + ' Giving Link', body)
+        except Exception as e:
+            print safe_json({'success': False, 'message': 'Text failed: ' + str(e)})
+            return True
+
+        print safe_json({
+            'success': True,
+            'message': 'Texted the giving link to ' + (person.Name2 or 'member') + '.'
+        })
+
+    except Exception as e:
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
+
+    return True
+
+
+def handle_get_member_history():
+    """Payment ledger + email history for one person on one trip. ADMIN ONLY.
+
+    Ported from TPxi_PaymentManager's charge-details panel. Two sources are merged
+    chronologically so the running balance reads the way staff expect:
+      - the Transaction ledger (charges, payments, refunds, adjustments)
+      - GoerSenderAmounts (supporter gifts), which are money in but live elsewhere.
+        Self-support (SupporterId = GoerId) is skipped: that cash is already on the
+        Transaction ledger, so counting it here would double it.
+    """
+    try:
+        # Deliberately admin-only: this exposes every gift and who gave it.
+        user_role = get_user_role_and_trips()
+        if not user_role.get('is_admin', False):
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
+            return True
+
+        people_id = str(model.Data.people_id) if hasattr(model.Data, 'people_id') and model.Data.people_id else None
+        org_id = str(model.Data.org_id) if hasattr(model.Data, 'org_id') and model.Data.org_id else None
+
+        if not people_id or not org_id:
+            print safe_json({'success': False, 'message': 'Missing person or trip'})
+            return True
+
+        people_id_int = int(people_id)
+        org_id_int = int(org_id)
+
+        person = model.GetPerson(people_id_int)
+        person_name = person.Name2 if person else 'Member'
+
+        rows = []
+
+        # ---- Transaction ledger -------------------------------------------------
+        # Message-pattern classification copied from Payment Manager so the same
+        # transaction is labelled identically in both tools. Refund patterns must be
+        # tested before the plain payment patterns.
+        try:
+            tx_sql = '''
+            SELECT
+                -- CONVERT rather than FORMAT: FORMAT needs CLR enabled on the
+                -- server, and style 120 gives the same 'yyyy-mm-dd hh:mi' text.
+                LEFT(CONVERT(varchar(19), t.TransactionDate, 120), 16) AS TranDate,
+                ISNULL(t.[Message], '')     AS Message,
+                ISNULL(t.[Description], '') AS Description,
+                t.amt                       AS RawAmt,
+                CASE WHEN t.[Message] LIKE 'CHK%' AND t.amt < 0      THEN 'Check Refund'
+                     WHEN t.[Message] LIKE 'CSH%' AND t.amt < 0      THEN 'Cash Refund'
+                     WHEN t.[Message] LIKE 'Response%' AND t.amt < 0 THEN 'Refund'
+                     WHEN t.[Message] LIKE 'CHK%'                     THEN 'Check'
+                     WHEN t.[Message] LIKE 'CSH%'                     THEN 'Cash'
+                     WHEN t.[Message] LIKE 'Response%'                THEN 'Credit Card'
+                     WHEN t.TransactionId LIKE 'Coupon%'              THEN 'Coupon'
+                     WHEN t.[Message] LIKE 'FEE%'                     THEN 'Fee'
+                     WHEN t.[Message] LIKE 'ADJ|%' OR t.[Message] LIKE 'Adj%' THEN 'Adjustment'
+                     WHEN t.[Message] LIKE 'variableCredit%' OR t.[Message] LIKE 'variableRefund%' OR t.[Message] LIKE '%Credit for%' THEN 'Credit'
+                     WHEN t.[Message] LIKE 'variableLate%'            THEN 'Late Fee'
+                     WHEN t.[Message] LIKE 'variable%'                THEN 'Variable Charge'
+                     WHEN t.[Message] LIKE 'setDefaultCharge%'        THEN 'Recurring Setup'
+                     WHEN t.[Message] LIKE 'move-to-payer%'           THEN 'Transfer'
+                     WHEN t.[Message] LIKE 'Initial%'                 THEN 'Initial Charge'
+                     WHEN t.[Message] LIKE '%Household%'              THEN 'Household Charge'
+                     WHEN t.[Message] IS NULL OR t.[Message] = ''     THEN 'Manual'
+                     ELSE 'Charge' END AS Kind
+            FROM TransactionSummary ts WITH (NOLOCK)
+            INNER JOIN [Transaction] t WITH (NOLOCK) ON ts.RegId = t.OriginalId
+            WHERE ts.PeopleId = {0}
+              AND ts.OrganizationId = {1}
+              AND ts.IsLatestTransaction = 1
+              AND t.amt <> 0
+              AND t.voided IS NULL
+            ORDER BY t.TransactionDate ASC, t.TransactionId
+            '''.format(people_id_int, org_id_int)
+
+            for r in q.QuerySql(tx_sql):
+                amt = float(r.RawAmt or 0)
+                rows.append({
+                    'date': r.TranDate or '',
+                    'kind': r.Kind or 'Charge',
+                    # amt > 0 is a charge; < 0 is money in
+                    'charge': amt if amt > 0 else 0.0,
+                    'payment': -amt if amt < 0 else 0.0,
+                    'detail': (r.Description or r.Message or ''),
+                    'supporter': '',
+                })
+        except:
+            pass
+
+        # ---- Supporter gifts ----------------------------------------------------
+        try:
+            sup_sql = '''
+            SELECT
+                LEFT(CONVERT(varchar(19), g.Created, 120), 16) AS TranDate,
+                ISNULL(p.Name, '(Unknown)') AS SupporterName,
+                g.Amount AS RawAmt
+            FROM dbo.GoerSenderAmounts g WITH (NOLOCK)
+            LEFT JOIN People p WITH (NOLOCK) ON p.PeopleId = g.SupporterId
+            WHERE g.GoerId = {0}
+              AND g.OrgId = {1}
+              AND ISNULL(g.InActive, 0) = 0
+              AND g.SupporterId <> g.GoerId
+            ORDER BY g.Created ASC
+            '''.format(people_id_int, org_id_int)
+
+            for r in q.QuerySql(sup_sql):
+                rows.append({
+                    'date': r.TranDate or '',
+                    'kind': 'Supporter',
+                    'charge': 0.0,
+                    'payment': float(r.RawAmt or 0),
+                    'detail': 'Gift toward trip',
+                    'supporter': r.SupporterName or '',
+                })
+        except:
+            pass
+
+        # Merge chronologically, then run the balance forward.
+        rows.sort(key=lambda x: x['date'])
+        balance = 0.0
+        for r in rows:
+            balance += r['charge'] - r['payment']
+            r['balance'] = balance
+
+        # ---- Email history ------------------------------------------------------
+        emails = []
+        try:
+            em_sql = '''
+            SELECT TOP 25
+                eq.Subject, eq.Sent, eq.FromName, eq.Id AS MessageId,
+                COUNT(er.Id) AS Opened
+            FROM dbo.EmailQueueTo eqt WITH (NOLOCK)
+            INNER JOIN dbo.EmailQueue eq WITH (NOLOCK) ON eqt.Id = eq.Id
+            LEFT JOIN EmailResponses er WITH (NOLOCK)
+                ON er.PeopleId = eqt.PeopleId AND eq.Id = er.EmailQueueId
+            WHERE eqt.PeopleId = {0}
+            GROUP BY eq.Subject, eq.Sent, eq.FromName, eq.Id
+            ORDER BY eq.Sent DESC
+            '''.format(people_id_int)
+
+            for r in q.QuerySql(em_sql):
+                emails.append({
+                    'subject': r.Subject or '(no subject)',
+                    'sent': str(r.Sent)[:16] if r.Sent else '',
+                    'from': r.FromName or '',
+                    'opened': int(r.Opened or 0),
+                    'message_id': r.MessageId,
+                })
+        except:
+            pass
+
+        print safe_json({
+            'success': True,
+            'person_name': person_name,
+            'people_id': people_id_int,
+            'rows': rows,
+            'emails': emails,
+            'final_balance': balance,
+        })
+
+    except Exception as e:
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
+
+    return True
+
+
+def handle_record_payment():
+    """Record a payment (check/cash) against a member's trip balance."""
+    try:
+        user_role = get_user_role_and_trips()
+        if not user_role.get('can_manage_finance', False):
+            print safe_json({'success': False, 'message': 'Access denied. Finance role required.'})
+            return True
+
+        people_id = str(model.Data.people_id) if hasattr(model.Data, 'people_id') and model.Data.people_id else None
+        org_id = str(model.Data.org_id) if hasattr(model.Data, 'org_id') and model.Data.org_id else None
+        amount_raw = str(model.Data.amount) if hasattr(model.Data, 'amount') and model.Data.amount else None
+        pay_type = str(model.Data.pay_type).lower() if hasattr(model.Data, 'pay_type') and model.Data.pay_type else 'check'
+        description = str(model.Data.description) if hasattr(model.Data, 'description') and model.Data.description else ''
+
+        if not people_id or not org_id or not amount_raw:
+            print safe_json({'success': False, 'message': 'Missing person, trip, or amount'})
+            return True
+
+        try:
+            amount = float(amount_raw)
+        except:
+            print safe_json({'success': False, 'message': 'Enter a valid amount'})
+            return True
+
+        if amount <= 0:
+            print safe_json({'success': False, 'message': 'Payment must be greater than zero'})
+            return True
+
+        prefix = PAYMENT_TYPE_PREFIXES.get(pay_type)
+        if not prefix:
+            print safe_json({'success': False, 'message': 'Payment type must be check or cash'})
+            return True
+
+        people_id_int = int(people_id)
+        org_id_int = int(org_id)
+
+        previous_due = _get_member_balance(people_id_int, org_id_int)
+
+        # Same description signature Payment Manager writes, so its reports see these.
+        desc = prefix + _fmt_money(amount)
+        if description:
+            desc += ': ' + description
+
+        # AddTransaction takes a POSITIVE amount for a payment (it reduces what is owed).
+        model.AddTransaction(people_id_int, org_id_int, amount, desc)
+
+        new_due = _get_member_balance(people_id_int, org_id_int)
+
+        print safe_json({
+            'success': True,
+            'message': 'Recorded {0} payment of ${1:,.2f}'.format(pay_type, amount),
+            'previous_due': previous_due,
+            'new_due': new_due,
+        })
+
+    except Exception as e:
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
 
     return True
 
@@ -12205,7 +18082,7 @@ def save_template(template_id, subject, body):
         template_data['subject'] = decoded_subject
         template_data['body'] = decoded_body
 
-        model.WriteContentText(content_name, json.dumps(template_data), "")
+        model.WriteContentText(content_name, safe_json(template_data), "")
         return True
     except:
         return False
@@ -12249,7 +18126,7 @@ def handle_get_templates():
             'templates': templates,
             'count': len(templates)
         }
-        print json.dumps(result)
+        print safe_json(result)
     except Exception as e:
         import traceback
         result = {
@@ -12257,7 +18134,7 @@ def handle_get_templates():
             'message': 'Error loading templates: ' + str(e),
             'traceback': traceback.format_exc()
         }
-        print json.dumps(result)
+        print safe_json(result)
 
     return True
 
@@ -12270,7 +18147,7 @@ def handle_save_template():
         # Check admin permission
         user_role = get_user_role_and_trips()
         if not user_role.get('is_admin', False):
-            print json.dumps({'success': False, 'message': 'Access denied. Admin role required.'})
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
             return True
 
         template_id = str(model.Data.template_id) if hasattr(model.Data, 'template_id') and model.Data.template_id else None
@@ -12278,16 +18155,16 @@ def handle_save_template():
         body = str(model.Data.body) if hasattr(model.Data, 'body') and model.Data.body else ''
 
         if not template_id:
-            print json.dumps({'success': False, 'message': 'Missing template ID'})
+            print safe_json({'success': False, 'message': 'Missing template ID'})
             return True
 
         if save_template(template_id, subject, body):
-            print json.dumps({'success': True, 'message': 'Template saved successfully'})
+            print safe_json({'success': True, 'message': 'Template saved successfully'})
         else:
-            print json.dumps({'success': False, 'message': 'Failed to save template'})
+            print safe_json({'success': False, 'message': 'Failed to save template'})
 
     except Exception as e:
-        print json.dumps({'success': False, 'message': 'Error: ' + str(e)})
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
 
     return True
 
@@ -12300,20 +18177,20 @@ def handle_reset_template():
         # Check admin permission
         user_role = get_user_role_and_trips()
         if not user_role.get('is_admin', False):
-            print json.dumps({'success': False, 'message': 'Access denied. Admin role required.'})
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
             return True
 
         template_id = str(model.Data.template_id) if hasattr(model.Data, 'template_id') and model.Data.template_id else None
 
         if not template_id:
-            print json.dumps({'success': False, 'message': 'Missing template ID'})
+            print safe_json({'success': False, 'message': 'Missing template ID'})
             return True
 
         if delete_template(template_id):
             # Return the default template
             default = config.DEFAULT_TEMPLATES.get(template_id)
             if default:
-                print json.dumps({
+                print safe_json({
                     'success': True,
                     'message': 'Template reset to default',
                     'template': {
@@ -12326,12 +18203,12 @@ def handle_reset_template():
                     }
                 })
             else:
-                print json.dumps({'success': True, 'message': 'Template reset'})
+                print safe_json({'success': True, 'message': 'Template reset'})
         else:
-            print json.dumps({'success': False, 'message': 'Failed to reset template'})
+            print safe_json({'success': False, 'message': 'Failed to reset template'})
 
     except Exception as e:
-        print json.dumps({'success': False, 'message': 'Error: ' + str(e)})
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
 
     return True
 
@@ -12346,7 +18223,19 @@ GLOBAL_SETTINGS_STORAGE_KEY = "MissionsDashboard_GlobalSettings"
 DEFAULT_GLOBAL_SETTINGS = {
     'approvals_enabled': True,  # Global toggle for approval workflow
     'require_approval_for_new_trips': True,  # Default for new trips
+    # Workflow model:
+    #   'direct' = one-to-one. People register on each trip; approval happens on that trip.
+    #   'hub'    = one-to-many (hub & spoke). People register on a single Hub involvement,
+    #              choose a trip via a dropdown question, and approvers place them onto a trip.
+    'workflow_model': 'direct',
+    'hub_org_id': 0,            # OrganizationId of the Hub intake involvement (hub mode)
+    'hub_trip_question': '',    # Label of the Hub question that names the requested trip
 }
+
+# Person extra value holding the hub request ledger (one JSON blob per person).
+# Stored on the PERSON, not the hub org, so the decision history follows the person
+# even when the hub involvement is replaced (each entry records its own hub_org_id).
+HUB_REQUEST_LEDGER_FIELD = 'MissionsTripRequests'
 
 
 def get_global_settings():
@@ -12369,7 +18258,7 @@ def save_global_settings(settings):
     """Save global dashboard settings to storage."""
     import json
     try:
-        content_str = json.dumps(settings)
+        content_str = safe_json(settings)
         model.WriteContentText(GLOBAL_SETTINGS_STORAGE_KEY, content_str, "")
         # Verify the save worked by reading back
         stored = model.TextContent(GLOBAL_SETTINGS_STORAGE_KEY)
@@ -12531,6 +18420,11 @@ def get_effective_trip_cost(org_id):
 
 
 # Default dropdown templates (used if none saved)
+# Id of the itinerary email template. Like APPROVAL_TEMPLATE_ID, this is the single source
+# of that email's wording -- the Logistics tab hands it to the server rather than keeping a
+# second copy, so editing it under Settings > Quick Email Templates actually takes effect.
+ITINERARY_TEMPLATE_ID = 'trip_itinerary'
+
 DEFAULT_DROPDOWN_TEMPLATES = [
     {
         'id': 'goal_reminder_team',
@@ -12549,6 +18443,15 @@ DEFAULT_DROPDOWN_TEMPLATES = [
         'role': 'all',
         'subject': '{{TripName}} - Fundraising Goal Reminder',
         'body': 'Hi {{PersonName}},\\n\\nThis is a friendly reminder about your fundraising goal for {{TripName}}.\\n\\nYour trip cost: {{TripCost}}\\nAmount still needed: {{Outstanding}}\\n\\nView your payment status here:\\n{{MyGivingLink}}\\n\\nShare this link with friends and family who want to support your trip:\\n{{SupportLink}}\\n\\nPlease reach out if you need any help meeting your goal.\\n\\nThank you for your commitment to this mission trip!\\n\\nBlessings'
+    },
+    {
+        'id': 'payment_link',
+        'name': 'Payment / Giving Link',
+        'context': 'budget',
+        'type': 'individual',
+        'role': 'all',
+        'subject': '{{TripName}} - Your Payment Link',
+        'body': 'Hi {{PersonName}},\\n\\nHere is how to pay toward {{TripName}}.\\n\\nAmount still due: {{Outstanding}}\\n\\nView your balance and pay here:\\n{{MyGivingLink}}\\n\\nYou can also give toward your trip here, and share this same link with anyone who wants to support you:\\n{{SupportLink}}\\n\\nIf you have any questions, just reply to this email.\\n\\nBlessings'
     },
     {
         'id': 'passport_request',
@@ -12621,6 +18524,23 @@ DEFAULT_DROPDOWN_TEMPLATES = [
         'role': 'leader',
         'subject': '{{TripName}} - A Word of Encouragement',
         'body': 'Hi {{PersonName}},\\n\\nI wanted to reach out and encourage you as we prepare for {{TripName}}.\\n\\n[Add your personal message here]\\n\\nThank you for being part of this team!\\n\\nBlessings'
+    },
+    {
+        # The itinerary email. {{ItineraryTable}} is replaced with the generated logistics
+        # table -- edit the wording around it here; the table itself comes from the trip's
+        # Logistics tab so it can never drift from the real flight/hotel details.
+        'id': ITINERARY_TEMPLATE_ID,
+        'name': 'Trip Itinerary / Logistics',
+        'context': 'logistics',
+        'type': 'both',
+        'role': 'all',
+        'subject': '{{TripName}} - Trip Itinerary',
+        'body': ('Hi {{PersonName}},\\n\\nHere is the current itinerary for {{TripName}}.\\n\\n'
+                 'Departure: {{DepartureDate}}\\nReturn: {{ReturnDate}}\\n'
+                 'Meeting place and time: {{MeetingPlace}}\\n\\n'
+                 '{{ItineraryTable}}\\n\\n'
+                 'Please print a copy or save this email to your phone, and leave a copy with '
+                 'your family.\\n\\nIf anything changes we will send an updated itinerary.\\n\\nBlessings')
     }
 ]
 
@@ -12663,10 +18583,37 @@ def save_dropdown_templates(templates):
     """Save dropdown templates to storage."""
     import json
     try:
-        model.WriteContentText(DROPDOWN_TEMPLATES_STORAGE_KEY, json.dumps(templates), "")
+        model.WriteContentText(DROPDOWN_TEMPLATES_STORAGE_KEY, safe_json(templates), "")
         return True
     except:
         return False
+
+
+# Id of the template used for the approval notification. This template is the SINGLE
+# source of that email's wording -- the approval prompt is handed it by the server
+# rather than keeping its own copy, because a second copy is exactly what made edits
+# to the template look like they were being ignored.
+APPROVAL_TEMPLATE_ID = 'approval_notification'
+
+
+def get_approval_email_template():
+    """The 'Registration Approved' subject/body, with placeholders unresolved.
+
+    get_dropdown_templates() always yields this id: the user's saved version if they
+    customised it under Settings > Quick Email Templates, otherwise the built-in
+    default. Returns empty strings only if the template genuinely cannot be read, which
+    the prompt surfaces rather than silently substituting different wording.
+    """
+    try:
+        for t in get_dropdown_templates():
+            if t.get('id') == APPROVAL_TEMPLATE_ID:
+                return {
+                    'subject': t.get('subject') or '',
+                    'body': t.get('body') or '',
+                }
+    except:
+        pass
+    return {'subject': '', 'body': ''}
 
 
 def handle_get_dropdown_templates():
@@ -12680,7 +18627,7 @@ def handle_get_dropdown_templates():
             'templates': templates,
             'count': len(templates)
         }
-        print json.dumps(result)
+        print safe_json(result)
     except Exception as e:
         import traceback
         result = {
@@ -12688,7 +18635,7 @@ def handle_get_dropdown_templates():
             'message': 'Error loading dropdown templates: ' + str(e),
             'traceback': traceback.format_exc()
         }
-        print json.dumps(result)
+        print safe_json(result)
 
     return True
 
@@ -12724,7 +18671,7 @@ def handle_save_dropdown_template():
         # Check admin permission
         user_role = get_user_role_and_trips()
         if not user_role.get('is_admin', False):
-            print json.dumps({'success': False, 'message': 'Access denied. Admin role required.'})
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
             return True
 
         # Get template data from request (using tpl_ prefix to avoid ASP.NET reserved words)
@@ -12744,7 +18691,7 @@ def handle_save_dropdown_template():
 
         # Validate required fields
         if not template_id or not name or not subject or not body:
-            print json.dumps({'success': False, 'message': 'Missing required fields (id, name, subject, body)'})
+            print safe_json({'success': False, 'message': 'Missing required fields (id, name, subject, body)'})
             return True
 
         # Convert escaped newlines back to actual newlines
@@ -12780,13 +18727,13 @@ def handle_save_dropdown_template():
 
         # Save templates
         if save_dropdown_templates(templates):
-            print json.dumps({'success': True, 'message': 'Template saved successfully'})
+            print safe_json({'success': True, 'message': 'Template saved successfully'})
         else:
-            print json.dumps({'success': False, 'message': 'Failed to save template'})
+            print safe_json({'success': False, 'message': 'Failed to save template'})
 
     except Exception as e:
         import traceback
-        print json.dumps({
+        print safe_json({
             'success': False,
             'message': 'Error saving template: ' + str(e),
             'traceback': traceback.format_exc()
@@ -12803,13 +18750,13 @@ def handle_delete_dropdown_template():
         # Check admin permission
         user_role = get_user_role_and_trips()
         if not user_role.get('is_admin', False):
-            print json.dumps({'success': False, 'message': 'Access denied. Admin role required.'})
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
             return True
 
         template_id = str(model.Data.template_id) if hasattr(model.Data, 'template_id') and model.Data.template_id else None
 
         if not template_id:
-            print json.dumps({'success': False, 'message': 'Missing template ID'})
+            print safe_json({'success': False, 'message': 'Missing template ID'})
             return True
 
         # Get existing templates
@@ -12819,17 +18766,17 @@ def handle_delete_dropdown_template():
         new_templates = [t for t in templates if t['id'] != template_id]
 
         if len(new_templates) == len(templates):
-            print json.dumps({'success': False, 'message': 'Template not found'})
+            print safe_json({'success': False, 'message': 'Template not found'})
             return True
 
         # Save templates
         if save_dropdown_templates(new_templates):
-            print json.dumps({'success': True, 'message': 'Template deleted successfully'})
+            print safe_json({'success': True, 'message': 'Template deleted successfully'})
         else:
-            print json.dumps({'success': False, 'message': 'Failed to delete template'})
+            print safe_json({'success': False, 'message': 'Failed to delete template'})
 
     except Exception as e:
-        print json.dumps({'success': False, 'message': 'Error: ' + str(e)})
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
 
     return True
 
@@ -12867,6 +18814,11 @@ def handle_get_config():
             'ENABLE_FINANCE_TAB': config.ENABLE_FINANCE_TAB,
             'ENABLE_MESSAGES_TAB': config.ENABLE_MESSAGES_TAB,
         }
+        _dc = load_default_contact()
+        data['DEFAULT_FBCH_NAME'] = _dc.get('name', '')
+        data['DEFAULT_FBCH_PHONE'] = _dc.get('phone', '')
+        data['DEFAULT_FBCH_EMAIL'] = _dc.get('email', '')
+        data['COST_CATEGORIES'] = ', '.join(load_cost_categories())
         print json.dumps({'success': True, 'config': data})
     except Exception as e:
         print json.dumps({'success': False, 'message': str(e)})
@@ -12924,6 +18876,21 @@ def handle_save_config():
                     setattr(config, field_name, raw)
 
         save_config(config)
+
+        # Default First Baptist contact (stored separately, inherited by trips)
+        if hasattr(Data, 'DEFAULT_FBCH_NAME') or hasattr(Data, 'DEFAULT_FBCH_PHONE') or hasattr(Data, 'DEFAULT_FBCH_EMAIL'):
+            dc = {'name': str(getattr(Data, 'DEFAULT_FBCH_NAME', '') or '').strip(),
+                  'phone': str(getattr(Data, 'DEFAULT_FBCH_PHONE', '') or '').strip(),
+                  'email': str(getattr(Data, 'DEFAULT_FBCH_EMAIL', '') or '').strip()}
+            model.WriteContentText(DEFAULT_CONTACT_EV, safe_json(dc), "")
+
+        # Cost-category suggestions (stored separately, used by the Costs estimator)
+        if hasattr(Data, 'COST_CATEGORIES'):
+            _raw = str(getattr(Data, 'COST_CATEGORIES', '') or '')
+            _parts = [p.strip() for p in _raw.replace('\n', ',').split(',')]
+            _cats = [p for p in _parts if p]
+            model.WriteContentText(COST_CATEGORIES_EV, ', '.join(_cats), "")
+
         print json.dumps({'success': True, 'message': 'Configuration saved'})
     except Exception as e:
         print json.dumps({'success': False, 'message': str(e)})
@@ -12938,17 +18905,17 @@ def handle_get_global_settings():
         # Check admin permission
         user_role = get_user_role_and_trips()
         if not user_role.get('is_admin', False):
-            print json.dumps({'success': False, 'message': 'Access denied. Admin role required.'})
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
             return True
 
         settings = get_global_settings()
-        print json.dumps({
+        print safe_json({
             'success': True,
             'settings': settings
         })
 
     except Exception as e:
-        print json.dumps({'success': False, 'message': 'Error: ' + str(e)})
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
 
     return True
 
@@ -12961,30 +18928,53 @@ def handle_save_global_settings():
         # Check admin permission
         user_role = get_user_role_and_trips()
         if not user_role.get('is_admin', False):
-            print json.dumps({'success': False, 'message': 'Access denied. Admin role required.'})
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
             return True
 
-        # Get settings from request
-        approvals_enabled = str(model.Data.approvals_enabled) if hasattr(model.Data, 'approvals_enabled') else 'true'
-        new_approval_value = approvals_enabled.lower() == 'true'
-
         settings = get_global_settings()
-        settings['approvals_enabled'] = new_approval_value
+
+        # Each field is only applied when actually posted, so the settings page can save
+        # the approval toggle and the hub configuration independently.
+        if hasattr(model.Data, 'approvals_enabled') and model.Data.approvals_enabled:
+            settings['approvals_enabled'] = str(model.Data.approvals_enabled).lower() == 'true'
+
+        if hasattr(model.Data, 'workflow_model') and model.Data.workflow_model:
+            wm = str(model.Data.workflow_model).lower()
+            if wm in ('direct', 'hub'):
+                settings['workflow_model'] = wm
+
+        if hasattr(model.Data, 'hub_org_id') and model.Data.hub_org_id is not None:
+            try:
+                settings['hub_org_id'] = int(str(model.Data.hub_org_id) or 0)
+            except:
+                settings['hub_org_id'] = 0
+
+        if hasattr(model.Data, 'hub_trip_question') and model.Data.hub_trip_question is not None:
+            settings['hub_trip_question'] = str(model.Data.hub_trip_question)
+
+        # Hub mode is meaningless without both a hub and its trip question
+        if settings.get('workflow_model') == 'hub':
+            if not settings.get('hub_org_id') or not settings.get('hub_trip_question'):
+                print safe_json({
+                    'success': False,
+                    'message': 'Hub mode requires both a Hub involvement and a trip question.'
+                })
+                return True
 
         if save_global_settings(settings):
             # Verify by reading back
             verified_settings = get_global_settings()
-            print json.dumps({
+            print safe_json({
                 'success': True,
                 'message': 'Settings saved successfully',
                 'settings': verified_settings,
                 'approvals_enabled': verified_settings.get('approvals_enabled', True)
             })
         else:
-            print json.dumps({'success': False, 'message': 'Failed to save settings to storage'})
+            print safe_json({'success': False, 'message': 'Failed to save settings to storage'})
 
     except Exception as e:
-        print json.dumps({'success': False, 'message': 'Error saving settings: ' + str(e)})
+        print safe_json({'success': False, 'message': 'Error saving settings: ' + str(e)})
 
     return True
 
@@ -13239,14 +19229,14 @@ def handle_approve_member():
         # Check admin permission
         user_role = get_user_role_and_trips()
         if not user_role.get('is_admin', False):
-            print json.dumps({'success': False, 'message': 'Access denied. Admin role required.'})
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
             return True
 
         org_id = str(model.Data.org_id) if hasattr(model.Data, 'org_id') and model.Data.org_id else None
         people_id = str(model.Data.people_id) if hasattr(model.Data, 'people_id') and model.Data.people_id else None
 
         if not org_id or not people_id:
-            print json.dumps({'success': False, 'message': 'Missing organization or person ID'})
+            print safe_json({'success': False, 'message': 'Missing organization or person ID'})
             return True
 
         org_id_int = int(org_id)
@@ -13277,7 +19267,7 @@ def handle_approve_member():
         effective_cost = get_effective_trip_cost(org_id_int)
         deposit_amount = fee_settings.get('deposit_amount', 0)
 
-        print json.dumps({
+        print safe_json({
             'success': True,
             'message': 'Member approved successfully',
             'status': 'approved',
@@ -13293,11 +19283,13 @@ def handle_approve_member():
                 'name': trip_name,
                 'cost': effective_cost,
                 'deposit': deposit_amount
-            }
+            },
+            # The prompt renders this rather than any wording of its own.
+            'template': get_approval_email_template()
         })
 
     except Exception as e:
-        print json.dumps({'success': False, 'message': 'Error: ' + str(e)})
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
 
     return True
 
@@ -13310,7 +19302,7 @@ def handle_deny_member():
         # Check admin permission
         user_role = get_user_role_and_trips()
         if not user_role.get('is_admin', False):
-            print json.dumps({'success': False, 'message': 'Access denied. Admin role required.'})
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
             return True
 
         org_id = str(model.Data.org_id) if hasattr(model.Data, 'org_id') and model.Data.org_id else None
@@ -13318,11 +19310,11 @@ def handle_deny_member():
         reason = str(model.Data.reason) if hasattr(model.Data, 'reason') and model.Data.reason else ''
 
         if not org_id or not people_id:
-            print json.dumps({'success': False, 'message': 'Missing organization or person ID'})
+            print safe_json({'success': False, 'message': 'Missing organization or person ID'})
             return True
 
         if not reason:
-            print json.dumps({'success': False, 'message': 'Denial reason is required'})
+            print safe_json({'success': False, 'message': 'Denial reason is required'})
             return True
 
         org_id_int = int(org_id)
@@ -13346,14 +19338,14 @@ def handle_deny_member():
         # Store denial reason
         _add_denial_reason(org_id_int, people_id_int, person_name, reason, current_user_id, current_user_name)
 
-        print json.dumps({
+        print safe_json({
             'success': True,
             'message': 'Member denied',
             'status': 'denied'
         })
 
     except Exception as e:
-        print json.dumps({'success': False, 'message': 'Error: ' + str(e)})
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
 
     return True
 
@@ -13366,14 +19358,14 @@ def handle_revoke_approval():
         # Check admin permission
         user_role = get_user_role_and_trips()
         if not user_role.get('is_admin', False):
-            print json.dumps({'success': False, 'message': 'Access denied. Admin role required.'})
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
             return True
 
         org_id = str(model.Data.org_id) if hasattr(model.Data, 'org_id') and model.Data.org_id else None
         people_id = str(model.Data.people_id) if hasattr(model.Data, 'people_id') and model.Data.people_id else None
 
         if not org_id or not people_id:
-            print json.dumps({'success': False, 'message': 'Missing organization or person ID'})
+            print safe_json({'success': False, 'message': 'Missing organization or person ID'})
             return True
 
         org_id_int = int(org_id)
@@ -13389,15 +19381,349 @@ def handle_revoke_approval():
         # Remove denial reason if any
         _remove_denial_reason(org_id_int, people_id_int)
 
-        print json.dumps({
+        print safe_json({
             'success': True,
             'message': 'Status revoked, member returned to pending',
             'status': 'pending'
         })
 
     except Exception as e:
-        print json.dumps({'success': False, 'message': 'Error: ' + str(e)})
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
 
+    return True
+
+
+# =====================================================
+# HUB WORKFLOW AJAX HANDLERS
+# =====================================================
+
+def _hub_admin_ok():
+    """True if the current user may act on hub requests."""
+    try:
+        return get_user_role_and_trips().get('is_admin', False)
+    except:
+        return False
+
+
+def handle_get_hub_candidates():
+    """Involvements that can serve as the Hub (Settings dropdown)."""
+    import json
+    try:
+        if not _hub_admin_ok():
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
+            return True
+
+        sql = '''
+        SELECT o.OrganizationId, o.OrganizationName, o.RegistrationTypeId
+        FROM Organizations o WITH (NOLOCK)
+        WHERE o.OrganizationStatusId = {0}
+          AND (o.IsMissionTrip = 1 OR o.RegistrationTypeId = 26)
+        ORDER BY o.OrganizationName
+        '''.format(config.ACTIVE_ORG_STATUS_ID)
+
+        orgs = []
+        for row in q.QuerySql(sql):
+            orgs.append({
+                'org_id': row.OrganizationId,
+                'name': row.OrganizationName or '',
+                # 26 = new forms, which retain per-submission history
+                'new_forms': (row.RegistrationTypeId == 26),
+            })
+
+        print safe_json({'success': True, 'orgs': orgs})
+    except Exception as e:
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
+    return True
+
+
+def handle_get_hub_questions():
+    """Questions on a chosen Hub involvement (Settings dropdown)."""
+    import json
+    try:
+        if not _hub_admin_ok():
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
+            return True
+
+        org_id = str(model.Data.org_id) if hasattr(model.Data, 'org_id') and model.Data.org_id else None
+        if not org_id:
+            print safe_json({'success': False, 'message': 'Missing organization ID'})
+            return True
+
+        questions = get_hub_questions(org_id)
+        print safe_json({'success': True, 'questions': questions})
+    except Exception as e:
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
+    return True
+
+
+def handle_get_hub_request_detail():
+    """Answers for a single hub submission, plus the trip placement options."""
+    import json
+    try:
+        if not _hub_admin_ok():
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
+            return True
+
+        people_id = str(model.Data.people_id) if hasattr(model.Data, 'people_id') and model.Data.people_id else None
+        req_key = str(model.Data.req_key) if hasattr(model.Data, 'req_key') and model.Data.req_key else None
+
+        if not people_id or not req_key:
+            print safe_json({'success': False, 'message': 'Missing person or request key'})
+            return True
+
+        settings = get_global_settings()
+        hub_org_id = int(settings.get('hub_org_id', 0) or 0)
+        trip_question = settings.get('hub_trip_question', '')
+
+        if not hub_org_id:
+            print safe_json({'success': False, 'message': 'No Hub involvement configured'})
+            return True
+
+        # Build the queue once, then pick out this request and the person's others.
+        all_requests = _get_hub_requests(hub_org_id, trip_question)
+
+        req = None
+        others = []
+        for r in all_requests:
+            if str(r['people_id']) != str(people_id):
+                continue
+            if r['key'] == req_key:
+                req = r
+            else:
+                # Other requests from the same person -- context for repeat applicants
+                others.append({
+                    'trip_answer': r['trip_answer'],
+                    'status': r['status'],
+                    'placed_org_name': r['placed_org_name'],
+                    'submitted': str(r['submitted'])[:10] if r['submitted'] else '',
+                })
+
+        if req is None:
+            print safe_json({'success': False, 'message': 'Request not found'})
+            return True
+
+        answers = _get_hub_request_answers(hub_org_id, people_id, req_key)
+        trips = get_active_trips_for_placement()
+        suggested = suggest_trip_for_answer(req['trip_answer'], trips)
+
+        print safe_json({
+            'success': True,
+            'person': {
+                'people_id': int(people_id),
+                'name': req['name'],
+                'email': req['email'],
+                'phone': req['phone'],
+                'age': req['age'],
+            },
+            'request': {
+                'key': req_key,
+                'trip_answer': req['trip_answer'],
+                'status': req['status'],
+                'submitted': str(req['submitted'])[:10] if req['submitted'] else '',
+                'placed_org_id': req['placed_org_id'],
+                'placed_org_name': req['placed_org_name'],
+                'reason': req['reason'],
+                'decided_by_name': req['decided_by_name'],
+            },
+            'answers': answers,
+            'trips': trips,
+            'suggested_org_id': suggested,
+            'other_requests': others,
+        })
+    except Exception as e:
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
+    return True
+
+
+def handle_approve_hub_request():
+    """Approve a hub request and place the person onto the chosen trip."""
+    import json
+    try:
+        if not _hub_admin_ok():
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
+            return True
+
+        people_id = str(model.Data.people_id) if hasattr(model.Data, 'people_id') and model.Data.people_id else None
+        req_key = str(model.Data.req_key) if hasattr(model.Data, 'req_key') and model.Data.req_key else None
+        trip_org_id = str(model.Data.trip_org_id) if hasattr(model.Data, 'trip_org_id') and model.Data.trip_org_id else None
+
+        if not people_id or not req_key or not trip_org_id:
+            print safe_json({'success': False, 'message': 'Missing person, request key, or trip'})
+            return True
+
+        people_id_int = int(people_id)
+        trip_org_id_int = int(trip_org_id)
+
+        # Only ever place onto a real, active, non-hub trip
+        valid_trips = get_active_trips_for_placement()
+        trip_match = None
+        for t in valid_trips:
+            if t['org_id'] == trip_org_id_int:
+                trip_match = t
+                break
+        if trip_match is None:
+            print safe_json({'success': False, 'message': 'Selected trip is not an active mission trip'})
+            return True
+
+        person = model.GetPerson(people_id_int)
+        if not person:
+            print safe_json({'success': False, 'message': 'Person not found'})
+            return True
+
+        # Place onto the trip (no-op if already a member)
+        already_member = False
+        try:
+            already_member = model.InOrg(people_id_int, trip_org_id_int)
+        except:
+            already_member = False
+
+        if not already_member:
+            model.JoinOrg(trip_org_id_int, person)
+
+        # Approving here IS the approval for that trip -- record it the same way the direct
+        # (non-hub) flow does, with the trip-approved subgroup on the destination trip.
+        # Without this the person lands on the trip but the Team tab still reads them as
+        # unapproved and the approver has to do it a second time. Someone added straight to
+        # the involvement, bypassing review, still shows as needing approval -- which is the
+        # behaviour we want to keep.
+        try:
+            if model.InSubGroup(people_id_int, trip_org_id_int, 'trip-denied'):
+                model.RemoveSubGroup(people_id_int, trip_org_id_int, 'trip-denied')
+        except:
+            pass
+        try:
+            model.AddSubGroup(people_id_int, trip_org_id_int, 'trip-approved')
+        except:
+            pass
+
+        # Mark this specific request approved. The person stays in the hub, so the hub
+        # remains a permanent intake roster.
+        _set_hub_request_status(people_id_int, req_key, 'approved', {
+            'placed_org_id': trip_org_id_int,
+            'placed_org_name': trip_match['name'],
+            'hub_org_id': int(get_global_settings().get('hub_org_id', 0) or 0),
+            'reason': '',
+        })
+
+        # Fees come from the TRIP that was selected, not the hub
+        fee_settings = get_trip_fee_settings(trip_org_id_int)
+        effective_cost = get_effective_trip_cost(trip_org_id_int)
+        deposit_amount = fee_settings.get('deposit_amount', 0)
+
+        print safe_json({
+            'success': True,
+            'message': 'Approved and placed on ' + trip_match['name'],
+            'status': 'approved',
+            'prompt_email': True,
+            'already_member': already_member,
+            'person': {
+                'people_id': people_id_int,
+                'name': person.Name2 or '',
+                'first_name': (person.NickName or person.FirstName or 'Member'),
+                'email': person.EmailAddress or '',
+            },
+            'trip': {
+                'org_id': trip_org_id_int,
+                'name': trip_match['name'],
+                'cost': effective_cost,
+                'deposit': deposit_amount,
+            },
+            # The prompt renders this rather than any wording of its own.
+            'template': get_approval_email_template(),
+        })
+    except Exception as e:
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
+    return True
+
+
+def handle_deny_hub_request():
+    """Deny a single hub request."""
+    import json
+    try:
+        if not _hub_admin_ok():
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
+            return True
+
+        people_id = str(model.Data.people_id) if hasattr(model.Data, 'people_id') and model.Data.people_id else None
+        req_key = str(model.Data.req_key) if hasattr(model.Data, 'req_key') and model.Data.req_key else None
+        reason = str(model.Data.reason) if hasattr(model.Data, 'reason') and model.Data.reason else ''
+
+        if not people_id or not req_key:
+            print safe_json({'success': False, 'message': 'Missing person or request key'})
+            return True
+        if not reason:
+            print safe_json({'success': False, 'message': 'Denial reason is required'})
+            return True
+
+        _set_hub_request_status(int(people_id), req_key, 'denied', {
+            'reason': reason,
+            'placed_org_id': None,
+            'placed_org_name': '',
+            'hub_org_id': int(get_global_settings().get('hub_org_id', 0) or 0),
+        })
+
+        print safe_json({'success': True, 'message': 'Request denied', 'status': 'denied'})
+    except Exception as e:
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
+    return True
+
+
+def handle_revoke_hub_request():
+    """Return a hub request to pending.
+
+    Deliberately does NOT remove the person from the trip they were placed on --
+    dropping someone from a trip has financial side effects (fees, transactions), so
+    that stays a manual decision on the trip's Team tab.
+    """
+    import json
+    try:
+        if not _hub_admin_ok():
+            print safe_json({'success': False, 'message': 'Access denied. Admin role required.'})
+            return True
+
+        people_id = str(model.Data.people_id) if hasattr(model.Data, 'people_id') and model.Data.people_id else None
+        req_key = str(model.Data.req_key) if hasattr(model.Data, 'req_key') and model.Data.req_key else None
+
+        if not people_id or not req_key:
+            print safe_json({'success': False, 'message': 'Missing person or request key'})
+            return True
+
+        # Report what they were placed on so the UI can warn about the leftover membership
+        prior = _get_person_request_ledger(int(people_id))
+        prior_org_name = ''
+        prior_org_id = 0
+        for r in prior.get('requests', []):
+            if r.get('key') == req_key:
+                prior_org_name = r.get('placed_org_name', '') or ''
+                try:
+                    prior_org_id = int(r.get('placed_org_id') or 0)
+                except:
+                    prior_org_id = 0
+                break
+
+        # The membership stays (see the docstring), but the APPROVAL must not -- otherwise
+        # a revoked request still reads as approved on the trip's Team tab.
+        if prior_org_id > 0:
+            try:
+                if model.InSubGroup(int(people_id), prior_org_id, 'trip-approved'):
+                    model.RemoveSubGroup(int(people_id), prior_org_id, 'trip-approved')
+            except:
+                pass
+
+        _set_hub_request_status(int(people_id), req_key, 'pending', {
+            'placed_org_id': None,
+            'placed_org_name': '',
+            'reason': '',
+        })
+
+        print safe_json({
+            'success': True,
+            'message': 'Request returned to pending',
+            'status': 'pending',
+            'prior_org_name': prior_org_name,
+        })
+    except Exception as e:
+        print safe_json({'success': False, 'message': 'Error: ' + str(e)})
     return True
 
 
@@ -14361,8 +20687,94 @@ def render_dashboard_view():
 # ::END:: Dashboard View
 
 # ::START:: Review View
+def render_pending_hub_requests_section(global_settings):
+    """Dashboard panel listing the newest pending HUB requests."""
+    hub_org_id = int(global_settings.get('hub_org_id', 0) or 0)
+    trip_question = global_settings.get('hub_trip_question', '')
+
+    try:
+        pending = [r for r in _get_hub_requests(hub_org_id, trip_question) if r['status'] == 'pending']
+    except:
+        return
+
+    if not pending:
+        return
+
+    print '''
+    <div class="kpi-section">
+        <div class="overview-card" style="margin-top: 20px;">
+            <div class="overview-card-header">
+                <h3>&#9998; Pending Trip Requests ({0})</h3>
+                <a href="?view=review" class="btn btn-sm btn-primary">View All</a>
+            </div>
+            <div class="overview-card-body" style="padding: 0;">
+                <table class="signups-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Requested Trip</th>
+                            <th>Submitted</th>
+                            <th style="text-align: center;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+    '''.format(len(pending))
+
+    for r in pending[:10]:
+        submitted = ''
+        if r['submitted']:
+            try:
+                submitted = r['submitted'].strftime('%b %d, %Y')
+            except:
+                submitted = str(r['submitted'])[:10]
+
+        answer = _escape_html(r['trip_answer']) if r['trip_answer'] else '<em style="color:#6c757d;">No trip selected</em>'
+
+        print '''
+                        <tr>
+                            <td><a href="/Person2/{0}" target="_blank" class="signup-name">{1}</a></td>
+                            <td>{2}</td>
+                            <td>{3}</td>
+                            <td style="text-align:center;">
+                                <button class="btn btn-sm btn-outline-primary"
+                                        onclick="HubReview.showModal({0}, '{4}', '{5}')"
+                                        title="Review Request">Review</button>
+                            </td>
+                        </tr>
+        '''.format(
+            r['people_id'],
+            _escape_html(r['name']),
+            answer,
+            submitted,
+            _escape_js_string(r['key']),
+            _escape_js_string(r['name'])
+        )
+
+    print '''
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    '''
+
+    # The dashboard has no hub modal of its own, so bring one along.
+    _render_hub_review_modal()
+
+
 def render_pending_approvals_section():
     """Render pending approvals section for dashboard home."""
+    # In hub mode the useful queue is the hub's own request list, not per-trip pending.
+    # (Hub approvals DO now set the trip-approved subgroup on the destination trip, so the
+    # per-trip query below would no longer mis-flag them -- but the request queue is still
+    # the better view when everyone applies through one involvement.)
+    global_settings = get_global_settings()
+    if (global_settings.get('workflow_model') == 'hub'
+            and global_settings.get('hub_org_id')
+            and global_settings.get('hub_trip_question')):
+        render_pending_hub_requests_section(global_settings)
+        return
+
     # Get all pending approvals across all active trips
     pending_sql = '''
     WITH TripSubgroups AS (
@@ -14478,6 +20890,14 @@ def render_review_view():
     # Get global approval setting
     global_settings = get_global_settings()
     global_approvals_enabled = global_settings.get('approvals_enabled', True)
+
+    # Hub & Spoke intake replaces the per-trip registration queue with the hub queue.
+    if (global_settings.get('workflow_model') == 'hub'
+            and global_settings.get('hub_org_id')
+            and global_settings.get('hub_trip_question')):
+        render_hub_review_view(global_settings)
+        print end_timer(timer, "Hub Review View Load")
+        return
 
     # Cache for trip approval settings
     trip_approval_cache = {}
@@ -15407,62 +21827,76 @@ def render_review_view():
             });
         },
 
-        // Show approval email prompt with editable email form
+        // Show approval email prompt with editable email form.
+        //
+        // The wording is NOT kept here. It comes from the server with the approval
+        // response: the "Registration Approved" template (Settings > Quick Email
+        // Templates), which is the user's saved version if they customised it and the
+        // built-in default otherwise. A second copy of the wording living in this file
+        // is exactly what made template edits look like they were being ignored, so
+        // the only thing below is a bare safety net for when the template cannot be
+        // read at all -- and it says so on screen instead of quietly using it.
+        // Fill a raw template string. Replacements are supplied as functions so that a
+        // value containing "$" (every currency amount does) can never be read as a
+        // regex replacement pattern like $1 or $&.
+        fillApprovalText: function(raw, costStr) {
+            var d = ApprovalWorkflow.pendingApprovalEmail;
+            if (!d) { return raw || ''; }
+            var trip = d.trip, person = d.person;
+            var depositStr = trip.deposit > 0 ? '$' + trip.deposit.toLocaleString() : '[Deposit Amount]';
+            return (raw || '')
+                .replace(/\\{\\{TripName\\}\\}/g, function() { return trip.name; })
+                .replace(/\\{\\{PersonName\\}\\}/g, function() { return person.first_name; })
+                .replace(/\\{\\{TripCost\\}\\}/g, function() { return costStr; })
+                .replace(/\\{\\{DepositAmount\\}\\}/g, function() { return depositStr; })
+                .replace(/\\\\n/g, '\\n')     // built-in templates store newlines as literal \\n
+                // A template saved through the browser editor comes back with CRLF, but a
+                // textarea's value property always reports LF. Normalise so the text we
+                // generate matches what the textarea will hold.
+                .replace(/\\r\\n?/g, '\\n');
+        },
+
         showApprovalEmailPrompt: function(approvalData) {
             var self = this;
             var person = approvalData.person;
             var trip = approvalData.trip;
-            var depositStr = trip.deposit > 0 ? '$' + trip.deposit.toLocaleString() : '[Deposit Amount]';
             var costStr = trip.cost > 0 ? '$' + trip.cost.toLocaleString() : '[Trip Cost]';
+            // Shown in the fee box below. The deposit is a property of the trip and is
+            // never affected by a per-person fee override.
+            var depositStr = trip.deposit > 0 ? '$' + trip.deposit.toLocaleString() : '[Deposit Amount]';
 
-            // Store the approval data for the email
+            var tpl = approvalData.template || {};
+            var templateMissing = !tpl.body;
+
+            var rawSubject = tpl.subject || '{{TripName}} - Registration Approved!';
+            var rawBody = tpl.body ||
+                'Dear {{PersonName}},\\n\\nYour registration for {{TripName}} has been approved.\\n\\n' +
+                'Trip Cost: {{TripCost}}\\nRequired Deposit: {{DepositAmount}}\\n\\n' +
+                '{{MyGivingLink}}\\n\\nBlessings';
+
+            // Keep the RAW template around. A fee override re-renders from it rather
+            // than editing the rendered text: patching the rendered text meant a
+            // half-typed fee like "$1" matched inside the deposit "$150" and mangled it
+            // into "$1,20050". Re-rendering can only ever touch {{TripCost}}.
             ApprovalWorkflow.pendingApprovalEmail = {
                 person: person,
-                trip: trip
+                trip: trip,
+                costStr: costStr,
+                rawSubject: rawSubject,
+                rawBody: rawBody,
+                // Set by a real keystroke in the subject/message boxes (wired up after
+                // the modal is inserted). Programmatic re-renders don't fire input
+                // events, so this stays false while we own the text.
+                //
+                // This used to compare the box against a remembered copy of what we
+                // generated, which silently broke: a template saved through the browser
+                // stores CRLF, a textarea reports LF, so the two never matched and every
+                // fee change was treated as "user edited" and refused to update.
+                userEdited: false
             };
 
-            // Load the approval notification template from MissionsEmail templates
-            var defaultSubject = trip.name + ' - Registration Approved!';
-            var defaultBody = 'Dear ' + person.first_name + ',\\n\\n' +
-                'Great news! Your registration for ' + trip.name + ' has been approved!\\n\\n' +
-                'TRIP DETAILS:\\n' +
-                '- Trip Cost: ' + costStr + '\\n' +
-                '- Required Deposit: ' + depositStr + '\\n\\n' +
-                'NEXT STEPS:\\n' +
-                '1. Pay your deposit as soon as possible to secure your spot\\n' +
-                '2. Start fundraising for the remaining balance\\n' +
-                '3. Share your personal fundraising page with friends and family\\n\\n' +
-                'PAYMENT OPTIONS:\\n' +
-                'View your payment status and make payments here:\\n' +
-                '{{MyGivingLink}}\\n\\n' +
-                'FUNDRAISING:\\n' +
-                'Share this link with supporters who want to help fund your trip:\\n' +
-                '{{SupportLink}}\\n\\n' +
-                'If you have any questions, please do not hesitate to reach out.\\n\\n' +
-                'We are excited to have you on this mission trip!\\n\\n' +
-                'Blessings';
-
-            // Try to load the approval_notification template
-            if (typeof MissionsEmail !== 'undefined' && MissionsEmail.templates && MissionsEmail.templates.length > 0) {
-                for (var i = 0; i < MissionsEmail.templates.length; i++) {
-                    if (MissionsEmail.templates[i].id === 'approval_notification') {
-                        var tpl = MissionsEmail.templates[i];
-                        // Replace placeholders
-                        defaultSubject = (tpl.subject || defaultSubject)
-                            .replace(/\\{\\{TripName\\}\\}/g, trip.name)
-                            .replace(/\\{\\{PersonName\\}\\}/g, person.first_name);
-                        defaultBody = (tpl.body || defaultBody)
-                            .replace(/\\{\\{TripName\\}\\}/g, trip.name)
-                            .replace(/\\{\\{PersonName\\}\\}/g, person.first_name)
-                            .replace(/\\{\\{TripCost\\}\\}/g, costStr)
-                            .replace(/\\{\\{DepositAmount\\}\\}/g, depositStr);
-                        break;
-                    }
-                }
-            }
-
-            // Convert \\n to actual newlines for textarea display
-            var bodyForTextarea = defaultBody.replace(/\\\\n/g, '\\n');
+            var defaultSubject = ApprovalWorkflow.fillApprovalText(rawSubject, costStr);
+            var bodyForTextarea = ApprovalWorkflow.fillApprovalText(rawBody, costStr);
 
             // Create the approval email modal with editable form
             var modalHtml = '<div id="approval-email-prompt-modal" class="email-modal-overlay active">' +
@@ -15475,13 +21909,34 @@ def render_review_view():
                         '<div style="background: #d4edda; border: 1px solid #c3e6cb; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;">' +
                             '<strong style="color: #155724;">' + person.name + '</strong> has been approved for <strong style="color: #155724;">' + trip.name + '</strong>' +
                         '</div>' +
+                        (templateMissing
+                            ? '<div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; color: #721c24;">' +
+                                  '<strong>&#9888; The &ldquo;Registration Approved&rdquo; template could not be read.</strong>' +
+                                  '<br><span style="font-size: 13px;">This is a plain stand-in message &mdash; edit it before sending, ' +
+                                  'and check Settings &gt; Quick Email Templates.</span>' +
+                              '</div>'
+                            : '') +
                         '<div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;">' +
-                            '<div style="display: flex; align-items: center; gap: 10px;">' +
+                            '<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">' +
                                 '<span style="font-size: 20px;">&#128176;</span>' +
-                                '<div>' +
-                                    '<strong style="color: #856404;">Trip Fee to be Set:</strong> ' +
-                                    '<span style="font-size: 18px; font-weight: bold; color: #856404;">' + costStr + '</span>' +
-                                    (trip.deposit > 0 ? '<br><small style="color: #856404;">Deposit required: ' + depositStr + '</small>' : '') +
+                                '<div style="flex: 1; min-width: 220px;">' +
+                                    '<label for="approval-fee-input" style="display:block; font-weight:600; color:#856404; margin-bottom:4px;">Trip Fee to Set</label>' +
+                                    '<div style="display:flex; align-items:center; gap:6px;">' +
+                                        '<span style="font-size:18px; font-weight:bold; color:#856404;">$</span>' +
+                                        '<input type="number" id="approval-fee-input" min="0" step="1" ' +
+                                            'value="' + (trip.cost > 0 ? trip.cost : '') + '" ' +
+                                            'placeholder="0" ' +
+                                            'oninput="ApprovalWorkflow.onFeeChange()" ' +
+                                            'style="width:130px; padding:6px 8px; font-size:16px; font-weight:bold; color:#856404; ' +
+                                            'border:1px solid #ffc107; border-radius:4px; background:#fff;">' +
+                                        '<span id="approval-fee-note" style="font-size:11px; color:#856404;">' +
+                                            (trip.cost > 0 ? 'Trip default' : 'No trip cost set') + '</span>' +
+                                    '</div>' +
+                                    '<small style="display:block; margin-top:5px; color:#856404;">' +
+                                        'Charged to this person only. Override to bill a different amount &mdash; ' +
+                                        'the message below updates to match.' +
+                                        (trip.deposit > 0 ? '<br>Deposit required: ' + depositStr : '') +
+                                    '</small>' +
                                 '</div>' +
                             '</div>' +
                         '</div>' +
@@ -15499,7 +21954,8 @@ def render_review_view():
                             '<label style="display: block; font-weight: 600; margin-bottom: 6px; color: #333;">Message:</label>' +
                             '<textarea id="approval-email-body" rows="12" ' +
                                 'style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; font-size: 14px; resize: vertical; box-sizing: border-box;">' + bodyForTextarea + '</textarea>' +
-                            '<p style="margin: 6px 0 0 0; font-size: 12px; color: #888;">Tip: Edit the default template in Settings > Quick Email Templates > "Registration Approved"</p>' +
+                            '<div id="approval-msg-warning" style="display: none; margin-top: 8px; padding: 8px 10px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; font-size: 12px; color: #856404;"></div>' +
+                            '<p style="margin: 6px 0 0 0; font-size: 12px; color: #888;">Edits here apply to this one email. To change the wording for everyone, edit Settings &gt; Quick Email Templates &gt; &ldquo;Registration Approved&rdquo;.</p>' +
                         '</div>' +
                     '</div>' +
                     '<div class="email-modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding: 15px 20px; background: #f8f9fa;">' +
@@ -15513,6 +21969,76 @@ def render_review_view():
             document.getElementById('approval-email-prompt-modal').addEventListener('click', function(e) {
                 if (e.target === this) ApprovalWorkflow.closeApprovalEmailPrompt();
             });
+
+            // Mark the message as hand-edited only when someone actually types in it.
+            // Setting .value from code does not fire 'input', so re-rendering after a
+            // fee change leaves this flag alone.
+            var markEdited = function() {
+                if (ApprovalWorkflow.pendingApprovalEmail) {
+                    ApprovalWorkflow.pendingApprovalEmail.userEdited = true;
+                }
+            };
+            var subjEl = document.getElementById('approval-email-subject');
+            var bodyEl = document.getElementById('approval-email-body');
+            if (subjEl) subjEl.addEventListener('input', markEdited);
+            if (bodyEl) bodyEl.addEventListener('input', markEdited);
+        },
+
+        // Keep the notification honest when the fee is overridden by RE-RENDERING the
+        // message from the raw template with the new amount. It deliberately does not
+        // find-and-replace inside the rendered text: an in-progress fee of "$1" is a
+        // substring of the deposit "$150", so replacing turned it into "$1,20050".
+        // Re-rendering substitutes {{TripCost}} only, and cannot touch the deposit.
+        onFeeChange: function() {
+            var data = ApprovalWorkflow.pendingApprovalEmail;
+            if (!data) return;
+
+            var input = document.getElementById('approval-fee-input');
+            var note = document.getElementById('approval-fee-note');
+            if (!input) return;
+
+            var raw = input.value.trim();
+            var amount = parseFloat(raw);
+            var valid = raw !== '' && !isNaN(amount) && amount >= 0;
+
+            if (note) {
+                if (!valid) {
+                    note.textContent = raw === '' ? 'No fee will be set' : 'Enter a valid amount';
+                    note.style.color = raw === '' ? '#856404' : '#dc3545';
+                } else if (amount === (data.trip.cost || 0)) {
+                    note.textContent = 'Trip default';
+                    note.style.color = '#856404';
+                } else {
+                    note.textContent = 'Overridden (trip default ' +
+                        (data.trip.cost > 0 ? '$' + data.trip.cost.toLocaleString() : 'none') + ')';
+                    note.style.color = '#0d6efd';
+                }
+            }
+            if (!valid) return;
+
+            var newCostStr = amount > 0 ? '$' + amount.toLocaleString() : '[Trip Cost]';
+            if (newCostStr === data.costStr) return;
+
+            var subjectEl = document.getElementById('approval-email-subject');
+            var bodyEl = document.getElementById('approval-email-body');
+            var warnEl = document.getElementById('approval-msg-warning');
+
+            // Only re-render a message nobody has typed into; otherwise their wording
+            // would be thrown away without warning.
+            if (data.userEdited) {
+                data.costStr = newCostStr;
+                if (warnEl) {
+                    warnEl.style.display = 'block';
+                    warnEl.innerHTML = '&#9888; You have edited this message, so the amounts in it were left alone. ' +
+                                       'Check it still says <strong>' + newCostStr + '</strong>.';
+                }
+                return;
+            }
+
+            if (subjectEl) subjectEl.value = ApprovalWorkflow.fillApprovalText(data.rawSubject, newCostStr);
+            if (bodyEl) bodyEl.value = ApprovalWorkflow.fillApprovalText(data.rawBody, newCostStr);
+            data.costStr = newCostStr;
+            if (warnEl) warnEl.style.display = 'none';
         },
 
         closeApprovalEmailPrompt: function() {
@@ -15546,6 +22072,29 @@ def render_review_view():
                 return;
             }
 
+            // Fee actually charged = whatever is in the box (may override the trip default).
+            var feeInput = document.getElementById('approval-fee-input');
+            var feeRaw = feeInput ? feeInput.value.trim() : '';
+            var feeAmount = parseFloat(feeRaw);
+
+            if (feeRaw !== '' && (isNaN(feeAmount) || feeAmount < 0)) {
+                alert('Enter a valid trip fee (0 or greater), or clear it to set no fee.');
+                if (feeInput) feeInput.focus();
+                return;
+            }
+            if (feeRaw === '') {
+                feeAmount = 0;
+            }
+
+            if (feeAmount !== (data.trip.cost || 0)) {
+                var defaultTxt = data.trip.cost > 0 ? '$' + data.trip.cost.toLocaleString() : 'no fee';
+                var newTxt = feeAmount > 0 ? '$' + feeAmount.toLocaleString() : 'no fee';
+                if (!confirm('Charge ' + data.person.name + ' ' + newTxt +
+                             ' instead of the trip default of ' + defaultTxt + '?')) {
+                    return;
+                }
+            }
+
             // Disable the send button and show loading
             var sendBtn = document.getElementById('approval-send-btn');
             if (sendBtn) {
@@ -15559,8 +22108,8 @@ def render_review_view():
             var encodedBody = body.replace(/</g, '&lt;').replace(/>/g, '&gt;')
                                   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-            // Step 1: First adjust the fee (trip cost)
-            var tripCost = data.trip.cost || 0;
+            // Step 1: First adjust the fee (trip cost, or the override entered above)
+            var tripCost = feeAmount;
 
             function sendEmailAfterFee() {
                 // Step 2: Now send the email
@@ -15615,7 +22164,11 @@ def render_review_view():
                         people_id: data.person.people_id,
                         org_id: data.trip.org_id,
                         amount: -tripCost,  // Negative to increase what they owe
-                        description: 'Trip fee set upon approval'
+                        // Say so when the amount isn't the trip default, so finance can
+                        // see from the transaction why this person was billed differently.
+                        description: (tripCost !== (data.trip.cost || 0) && data.trip.cost > 0)
+                            ? 'Trip fee set upon approval (override; trip default $' + data.trip.cost + ')'
+                            : 'Trip fee set upon approval'
                     },
                     success: function(response) {
                         try {
@@ -15810,6 +22363,631 @@ def render_review_view():
 
 # ::END:: Review View
 
+
+# ::START:: Hub Review View
+def render_hub_review_view(global_settings):
+    """Review page for the Hub & Spoke intake model.
+
+    One row per submission, so a person who applied for two trips shows up twice --
+    each with its own status. Approving places the person onto the chosen trip and
+    pulls that trip's fees.
+    """
+    # Admin-only: this queue exposes every applicant's answers, and the modal styling
+    # it relies on is itself only emitted for admins.
+    if not _hub_admin_ok():
+        print_access_denied()
+        return
+
+    hub_org_id = int(global_settings.get('hub_org_id', 0) or 0)
+    trip_question = global_settings.get('hub_trip_question', '')
+
+    hub_name = 'Hub'
+    try:
+        hub_info = _get_trip_info(hub_org_id)
+        if hub_info:
+            hub_name = hub_info.OrganizationName or 'Hub'
+    except:
+        pass
+
+    filter_type = str(model.Data.filter) if hasattr(model.Data, 'filter') and model.Data.filter else 'pending'
+    if filter_type not in ('pending', 'approved', 'denied', 'all'):
+        filter_type = 'pending'
+
+    all_requests = _get_hub_requests(hub_org_id, trip_question)
+
+    counts = {'pending': 0, 'approved': 0, 'denied': 0}
+    for r in all_requests:
+        if r['status'] in counts:
+            counts[r['status']] += 1
+
+    requests = all_requests if filter_type == 'all' else [r for r in all_requests if r['status'] == filter_type]
+
+    trips = get_active_trips_for_placement()
+
+    print '''
+    <style>
+        .review-container { padding: 20px; }
+        .review-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .review-header h2 { margin: 0; color: var(--primary-color); }
+        .hub-subtitle { color: #6c757d; font-size: 13px; margin-bottom: 18px; }
+        .review-filters { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .review-filters .filter-btn {
+            padding: 8px 16px; border: 1px solid #ddd; background: white;
+            border-radius: 20px; cursor: pointer; transition: all 0.2s;
+        }
+        .review-filters .filter-btn:hover { border-color: var(--primary-color); }
+        .review-filters .filter-btn.active {
+            background: var(--primary-color); color: white; border-color: var(--primary-color);
+        }
+        .review-table {
+            width: 100%; border-collapse: collapse; background: white;
+            border-radius: 8px; overflow: hidden; box-shadow: var(--shadow);
+        }
+        .review-table th {
+            text-align: left; padding: 14px 16px; background: #f8f9fa;
+            border-bottom: 2px solid #e9ecef; font-weight: 600; font-size: 0.85rem;
+            color: #666; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .review-table td { padding: 14px 16px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+        .review-table tr:last-child td { border-bottom: none; }
+        .review-table tr:hover { background: #f8f9fa; }
+        .status-badge {
+            display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
+            border-radius: 12px; font-size: 0.8rem; font-weight: 500;
+        }
+        .status-pending { background: #fff3cd; color: #856404; }
+        .status-approved { background: #d4edda; color: #155724; }
+        .status-denied { background: #f8d7da; color: #721c24; }
+        .trip-answer-chip {
+            display: inline-block; padding: 6px 12px; background: #e7f1ff;
+            border-left: 3px solid #0d6efd; border-radius: 4px;
+            font-size: 0.95rem; line-height: 1.35; color: #084298; font-weight: 600;
+        }
+        .trip-answer-chip.empty { background: #f8f9fa; border-left-color: #adb5bd; color: #6c757d; font-style: italic; font-weight: 400; }
+        .hub-contact { font-size: 0.9rem; line-height: 1.5; }
+        .hub-contact a { color: #007bff; text-decoration: none; }
+        .hub-contact a:hover { text-decoration: underline; }
+        .hub-submitted { font-size: 0.9rem; }
+        .repeat-flag {
+            display: inline-block; margin-left: 6px; padding: 1px 6px; background: #6f42c1;
+            color: white; border-radius: 8px; font-size: 0.68rem; font-weight: 600;
+        }
+        .review-actions { display: flex; gap: 6px; justify-content: center; }
+        .review-actions button {
+            padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer;
+            font-size: 0.85rem; transition: all 0.2s;
+        }
+        .btn-review { background: #667eea; color: white; }
+        .btn-review:hover { background: #5a6fd6; }
+        .empty-state { text-align: center; padding: 60px 20px; color: #6c757d; }
+        .empty-state-icon { font-size: 3rem; margin-bottom: 10px; }
+    </style>
+    '''
+
+    print '''
+    <div class="review-container">
+        <div class="review-header">
+            <h2>&#9998; Trip Requests</h2>
+        </div>
+        <div class="hub-subtitle">
+            Intake via <a href="?trip={0}"><strong>{1}</strong></a> &mdash; requested trip read from
+            &ldquo;{2}&rdquo;. Each submission is reviewed separately, so someone may appear more than once.
+        </div>
+    '''.format(hub_org_id, _escape_html(hub_name), _escape_html(trip_question))
+
+    print '''
+        <div class="review-filters">
+            <button class="filter-btn {0}" onclick="window.location.href='?view=review&filter=pending'">Pending ({1})</button>
+            <button class="filter-btn {2}" onclick="window.location.href='?view=review&filter=approved'">Approved ({3})</button>
+            <button class="filter-btn {4}" onclick="window.location.href='?view=review&filter=denied'">Denied ({5})</button>
+            <button class="filter-btn {6}" onclick="window.location.href='?view=review&filter=all'">All ({7})</button>
+        </div>
+    '''.format(
+        'active' if filter_type == 'pending' else '', counts['pending'],
+        'active' if filter_type == 'approved' else '', counts['approved'],
+        'active' if filter_type == 'denied' else '', counts['denied'],
+        'active' if filter_type == 'all' else '', len(all_requests)
+    )
+
+    if not trips:
+        print '''
+        <div style="padding:12px 16px; background:#fff3cd; border:1px solid #ffc107; border-radius:8px; margin-bottom:16px; color:#856404;">
+            &#9888; No active trips are available to place people onto. Requests can still be reviewed and denied.
+        </div>
+        '''
+
+    if not requests:
+        label = 'Trip' if filter_type == 'all' else filter_type.capitalize()
+        print '''
+        <div class="empty-state">
+            <div class="empty-state-icon">&#128203;</div>
+            <h3>No {0} Requests</h3>
+            <p>There are no {1} trip requests to review.</p>
+        </div>
+        '''.format(label, label.lower())
+    else:
+        # Flag people with more than one request so approvers spot repeats immediately
+        per_person = {}
+        for r in all_requests:
+            per_person[r['people_id']] = per_person.get(r['people_id'], 0) + 1
+
+        print '''
+        <table class="review-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Requested Trip</th>
+                    <th>Contact</th>
+                    <th>Submitted</th>
+                    <th>Status</th>
+                    <th style="text-align:center;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+        '''
+
+        for r in requests:
+            submitted = ''
+            if r['submitted']:
+                try:
+                    submitted = r['submitted'].strftime('%b %d, %Y')
+                except:
+                    submitted = str(r['submitted'])[:10]
+
+            contact_parts = []
+            if r['email']:
+                contact_parts.append(
+                    '<a href="#" onclick="MissionsEmail.openIndividual({0}, \'{1}\', \'{2}\', {3}); return false;" '
+                    'style="color:#007bff; text-decoration:none;">{4}</a>'.format(
+                        r['people_id'], _escape_js_string(r['email']), _escape_js_string(r['name']),
+                        hub_org_id, _escape_html(r['email'])))
+            if r['phone']:
+                digits = ''.join(c for c in r['phone'] if c.isdigit())
+                try:
+                    pretty = model.FmtPhone(r['phone'], "") or r['phone']
+                except:
+                    pretty = r['phone']
+                contact_parts.append('<a href="tel:{0}" style="color:#007bff; text-decoration:none;">{1}</a>'.format(
+                    digits, _escape_html(pretty)))
+            contact_info = '<br>'.join(contact_parts)
+
+            if r['trip_answer']:
+                answer_html = '<span class="trip-answer-chip">{0}</span>'.format(_escape_html(r['trip_answer']))
+            else:
+                answer_html = '<span class="trip-answer-chip empty">No trip selected</span>'
+
+            repeat_html = ''
+            if per_person.get(r['people_id'], 0) > 1:
+                repeat_html = '<span class="repeat-flag">{0} REQUESTS</span>'.format(per_person[r['people_id']])
+
+            if r['status'] == 'approved':
+                placed = _escape_html(r['placed_org_name'] or 'trip')
+                status_html = '<span class="status-badge status-approved">&#10004; Placed</span>'
+                if r['placed_org_id']:
+                    status_html += '<br><a href="?trip={0}" style="font-size:0.78rem; color:#6c757d;">{1}</a>'.format(
+                        r['placed_org_id'], placed)
+            elif r['status'] == 'denied':
+                status_html = '<span class="status-badge status-denied">&#10006; Denied</span>'
+            else:
+                status_html = '<span class="status-badge status-pending">&#9203; Pending</span>'
+
+            action_html = '''
+                <button class="btn-review" onclick="HubReview.showModal({0}, '{1}', '{2}')" title="Review Request">Review</button>
+            '''.format(r['people_id'], _escape_js_string(r['key']), _escape_js_string(r['name']))
+
+            if r['status'] in ('approved', 'denied'):
+                action_html += '''
+                    <button class="btn-review" style="background:#6c757d;"
+                            onclick="HubReview.revoke({0}, '{1}')" title="Return to pending">Revoke</button>
+                '''.format(r['people_id'], _escape_js_string(r['key']))
+
+            print '''
+                <tr>
+                    <td><a href="/Person2/{0}" target="_blank" class="signup-name">{1}</a>{2}</td>
+                    <td>{3}</td>
+                    <td class="hub-contact">{4}</td>
+                    <td class="hub-submitted">{5}</td>
+                    <td>{6}</td>
+                    <td style="text-align:center;"><div class="review-actions">{7}</div></td>
+                </tr>
+            '''.format(
+                r['people_id'], _escape_html(r['name']), repeat_html,
+                answer_html, contact_info, submitted, status_html, action_html
+            )
+
+        print '''
+            </tbody>
+        </table>
+        '''
+
+    print '</div>'
+
+    _render_hub_review_modal()
+# ::END:: Hub Review View
+
+
+# ::START:: Hub Review Modal
+def _render_hub_review_modal():
+    """Modal + controller for reviewing a single hub request."""
+    print '''
+    <div id="hub-modal-overlay" class="approval-modal-overlay">
+        <div class="approval-modal">
+            <div class="approval-modal-header">
+                <button class="approval-modal-close" onclick="HubReview.closeModal()">&times;</button>
+                <h3>Review Trip Request</h3>
+                <div class="modal-subtitle" id="hub-modal-subtitle"></div>
+            </div>
+            <div class="approval-modal-body">
+                <div id="hub-modal-content">
+                    <div class="approval-loading">Loading request...</div>
+                </div>
+            </div>
+            <div class="approval-modal-footer" id="hub-modal-footer">
+                <button class="btn-cancel" onclick="HubReview.closeModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    var HubReview = {
+        peopleId: null,
+        reqKey: null,
+        personName: null,
+        data: null,
+
+        ajaxUrl: function() {
+            return window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
+        },
+
+        showModal: function(peopleId, reqKey, personName) {
+            this.peopleId = peopleId;
+            this.reqKey = reqKey;
+            this.personName = personName;
+
+            document.getElementById('hub-modal-subtitle').textContent = personName;
+            document.getElementById('hub-modal-content').innerHTML =
+                '<div class="approval-loading">Loading request...</div>';
+            document.getElementById('hub-modal-footer').innerHTML =
+                '<button class="btn-cancel" onclick="HubReview.closeModal()">Cancel</button>';
+
+            var overlay = document.getElementById('hub-modal-overlay');
+            overlay.style.display = 'flex';
+            setTimeout(function() { overlay.classList.add('active'); }, 10);
+
+            this.load();
+        },
+
+        closeModal: function() {
+            var overlay = document.getElementById('hub-modal-overlay');
+            overlay.classList.remove('active');
+            setTimeout(function() { overlay.style.display = 'none'; }, 300);
+        },
+
+        load: function() {
+            var self = this;
+            $.ajax({
+                url: this.ajaxUrl(),
+                type: 'POST',
+                data: {
+                    ajax: 'true',
+                    action: 'get_hub_request_detail',
+                    people_id: this.peopleId,
+                    req_key: this.reqKey
+                },
+                success: function(response) {
+                    try {
+                        var r = typeof response === 'string' ? JSON.parse(response) : response;
+                        if (r.success) {
+                            self.data = r;
+                            self.render(r);
+                        } else {
+                            document.getElementById('hub-modal-content').innerHTML =
+                                '<div class="alert alert-danger">' + self.esc(r.message || 'Error loading request') + '</div>';
+                        }
+                    } catch (e) {
+                        document.getElementById('hub-modal-content').innerHTML =
+                            '<div class="alert alert-danger">Error parsing response</div>';
+                    }
+                },
+                error: function(xhr, status, error) {
+                    document.getElementById('hub-modal-content').innerHTML =
+                        '<div class="alert alert-danger">Error loading request: ' + error + '</div>';
+                }
+            });
+        },
+
+        render: function(d) {
+            var p = d.person || {};
+            var req = d.request || {};
+            var html = '';
+
+            // The requested trip is the headline of this screen
+            html += '<div class="approval-section">';
+            html += '<h4>Requested Trip</h4>';
+            if (req.trip_answer) {
+                html += '<div style="padding:12px 14px; background:#e7f1ff; border-left:4px solid #0d6efd; border-radius:6px; font-size:15px; font-weight:600; color:#084298;">' +
+                        this.esc(req.trip_answer) + '</div>';
+            } else {
+                html += '<div style="padding:12px 14px; background:#f8f9fa; border-left:4px solid #adb5bd; border-radius:6px; color:#6c757d; font-style:italic;">' +
+                        'This submission has no answer for the configured trip question.</div>';
+            }
+            if (req.submitted) {
+                html += '<div style="margin-top:6px; font-size:12px; color:#6c757d;">Submitted ' + this.esc(req.submitted) + '</div>';
+            }
+            html += '</div>';
+
+            // Placement dropdown, preselected to the best match
+            html += '<div class="approval-section">';
+            html += '<h4>Place On Trip</h4>';
+            var trips = d.trips || [];
+            if (!trips.length) {
+                html += '<div style="color:#856404; background:#fff3cd; border:1px solid #ffc107; padding:10px; border-radius:6px;">' +
+                        'No active trips available to place this person on.</div>';
+            } else {
+                html += '<select id="hub-trip-select" style="width:100%; padding:9px; border:1px solid #ced4da; border-radius:6px; font-size:13px;">';
+                html += '<option value="">-- Select a trip --</option>';
+                for (var i = 0; i < trips.length; i++) {
+                    var t = trips[i];
+                    var sel = (d.suggested_org_id && t.org_id === d.suggested_org_id) ? ' selected' : '';
+                    html += '<option value="' + t.org_id + '"' + sel + '>' + this.esc(t.name) + '</option>';
+                }
+                html += '</select>';
+                if (d.suggested_org_id) {
+                    html += '<div style="margin-top:6px; font-size:12px; color:#198754;">&#10003; Preselected the closest match to the requested trip &mdash; confirm or change it.</div>';
+                } else {
+                    html += '<div style="margin-top:6px; font-size:12px; color:#856404;">&#9888; No confident match to an active trip &mdash; choose one.</div>';
+                }
+            }
+            html += '</div>';
+
+            // Current status
+            html += '<div class="approval-section">';
+            html += '<h4>Status</h4>';
+            if (req.status === 'approved') {
+                html += '<span class="current-status-badge" style="background:#d4edda;color:#155724;">&#10003; Placed on ' +
+                        this.esc(req.placed_org_name || 'a trip') + '</span>';
+            } else if (req.status === 'denied') {
+                html += '<span class="current-status-badge" style="background:#f8d7da;color:#721c24;">&#10007; Denied</span>';
+                if (req.reason) {
+                    html += '<div class="denial-history"><div class="denial-label">Reason:</div>' +
+                            '<div class="denial-reason-text">' + this.esc(req.reason) + '</div>';
+                    if (req.decided_by_name) {
+                        html += '<div class="denial-meta">By: ' + this.esc(req.decided_by_name) + '</div>';
+                    }
+                    html += '</div>';
+                }
+            } else {
+                html += '<span class="current-status-badge" style="background:#fff3cd;color:#856404;">&#8987; Pending</span>';
+            }
+            html += '</div>';
+
+            // Other requests from this person -- important context when someone applies twice
+            if (d.other_requests && d.other_requests.length) {
+                html += '<div class="approval-section">';
+                html += '<h4>Other Requests From This Person</h4>';
+                html += '<div style="background:#f8f9fa; border-radius:6px; padding:10px;">';
+                for (var j = 0; j < d.other_requests.length; j++) {
+                    var o = d.other_requests[j];
+                    var badge = o.status === 'approved'
+                        ? '<span style="color:#155724;">&#10003; ' + this.esc(o.placed_org_name || 'placed') + '</span>'
+                        : (o.status === 'denied'
+                            ? '<span style="color:#721c24;">&#10007; denied</span>'
+                            : '<span style="color:#856404;">&#8987; pending</span>');
+                    html += '<div style="padding:5px 0; border-bottom:1px solid #e9ecef; font-size:12px;">' +
+                            this.esc(o.trip_answer || 'No trip selected') +
+                            ' <span style="color:#adb5bd;">' + this.esc(o.submitted) + '</span> &mdash; ' + badge +
+                            '</div>';
+                }
+                html += '</div></div>';
+            }
+
+            // Person info
+            html += '<div class="approval-section">';
+            html += '<h4>Person Information</h4>';
+            html += '<div class="person-info-grid">';
+            html += '<div class="person-info-item"><span class="label">Name</span><span class="value">' + this.esc(p.name || 'N/A') + '</span></div>';
+            html += '<div class="person-info-item"><span class="label">Email</span><span class="value">' + this.esc(p.email || 'N/A') + '</span></div>';
+            html += '<div class="person-info-item"><span class="label">Phone</span><span class="value">' + this.esc(p.phone || 'N/A') + '</span></div>';
+            html += '<div class="person-info-item"><span class="label">Age</span><span class="value">' + (p.age || 'N/A') + '</span></div>';
+            html += '</div></div>';
+
+            // Full answers for THIS submission
+            html += '<div class="approval-section">';
+            html += '<h4>Application Answers</h4>';
+            var answers = d.answers || [];
+            if (answers.length) {
+                html += '<div class="registration-qa-list">';
+                for (var k = 0; k < answers.length; k++) {
+                    html += '<div class="registration-qa-item">' +
+                            '<div class="question">' + this.esc(answers[k].question) + '</div>' +
+                            '<div class="answer">' + this.esc(answers[k].answer || 'No answer provided') + '</div>' +
+                            '</div>';
+                }
+                html += '</div>';
+            } else {
+                html += '<div style="color:#6c757d; font-style:italic;">No answers found for this submission.</div>';
+            }
+            html += '</div>';
+
+            document.getElementById('hub-modal-content').innerHTML = html;
+            this.updateFooter(req.status, trips.length);
+        },
+
+        updateFooter: function(status, tripCount) {
+            var footer = document.getElementById('hub-modal-footer');
+            var html = '<button class="btn-cancel" onclick="HubReview.closeModal()">Cancel</button>';
+
+            if (status === 'pending') {
+                html += '<button class="btn-deny" onclick="HubReview.showDenyForm()">Deny</button>';
+                if (tripCount) {
+                    html += '<button class="btn-approve" onclick="HubReview.approve()">Approve &amp; Place</button>';
+                }
+            } else {
+                html += '<button class="btn-deny" onclick="HubReview.revoke(HubReview.peopleId, HubReview.reqKey)">Reset to Pending</button>';
+            }
+            footer.innerHTML = html;
+        },
+
+        showDenyForm: function() {
+            var content = document.getElementById('hub-modal-content');
+            content.innerHTML = content.innerHTML +
+                '<div class="approval-section" id="hub-deny-section">' +
+                '<h4>Denial Reason</h4>' +
+                '<textarea id="hub-deny-reason" class="denial-reason-input" placeholder="Why is this request being denied?"></textarea>' +
+                '</div>';
+
+            document.getElementById('hub-modal-footer').innerHTML =
+                '<button class="btn-cancel" onclick="HubReview.closeModal()">Cancel</button>' +
+                '<button class="btn-approve" onclick="HubReview.render(HubReview.data)">Back</button>' +
+                '<button class="btn-deny" onclick="HubReview.submitDenial()">Confirm Denial</button>';
+
+            document.getElementById('hub-deny-reason').focus();
+        },
+
+        approve: function() {
+            var self = this;
+            var sel = document.getElementById('hub-trip-select');
+            var tripOrgId = sel ? sel.value : '';
+
+            if (!tripOrgId) {
+                alert('Select the trip to place this person on.');
+                if (sel) { sel.focus(); }
+                return;
+            }
+
+            document.getElementById('hub-modal-content').innerHTML =
+                '<div class="approval-loading">Placing on trip...</div>';
+
+            $.ajax({
+                url: this.ajaxUrl(),
+                type: 'POST',
+                data: {
+                    ajax: 'true',
+                    action: 'approve_hub_request',
+                    people_id: this.peopleId,
+                    req_key: this.reqKey,
+                    trip_org_id: tripOrgId
+                },
+                success: function(response) {
+                    try {
+                        var r = typeof response === 'string' ? JSON.parse(response) : response;
+                        if (r.success) {
+                            self.closeModal();
+                            // Reuse the existing approval email prompt: it sets the trip fee
+                            // and sends the notification, now driven by the SELECTED trip.
+                            if (r.prompt_email && r.person && r.person.email &&
+                                typeof ApprovalWorkflow !== 'undefined') {
+                                ApprovalWorkflow.showApprovalEmailPrompt(r);
+                            } else {
+                                window.location.reload();
+                            }
+                        } else {
+                            document.getElementById('hub-modal-content').innerHTML =
+                                '<div class="alert alert-danger">' + self.esc(r.message || 'Error') + '</div>';
+                        }
+                    } catch (e) {
+                        document.getElementById('hub-modal-content').innerHTML =
+                            '<div class="alert alert-danger">Error processing response</div>';
+                    }
+                },
+                error: function(xhr, status, error) {
+                    document.getElementById('hub-modal-content').innerHTML =
+                        '<div class="alert alert-danger">Error: ' + error + '</div>';
+                }
+            });
+        },
+
+        submitDenial: function() {
+            var self = this;
+            var box = document.getElementById('hub-deny-reason');
+            var reason = box ? box.value.trim() : '';
+
+            if (!reason) {
+                alert('Please provide a denial reason.');
+                if (box) { box.focus(); }
+                return;
+            }
+
+            $.ajax({
+                url: this.ajaxUrl(),
+                type: 'POST',
+                data: {
+                    ajax: 'true',
+                    action: 'deny_hub_request',
+                    people_id: this.peopleId,
+                    req_key: this.reqKey,
+                    reason: reason
+                },
+                success: function(response) {
+                    try {
+                        var r = typeof response === 'string' ? JSON.parse(response) : response;
+                        if (r.success) {
+                            self.closeModal();
+                            window.location.reload();
+                        } else {
+                            alert(r.message || 'Error denying request');
+                        }
+                    } catch (e) {
+                        alert('Error processing response');
+                    }
+                },
+                error: function(xhr, status, error) { alert('Error: ' + error); }
+            });
+        },
+
+        revoke: function(peopleId, reqKey) {
+            if (!confirm('Return this request to pending?')) { return; }
+            $.ajax({
+                url: this.ajaxUrl(),
+                type: 'POST',
+                data: {
+                    ajax: 'true',
+                    action: 'revoke_hub_request',
+                    people_id: peopleId,
+                    req_key: reqKey
+                },
+                success: function(response) {
+                    try {
+                        var r = typeof response === 'string' ? JSON.parse(response) : response;
+                        if (r.success) {
+                            // Placement is not undone automatically: dropping someone from a
+                            // trip has fee/transaction side effects, so it stays manual.
+                            if (r.prior_org_name) {
+                                alert('Request is pending again.\\n\\nNote: they are still a member of "' +
+                                      r.prior_org_name + '". Remove them from that trip\\'s Team tab if needed.');
+                            }
+                            window.location.reload();
+                        } else {
+                            alert(r.message || 'Error revoking request');
+                        }
+                    } catch (e) {
+                        alert('Error processing response');
+                    }
+                },
+                error: function(xhr, status, error) { alert('Error: ' + error); }
+            });
+        },
+
+        esc: function(s) {
+            if (s === null || s === undefined) { return ''; }
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+    };
+
+    window.HubReview = HubReview;
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            var o = document.getElementById('hub-modal-overlay');
+            if (o && o.classList.contains('active')) { HubReview.closeModal(); }
+        }
+    });
+    </script>
+    '''
+# ::END:: Hub Review Modal
+
+
 # ::START:: Finance View
 def render_finance_view():
     """Finance view with payment tracking"""
@@ -15820,9 +22998,15 @@ def render_finance_view():
     totals_open_sql = '''
     {0}
     SELECT 
-        SUM(Due) AS TotalDue,
+        -- Only owed money counts toward "total due". SUM(Due) let one person's
+        -- credit cancel another person's debt: an overpaid goer at -300 quietly
+        -- reduced the trip's outstanding by 300, so the dashboard read lower than
+        -- Payment Manager for the same trips. Credits are reported separately.
+        SUM(CASE WHEN Due > 0 THEN Due ELSE 0 END) AS TotalDue,
+        SUM(CASE WHEN Due < 0 THEN -Due ELSE 0 END) AS TotalCredit,
         COUNT(CASE WHEN Due = 0 THEN 1 END) AS FullyPaidCount,
         COUNT(CASE WHEN Due > 0 THEN 1 END) AS OutstandingCount,
+        COUNT(CASE WHEN Due < 0 THEN 1 END) AS CreditCount,
         COUNT(*) AS TotalPeople
     FROM MissionTripTotals
     WHERE PeopleId IS NOT NULL
@@ -15831,9 +23015,15 @@ def render_finance_view():
     totals_all_sql = '''
     {0}
     SELECT 
-        SUM(Due) AS TotalDue,
+        -- Only owed money counts toward "total due". SUM(Due) let one person's
+        -- credit cancel another person's debt: an overpaid goer at -300 quietly
+        -- reduced the trip's outstanding by 300, so the dashboard read lower than
+        -- Payment Manager for the same trips. Credits are reported separately.
+        SUM(CASE WHEN Due > 0 THEN Due ELSE 0 END) AS TotalDue,
+        SUM(CASE WHEN Due < 0 THEN -Due ELSE 0 END) AS TotalCredit,
         COUNT(CASE WHEN Due = 0 THEN 1 END) AS FullyPaidCount,
         COUNT(CASE WHEN Due > 0 THEN 1 END) AS OutstandingCount,
+        COUNT(CASE WHEN Due < 0 THEN 1 END) AS CreditCount,
         COUNT(*) AS TotalPeople
     FROM MissionTripTotals
     WHERE PeopleId IS NOT NULL
@@ -15866,9 +23056,10 @@ def render_finance_view():
                 {7} of {8} fully paid
             </div>
         </div>
+        {9}
     </div>
     '''.format(
-        format_currency(totals_open.TotalDue or 0), 
+        format_currency(totals_open.TotalDue or 0),
         totals_open.OutstandingCount or 0,
         totals_open.FullyPaidCount or 0,
         format_currency(totals_all.TotalDue or 0),
@@ -15876,10 +23067,73 @@ def render_finance_view():
         totals_all.FullyPaidCount or 0,
         int((totals_all.FullyPaidCount or 0) * 100.0 / (totals_all.TotalPeople or 1)) if totals_all.TotalPeople > 0 else 0,
         totals_all.FullyPaidCount or 0,
-        totals_all.TotalPeople or 0
+        totals_all.TotalPeople or 0,
+        # Overpaid people used to be invisible here -- their credit was silently
+        # subtracted from Total Due. Show them instead, and only when they exist.
+        ('''
+        <div class="kpi-card">
+            <div class="value">{0}</div>
+            <div class="label">Credits (All Trips)</div>
+            <div style="font-size: 0.75em; color: var(--text-muted); margin-top: 5px;">
+                {1} overpaid &mdash; not netted against Total Due
+            </div>
+        </div>
+        '''.format(
+            format_currency(getattr(totals_all, 'TotalCredit', 0) or 0),
+            getattr(totals_all, 'CreditCount', 0) or 0
+        )) if (getattr(totals_all, 'CreditCount', 0) or 0) > 0 else ''
     )
     
-    print '<h3>All Participants - Payment Status (All Trips)</h3>'
+    print '''
+    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 30px; flex-wrap: wrap; gap: 8px;">
+        <h3 style="margin: 0;">All Participants - Payment Status (All Trips)</h3>
+        <div style="font-size: 13px;">
+            <a href="#" onclick="MissionsFinance.setAll(true); return false;">Expand all</a>
+            &nbsp;|&nbsp;
+            <a href="#" onclick="MissionsFinance.setAll(false); return false;">Collapse all</a>
+        </div>
+    </div>
+    <p style="margin: 4px 0 12px 0; font-size: 12px; color: #6c757d;">
+        Each trip shows its totals. Click a trip to see the people in it.
+    </p>
+
+    <style>
+    .fin-group-head:hover { background: #eef1f5 !important; }
+    .fin-group-head td { padding-top: 10px; padding-bottom: 10px; }
+    .fin-member td { font-size: 0.92em; }
+    </style>
+
+    <script>
+    var MissionsFinance = {
+        toggleGroup: function(id) {
+            var rows = document.getElementsByClassName(id);
+            if (!rows.length) { return; }
+            // Read the first row to decide direction, so a half-toggled group
+            // (never happens today, but cheap insurance) still resolves sensibly.
+            var show = (rows[0].style.display === 'none');
+            this.setGroup(id, show);
+        },
+
+        setGroup: function(id, show) {
+            var rows = document.getElementsByClassName(id);
+            for (var i = 0; i < rows.length; i++) {
+                rows[i].style.display = show ? '' : 'none';
+            }
+            var chev = document.getElementById(id + '-chev');
+            if (chev) { chev.innerHTML = show ? '&#9662;' : '&#9656;'; }
+        },
+
+        setAll: function(show) {
+            var heads = document.getElementsByClassName('fin-group-head');
+            for (var i = 0; i < heads.length; i++) {
+                var id = heads[i].id.replace(/-head$/, '');
+                this.setGroup(id, show);
+            }
+        }
+    };
+    window.MissionsFinance = MissionsFinance;
+    </script>
+    '''
     
     # Get outstanding payments - for ALL trips (including closed)
     outstanding_sql = '''
@@ -15935,11 +23189,25 @@ def render_finance_view():
     <tbody>
     '''
     
-    last_org = None
-    last_status = None
+    # Group by trip so each one collapses to a summary. Every trip starts closed:
+    # with 500 participants the flat list was unreadable, and the question staff
+    # actually ask first is "how is this trip doing", not "how is each person doing".
+    # Rows are rendered up-front and toggled client-side -- the query has already run,
+    # so expanding is instant and costs no extra round trip.
+    grouped = []          # [((status, org_id, org_name), [rows...]), ...] in query order
+    index_of = {}
     for payment in outstanding:
-        # Status separator
-        if payment.TripStatus != last_status:
+        key = (payment.TripStatus, payment.OrganizationId, payment.OrganizationName)
+        if key not in index_of:
+            index_of[key] = len(grouped)
+            grouped.append((key, []))
+        grouped[index_of[key]][1].append(payment)
+
+    last_status = None
+    group_num = 0
+
+    for (trip_status, org_id, org_name), members in grouped:
+        if trip_status != last_status:
             print '''
             <tr class="status-separator">
                 <td colspan="6" style="text-align: center; background: {0}; color: {1}; font-weight: bold;">
@@ -15947,92 +23215,127 @@ def render_finance_view():
                 </td>
             </tr>
             '''.format(
-                '#ffebee' if payment.TripStatus == 'Closed' else '#e8f5e9',
-                '#c62828' if payment.TripStatus == 'Closed' else '#2e7d32',
-                payment.TripStatus
+                '#ffebee' if trip_status == 'Closed' else '#e8f5e9',
+                '#c62828' if trip_status == 'Closed' else '#2e7d32',
+                trip_status
             )
-            last_status = payment.TripStatus
-            last_org = None  # Reset org separator when status changes
+            last_status = trip_status
 
-        # Organization separator - link to Budget & Fundraising tab
-        if payment.OrganizationName != last_org:
-            print '''
-            <tr class="org-separator">
-                <td colspan="6" style="background: var(--light-bg); font-weight: bold;">
-                    <a href="?trip={0}&section=budget" style="color: inherit; text-decoration: none;">
-                        {1} &rarr;
-                    </a>
-                </td>
-            </tr>
-            '''.format(payment.OrganizationId, _escape_html(payment.OrganizationName))
-            last_org = payment.OrganizationName
+        group_num += 1
+        group_id = 'fin-grp-{0}'.format(group_num)
 
-        # Determine payment status
-        if payment.Outstanding == 0:
-            payment_status = "Paid in Full"
-            payment_status_class = "status-normal"
-            outstanding_style = "color: var(--success-color); font-weight: bold;"
-        else:
-            payment_status = "Outstanding"
-            payment_status_class = "status-urgent"
-            outstanding_style = "color: var(--danger-color); font-weight: bold;"
+        # Summary maths. Outstanding counts only money owed -- a credit is reported
+        # separately rather than cancelling somebody else's balance.
+        paid_total = sum(float(m.Paid or 0) for m in members)
+        due_total = sum(float(m.Outstanding or 0) for m in members if (m.Outstanding or 0) > 0)
+        credit_total = sum(-float(m.Outstanding or 0) for m in members if (m.Outstanding or 0) < 0)
+        owing_count = len([m for m in members if (m.Outstanding or 0) > 0])
+        paid_count = len([m for m in members if (m.Outstanding or 0) == 0])
 
-        # Build name cell - clickable for payment reminder if email available
-        member_email = getattr(payment, 'EmailAddress', '') or ''
-        member_name_js = _escape_js_string(payment.Name2 or '')
-        email_js = _escape_js_string(member_email)
-        trip_name_js = _escape_js_string(payment.OrganizationName or '')
-        trip_cost = float(payment.TripCost) if payment.TripCost else 0.0
-        outstanding_amount = float(payment.Outstanding) if payment.Outstanding else 0.0
-
-        if member_email and payment.Outstanding and payment.Outstanding > 0:
-            # Clickable name with payment reminder popup
-            name_cell = '''<a href="#" onclick="MissionsEmail.openIndividualGoalReminder({0}, '{1}', '{2}', '{3}', {4}, {5}, {6}); return false;" style="color: #007bff; cursor: pointer;" title="Send payment reminder">{7}</a>'''.format(
-                payment.PeopleId,
-                email_js,
-                member_name_js,
-                trip_name_js,
-                trip_cost,
-                outstanding_amount,
-                payment.OrganizationId,
-                _escape_html(payment.Name2)
-            )
-        else:
-            # Plain text name (no email or fully paid)
-            name_cell = _escape_html(payment.Name2)
+        summary_bits = []
+        if owing_count:
+            summary_bits.append('{0} outstanding'.format(owing_count))
+        if paid_count:
+            summary_bits.append('{0} paid in full'.format(paid_count))
+        if credit_total > 0:
+            summary_bits.append('{0} credit'.format(format_currency(credit_total)))
 
         print '''
-        <tr>
-            <td data-label="Name">
-                {0}
+        <tr class="fin-group-head" id="{0}-head" onclick="MissionsFinance.toggleGroup('{0}')"
+            style="cursor: pointer; background: var(--light-bg);">
+            <td colspan="2" style="font-weight: bold;">
+                <span id="{0}-chev" style="display: inline-block; width: 12px; color: #6c757d;">&#9656;</span>
+                {1}
+                <a href="?trip={2}&section=budget" onclick="event.stopPropagation();"
+                   style="color: #667eea; font-weight: normal; font-size: 0.85em; margin-left: 8px;">open trip &rarr;</a>
             </td>
-            <td data-label="Mission">
-                <a href="?trip={1}&section=budget" style="color: #667eea;">{2}</a>
-            </td>
-            <td data-label="Trip Status">
-                <span class="status-badge status-{3}">{4}</span>
-            </td>
-            <td data-label="Payment Status">
-                <span class="status-badge {5}">{6}</span>
-            </td>
-            <td data-label="Paid">{7}</td>
-            <td data-label="Outstanding" style="{8}">
-                {9}
-            </td>
+            <td style="color: #6c757d; font-size: 0.85em;">{3} {4}</td>
+            <td style="color: #6c757d; font-size: 0.85em;">{5}</td>
+            <td style="font-weight: bold;">{6}</td>
+            <td style="font-weight: bold; color: {7};">{8}</td>
         </tr>
         '''.format(
-            name_cell,
-            payment.OrganizationId,
-            _escape_html(payment.OrganizationName),
-            'closed' if payment.TripStatus == 'Closed' else 'active',
-            payment.TripStatus,
-            payment_status_class,
-            payment_status,
-            format_currency(payment.Paid),
-            outstanding_style,
-            format_currency(payment.Outstanding)
+            group_id,
+            _escape_html(org_name),
+            org_id,
+            len(members),
+            'person' if len(members) == 1 else 'people',
+            ' / '.join(summary_bits),
+            format_currency(paid_total),
+            'var(--danger-color)' if due_total > 0 else 'var(--success-color)',
+            format_currency(due_total) if due_total > 0 else 'Nothing due'
         )
-    
+
+        for payment in members:
+            # Determine payment status
+            if payment.Outstanding == 0:
+                payment_status = "Paid in Full"
+                payment_status_class = "status-normal"
+                outstanding_style = "color: var(--success-color); font-weight: bold;"
+            elif (payment.Outstanding or 0) < 0:
+                payment_status = "Credit"
+                payment_status_class = "status-normal"
+                outstanding_style = "color: var(--success-color); font-weight: bold;"
+            else:
+                payment_status = "Outstanding"
+                payment_status_class = "status-urgent"
+                outstanding_style = "color: var(--danger-color); font-weight: bold;"
+
+            # Build name cell - clickable for payment reminder if email available
+            member_email = getattr(payment, 'EmailAddress', '') or ''
+            member_name_js = _escape_js_string(payment.Name2 or '')
+            email_js = _escape_js_string(member_email)
+            trip_name_js = _escape_js_string(payment.OrganizationName or '')
+            trip_cost = float(payment.TripCost) if payment.TripCost else 0.0
+            outstanding_amount = float(payment.Outstanding) if payment.Outstanding else 0.0
+
+            if member_email and payment.Outstanding and payment.Outstanding > 0:
+                name_cell = '''<a href="#" onclick="MissionsEmail.openIndividualGoalReminder({0}, '{1}', '{2}', '{3}', {4}, {5}, {6}); return false;" style="color: #007bff; cursor: pointer;" title="Send payment reminder">{7}</a>'''.format(
+                    payment.PeopleId,
+                    email_js,
+                    member_name_js,
+                    trip_name_js,
+                    trip_cost,
+                    outstanding_amount,
+                    payment.OrganizationId,
+                    _escape_html(payment.Name2)
+                )
+            else:
+                name_cell = _escape_html(payment.Name2)
+
+            print '''
+            <tr class="fin-member {10}" style="display: none;">
+                <td data-label="Name" style="padding-left: 26px;">
+                    {0}
+                </td>
+                <td data-label="Mission">
+                    <a href="?trip={1}&section=budget" style="color: #667eea;">{2}</a>
+                </td>
+                <td data-label="Trip Status">
+                    <span class="status-badge status-{3}">{4}</span>
+                </td>
+                <td data-label="Payment Status">
+                    <span class="status-badge {5}">{6}</span>
+                </td>
+                <td data-label="Paid">{7}</td>
+                <td data-label="Outstanding" style="{8}">
+                    {9}
+                </td>
+            </tr>
+            '''.format(
+                name_cell,
+                payment.OrganizationId,
+                _escape_html(payment.OrganizationName),
+                'closed' if payment.TripStatus == 'Closed' else 'active',
+                payment.TripStatus,
+                payment_status_class,
+                payment_status,
+                format_currency(payment.Paid),
+                outstanding_style,
+                format_currency(payment.Outstanding),
+                group_id
+            )
+
     print '</tbody></table>'
     
     # Recent transactions
@@ -16102,15 +23405,63 @@ def render_finance_view():
 # ::END:: Finance View
 
 # ::START:: Stats View
+def _stats_range():
+    """The reporting window for the stats page: (from, to, label). Presets live in the URL
+    so a view can be bookmarked or sent to someone."""
+    preset = str(getattr(model.Data, 'range', '') or '').strip().lower()
+    f = str(getattr(model.Data, 'sfrom', '') or '').strip()[:10]
+    t = str(getattr(model.Data, 'sto', '') or '').strip()[:10]
+    today = _today_iso()
+    if f or t:
+        return (f, t, 'Custom range')
+    if preset == '12m':
+        return (_date_minus_days(today, 365), today, 'Last 12 months')
+    if preset == '3y':
+        return (_date_minus_days(today, 1095), today, 'Last 3 years')
+    if preset == 'ytd':
+        return (today[:4] + '-01-01', today, 'This year')
+    if preset == 'future':
+        return (today, '', 'Upcoming only')
+    return ('', '', 'All time')
+
+
+def _stats_range_bar(cur_from, cur_to, label):
+    def _p(key, txt):
+        on = ' class="cr-on"' if (label == txt) else ''
+        return '<a href="?view=stats&range=' + key + '"' + on + '>' + txt + '</a>'
+    return ('<div class="cr-bar" style="margin-bottom:6px"><b>Period:</b> '
+            + ' &nbsp;&middot;&nbsp; '.join([
+                _p('all', 'All time'), _p('ytd', 'This year'), _p('12m', 'Last 12 months'),
+                _p('3y', 'Last 3 years'), _p('future', 'Upcoming only')])
+            + '</div>'
+            '<form method="get" class="cr-form"><input type="hidden" name="view" value="stats">'
+            '<label>Trips departing from <input type="date" name="sfrom" value="' + _mc_attr(cur_from) + '"></label> '
+            '<label>to <input type="date" name="sto" value="' + _mc_attr(cur_to) + '"></label> '
+            '<button type="submit" class="mc-add">Apply</button>'
+            + ('  <a href="?view=stats" style="font-size:12px">clear</a>' if (cur_from or cur_to) else '')
+            + '</form>')
+
+
 def render_stats_view():
     """Enhanced statistics view for missions pastors"""
-    
+
     timer = start_timer()
-    
+
     print '<h3>Mission Statistics & Analytics</h3>'
-    
+
+    # Period filter. It applies to the trip-based stats below; anything that is inherently
+    # about what is coming next says so on its own heading.
+    _sfrom, _sto, _slabel = _stats_range()
+    print CR_STYLE
+    print _stats_range_bar(_sfrom, _sto, _slabel)
+    print ('<p class="mc-note" style="margin:0 0 14px">Showing <b>' + _escape_html(_slabel)
+           + '</b>' + (' (' + _escape_html((_sfrom or 'any') + ' to ' + (_sto or 'any')) + ')'
+                       if (_sfrom or _sto) else '')
+           + ' &mdash; based on each trip\'s departure date. Upcoming deadlines are always '
+           'shown for what is next, whatever period is selected.</p>')
+
     # Get all enhanced stat queries
-    stat_queries = get_enhanced_stats_queries()
+    stat_queries = get_enhanced_stats_queries(_sfrom, _sto)
     
     # Financial Summary - now returns 3 rows (Open, Closed, All)
     financial_breakdown = execute_query_with_debug(stat_queries['financial_summary'], "Financial Summary Query", "sql")
@@ -16438,6 +23789,217 @@ def render_stats_view():
 # ::END:: Stats View
 
 # ::START:: Calendar View
+# Calendar event sources the admin can switch on and off. 'key' is what appears in the
+# ?f= parameter; everything is on unless ?f= says otherwise.
+CAL_SOURCES = [
+    ('trips', 'Trip dates'),
+    ('meetings', 'Meetings'),
+    ('tasks', 'Task due dates'),
+    ('travel', 'Flights, lodging, ground'),
+    ('activities', 'Trip schedule'),
+]
+
+
+def _cal_wanted():
+    """Which event sources are switched on. Absent ?f= means all of them; ?f=none is empty."""
+    raw = str(getattr(model.Data, 'f', '') or '').strip()
+    if not raw:
+        return set(k for (k, _l) in CAL_SOURCES)
+    if raw.lower() == 'none':
+        return set()
+    return set(x.strip() for x in raw.split(',') if x.strip())
+
+
+def _cal_ev(date_key, time_lbl, sort, etype, icon, title, trip_name, org_id, url,
+            actionable=False, tone='', track=''):
+    return {'date': date_key, 'time': time_lbl, 'sort': sort, 'type': etype, 'icon': icon,
+            'title': title, 'trip': trip_name, 'orgId': org_id, 'url': url,
+            'actionable': actionable, 'tone': tone, 'track': track}
+
+
+def collect_extra_events(first_iso, last_iso, want):
+    """Task due dates, travel, and schedule items for every trip that has them, inside the
+    given date window. These live in OrgExtra JSON rather than SQL tables, so this walks the
+    trips once and filters in Python -- cheap because it is one blob per trip."""
+    out = {}
+    if not (want & set(['tasks', 'travel', 'activities'])):
+        return out
+
+    def add(ev):
+        out.setdefault(ev['date'], []).append(ev)
+
+    def in_win(d):
+        return bool(d) and first_iso <= d[:10] <= last_iso
+
+    today = _today_iso()
+    try:
+        trips = list(get_all_trips_for_sidebar(False))
+    except:
+        trips = []
+    for t in trips:
+        oid = int(t.OrganizationId)
+        name = getattr(t, 'OrganizationName', '') or ('Trip %d' % oid)
+        short = name.replace('STM: ', '')
+        base = '?trip=' + str(oid)
+
+        if 'tasks' in want:
+            td = load_trip_tasks(oid)
+            for it in (td.get('tasks', []) or []):
+                due = (it.get('due') or '')[:10]
+                if not in_win(due) or it.get('skipped'):
+                    continue
+                done = bool(it.get('done'))
+                overdue = (not done) and due < today
+                add(_cal_ev(due, '', due + ' 0', 'task', '&#9989;',
+                            (it.get('title') or 'Task'), short, oid, base + '&section=tasks',
+                            actionable=(not done),
+                            tone=('done' if done else ('overdue' if overdue else 'open'))))
+
+        if want & set(['travel', 'activities']):
+            lg = load_trip_logistics(oid)
+            if 'travel' in want:
+                for f in (lg.get('flights', []) or []):
+                    dep = (f.get('departs') or '')
+                    if in_win(dep[:10]):
+                        air = ' '.join(x for x in [(f.get('airline') or ''), (f.get('flightNum') or '')] if x)
+                        route = ' to '.join(x for x in [(f.get('fromCity') or ''), (f.get('toCity') or '')] if x)
+                        add(_cal_ev(dep[:10], _it_dt(dep)[1], dep, 'travel', '&#9992;',
+                                    ' '.join(x for x in [air, route] if x) or 'Flight',
+                                    short, oid, base + '&section=logistics', tone='travel',
+                                    track=air))
+                for g in (lg.get('ground', []) or []):
+                    w = (g.get('when') or '')
+                    if in_win(w[:10]):
+                        route = ' to '.join(x for x in [(g.get('fromLoc') or ''), (g.get('toLoc') or '')] if x)
+                        add(_cal_ev(w[:10], _it_dt(w)[1], w, 'travel', '&#128652;',
+                                    ' '.join(x for x in [(g.get('mode') or 'Ground'), route] if x),
+                                    short, oid, base + '&section=logistics', tone='travel'))
+                for l in (lg.get('lodging', []) or []):
+                    ci, co = (l.get('checkIn') or '')[:10], (l.get('checkOut') or '')[:10]
+                    if in_win(ci):
+                        add(_cal_ev(ci, '', ci + ' 1', 'travel', '&#127976;',
+                                    'Check in - ' + (l.get('name') or 'lodging'),
+                                    short, oid, base + '&section=logistics', tone='travel'))
+                    if in_win(co):
+                        add(_cal_ev(co, '', co + ' 2', 'travel', '&#127976;',
+                                    'Check out - ' + (l.get('name') or 'lodging'),
+                                    short, oid, base + '&section=logistics', tone='travel'))
+            if 'activities' in want:
+                for a in (lg.get('activities', []) or []):
+                    w = (a.get('when') or '')
+                    if in_win(w[:10]):
+                        add(_cal_ev(w[:10], _it_dt(w)[1], w, 'activity', '&#128204;',
+                                    ' - '.join(x for x in [(a.get('title') or 'Activity'),
+                                                           (a.get('location') or '')] if x),
+                                    short, oid, base + '&section=logistics', tone='activity'))
+    return out
+
+
+def _cal_filter_bar(cal_year, cal_month, want, mode):
+    """Source toggles + Month/Agenda switch. Plain links so the state lives in the URL and
+    a filtered view can be bookmarked or shared."""
+    def link_for(toggled):
+        keys = sorted(toggled)
+        f = ','.join(keys) if keys else 'none'
+        return ('?view=calendar&year=%d&month=%d&mode=%s&f=%s' % (cal_year, cal_month, mode, f))
+    chips = []
+    for (k, label) in CAL_SOURCES:
+        on = k in want
+        nxt = set(want)
+        if on:
+            nxt.discard(k)
+        else:
+            nxt.add(k)
+        chips.append('<a class="cal-chip ' + ('on' if on else 'off') + '" href="' + link_for(nxt) + '">'
+                     + ('&#10003; ' if on else '') + _escape_html(label) + '</a>')
+    allf = ','.join(sorted(want)) if want else 'none'
+    modes = ''.join(
+        '<a class="cal-mode ' + ('on' if mode == m else '') + '" href="?view=calendar&year=%d&month=%d&mode=%s&f=%s">%s</a>'
+        % (cal_year, cal_month, m, allf, lbl)
+        for (m, lbl) in (('month', 'Month'), ('agenda', 'Agenda')))
+    return ('<div class="cal-bar"><div class="cal-chips">' + ''.join(chips) + '</div>'
+            '<div class="cal-modes">' + modes + '</div></div>')
+
+
+CAL_STYLE = '''<style>
+.cal-bar{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;margin:0 0 14px}
+.cal-chips{display:flex;flex-wrap:wrap;gap:6px}
+.cal-chip{display:inline-block;padding:4px 11px;border-radius:14px;font-size:12px;font-weight:600;text-decoration:none;border:1px solid #cbd5e1}
+.cal-chip.on{background:#1f6f54;color:#fff;border-color:#1f6f54}
+.cal-chip.off{background:#fff;color:#64748b}
+.cal-modes{display:flex;gap:0}
+.cal-mode{padding:5px 14px;font-size:12px;font-weight:600;text-decoration:none;border:1px solid #cbd5e1;color:#64748b;background:#fff}
+.cal-mode:first-child{border-radius:6px 0 0 6px}
+.cal-mode:last-child{border-radius:0 6px 6px 0;border-left:0}
+.cal-mode.on{background:#0f3460;color:#fff;border-color:#0f3460}
+.event-task{background:#e0f2fe;color:#075985;border-left:3px solid #0284c7}
+.event-task.overdue{background:#fee2e2;color:#991b1b;border-left-color:#dc2626;font-weight:700}
+.event-task.done{background:#f1f5f9;color:#94a3b8;border-left-color:#cbd5e1;text-decoration:line-through}
+.event-travel{background:#ede9fe;color:#5b21b6;border-left:3px solid #7c3aed}
+.event-activity{background:#fef3c7;color:#92400e;border-left:3px solid #d97706}
+/* agenda */
+.ag-day{display:flex;gap:14px;padding:10px 0;border-top:1px solid #e2e8f0}
+.ag-day.is-today{background:#eff6ff}
+.ag-date{flex:0 0 118px;font-size:12px;font-weight:700;color:#0f172a;padding-top:2px}
+.ag-date .ag-dow{display:block;font-weight:600;color:#64748b;font-size:11px;text-transform:uppercase}
+.ag-items{flex:1;display:flex;flex-direction:column;gap:4px}
+.ag-item{display:flex;gap:8px;align-items:baseline;font-size:13px;color:#0f172a;padding:3px 8px;border-radius:5px;border-left:3px solid #cbd5e1}
+.ag-item:hover{background:#f8fafc}
+.ag-link{color:inherit;text-decoration:none}
+.ag-link:hover{text-decoration:underline}
+.ag-item a.it-trk{margin-left:2px}
+.ag-time{flex:0 0 66px;color:#64748b;font-size:11.5px}
+.ag-trip{color:#64748b;font-size:11.5px}
+.ag-item.tone-overdue{border-left-color:#dc2626;background:#fef2f2}
+.ag-item.tone-open{border-left-color:#0284c7}
+.ag-item.tone-done{border-left-color:#cbd5e1;color:#94a3b8}
+.ag-item.tone-travel{border-left-color:#7c3aed}
+.ag-item.tone-activity{border-left-color:#d97706}
+.ag-item.tone-depart{border-left-color:#16a34a;background:#f0fdf4;font-weight:700}
+.ag-item.tone-return{border-left-color:#dc2626;background:#fef2f2;font-weight:700}
+.ag-item.tone-meeting{border-left-color:#2563eb}
+.ag-act{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.4px;color:#b45309;text-transform:uppercase}
+.ag-empty{color:#94a3b8;font-size:13px;padding:14px 0}
+/* flight-status link (IT_CSS is not loaded on this page) */
+a.it-trk{font-size:11px;font-weight:700;color:#1f6f54;text-decoration:none;white-space:nowrap}
+a.it-trk:hover{text-decoration:underline}
+</style>'''
+
+
+def render_agenda(events_by_day, first_day, last_day, today):
+    """Chronological list instead of a grid -- the month cells get unreadable once tasks and
+    travel are switched on. Actionable items (open tasks) and the departure/return days are
+    called out."""
+    print '<div class="mc-block">'
+    days = 0
+    d = first_day
+    while d <= last_day:
+        key = d.strftime('%Y-%m-%d')
+        evs = sorted(events_by_day.get(key, []), key=lambda e: (e.get('sort') or ''))
+        if evs:
+            days += 1
+            cls = 'ag-day is-today' if d == today else 'ag-day'
+            print ('<div class="' + cls + '"><div class="ag-date">'
+                   + '<span class="ag-dow">' + d.strftime('%a') + '</span>'
+                   + d.strftime('%b ') + str(d.day) + '</div><div class="ag-items">')
+            for e in evs:
+                act = '<span class="ag-act">action</span>' if e.get('actionable') else ''
+                # a flight row is only useful the morning of if you can check its status
+                trk = (_it_track_link(e.get('track'), '') if e.get('track') else '')
+                print ('<div class="ag-item tone-' + (e.get('tone') or '') + '">'
+                       + '<span class="ag-time">' + _escape_html(e.get('time') or '') + '</span>'
+                       + '<a class="ag-link" href="' + e['url'] + '">'
+                       + e['icon'] + ' ' + _escape_html(e['title']) + '</a>'
+                       + trk
+                       + '<span class="ag-trip">' + _escape_html(e.get('trip') or '') + '</span>'
+                       + act + '</div>')
+            print '</div></div>'
+        d += datetime.timedelta(days=1)
+    if not days:
+        print '<p class="ag-empty">Nothing scheduled this month for the selected filters.</p>'
+    print '</div>'
+
+
 def render_calendar_view():
     """Monthly calendar view showing meetings and trip dates for active mission trips"""
 
@@ -16490,6 +24052,14 @@ def render_calendar_view():
     # Quick navigation to today
     if cal_year != today.year or cal_month != today.month:
         print '<p class="text-center mb-3"><a href="?view=calendar" class="btn btn-sm btn-secondary">Go to Today</a></p>'
+
+    # Source filters + Month/Agenda switch (state lives in the URL so a view is shareable)
+    want = _cal_wanted()
+    mode = str(getattr(model.Data, 'mode', '') or 'month').strip().lower()
+    if mode not in ('month', 'agenda'):
+        mode = 'month'
+    print CAL_STYLE
+    print _cal_filter_bar(cal_year, cal_month, want, mode)
 
     # Query all meetings for active mission trips in this month
     meetings_sql = '''
@@ -16558,11 +24128,15 @@ def render_calendar_view():
     )
 
     try:
-        meetings = list(q.QuerySql(meetings_sql))
-        trips = list(q.QuerySql(trips_sql))
+        meetings = list(q.QuerySql(meetings_sql)) if 'meetings' in want else []
+        trips = list(q.QuerySql(trips_sql)) if 'trips' in want else []
     except Exception as e:
         print '<div class="alert alert-danger">Error loading calendar data: {0}</div>'.format(str(e))
         return
+
+    # Tasks / travel / schedule come from the trips' OrgExtra blobs, not SQL
+    extras = collect_extra_events(first_day.strftime('%Y-%m-%d'),
+                                  last_day.strftime('%Y-%m-%d'), want)
 
     # Build events dictionary by date
     events_by_date = {}
@@ -16621,6 +24195,33 @@ def render_calendar_view():
                         'org_name': trip.OrganizationName
                     })
                 current += datetime.timedelta(days=1)
+
+    # ---- Agenda mode: one chronological list. The month grid stops being readable once
+    # tasks and travel are switched on, which is exactly when this view is wanted.
+    if mode == 'agenda':
+        by_day = {}
+        for k, evs in extras.items():
+            by_day.setdefault(k, []).extend(evs)
+        for date_key, ev in events_by_date.items():
+            for m in ev.get('meetings', []):
+                short = (m['org_name'] or '').replace('STM: ', '')
+                by_day.setdefault(date_key, []).append(_cal_ev(
+                    date_key, m.get('time', ''), date_key + ' 3', 'meeting', '&#128197;',
+                    m.get('description') or 'Team meeting', short, m['org_id'],
+                    '?trip=%s&section=meetings' % m['org_id'], tone='meeting'))
+            for tr in ev.get('trip_starts', []):
+                short = (tr['org_name'] or '').replace('STM: ', '')
+                by_day.setdefault(date_key, []).append(_cal_ev(
+                    date_key, '', date_key + ' 0', 'trip', '&#9992;', 'DEPARTS - ' + short,
+                    short, tr['org_id'], '?trip=%s' % tr['org_id'], tone='depart'))
+            for tr in ev.get('trip_ends', []):
+                short = (tr['org_name'] or '').replace('STM: ', '')
+                by_day.setdefault(date_key, []).append(_cal_ev(
+                    date_key, '', date_key + ' 9', 'trip', '&#127937;', 'RETURNS - ' + short,
+                    short, tr['org_id'], '?trip=%s' % tr['org_id'], tone='return'))
+        render_agenda(by_day, first_day, last_day, today)
+        print end_timer(timer, "Calendar")
+        return
 
     # Calendar CSS
     print '''
@@ -16790,6 +24391,18 @@ def render_calendar_view():
             if len(events['meetings']) > 3:
                 print '<div class="calendar-event" style="background: #e0e0e0; color: #616161;">+{0} more</div>'.format(len(events['meetings']) - 3)
 
+            # Tasks / travel / schedule for this day (capped -- the agenda view is the
+            # place to read a busy day in full)
+            day_extras = sorted(extras.get(date_key, []), key=lambda e: (e.get('sort') or ''))
+            for e in day_extras[:4]:
+                cls = 'event-' + e['type'] + ((' ' + e['tone']) if e['type'] == 'task' and e['tone'] in ('overdue', 'done') else '')
+                label = ((e['time'] + ' ') if e['time'] else '') + e['title']
+                print '<div class="calendar-event {0}" title="{1} - {2}" onclick="window.location=\'{3}\'">{4} {5}</div>'.format(
+                    cls, _escape_html(e['trip']), _escape_html(e['title']), e['url'],
+                    e['icon'], _escape_html(label[:22]))
+            if len(day_extras) > 4:
+                print '<div class="calendar-event" style="background:#e0e0e0;color:#616161;">+{0} more</div>'.format(len(day_extras) - 4)
+
             # Show ongoing trips with individual names and colors
             if len(events['trip_ongoing']) > 0 and len(events['trip_starts']) == 0 and len(events['trip_ends']) == 0:
                 # Show each ongoing trip individually (limit to 3 to avoid overflow)
@@ -16932,6 +24545,7 @@ def render_settings_view(user_role):
             <div class="settings-tab active" onclick="switchSettingsTab('approvals')" id="stab-approvals" style="padding:10px 20px; font-size:14px; font-weight:600; color:#888; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px;">Approval Workflow</div>
             <div class="settings-tab" onclick="switchSettingsTab('templates')" id="stab-templates" style="padding:10px 20px; font-size:14px; font-weight:600; color:#888; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px;">Quick Email Templates</div>
             <div class="settings-tab" onclick="switchSettingsTab('config')" id="stab-config" style="padding:10px 20px; font-size:14px; font-weight:600; color:#888; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px;">Dashboard Configuration</div>
+            <div class="settings-tab" onclick="switchSettingsTab('tasktemplates')" id="stab-tasktemplates" style="padding:10px 20px; font-size:14px; font-weight:600; color:#888; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px;">Task Templates</div>
         </div>
         <style>
             .settings-tab.active { color: #0d6efd !important; border-bottom-color: #0d6efd !important; }
@@ -16986,6 +24600,80 @@ def render_settings_view(user_role):
                     <p style="margin: 5px 0 0 0; font-size: 13px; color: #1565c0;">
                         To override the global setting for a specific trip, go to that trip's <strong>Team</strong> tab and click the <strong>&#9881; Settings</strong> button next to "Status" filter.
                     </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Intake Model (Direct vs Hub) -->
+        <div class="card" style="margin-bottom: 20px;">
+            <div class="card-header">
+                <h4>&#128506; Intake Model</h4>
+            </div>
+            <div class="card-body">
+                <p class="text-muted" style="margin-bottom: 20px;">
+                    Choose how people get onto trips. <strong>Direct</strong> is the classic model: each trip takes its
+                    own registrations and you approve people on that trip. <strong>Hub &amp; Spoke</strong> uses one
+                    intake involvement where people apply and name the trip they want; you then review the request and
+                    place them onto the matching trip.
+                </p>
+
+                <div style="display:flex; gap:12px; margin-bottom:18px; flex-wrap:wrap;">
+                    <label id="wm-card-direct" onclick="HubSettings.setModel('direct')"
+                           style="flex:1; min-width:240px; cursor:pointer; border:2px solid #dee2e6; border-radius:8px; padding:14px;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <input type="radio" name="workflow_model" value="direct" id="wm-direct">
+                            <strong style="font-size:14px;">Direct (one-to-one)</strong>
+                        </div>
+                        <p class="text-muted" style="margin:6px 0 0 24px; font-size:12px;">
+                            Each person registers on the trip itself and is approved there.
+                        </p>
+                    </label>
+                    <label id="wm-card-hub" onclick="HubSettings.setModel('hub')"
+                           style="flex:1; min-width:240px; cursor:pointer; border:2px solid #dee2e6; border-radius:8px; padding:14px;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <input type="radio" name="workflow_model" value="hub" id="wm-hub">
+                            <strong style="font-size:14px;">Hub &amp; Spoke (one-to-many)</strong>
+                        </div>
+                        <p class="text-muted" style="margin:6px 0 0 24px; font-size:12px;">
+                            One intake involvement collects applications; approvers place people onto trips.
+                        </p>
+                    </label>
+                </div>
+
+                <div id="hubConfigPanel" style="display:none; padding:15px; background:#f8f9fa; border-radius:8px;">
+                    <div style="margin-bottom:14px;">
+                        <label style="display:block; font-weight:600; margin-bottom:6px; font-size:13px;">Hub Involvement</label>
+                        <select id="hubOrgSelect" onchange="HubSettings.onHubChange()"
+                                style="width:100%; max-width:520px; padding:8px; border:1px solid #ced4da; border-radius:6px;">
+                            <option value="">Loading involvements...</option>
+                        </select>
+                        <p class="text-muted" style="margin:6px 0 0 0; font-size:12px;">
+                            The involvement people apply through. Everyone applies here, then gets placed on a trip.
+                        </p>
+                    </div>
+
+                    <div style="margin-bottom:14px;">
+                        <label style="display:block; font-weight:600; margin-bottom:6px; font-size:13px;">Requested-Trip Question</label>
+                        <select id="hubQuestionSelect"
+                                style="width:100%; max-width:520px; padding:8px; border:1px solid #ced4da; border-radius:6px;">
+                            <option value="">Select a Hub involvement first</option>
+                        </select>
+                        <p class="text-muted" style="margin:6px 0 0 0; font-size:12px;">
+                            The question whose answer names the trip being requested. Its answer is highlighted during review.
+                        </p>
+                    </div>
+
+                    <div id="hubFormsWarning" style="display:none; padding:12px; background:#fff3cd; border:1px solid #ffc107; border-radius:6px; margin-bottom:14px;">
+                        <strong style="color:#856404;">&#9888; This involvement uses classic registrations</strong>
+                        <p style="margin:5px 0 0 0; font-size:12px; color:#856404;">
+                            Classic registrations overwrite a person's answers each time they re-register, so only their
+                            most recent request is visible &mdash; a person cannot hold two pending requests at once.
+                            Involvements built on the newer form system keep every submission separately.
+                        </p>
+                    </div>
+
+                    <button type="button" class="btn btn-primary btn-sm" onclick="HubSettings.save()">Save Intake Settings</button>
+                    <span id="hubSettingsStatus" style="margin-left:10px; font-size:13px;"></span>
                 </div>
             </div>
         </div>
@@ -17055,6 +24743,18 @@ def render_settings_view(user_role):
                 h += DashConfig.field('FINANCE_ROLES', 'Finance Roles (comma-separated)', cfg.FINANCE_ROLES, 'text');
                 h += DashConfig.field('LEADER_MEMBER_TYPES', 'Leader Member Type IDs (comma-separated)', cfg.LEADER_MEMBER_TYPES, 'text');
                 h += DashConfig.field('APPLICATION_ORG_IDS', 'Application Org IDs to Exclude (comma-separated)', cfg.APPLICATION_ORG_IDS, 'text');
+                h += '</div>';
+                h += '<div style="margin-top:16px; border-top:1px solid #e0e0e0; padding-top:16px;">';
+                h += '<h5 style="margin-bottom:4px;">Default First Baptist Contact</h5>';
+                h += '<p style="color:#888; font-size:12px; margin:0 0 12px;">Inherited by every trip\\'s Logistics tab. A trip can override it by filling its own First Baptist contact fields.</p>';
+                h += DashConfig.field('DEFAULT_FBCH_NAME', 'Contact name', (cfg.DEFAULT_FBCH_NAME||''), 'text');
+                h += DashConfig.field('DEFAULT_FBCH_PHONE', 'Contact phone', (cfg.DEFAULT_FBCH_PHONE||''), 'text');
+                h += DashConfig.field('DEFAULT_FBCH_EMAIL', 'Contact email', (cfg.DEFAULT_FBCH_EMAIL||''), 'text');
+                h += '</div>';
+                h += '<div style="margin-top:16px; border-top:1px solid #e0e0e0; padding-top:16px;">';
+                h += '<h5 style="margin-bottom:4px;">Trip Cost Categories</h5>';
+                h += '<p style="color:#888; font-size:12px; margin:0 0 12px;">Suggestions shown when categorizing lines in each trip\\'s Costs estimator (drives the per-category subtotals). Comma-separated; any custom value is still allowed per line.</p>';
+                h += DashConfig.field('COST_CATEGORIES', 'Categories (comma-separated)', (cfg.COST_CATEGORIES||''), 'text');
                 h += '</div>';
                 document.getElementById('configForm').innerHTML = h;
             },
@@ -17220,10 +24920,26 @@ def render_settings_view(user_role):
                             <code style="background: #fff; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 12px;" onclick="DropdownTemplates.insertPlaceholder('{{TripName}}')">{{TripName}}</code>
                             <code style="background: #fff; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 12px;" onclick="DropdownTemplates.insertPlaceholder('{{PersonName}}')">{{PersonName}}</code>
                             <code style="background: #fff; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 12px;" onclick="DropdownTemplates.insertPlaceholder('{{TripCost}}')">{{TripCost}}</code>
+                            <code style="background: #fff; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 12px;" onclick="DropdownTemplates.insertPlaceholder('{{DepositAmount}}')">{{DepositAmount}}</code>
                             <code style="background: #fff; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 12px;" onclick="DropdownTemplates.insertPlaceholder('{{Outstanding}}')">{{Outstanding}}</code>
                             <code style="background: #fff; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 12px;" onclick="DropdownTemplates.insertPlaceholder('{{MyGivingLink}}')">{{MyGivingLink}}</code>
                             <code style="background: #fff; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 12px;" onclick="DropdownTemplates.insertPlaceholder('{{SupportLink}}')">{{SupportLink}}</code>
+                            <code style="background: #fff; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 12px;" onclick="DropdownTemplates.insertPlaceholder('{{ChurchUrl}}')">{{ChurchUrl}}</code>
                         </div>
+                        <p style="margin: 8px 0 0 0; font-size: 11px; color: #555; line-height: 1.5;">
+                            <strong>{{PersonName}}</strong>, <strong>{{MyGivingLink}}</strong>, <strong>{{SupportLink}}</strong>
+                            and <strong>{{ChurchUrl}}</strong> fill in on every email.
+                            <strong>{{TripCost}}</strong>, <strong>{{DepositAmount}}</strong> and
+                            <strong>{{Outstanding}}</strong> only fill in where those amounts are known
+                            &mdash; approval notifications and the per-person Email button in
+                            Budget &amp; Fundraising. Elsewhere they send as-is, so leave them out.
+                        </p>
+                        <p style="margin: 6px 0 0 0; font-size: 11px; color: #555; line-height: 1.5;">
+                            For mission trip money use <strong>{{MyGivingLink}}</strong> (their own balance
+                            and payment page) and <strong>{{SupportLink}}</strong> (give toward this person's
+                            trip &mdash; the link they share with supporters, and the one they can use
+                            themselves).
+                        </p>
                     </div>
 
                     <!-- Body with Formatting Toolbar -->
@@ -17455,9 +25171,204 @@ def render_settings_view(user_role):
         }
     };
 
+    // =========================================================================
+    // HUB SETTINGS MANAGER - Intake model (direct vs hub & spoke)
+    // =========================================================================
+    var HubSettings = {
+        model: 'direct',
+        hubOrgId: 0,
+        tripQuestion: '',
+        orgs: [],
+
+        init: function() {
+            this.load();
+        },
+
+        ajaxUrl: function() {
+            return window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
+        },
+
+        post: function(body, cb) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', this.ajaxUrl(), true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try {
+                        var t = xhr.responseText.trim();
+                        var s = t.indexOf('{"success"');
+                        if (s > 0) { t = t.substring(s); }
+                        cb(JSON.parse(t));
+                    } catch (e) {
+                        console.error('HubSettings parse error:', e);
+                        cb({success: false, message: 'Could not parse response'});
+                    }
+                }
+            };
+            xhr.send(body);
+        },
+
+        load: function() {
+            var self = this;
+            this.post('ajax=1&action=get_global_settings', function(r) {
+                if (r.success && r.settings) {
+                    self.model = r.settings.workflow_model || 'direct';
+                    self.hubOrgId = r.settings.hub_org_id || 0;
+                    self.tripQuestion = r.settings.hub_trip_question || '';
+                }
+                self.updateUI();
+                self.loadOrgs();
+            });
+        },
+
+        loadOrgs: function() {
+            var self = this;
+            this.post('ajax=1&action=get_hub_candidates', function(r) {
+                var sel = document.getElementById('hubOrgSelect');
+                if (!sel) { return; }
+                if (!r.success) {
+                    sel.innerHTML = '<option value="">Error loading involvements</option>';
+                    return;
+                }
+                self.orgs = r.orgs || [];
+                var html = '<option value="">-- Select an involvement --</option>';
+                for (var i = 0; i < self.orgs.length; i++) {
+                    var o = self.orgs[i];
+                    html += '<option value="' + o.org_id + '"' +
+                            (o.org_id === self.hubOrgId ? ' selected' : '') + '>' +
+                            HubSettings.esc(o.name) + ' (' + o.org_id + ')' +
+                            (o.new_forms ? '' : ' - classic') + '</option>';
+                }
+                sel.innerHTML = html;
+                if (self.hubOrgId) { self.loadQuestions(self.hubOrgId, self.tripQuestion); }
+                self.updateFormsWarning();
+            });
+        },
+
+        loadQuestions: function(orgId, selectedLabel) {
+            var sel = document.getElementById('hubQuestionSelect');
+            if (!sel) { return; }
+            sel.innerHTML = '<option value="">Loading questions...</option>';
+            this.post('ajax=1&action=get_hub_questions&org_id=' + encodeURIComponent(orgId), function(r) {
+                if (!r.success) {
+                    sel.innerHTML = '<option value="">Error loading questions</option>';
+                    return;
+                }
+                var qs = r.questions || [];
+                if (!qs.length) {
+                    sel.innerHTML = '<option value="">No questions found on this involvement</option>';
+                    return;
+                }
+                var html = '<option value="">-- Select a question --</option>';
+                for (var i = 0; i < qs.length; i++) {
+                    var lbl = qs[i].label;
+                    html += '<option value="' + HubSettings.esc(lbl) + '"' +
+                            (lbl === selectedLabel ? ' selected' : '') + '>' +
+                            HubSettings.esc(lbl) + (qs[i].is_dropdown ? '  [dropdown]' : '') +
+                            '</option>';
+                }
+                sel.innerHTML = html;
+            });
+        },
+
+        onHubChange: function() {
+            var sel = document.getElementById('hubOrgSelect');
+            this.hubOrgId = parseInt(sel.value, 10) || 0;
+            this.tripQuestion = '';
+            if (this.hubOrgId) {
+                this.loadQuestions(this.hubOrgId, '');
+            } else {
+                document.getElementById('hubQuestionSelect').innerHTML =
+                    '<option value="">Select a Hub involvement first</option>';
+            }
+            this.updateFormsWarning();
+        },
+
+        updateFormsWarning: function() {
+            var warn = document.getElementById('hubFormsWarning');
+            if (!warn) { return; }
+            var isClassic = false;
+            for (var i = 0; i < this.orgs.length; i++) {
+                if (this.orgs[i].org_id === this.hubOrgId && !this.orgs[i].new_forms) {
+                    isClassic = true;
+                    break;
+                }
+            }
+            warn.style.display = (this.hubOrgId && isClassic) ? 'block' : 'none';
+        },
+
+        setModel: function(m) {
+            this.model = m;
+            this.updateUI();
+        },
+
+        updateUI: function() {
+            var d = document.getElementById('wm-direct');
+            var h = document.getElementById('wm-hub');
+            if (d) { d.checked = (this.model === 'direct'); }
+            if (h) { h.checked = (this.model === 'hub'); }
+
+            var dc = document.getElementById('wm-card-direct');
+            var hc = document.getElementById('wm-card-hub');
+            if (dc) { dc.style.borderColor = (this.model === 'direct') ? '#0d6efd' : '#dee2e6'; }
+            if (hc) { hc.style.borderColor = (this.model === 'hub') ? '#0d6efd' : '#dee2e6'; }
+
+            var panel = document.getElementById('hubConfigPanel');
+            if (panel) { panel.style.display = (this.model === 'hub') ? 'block' : 'none'; }
+        },
+
+        save: function() {
+            var self = this;
+            var orgSel = document.getElementById('hubOrgSelect');
+            var qSel = document.getElementById('hubQuestionSelect');
+            var status = document.getElementById('hubSettingsStatus');
+
+            var orgId = orgSel ? (parseInt(orgSel.value, 10) || 0) : 0;
+            var question = qSel ? qSel.value : '';
+
+            if (this.model === 'hub' && (!orgId || !question)) {
+                if (status) {
+                    status.textContent = 'Select both a Hub involvement and a trip question.';
+                    status.style.color = '#f44336';
+                }
+                return;
+            }
+
+            if (status) {
+                status.textContent = 'Saving...';
+                status.style.color = '#666';
+            }
+
+            var body = 'ajax=1&action=save_global_settings' +
+                       '&workflow_model=' + encodeURIComponent(this.model) +
+                       '&hub_org_id=' + encodeURIComponent(orgId) +
+                       '&hub_trip_question=' + encodeURIComponent(question);
+
+            this.post(body, function(r) {
+                if (!status) { return; }
+                if (r.success) {
+                    self.hubOrgId = orgId;
+                    self.tripQuestion = question;
+                    status.textContent = 'Saved. The Review page now uses this intake model.';
+                    status.style.color = '#4caf50';
+                } else {
+                    status.textContent = r.message || 'Error saving settings';
+                    status.style.color = '#f44336';
+                }
+            });
+        },
+
+        esc: function(s) {
+            if (s === null || s === undefined) { return ''; }
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+    };
+
     // Initialize on page load
     document.addEventListener('DOMContentLoaded', function() {
         ApprovalSettings.init();
+        HubSettings.init();
     });
 
     // =========================================================================
@@ -17792,6 +25703,12 @@ def render_settings_view(user_role):
     </script>
     '''
 
+    # Task Templates tab content (Python-computed; lives after the settings-view
+    # block -- switchSettingsTab toggles it by id regardless of DOM position).
+    print '<div id="stab-content-tasktemplates" class="settings-tab-content" style="max-width:1100px;">'
+    print render_task_templates_settings()
+    print '</div>'
+
 # ::END:: Settings View
 
 # ::START:: Messages View
@@ -18107,6 +26024,27 @@ def render_organization_view(org_id):
 def main():
     """Main entry point for the dashboard with sidebar navigation"""
     try:
+        # Morning batch: time-release trip tasks (create native TouchPoint tasks whose
+        # create window has arrived).
+        #
+        # Data.run_batch is THE trigger. The MorningBatch script calls us through the
+        # managed block (Data.run_batch='true' + model.CallScript), which is how every
+        # TPxi script does it -- model.FromMorningBatch has never worked reliably on this
+        # install, so it is only a harmless secondary check, never the thing we depend on.
+        _batch = False
+        try:
+            _batch = str(getattr(Data, 'run_batch', '')).lower() == 'true'
+        except:
+            _batch = False
+        if not _batch:
+            try:
+                _batch = bool(getattr(model, 'FromMorningBatch', False))
+            except:
+                _batch = False
+        if _batch:
+            run_task_time_release_batch()
+            return
+
         # Check if this is an AJAX request first
         if handle_ajax_request():
             return
@@ -18154,7 +26092,7 @@ def main():
                 return
 
         # Non-admins can only see their trips, not global admin views
-        if not user_role.get('is_admin', False) and view in ['finance', 'stats', 'messages', 'settings', 'review']:
+        if not user_role.get('is_admin', False) and view in ['finance', 'stats', 'messages', 'settings', 'review', 'tasks', 'readiness', 'costreport']:
             # Non-admins trying to access admin-only views - show leader dashboard instead
             view = 'leader_home'
 
@@ -18198,6 +26136,12 @@ def main():
             render_messages_view()
         elif view == 'stats':
             render_stats_view()
+        elif view == 'readiness':
+            render_readiness_view(user_role)
+        elif view == 'costreport':
+            render_cost_report_view(user_role)
+        elif view == 'tasks':
+            render_all_tasks_view(user_role)
         elif view == 'calendar':
             render_calendar_view()
         elif view == 'settings':
@@ -18428,6 +26372,11 @@ def main():
         # Output fee adjustment JavaScript (admin only)
         if user_role.get('is_admin', False):
             print get_fee_adjustment_javascript()
+
+        # Output payment actions JavaScript (payment link / record payment).
+        # Not admin-gated: leaders can send their own team their payment links. The
+        # buttons themselves are chosen per row, and every handler re-checks permission.
+        print get_payment_actions_javascript()
 
         # Output dates editing JavaScript (admin only)
         if user_role.get('is_admin', False):
