@@ -132,6 +132,7 @@ Running a specific ministry moment? Start with these bundles:
 | [Giving Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Giving%20Dashboard) | Clarity and insight into financial stewardship |
 | [Statement Audit Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Statement%20Audit) | Work through electronic and printed statement issues |
 | [Deposit Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Deposit%20Report) | Comprehensive deposit reconciliation |
+| [Coupon Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Coupon%20Report) | Track Coupons Used Across Ministries |
 | [Envelope Number Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Envelope%20Number%20Report) | Giving envelope SQL report |
 | [Last 4 Search](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Transaction%20Search) | Search Transactions by Last 4 ACH/CC |
 | [Find Funds in Batch](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Find%20Funds%20in%20Batch) | Find which batches contain specific funds |
@@ -208,7 +209,6 @@ Running a specific ministry moment? Start with these bundles:
 | [Email Technical Diagnostics](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Email%20Technical%20Diagnostics) | Deep email troubleshooting dashboard |
 | [Account Security Monitor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Account%20Security%20Monitor) | Advanced security analytics |
 | [CSV Phone Matcher](https://github.com/bswaby/Touchpoint/tree/main/TPxi/CSV%20Phone%20Matcher.) | Match CSV Phone to People Records | 
-| [Coupon Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Coupon%20Report) | Track Coupons Used Across Ministries |
 | [Person-Audit Detail](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Person%20Attendance%20Audit) | Investigation Audit of Who a Person Has Served With |
 | [Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator) | Pre-authenticated link creation |
 | [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator) | Bulk document download |
