@@ -38,8 +38,7 @@ Features:
 - Raw XML editor for advanced editing
 - Dirty state tracking with unsaved changes warning
 
-Version: 1.0
-Date: March 2025
+Version is defined once in APP_VERSION below, not here, so the two cannot drift.
 
 --Upload Instructions Start--
 To upload code to Touchpoint, use the following steps:
@@ -58,6 +57,26 @@ To upload code to Touchpoint, use the following steps:
 import json
 import re
 import datetime
+
+# ::CONFIG:: Version
+# Bump APP_VERSION on user-visible changes; keep the changelog short.
+APP_VERSION = "1.1.0"
+APP_VERSION_DATE = "2026-08-08"
+# Version history:
+#   1.0.0  - Initial release: tabbed visual editor for the four ReportsMenu
+#            files plus CustomReports, drag-and-drop reordering, role
+#            dropdowns, raw XML mode, backups, dirty-state tracking
+#   1.1.0  - Fix XML entity double-escaping (contributed by citybridge).
+#            The parsers read attributes and element text by regex without
+#            decoding entities while the builders escaped unconditionally, so
+#            every load/save cycle added a level: &amp; -> &amp;amp; -> ...
+#            A url= that grew an extra amp; stopped parsing as a query string,
+#            silently breaking the report. Adds xml_unescape / xml_escape_attr
+#            / xml_escape_text, decodes on every read, and escapes EVERY
+#            attribute on write (previously only url=), which also makes a
+#            report named "Kids & Students" saveable for the first time.
+#            NOTE: this stops further corruption but does not repair values
+#            already laddered. Retype an affected URL once and it stays fixed.
 
 # --- IronPython Unicode Safety ---
 
@@ -733,6 +752,7 @@ else:
     border-top: none;
 }
 .me-toolbar-left { display: flex; gap: 8px; align-items: center; }
+.me-version { font-size: 11px; color: #aaa; letter-spacing: .5px; }
 .me-toolbar-right { display: flex; gap: 8px; }
 
 /* Buttons */
@@ -1142,6 +1162,7 @@ else:
     <!-- Toolbar -->
     <div class="me-toolbar">
         <div class="me-toolbar-left">
+            <span class="me-version" title="Menu Editor ''' + APP_VERSION + ' (' + APP_VERSION_DATE + ''')">v''' + APP_VERSION + '''</span>
             <span id="meStatus" style="font-size:12px;color:#888;"></span>
         </div>
         <div class="me-toolbar-right">
