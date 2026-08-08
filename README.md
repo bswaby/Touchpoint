@@ -114,6 +114,8 @@ Running a specific ministry moment? Start with these bundles:
 | [Weekly Attendance (WAAG 2.0)](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Weekly%20Attendance) | Advanced group attendance tracking |
 | [Attendance Markings](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Markings) ⚡ | Reverse attendance markings — 1/5 the clicks for a full-attendance event |
 | [Attendance Report Builder](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attendance%20Builder) ⚡ | Easy attendance reports across programs/divisions/orgs |
+| [In-Progress Registrations](https://github.com/bswaby/Touchpoint/tree/main/TPxi/In-Progress%20Registrations) | Get a handle on incomplete registrations |
+| [Duplicate Involvements](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Duplicate%20Involvements) | Find people in more than one involvement |
 | [Roll Sheet](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Roll%20Sheet) ⚡ | Build custom printable roll sheets |
 | [Emergency List](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Emergency%20List) | Critical contact and medical info management |
 | [Anniversaries Widget](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Anniversaries) | Track and celebrate member milestones |
@@ -131,6 +133,7 @@ Running a specific ministry moment? Start with these bundles:
 | [Statement Audit Dashboard](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Statement%20Audit) | Work through electronic and printed statement issues |
 | [Deposit Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Deposit%20Report) | Comprehensive deposit reconciliation |
 | [Envelope Number Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Envelope%20Number%20Report) | Giving envelope SQL report |
+| [Last 4 Search](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Transaction%20Search) | Search Transactions by Last 4 ACH/CC |
 | [Find Funds in Batch](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Find%20Funds%20in%20Batch) | Find which batches contain specific funds |
 | [Fortis Fees](https://github.com/bswaby/Touchpoint/tree/main/Finance/FortisFees) | Automated fee breakdown |
 | [QCD-Grant Letters](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Finance%20Grant-QCD%20Letter) | Automated grant and QCD letter generation |
@@ -204,6 +207,9 @@ Running a specific ministry moment? Start with these bundles:
 | [SQL Query Explorer](https://github.com/bswaby/Touchpoint/tree/main/TPxi/SQL%20Query%20Explorer) | Run and explore SQL queries directly |
 | [Email Technical Diagnostics](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Email%20Technical%20Diagnostics) | Deep email troubleshooting dashboard |
 | [Account Security Monitor](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Account%20Security%20Monitor) | Advanced security analytics |
+| [CSV Phone Matcher](https://github.com/bswaby/Touchpoint/tree/main/TPxi/CSV%20Phone%20Matcher.) | Match CSV Phone to People Records | 
+| [Coupon Report](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Coupon%20Report) | Track Coupons Used Across Ministries |
+| [Person-Audit Detail](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Person%20Attendance%20Audit) | Investigation Audit of Who a Person Has Served With |
 | [Link Generator](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Link%20Generator) | Pre-authenticated link creation |
 | [Attachment Link Downloader](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Attachment%20Link%20Generator) | Bulk document download |
 | [Involvement Sync](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Involvement%20Sync) | Synchronize involvement settings across groups |
