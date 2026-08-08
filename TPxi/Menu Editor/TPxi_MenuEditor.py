@@ -240,7 +240,7 @@ def xml_unescape(s):
     """Decode XML entities in a value pulled out of stored XML by regex.
 
     The parsers below read attributes and element text with plain regex, which
-    hands back the raw source text — a stored `&amp;` arrives as the five
+    hands back the raw source text: a stored `&amp;` arrives as the five
     characters `&amp;`, not `&`. The builders then escape whatever they are
     given, so without this step every load/save cycle turned `&amp;` into
     `&amp;amp;` and URLs grew an extra `amp;` on each save.
