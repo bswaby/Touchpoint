@@ -236,6 +236,45 @@ def create_backup(content_name, xml_str, user_name):
 
 # --- XML Parsing Helpers ---
 
+def xml_unescape(s):
+    """Decode XML entities in a value pulled out of stored XML by regex.
+
+    The parsers below read attributes and element text with plain regex, which
+    hands back the raw source text: a stored `&amp;` arrives as the five
+    characters `&amp;`, not `&`. The builders then escape whatever they are
+    given, so without this step every load/save cycle turned `&amp;` into
+    `&amp;amp;` and URLs grew an extra `amp;` on each save.
+
+    Order matters: `&amp;` must be decoded LAST, otherwise a literal
+    `&amp;lt;` in the source would decode all the way to `<`.
+    """
+    if not s:
+        return s
+    s = s.replace('&lt;', '<').replace('&gt;', '>')
+    s = s.replace('&quot;', '"').replace('&#39;', "'").replace('&apos;', "'")
+    return s.replace('&amp;', '&')
+
+
+def xml_escape_attr(s):
+    """Escape a value for use inside a double-quoted XML attribute.
+
+    `&` must be escaped first or it would double-escape the entities this
+    function itself introduces.
+    """
+    if not s:
+        return s
+    s = s.replace('&', '&amp;')
+    s = s.replace('<', '&lt;').replace('>', '&gt;')
+    return s.replace('"', '&quot;')
+
+
+def xml_escape_text(s):
+    """Escape a value for use as XML element text."""
+    if not s:
+        return s
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
 def parse_reports_menu(xml_str):
     """Parse ReportsMenu XML into JSON-friendly dict."""
     data = {}
@@ -257,15 +296,15 @@ def parse_reports_menu(xml_str):
                 text = m.group(3).strip()
                 item = {
                     'item_type': 'header' if tag == 'Header' else 'report',
-                    'text': safe_str(text),
+                    'text': safe_str(xml_unescape(text)),
                     'roles': ''
                 }
                 roles_match = re.search(r'roles="([^"]*)"', attrs_str)
                 if roles_match:
-                    item['roles'] = safe_str(roles_match.group(1))
+                    item['roles'] = safe_str(xml_unescape(roles_match.group(1)))
                 if tag == 'Report':
                     link_match = re.search(r'link="([^"]*)"', attrs_str)
-                    item['link'] = safe_str(link_match.group(1)) if link_match else ''
+                    item['link'] = safe_str(xml_unescape(link_match.group(1))) if link_match else ''
                 data[col_key].append(item)
     except Exception as e:
         pass
@@ -282,16 +321,15 @@ def build_reports_menu_xml(data):
         lines.append('  <%s>' % col_key)
         for item in items:
             item_type = item.get('item_type', 'report')
-            text = item.get('text', '')
-            roles = item.get('roles', '')
-            text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            text = xml_escape_text(item.get('text', ''))
+            roles = xml_escape_attr(item.get('roles', ''))
             if item_type == 'header':
                 if roles:
                     lines.append('    <Header roles="%s">%s</Header>' % (roles, text))
                 else:
                     lines.append('    <Header>%s</Header>' % text)
             else:
-                link = item.get('link', '')
+                link = xml_escape_attr(item.get('link', ''))
                 attrs = ''
                 if roles:
                     attrs += ' roles="%s"' % roles
@@ -356,26 +394,26 @@ def parse_report_tag(tag_str, inner_content):
     }
     name_match = re.search(r'name="([^"]*)"', tag_str)
     if name_match:
-        report['name'] = safe_str(name_match.group(1))
+        report['name'] = safe_str(xml_unescape(name_match.group(1)))
     type_match = re.search(r'type="([^"]*)"', tag_str)
     if type_match:
-        report['item_type'] = safe_str(type_match.group(1))
+        report['item_type'] = safe_str(xml_unescape(type_match.group(1)))
     role_match = re.search(r'role="([^"]*)"', tag_str)
     if role_match:
-        report['item_role'] = safe_str(role_match.group(1))
+        report['item_role'] = safe_str(xml_unescape(role_match.group(1)))
     org_match = re.search(r'showOnOrgId="([^"]*)"', tag_str)
     if org_match:
-        report['showOnOrgId'] = safe_str(org_match.group(1))
+        report['showOnOrgId'] = safe_str(xml_unescape(org_match.group(1)))
     url_match = re.search(r'url="([^"]*)"', tag_str)
     if url_match:
-        report['url'] = safe_str(url_match.group(1))
+        report['url'] = safe_str(xml_unescape(url_match.group(1)))
     if inner_content and inner_content.strip():
         col_iter = re.finditer(r'<Column\s+(.*?)\s*/>', inner_content)
         for cm in col_iter:
             col_attrs = cm.group(1)
             col = {}
             for attr_match in re.finditer(r'(\w+)="([^"]*)"', col_attrs):
-                col[safe_str(attr_match.group(1))] = safe_str(attr_match.group(2))
+                col[safe_str(attr_match.group(1))] = safe_str(xml_unescape(attr_match.group(2)))
             report['columns'].append(col)
     return report
 
@@ -390,15 +428,15 @@ def build_custom_reports_xml(reports):
         org_id = report.get('showOnOrgId', '')
         url = report.get('url', '')
         columns = report.get('columns', [])
-        attrs = ' name="%s"' % name
+        attrs = ' name="%s"' % xml_escape_attr(name)
         if rtype:
-            attrs += ' type="%s"' % rtype
+            attrs += ' type="%s"' % xml_escape_attr(rtype)
         if role:
-            attrs += ' role="%s"' % role
+            attrs += ' role="%s"' % xml_escape_attr(role)
         if org_id:
-            attrs += ' showOnOrgId="%s"' % org_id
+            attrs += ' showOnOrgId="%s"' % xml_escape_attr(org_id)
         if url:
-            attrs += ' url="%s"' % url.replace('&', '&amp;')
+            attrs += ' url="%s"' % xml_escape_attr(url)
         if not columns:
             lines.append('  <Report%s />' % attrs)
         else:
@@ -407,13 +445,13 @@ def build_custom_reports_xml(reports):
                 col_attrs = ''
                 for key in ['field', 'smallgroup', 'description', 'flag']:
                     if key in col and col[key]:
-                        col_attrs += ' %s="%s"' % (key, col[key])
+                        col_attrs += ' %s="%s"' % (key, xml_escape_attr(col[key]))
                 if 'name' in col:
-                    col_attrs += ' name="%s"' % col['name']
+                    col_attrs += ' name="%s"' % xml_escape_attr(col['name'])
                 if 'orgid' in col and col['orgid']:
-                    col_attrs += ' orgid="%s"' % col['orgid']
+                    col_attrs += ' orgid="%s"' % xml_escape_attr(col['orgid'])
                 if 'disabled' in col:
-                    col_attrs += ' disabled="%s"' % col['disabled']
+                    col_attrs += ' disabled="%s"' % xml_escape_attr(col['disabled'])
                 lines.append('    <Column%s />' % col_attrs)
             lines.append('  </Report>')
     lines.append('</CustomReports>')
