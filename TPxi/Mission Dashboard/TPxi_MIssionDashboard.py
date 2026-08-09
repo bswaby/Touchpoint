@@ -1,5 +1,5 @@
 """
-Mission Dashboard 4.2.2 - Costs, Logistics, Tasks & Reporting
+Mission Dashboard 4.5.1 - Costs, Logistics, Tasks & Reporting
 ======================================================
 Purpose: Comprehensive mission trip management dashboard with sidebar navigation
 Author: Ben Swaby
@@ -134,6 +134,7 @@ class Config:
         {'id': 'budget', 'label': 'Budget & Fundraising', 'icon': '&#128176;'},  # money icon
         {'id': 'costs', 'label': 'Costs', 'icon': '&#129534;'},  # abacus icon - admin only (cost estimator)
         {'id': 'logistics', 'label': 'Logistics', 'icon': '&#9992;'},  # airplane icon - admin now (leader later)
+        {'id': 'itinerary', 'label': 'Itinerary', 'icon': '&#128203;'},  # clipboard - leaders + admins, read only
         {'id': 'tasks', 'label': 'Tasks', 'icon': '&#9989;'},  # checkmark icon - admin (templated task system)
         # {'id': 'documents', 'label': 'Documents', 'icon': '&#128196;'},  # document icon - coming later
         {'id': 'messages', 'label': 'Messages', 'icon': '&#9993;'},  # envelope icon
@@ -267,11 +268,34 @@ import re
 
 # ::CONFIG:: Version
 # Bump APP_VERSION on user-visible changes; keep the changelog short.
-APP_VERSION = "4.2.2"
+APP_VERSION = "4.5.1"
 APP_VERSION_DATE = "2026-08-07"
 # Version history:
 #   4.0.0  - Sidebar navigation, role-based views, per-trip sections
 #   4.1.0  - Hub & spoke intake (one hub involvement -> many trips)
+#   4.5.1  - Trip Readiness: a trip with setup flags is never hidden as
+#            finished. A copied trip carries the original past dates, so it
+#            looked returned and the flags were buried.
+#   4.5.0  - Trip Readiness: new setup flags for copied dates (trip created
+#            after its own start date), no trip cost, no meetings scheduled,
+#            and a missing or post-departure registration close date.
+#            Flagged trips now sort to the top. Fixed the My Missions share
+#            link resolving from the class default instead of the saved
+#            setting, and Settings now shows the redirect target.
+#   4.4.1  - Guides: Getting in now names the shared My Missions address
+#            (Settings > Share Link), and the Ask-the-office rows were cut
+#            back to the one that matters, on Itinerary
+#   4.4.0  - Built-in printable role guides (Guides in the admin menu; a link
+#            on the leader and My Missions pages). Leader version and team
+#            member version, each listing what that role can see, do, and
+#            must ask the office for. Admins can view and print either.
+#   4.3.0  - Leader/goer exposure: itinerary on /MyMissions and a read-only
+#            Itinerary tab for trip leaders (leader copy with confirmation
+#            numbers, team copy without; the version is decided server-side
+#            from membership and a crafted request is clamped down).
+#            Leaders no longer see approve/deny/revoke actions on the trip
+#            overview sign-ups table, nor Review Registration in the team
+#            Actions menu; both are admin-only decisions.
 #   4.2.2  - Task template columns relabelled: "How many days" and "Create how
 #            early", with visible units and a worked example, replacing the
 #            ambiguous "Offset / date"
@@ -318,10 +342,9 @@ if not CHURCH_URL.startswith('http'):
 # Remove trailing slash
 CHURCH_URL = CHURCH_URL.rstrip('/')
 
-# Resolve MyMissions sharing link
-MY_MISSIONS_LINK = Config.MY_MISSIONS_LINK or (CHURCH_URL + '/PyScriptForm/Mission_Dashboard')
-# Display-friendly version (without https://)
-MY_MISSIONS_DISPLAY = MY_MISSIONS_LINK.replace('https://', '').replace('http://', '')
+# The MyMissions sharing link is resolved AFTER load_config() below -- resolving it here
+# would read the class default and silently ignore whatever is saved under
+# Settings > Dashboard Configuration > Share Link.
 
 # Set page header (no debug output - breaks AJAX JSON responses)
 try:
@@ -391,6 +414,16 @@ def save_config(config):
     model.WriteContentText(CONFIG_CONTENT_NAME, _json.dumps(data, indent=2), "")
 
 config = load_config()
+
+# Resolve the MyMissions sharing link from the SAVED settings, falling back to the script's
+# own address. A church that points a friendly URL (fbchville.com/MyMissions) at this script
+# sets it under Settings > Dashboard Configuration > Share Link, and that is what gets shown
+# and copied everywhere the link appears.
+MY_MISSIONS_LINK = (config.MY_MISSIONS_LINK or '').strip() or (CHURCH_URL + '/PyScriptForm/Mission_Dashboard')
+if not MY_MISSIONS_LINK.startswith('http'):
+    MY_MISSIONS_LINK = 'https://' + MY_MISSIONS_LINK.lstrip('/')
+# Display-friendly version (without the scheme)
+MY_MISSIONS_DISPLAY = MY_MISSIONS_LINK.replace('https://', '').replace('http://', '')
 
 # Check if function library exists and load it
 try:
@@ -997,6 +1030,15 @@ def render_sidebar(user_role, current_trip=None, current_section='overview', cur
             </a>
         '''.format(rd_active))
 
+        # Role guides (printable handouts)
+        gd_active = 'active' if current_view == 'guide' and not current_trip else ''
+        html.append('''
+            <a href="?view=guide" class="nav-link {0}">
+                <span class="icon">&#10068;</span>
+                <span class="sidebar-text">Guides</span>
+            </a>
+        '''.format(gd_active))
+
         # Trip cost report (estimate vs actual)
         cr_active = 'active' if current_view == 'costreport' and not current_trip else ''
         html.append('''
@@ -1443,6 +1485,7 @@ def render_trip_section(org_id, section, user_role):
     # Map sections to render functions
     section_map = {
         'overview': render_trip_overview,
+        'itinerary': render_trip_itinerary_section,
         'team': render_trip_team,
         'meetings': render_trip_meetings,
         'budget': render_trip_budget,
@@ -2804,17 +2847,20 @@ def render_trip_overview(org_id, user_role):
         show_approval_status = are_approvals_enabled_for_trip(org_id)
         if signups:
             html.append('<table class="signups-table">')
+            # Approving / denying / revoking is an ADMIN decision. A leader may see who has
+            # signed up and where each person stands, but not act on it.
             html.append('''
                 <thead>
                     <tr>
                         <th>Name</th>
                         <th>Joined</th>
                         {0}
-                        <th style="text-align: center;">Action</th>
+                        {1}
                     </tr>
                 </thead>
                 <tbody>
-            '''.format('<th>Status</th>' if show_approval_status else ''))
+            '''.format('<th>Status</th>' if show_approval_status else '',
+                       '<th style="text-align: center;">Action</th>' if is_admin else ''))
             for signup in signups:
                 enrollment_date = ''
                 if signup.EnrollmentDate:
@@ -2833,8 +2879,11 @@ def render_trip_overview(org_id, user_role):
                     else:
                         status_html = '<td><span class="signup-status-badge signup-status-pending">&#9203; Pending</span></td>'
 
-                # Action button - Review is always available, but approval actions depend on settings
-                if show_approval_status and signup.IsDenied == 1:
+                # Action button - admins only (see the header comment above)
+                action_html = ''
+                if not is_admin:
+                    pass
+                elif show_approval_status and signup.IsDenied == 1:
                     action_html = '<button class="signup-review-btn" onclick="ApprovalWorkflow.revokeStatus({0}, {1})">Revoke</button>'.format(signup.PeopleId, org_id)
                 elif show_approval_status and signup.IsApproved == 1:
                     action_html = '<button class="signup-review-btn" onclick="ApprovalWorkflow.revokeStatus({0}, {1})">Revoke</button>'.format(signup.PeopleId, org_id)
@@ -2851,14 +2900,14 @@ def render_trip_overview(org_id, user_role):
                         <td><a href="javascript:void(0)" onclick="PersonDetails.open({0}, {5})" class="signup-name">{1}</a></td>
                         <td>{2}</td>
                         {3}
-                        <td style="text-align: center;">{4}</td>
+                        {4}
                     </tr>
                 '''.format(
                     signup.PeopleId,
                     _escape_html(signup.Name or ''),
                     enrollment_date,
                     status_html,
-                    action_html,
+                    ('<td style="text-align: center;">' + action_html + '</td>') if is_admin else '',
                     org_id
                 ))
             html.append('</tbody></table>')
@@ -4202,6 +4251,16 @@ def render_trip_team(org_id, user_role):
         escaped_trip_name_action = _escape_js_string(trip.OrganizationName or '')
         escaped_email_action = _escape_js_string(member.EmailAddress or '')
 
+        # Review Registration menu item - admin only. Approving or denying a registration
+        # is an admin decision; a leader can see their roster but not act on it.
+        review_menu_item = ''
+        if is_admin:
+            review_menu_item = ('<button class="actions-dropdown-item" onclick="event.stopPropagation(); '
+                                'ApprovalWorkflow.showModal(%d, \'%s\', %d, %s); ActionsDropdown.closeAll();">'
+                                '<span class="icon">&#128203;</span>Review Registration</button>'
+                                % (member.PeopleId, escaped_member_name_action, org_id,
+                                   'true' if approvals_enabled else 'false'))
+
         # Passport menu item - admin only
         if is_admin:
             if member.HasPassportInfo:
@@ -4325,9 +4384,7 @@ def render_trip_team(org_id, user_role):
                                 Actions &#9662;
                             </button>
                             <div class="actions-dropdown-content">
-                                <button class="actions-dropdown-item" onclick="event.stopPropagation(); ApprovalWorkflow.showModal({0}, '{14}', {16}, true); ActionsDropdown.closeAll();">
-                                    <span class="icon">&#128203;</span>Review Registration
-                                </button>
+                                {28}
                                 <button class="actions-dropdown-item" onclick="event.stopPropagation(); MissionsEmail.openIndividual({0}, '{13}', '{14}', {16}); ActionsDropdown.closeAll();">
                                     <span class="icon">&#9993;</span>Send Email
                                 </button>
@@ -4369,7 +4426,8 @@ def render_trip_team(org_id, user_role):
                 bgcheck_menu_item,  # 24
                 member_approval_status,  # 25: data-status value
                 status_cell_html,  # 26: status cell HTML
-                member_type_menu_item  # 27: set leader/member menu item
+                member_type_menu_item,  # 27: set leader/member menu item
+                review_menu_item  # 28: review registration (admin only)
             ))
         else:
             html.append('''
@@ -4395,9 +4453,7 @@ def render_trip_team(org_id, user_role):
                                 Actions &#9662;
                             </button>
                             <div class="actions-dropdown-content">
-                                <button class="actions-dropdown-item" onclick="event.stopPropagation(); ApprovalWorkflow.showModal({0}, '{14}', {16}, false); ActionsDropdown.closeAll();">
-                                    <span class="icon">&#128203;</span>Review Registration
-                                </button>
+                                {28}
                                 <button class="actions-dropdown-item" onclick="event.stopPropagation(); MissionsEmail.openIndividual({0}, '{13}', '{14}', {16}); ActionsDropdown.closeAll();">
                                     <span class="icon">&#9993;</span>Send Email
                                 </button>
@@ -4437,7 +4493,10 @@ def render_trip_team(org_id, user_role):
             bg_html,  # 22: background check HTML (clickable if not complete)
             passport_menu_item,  # 23: passport dropdown menu item
             bgcheck_menu_item,  # 24: background check dropdown menu item
-            member_type_menu_item  # 25: set leader/member menu item
+            member_type_menu_item,  # 25: set leader/member menu item
+            '',  # 26 (unused in this variant)
+            '',  # 27 (unused in this variant)
+            review_menu_item  # 28: review registration (admin only)
         ))
 
     html.append('</tbody></table>')
@@ -14725,6 +14784,398 @@ def handle_send_itinerary():
     return True
 
 
+_IT_AUDIENCE_RANK = {'team': 0, 'leader': 1, 'admin': 2}
+
+
+def itinerary_audience_for_user(org_id, user_role):
+    """The HIGHEST itinerary version this user may see for this trip, or None if they may
+    not see it at all.
+
+    This is computed from their actual membership, never from anything the browser sends.
+    A goer asking for the leader copy gets clamped down to the team copy rather than
+    refused, so the button always works but can only ever hand back what they are entitled
+    to. Confirmation numbers are the thing being protected here: leaders need them to sort
+    out a hotel, goers have no reason to hold them.
+    """
+    try:
+        oid = int(org_id)
+    except:
+        return None
+    if user_role.get('is_admin', False):
+        return 'admin'
+    for t in (user_role.get('accessible_trips', []) or []):
+        if int(t.OrganizationId) == oid:
+            return 'leader'
+    for t in (user_role.get('member_trips', []) or []):
+        if int(t.OrganizationId) == oid:
+            return 'team'
+    return None
+
+
+#####################################################################
+# ROLE GUIDES -- printable "how to use this" handouts
+#####################################################################
+
+# Self-contained so the print popup, which gets none of the page CSS, still looks right.
+GUIDE_CSS = '''
+.gd{--gd-ink:#14202e;--gd-soft:#3c4a5a;--gd-muted:#5d6b7a;--gd-rule:#dde3ea;
+    --gd-accent:#1f6f54;--gd-accent-dim:#e8f1ed;--gd-ask:#b45309;--gd-ask-dim:#fdf4e7;--gd-card:#fff;
+    color:var(--gd-ink);font-size:15px;line-height:1.55;max-width:880px}
+.gd h2.gd-title{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    font-size:30px;font-weight:600;margin:0 0 8px;letter-spacing:-.01em}
+.gd .gd-eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--gd-accent);
+    font-weight:700;margin:0 0 6px}
+.gd .gd-stand{margin:0 0 22px;max-width:62ch;color:var(--gd-soft);font-size:16px;
+    padding-bottom:16px;border-bottom:2px solid var(--gd-ink)}
+.gd section{margin:0 0 26px;break-inside:avoid}
+.gd section h3{font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    font-size:21px;font-weight:600;margin:0 0 3px}
+.gd .gd-for{margin:0 0 10px;color:var(--gd-muted);font-size:14px;max-width:62ch}
+.gd .gd-rows{border:1px solid var(--gd-rule);background:var(--gd-rule);
+    display:flex;flex-direction:column;gap:1px}
+.gd .gd-row{display:grid;grid-template-columns:126px 1fr;gap:14px;background:var(--gd-card);padding:11px 14px}
+.gd .gd-row dt{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;
+    color:var(--gd-muted);padding-top:3px}
+.gd .gd-row.can dt{color:var(--gd-accent)}
+.gd .gd-row.ask dt{color:var(--gd-ask)}
+.gd .gd-row.ask{background:var(--gd-ask-dim)}
+.gd .gd-row dd{margin:0}
+.gd .gd-row ul{margin:0;padding-left:17px}
+.gd .gd-row li{margin:0 0 3px}
+.gd .gd-row p{margin:0}
+.gd .gd-flag{display:block;margin-top:10px;padding:10px 13px;border-left:3px solid var(--gd-ask);
+    background:var(--gd-ask-dim);font-size:14px;color:var(--gd-soft)}
+.gd .gd-flag b{color:var(--gd-ask)}
+.gd .gd-foot{margin-top:30px;padding-top:16px;border-top:2px solid var(--gd-ink);
+    display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.gd .gd-foot h4{font-size:12px;letter-spacing:.06em;text-transform:uppercase;margin:0 0 6px;color:var(--gd-accent)}
+.gd .gd-foot p{margin:0 0 5px;font-size:14px;color:var(--gd-soft)}
+.gd .gd-fine{color:var(--gd-muted);font-size:12.5px}
+@media(max-width:760px){.gd .gd-row{grid-template-columns:1fr;gap:4px}.gd .gd-foot{grid-template-columns:1fr}}
+'''
+
+
+def _gd_section(title, whatfor, sees, cans, asks, flag=''):
+    def _items(v):
+        if isinstance(v, (list, tuple)):
+            return '<ul>' + ''.join('<li>' + x + '</li>' for x in v) + '</ul>'
+        return '<p>' + v + '</p>'
+    h = ['<section><h3>' + _escape_html(title) + '</h3>',
+         '<p class="gd-for">' + whatfor + '</p><dl class="gd-rows">']
+    h.append('<div class="gd-row"><dt>You see</dt><dd>' + _items(sees) + '</dd></div>')
+    if cans:
+        h.append('<div class="gd-row can"><dt>You can</dt><dd>' + _items(cans) + '</dd></div>')
+    if asks:
+        h.append('<div class="gd-row ask"><dt>Ask the office</dt><dd>' + _items(asks) + '</dd></div>')
+    h.append('</dl>')
+    if flag:
+        h.append('<p class="gd-flag">' + flag + '</p>')
+    h.append('</section>')
+    return ''.join(h)
+
+
+def build_guide_html(audience):
+    """The handout body for 'leader' or 'goer'. Content mirrors what each role actually
+    sees in this script, so it has to be updated alongside any change to their gating."""
+    h = ['<div class="gd">']
+    if audience == 'leader':
+        h.append('<p class="gd-eyebrow">Missions &middot; Trip leader</p>'
+                 '<h2 class="gd-title">Mission Trip Leader Guide</h2>'
+                 '<p class="gd-stand">What you can see and do in the Missions Dashboard for the trips you '
+                 'lead, and what to bring to the missions office instead.</p>')
+        h.append(_gd_section(
+            'Getting in',
+            'Everything below lives at one address. Sign in to TouchPoint first, then open it.',
+            ['<b>' + _escape_html(MY_MISSIONS_DISPLAY) + '</b> &mdash; bookmark it',
+             'A welcome page listing the trips you lead. Click a trip to open it, then use the menu '
+             'on the left'],
+            ['Reach your itinerary straight from the welcome page, without opening the trip',
+             'Share the same address with your team. They sign in and see only their own trip, '
+             'payments and meetings'],
+            '',
+            'If something looks wrong, tell the office what you were doing and include the version '
+            'number at the bottom of the menu. It tells us exactly which build you are on.'))
+        h.append(_gd_section(
+            'Overview',
+            'Your starting point for a trip. Check who has signed up and reach the whole team quickly.',
+            ['Trip dates, destination and how many people are on the team',
+             'Everyone who has signed up, newest first, with their approval status'],
+            ['<b>Email Team</b> to write to everyone at once', "Open any person to see their details"],
+            ''))
+        h.append(_gd_section(
+            'Team Members',
+            'Your roster, and the fastest way to see who still owes you paperwork before you travel.',
+            ['Every team member with their age and contact details',
+             'Whether each person has a photo, passport information and a completed background check'],
+            ['<b>Email All Team Members</b>, or email one person from their row',
+             "Open anyone's TouchPoint profile"],
+            '',
+            '<b>Use the status columns early.</b> Passports and background checks are the two things that '
+            'most often hold a team up. Chase them as soon as the roster settles, not the month you fly.'))
+        h.append(_gd_section(
+            'Meetings',
+            "Your team's prep meetings and who actually came to them.",
+            ['Every meeting scheduled for the trip, with date, time and location', 'Who attended each one'],
+            'Send a reminder email for any upcoming meeting straight from its row.',
+            ''))
+        h.append(_gd_section(
+            # raw text: _gd_section escapes the title, so pre-escaping it double-escapes
+            'Budget & Fundraising',
+            'Where each person stands against their trip cost, so you know who needs a nudge.',
+            ["Each person's trip cost, what they have raised and what is still outstanding",
+             'Totals for the whole team'],
+            'Text someone their personal giving link so they can share it with supporters. The button is '
+            'greyed out if we have no mobile number on file for them.',
+            '',
+            '<b>You will not see who gave.</b> Individual donors are deliberately hidden from leaders. You '
+            'get the totals so you can shepherd your team; the names stay with the office.'))
+        h.append(_gd_section(
+            'Itinerary',
+            'The trip travel sheet: flights, ground transport, lodging and contacts, in the order they happen.',
+            ['The whole trip in time order, from where you gather through to the return flight',
+             'Hotel confirmation numbers, driver names and phone numbers, and your in-country contact',
+             'A <b>Track</b> link on each flight to check its status on the day'],
+            'Read it on screen, or use <b>Print / save as PDF</b> for a paper copy to carry.',
+            'Any change to flights, hotels, drivers or contacts. The sheet is built from what the office '
+            'enters, so it is current the moment you open it.',
+            '<b>Your copy is not the team copy.</b> Yours includes confirmation numbers, so please do not '
+            'forward it. Your team prints their own version from My Missions with the booking references '
+            'left out. Flight record locators are never printed or emailed to anyone.'))
+        h.append('<div class="gd-foot"><div><h4>Who to contact</h4>'
+                 '<p>Missions office for registrations, payments, passports, background checks, meetings '
+                 'and any change to travel arrangements.</p>'
+                 '<p class="gd-fine">Anything marked "Ask the office" is a deliberate limit, not a fault. '
+                 'Those actions carry money or safeguarding consequences, so they sit with staff.</p></div>'
+                 '<div><h4>Before you travel</h4>'
+                 '<p>Print your leader itinerary, check every passport and background check is clear, and '
+                 'confirm the gather time with your team.</p>'
+                 '<p class="gd-fine">Leave a copy of your itinerary with someone at home.</p></div></div>')
+    else:
+        h.append('<p class="gd-eyebrow">Missions &middot; Going on a trip</p>'
+                 '<h2 class="gd-title">My Missions: A Quick Guide</h2>'
+                 '<p class="gd-stand">Everything you need for the trip you are going on, in one place: '
+                 'what you owe, when you meet, and where you are travelling.</p>')
+        h.append(_gd_section(
+            'Getting in',
+            'Sign in to TouchPoint first, then open My Missions.',
+            ['<b>' + _escape_html(MY_MISSIONS_DISPLAY) + '</b> &mdash; bookmark it',
+             'A page for each trip you are going on. If you are on more than one, they are listed together'],
+            '', '',
+            'If the page says you are not on a trip and you believe you are, contact the missions office.'))
+        h.append(_gd_section(
+            'Payment status',
+            'How your trip is funded and what is still outstanding.',
+            ['Your total trip cost', 'How much has come in so far, including gifts from supporters',
+             'What is still due, and a progress bar showing how close you are'],
+            'Open <b>View My Trip Details</b> to reach your giving page and to email supporters a link '
+            'they can give through.',
+            ''))
+        h.append(_gd_section(
+            'Upcoming meetings',
+            'Team meetings before you travel.',
+            'The next meetings for your trip, with the date, time and where to go.',
+            '', '',
+            'Let your trip leader know if you cannot make one.'))
+        h.append(_gd_section(
+            'Trip itinerary',
+            'Your travel sheet, once the office has entered the details.',
+            ['The trip in time order: where and when to gather, flights, ground transport, lodging and the '
+             'daily schedule',
+             'Who to contact at the church and, for overseas trips, in country',
+             'A <b>Track</b> link on each flight to check its status on the day'],
+            'Read it on screen, or use <b>Print / save as PDF</b> to carry a paper copy.',
+            'Any change to travel arrangements. The sheet updates the moment the office does.',
+            '<b>Details can change.</b> The date it was prepared is printed at the top. If you are carrying '
+            'a printed copy, check the screen version again before you leave.'))
+        h.append('<div class="gd-foot"><div><h4>Who to contact</h4>'
+                 '<p>Your trip leader for meetings, packing and anything about the trip itself.</p>'
+                 '<p>The missions office for payments, passports and travel arrangements.</p></div>'
+                 '<div><h4>Before you travel</h4>'
+                 '<p>Clear your outstanding balance, make sure the office has your passport details, and '
+                 'print or save your itinerary.</p>'
+                 '<p class="gd-fine">Leave a copy of your itinerary with someone at home.</p></div></div>')
+    h.append('</div>')
+    return ''.join(h)
+
+
+def render_guide_view(user_role):
+    """The handouts, in the dashboard. Admins can read and print either version; leaders and
+    goers get their own. Building it in rather than keeping a separate document means it
+    cannot drift away from what the app actually does."""
+    is_admin = user_role.get('is_admin', False)
+    is_leader = user_role.get('is_trip_leader', False)
+    want = str(getattr(model.Data, 'guide', '') or '').strip().lower()
+    if want not in ('leader', 'goer'):
+        want = 'leader' if (is_admin or is_leader) else 'goer'
+    if not is_admin:
+        # a goer cannot pull up the leader handout
+        want = 'leader' if is_leader else 'goer'
+
+    print '<style>' + GUIDE_CSS + '</style>' + GUIDE_JS
+    print ('<div class="section-header"><div><h2>How to use this dashboard</h2>'
+           '<div class="mc-note">A printable guide you can hand out.</div></div>'
+           '<div><button type="button" class="mi-itin-btn" onclick="GD.print(\'' + want + '\')">'
+           '&#128424; Print / save as PDF</button></div></div>')
+    if is_admin:
+        def _tab(key, label):
+            on = ' style="font-weight:700;text-decoration:underline"' if want == key else ''
+            return '<a href="?view=guide&guide=' + key + '"' + on + '>' + label + '</a>'
+        print ('<p class="mc-note">Show: ' + _tab('leader', 'Trip leader version')
+               + ' &nbsp;&middot;&nbsp; ' + _tab('goer', 'Team member version')
+               + ' &nbsp;&middot;&nbsp; give leaders the leader copy and goers the team copy.</p>')
+    print build_guide_html(want)
+
+
+GUIDE_JS = '''<script>
+var GD = {
+  print: function(which){
+    var url=window.location.pathname.replace('/PyScript/','/PyScriptForm/');
+    var fd=new FormData(); fd.append('action','get_guide'); fd.append('guide',which);
+    fetch(url,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.text();})
+      .then(function(t){
+        var j={}; try{ j=JSON.parse(t); }catch(e){}
+        if(!j.success){ alert((j&&j.message)||'Could not build the guide'); return; }
+        var pw=window.open('', '_blank');
+        if(!pw){ alert('Popup blocked - please allow popups for this site, then try again.'); return; }
+        pw.document.write('<!DOCTYPE html><html><head><title>'+String(j.title||'Guide').replace(/[<>&]/g,'')+'</title>');
+        pw.document.write('<style>body{margin:0;padding:26px;background:#fff;font-family:ui-sans-serif,-apple-system,\\'Segoe UI\\',Roboto,sans-serif}'+j.css+'</style>');
+        pw.document.write('</head><body>'+j.html+'</body></html>');
+        pw.document.close(); pw.focus();
+        setTimeout(function(){ pw.print(); }, 300);
+      })
+      .catch(function(){ alert('Could not build the guide'); });
+  }
+};
+</script>'''
+
+
+def handle_get_guide():
+    """Standalone guide HTML for the print popup."""
+    import json
+    try:
+        user_role = get_user_role_and_trips()
+        want = str(getattr(Data, 'guide', 'goer') or 'goer').strip().lower()
+        if want not in ('leader', 'goer'):
+            want = 'goer'
+        if not user_role.get('is_admin', False):
+            want = 'leader' if user_role.get('is_trip_leader', False) else 'goer'
+        print safe_json({'success': True, 'guide': want,
+                         'title': ('Mission Trip Leader Guide' if want == 'leader' else 'My Missions Guide'),
+                         'css': GUIDE_CSS, 'html': build_guide_html(want)})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': str(e)})
+    return True
+
+
+def render_trip_itinerary_section(org_id, user_role):
+    """Read-only itinerary for a trip, reachable by leaders as well as admins.
+
+    The editable Logistics tab stays admin-only; this is the finished sheet, in whichever
+    version the viewer is entitled to. It renders inline so a leader can read it without a
+    popup, with a print button for the paper copy."""
+    trip = _get_trip_info(org_id)
+    if not trip:
+        return '<div class="alert alert-danger">Trip not found.</div>'
+    audience = itinerary_audience_for_user(org_id, user_role)
+    if not audience:
+        return '<div class="alert alert-danger">You do not have access to this trip.</div>'
+    # the on-screen admin copy (record locators) is only for the configured roles
+    if audience == 'admin' and not _it_can_see_locators():
+        audience = 'leader'
+
+    itin = build_itinerary(org_id)
+    h = [MI_STYLE, MI_JS]
+    h.append('<div class="section-header"><div><div class="breadcrumb">'
+             '<a href="?">Dashboard</a> &rsaquo; <a href="?trip=' + str(org_id) + '">'
+             + _escape_html(trip.OrganizationName) + '</a> &rsaquo; Itinerary</div>'
+             '<h2>Itinerary</h2></div>'
+             '<div><button type="button" class="mi-itin-btn" '
+             'onclick="MI.print(' + str(int(org_id)) + ',\'' + audience + '\')">'
+             '&#128424; Print / save as PDF</button></div></div>')
+    if audience in ('leader', 'admin'):
+        h.append('<p class="mc-note" style="color:#b45309"><b>Leader copy.</b> This includes '
+                 'confirmation numbers, so please do not forward it to the team. '
+                 + ('Record locators are shown on screen only and are never printed or emailed. '
+                    if audience == 'admin' else '')
+                 + 'The team\'s own copy leaves the booking references out.</p>')
+    if user_role.get('is_admin', False):
+        h.append('<p class="mc-note">Edit any of this on the '
+                 '<a href="?trip=' + str(org_id) + '&section=logistics">Logistics</a> tab.</p>')
+    h.append('<div class="mc-block">' + render_itinerary_document(itin, standalone=False, audience=audience) + '</div>')
+    return ''.join(h)
+
+
+def render_my_itinerary_block(org_id, trip_name, audience):
+    """View / print buttons for one trip on the My Missions and leader pages.
+
+    audience is what the SERVER decided this person may see; it is only echoed back so the
+    request is explicit. handle_get_itinerary clamps it again regardless."""
+    if not audience:
+        return ''
+    oid = str(int(org_id))
+    label = ('Leader itinerary' if audience in ('leader', 'admin') else 'Trip itinerary')
+    note = ('Includes confirmation numbers. Please do not forward it to the team.'
+            if audience in ('leader', 'admin') else '')
+    return ('<div class="mi-itin" data-org="' + oid + '">'
+            '<button type="button" class="mi-itin-btn" onclick="MI.view(' + oid + ',\'' + audience + '\')">'
+            '&#128203; View ' + label + '</button> '
+            '<button type="button" class="mi-itin-btn" onclick="MI.print(' + oid + ',\'' + audience + '\')">'
+            '&#128424; Print / save as PDF</button>'
+            + ('<div class="mi-itin-note">' + note + '</div>' if note else '')
+            + '<div class="mi-itin-box" id="mi-itin-' + oid + '" style="display:none"></div></div>')
+
+
+MI_JS = '''<script>
+// Itinerary access for goers and trip leaders on My Missions. The server decides which
+// version comes back; asking for a different one just gets clamped.
+var MI = {
+  _fetch: function(org, audience, forprint, cb){
+    var url=window.location.pathname.replace('/PyScript/','/PyScriptForm/');
+    var fd=new FormData();
+    fd.append('action','get_itinerary'); fd.append('org',org);
+    fd.append('audience',audience); fd.append('forprint',forprint?'1':'0');
+    fetch(url,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.text();})
+      .then(function(t){ var j={}; try{ j=JSON.parse(t); }catch(e){} cb(j); })
+      .catch(function(){ cb({success:false,message:'network error'}); });
+  },
+  view: function(org, audience){
+    var box=document.getElementById('mi-itin-'+org);
+    if(box && box.style.display!=='none'){ box.style.display='none'; box.innerHTML=''; return; }
+    if(box){ box.style.display=''; box.innerHTML='<i>Loading...</i>'; }
+    MI._fetch(org, audience, false, function(j){
+      if(!box) return;
+      if(!j.success){ box.innerHTML='<i>'+(j.message||'Could not load the itinerary')+'</i>'; return; }
+      box.innerHTML=j.html;
+    });
+  },
+  print: function(org, audience){
+    MI._fetch(org, audience, true, function(j){
+      if(!j.success){ alert(j.message||'Could not build the itinerary'); return; }
+      // popup, not @media print: TouchPoint page CSS strips backgrounds otherwise
+      var pw=window.open('', '_blank');
+      if(!pw){ alert('Popup blocked - please allow popups for this site, then try again.'); return; }
+      pw.document.write('<!DOCTYPE html><html><head><title>'
+        +String(j.tripName||'Trip Itinerary').replace(/[<>&]/g,'')+'</title>');
+      pw.document.write(j.html);
+      pw.document.write('</head><body></body></html>');
+      pw.document.close(); pw.focus();
+      setTimeout(function(){ pw.print(); }, 300);
+    });
+  }
+};
+</script>'''
+
+MI_STYLE = '''<style>
+.mi-itin{margin:12px 0 0;padding-top:10px;border-top:1px solid #e9ecef}
+.mi-itin-btn{background:#fff;border:1px solid #1f6f54;color:#1f6f54;border-radius:6px;
+  padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;margin:0 6px 6px 0}
+.mi-itin-btn:hover{background:#1f6f54;color:#fff}
+.mi-itin-note{font-size:11.5px;color:#b45309;margin:2px 0 0}
+.mi-itin-box{margin-top:10px;padding:10px;background:#fff;border:1px solid #e2e8f0;
+  border-radius:8px;overflow-x:auto}
+</style>'''
+
+
 def handle_get_itinerary():
     """Return the rendered itinerary HTML.
 
@@ -14738,12 +15189,16 @@ def handle_get_itinerary():
     try:
         user_role = get_user_role_and_trips()
         org_id = int(str(getattr(Data, 'org', '0')).strip() or '0')
-        if not (user_role.get('is_admin', False) or has_trip_access(user_role, org_id)):
+        allowed = itinerary_audience_for_user(org_id, user_role)
+        if allowed is None:
             print json.dumps({'success': False, 'message': 'You do not have access to this trip.'})
             return True
         audience = str(getattr(Data, 'audience', 'team') or 'team').strip().lower()
         if audience not in ('team', 'leader', 'admin'):
             audience = 'team'
+        # clamp whatever was asked for down to what this person is entitled to
+        if _IT_AUDIENCE_RANK[audience] > _IT_AUDIENCE_RANK[allowed]:
+            audience = allowed
         for_print = str(getattr(Data, 'forprint', '0')).strip() == '1'
         if audience == 'admin' and (for_print or not _it_can_see_locators()):
             # never printable, and never available to a role outside the config list
@@ -15400,36 +15855,78 @@ def _rd_tasks(data, today):
             'created': len([t for t in open_t if t.get('nativeTaskIds')])}
 
 
-def _rd_setup(name, dates, leaders):
+def _rd_org_meta():
+    """{orgId: {'created': iso, 'regEnd': iso}} for every mission trip, in one query.
+    RegEnd is TouchPoint's registration close date."""
+    sql = '''
+        SELECT o.OrganizationId AS OrgId,
+               CONVERT(varchar(10), o.CreatedDate, 126) AS Created,
+               CONVERT(varchar(10), o.RegEnd, 126) AS RegEnd
+        FROM Organizations o WITH (NOLOCK)
+        WHERE o.IsMissionTrip = {0}
+    '''.format(config.MISSION_TRIP_FLAG)
+    out = {}
+    try:
+        for r in q.QuerySql(sql):
+            out[int(r.OrgId)] = {'created': (getattr(r, 'Created', '') or ''),
+                                 'regEnd': (getattr(r, 'RegEnd', '') or '')}
+    except:
+        pass
+    return out
+
+
+def _rd_setup(name, dates, leaders, created='', trip_cost=None, meetings=None, reg_end=None):
     """Gaps in the trip record itself, before any logistics/costs/tasks exist. A trip with
     no dates can't date its tasks and can't build an itinerary, so this is the first thing
     to fix."""
     gaps = []
-    if not dates.get('start') and not dates.get('end'):
+    start, end = dates.get('start', ''), dates.get('end', '')
+    if not start and not end:
         gaps.append('no dates set')
-    elif not dates.get('start'):
+    elif not start:
         gaps.append('no start date')
-    elif not dates.get('end'):
+    elif not end:
         gaps.append('no end date')
     if not leaders:
         gaps.append('no leader')
+    # A trip created AFTER its own start date is almost always a copy of a previous trip
+    # whose dates came along for the ride. Catching it here is much cheaper than finding
+    # out when task due dates and the itinerary all land in the past.
+    if created and start and created[:10] > start[:10]:
+        gaps.append('dates look copied (trip created ' + created[:10]
+                    + ', after the start date ' + start[:10] + ')')
+    if trip_cost is not None and _cf(trip_cost) <= 0:
+        gaps.append('no trip cost set')
+    if meetings is not None and int(meetings) <= 0:
+        gaps.append('no meetings scheduled')
+    # Registration has to stop before the team travels, so the close date is part of the
+    # date check rather than a separate concern.
+    if reg_end is not None:
+        if not reg_end:
+            gaps.append('no registration close date')
+        elif start and reg_end[:10] > start[:10]:
+            gaps.append('registration closes after departure')
     return gaps
 
 
-def _rd_future_meetings():
-    """{orgId: count} of meetings still to come, in ONE query -- used to decide whether a
-    past-dated trip genuinely has nothing left."""
+def _rd_meeting_counts():
+    """{orgId: {'total': n, 'future': n}} in ONE query. `future` decides whether a
+    past-dated trip genuinely has nothing left; `total` catches a trip with no prep
+    meetings booked at all."""
     sql = '''
-        SELECT m.OrganizationId AS OrgId, COUNT(*) AS N
+        SELECT m.OrganizationId AS OrgId,
+               COUNT(*) AS Total,
+               SUM(CASE WHEN m.MeetingDate >= GETDATE() THEN 1 ELSE 0 END) AS Future
         FROM Meetings m WITH (NOLOCK)
         JOIN Organizations o WITH (NOLOCK) ON o.OrganizationId = m.OrganizationId
-        WHERE o.IsMissionTrip = {0} AND m.MeetingDate >= GETDATE()
+        WHERE o.IsMissionTrip = {0}
         GROUP BY m.OrganizationId
     '''.format(config.MISSION_TRIP_FLAG)
     out = {}
     try:
         for r in q.QuerySql(sql):
-            out[int(r.OrgId)] = int(r.N or 0)
+            out[int(r.OrgId)] = {'total': int(getattr(r, 'Total', 0) or 0),
+                                 'future': int(getattr(r, 'Future', 0) or 0)}
     except:
         pass
     return out
@@ -15451,7 +15948,8 @@ def build_trip_readiness(include_closed=False, include_undated=False, include_fi
         trips = list(get_all_trips_for_sidebar(include_closed))
     except:
         trips = []
-    future_meetings = _rd_future_meetings()
+    meeting_counts = _rd_meeting_counts()
+    org_meta = _rd_org_meta()
     for t in trips:
         oid = int(t.OrganizationId)
         name = (getattr(t, 'OrganizationName', '') or ('Trip %d' % oid))
@@ -15464,21 +15962,28 @@ def build_trip_readiness(include_closed=False, include_undated=False, include_fi
         tdata = load_trip_tasks(oid)
         _prime_native_task_cache(tdata.get('tasks', []) or [])
         tasks = _rd_tasks(tdata, today)
-        # A trip that has come home, has nothing left to do and nothing left scheduled is
-        # finished -- keeping it on a readiness page just buries the trips that need work.
+        leaders = [l.get('name', '') for l in _lg_trip_leaders(oid)]
+        setup = _rd_setup(name, lgd, leaders,
+                          org_meta.get(oid, {}).get('created', ''),
+                          get_effective_trip_cost(oid),
+                          meeting_counts.get(oid, {}).get('total', 0),
+                          org_meta.get(oid, {}).get('regEnd', ''))
+        # A trip that has come home with nothing left to do is finished, and hiding it keeps
+        # the page focused. But a trip with SETUP GAPS is never treated as finished: a copy
+        # whose dates were carried over from the original looks long since returned, so
+        # hiding it would bury the very trips that need the dates fixed.
         end = lgd.get('end') or lgd.get('start') or ''
-        if (not include_finished and end and end < today
-                and not tasks['open'] and not future_meetings.get(oid)):
+        if (not include_finished and end and end < today and not setup
+                and not tasks['open'] and not meeting_counts.get(oid, {}).get('future')):
             finished.append({'orgId': oid, 'name': name, 'end': end})
             continue
-        leaders = [l.get('name', '') for l in _lg_trip_leaders(oid)]
         rows.append({
             'orgId': oid,
             'name': name,
             'status': (getattr(t, 'TripStatus', '') or ''),
             'start': lgd.get('start', ''), 'end': lgd.get('end', ''),
             'leaders': leaders,
-            'setup': _rd_setup(name, lgd, leaders),
+            'setup': setup,
             'lg': _rd_logistics(lg, lgd),
             'costs': _rd_costs(oid, load_trip_costs(oid)),
             'tasks': tasks,
@@ -15533,9 +16038,12 @@ def render_readiness_view(user_role):
     n_noest = len([r for r in rows if not r['costs']['hasEstimate']])
     n_overdue = sum(r['tasks']['overdue'] for r in rows)
     n_offtasks = len([r for r in rows if r['tasks']['total'] and not r['tasks']['enabled']])
+    n_copied = len([r for r in rows if any(g.startswith('dates look copied') for g in r['setup'])])
     print '<div class="mc-cards">'
     print _mc_card('Trips', str(len(rows)), 'closed included' if include_closed else 'open trips')
-    print _mc_card('Setup gaps', str(n_setup), 'no dates or no leader', warn=(n_setup > 0))
+    print _mc_card('Setup gaps', str(n_setup), 'dates, leader or cost', warn=(n_setup > 0))
+    if n_copied:
+        print _mc_card('Dates look copied', str(n_copied), 'created after the start date', warn=True)
     print _mc_card('Logistics gaps', str(n_nolog), 'trips with something missing', warn=(n_nolog > 0))
     print _mc_card('No cost estimate', str(n_noest), 'nothing budgeted yet', warn=(n_noest > 0))
     print _mc_card('Overdue tasks', str(n_overdue), 'across all trips', warn=(n_overdue > 0))
@@ -15571,9 +16079,11 @@ def render_readiness_view(user_role):
     if finished and not include_finished:
         names = ', '.join(_escape_html(f['name']) for f in finished[:3])
         print ('<div class="rd-hidden"><b>' + str(len(finished)) + '</b> finished trip'
-               + ('' if len(finished) == 1 else 's') + ' hidden &mdash; returned, no open tasks, '
-               'nothing scheduled (' + names + (', &hellip;' if len(finished) > 3 else '') + '). '
-               + _toggle('finished', False, '', 'Show them') + '.</div>')
+               + ('' if len(finished) == 1 else 's') + ' hidden &mdash; returned, nothing flagged, '
+               'no open tasks, nothing scheduled (' + names
+               + (', &hellip;' if len(finished) > 3 else '') + '). '
+               + _toggle('finished', False, '', 'Show them') + '. '
+               'Anything with a setup flag stays on the list even if its dates have passed.</div>')
 
     if not rows:
         print '<div class="mc-block"><p class="mc-note">No mission trips found.</p></div>'
@@ -15596,6 +16106,14 @@ def render_readiness_view(user_role):
             sub += ' &middot; ' + _escape_html(who)
         else:
             sub += ' &middot; <a class="rd-fix" href="' + base + '&section=team">assign a leader</a>'
+        # Gaps the two lines above don't already say (copied dates, missing trip cost)
+        # everything except the two already spelled out on the line above
+        extra = [g for g in r['setup']
+                 if not g.startswith('no dates') and not g.startswith('no start')
+                 and not g.startswith('no end') and g != 'no leader']
+        if extra:
+            sub += ('<div class="rd-warn" style="margin-top:2px">&#9888; '
+                    + '; '.join(_escape_html(g) for g in extra) + '</div>')
         h.append('<tr><td data-label="Trip"><a class="rd-trip" href="' + base + '">'
                  + _escape_html(r['name']) + '</a>'
                  + '<div class="rd-sub">' + sub + '</div></td>')
@@ -15784,7 +16302,9 @@ def build_cost_report(scope='active', date_from='', date_to=''):
         c['variancePct'] = ((c['variance'] / c['estTotal'] * 100.0) if c['estTotal'] else 0.0)
         c['hasActual'] = c['actualTotal'] > 0
         rows.append(c)
-    rows.sort(key=lambda r: (r['start'] or 'zzzz'))
+    # Anything with a setup gap sorts to the top: the whole point of the page is to surface
+    # trips that need attention, so they should not be buried under the healthy ones.
+    rows.sort(key=lambda r: (0 if r['setup'] else 1, r['start'] or 'zzzz'))
     return rows
 
 
@@ -16662,6 +17182,10 @@ def handle_ajax_request():
     elif action == 'push_native_tasks':
         # AJAX request to create native TouchPoint tasks now (manual override)
         return handle_push_native_tasks()
+
+    elif action == 'get_guide':
+        # AJAX: standalone guide HTML for the print popup
+        return handle_get_guide()
 
     elif action == 'get_itinerary':
         # AJAX: rendered itinerary HTML for the print popup
@@ -19994,6 +20518,14 @@ def render_leader_dashboard_view(user_role):
     accessible_trips = user_role.get('accessible_trips', [])
     user_id = user_role.get('user_id', 0)
 
+    # itinerary buttons on the trip cards below need these once per page
+    print MI_STYLE + MI_JS
+
+    # leaders and goers have no admin sidebar, so the guide needs its own way in
+    print ('<p style="margin:0 0 18px"><a href="?view=guide" '
+           'style="font-size:14px;color:#1f6f54;font-weight:600;text-decoration:none">'
+           '&#10068; How to use this page &mdash; a printable guide</a></p>')
+
     # Get user's name for welcome message
     user_name = "Leader"
     try:
@@ -20143,6 +20675,12 @@ def print_leader_trip_card(trip, status):
         status.title()                                # 8
     )
 
+    # Itinerary buttons sit OUTSIDE the card's wrapping <a> -- a button inside a link is
+    # invalid markup and browsers handle the click unpredictably.
+    if status != 'completed':
+        print render_my_itinerary_block(trip.OrganizationId,
+                                        trip.OrganizationName or 'Trip', 'leader')
+
 
 # ::END:: Leader Dashboard View
 
@@ -20157,6 +20695,14 @@ def render_member_dashboard_view(user_role):
     member_trips = user_role.get('member_trips', [])
     leader_trips = user_role.get('accessible_trips', [])  # In case they're also a leader of other trips
     user_id = user_role.get('user_id', 0)
+
+    # itinerary buttons on the trip cards below need these once per page
+    print MI_STYLE + MI_JS
+
+    # leaders and goers have no admin sidebar, so the guide needs its own way in
+    print ('<p style="margin:0 0 18px"><a href="?view=guide" '
+           'style="font-size:14px;color:#1f6f54;font-weight:600;text-decoration:none">'
+           '&#10068; How to use this page &mdash; a printable guide</a></p>')
 
     # Get user's name for welcome message
     user_name = "Missionary"
@@ -20430,6 +20976,14 @@ def render_member_trip_card(trip, user_id, user_role):
             </a>
         </div>
         '''.format(org_id)
+
+    # Itinerary: leaders of this trip get the leader copy (confirmation numbers), everyone
+    # else on the trip gets the team copy. Completed trips are left out -- the sheet is for
+    # travelling, not for the archive. The server re-checks entitlement on every fetch.
+    if status != 'completed':
+        _aud = itinerary_audience_for_user(org_id, user_role)
+        if _aud:
+            print render_my_itinerary_block(org_id, trip_name, _aud)
 
     print '</div></div>'  # Close card body and card
 
@@ -24724,7 +25278,20 @@ def render_settings_view(user_role):
                 document.getElementById('configForm').style.display = 'block';
                 document.getElementById('saveConfigBtn').style.display = 'inline-block';
                 var h = '<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">';
-                h += DashConfig.field('MY_MISSIONS_LINK', 'Share Link (MyMissions URL)', cfg.MY_MISSIONS_LINK, 'text', 'Leave empty to auto-generate');
+                h += DashConfig.field('MY_MISSIONS_LINK', 'Share Link (MyMissions URL)', cfg.MY_MISSIONS_LINK, 'text', 'e.g. https://yourchurch.com/MyMissions');
+                // The friendly URL is only half the job: it has to redirect somewhere.
+                // This script knows its own address, so show the exact target rather than
+                // making someone guess what they named it.
+                h += '<div style="margin:-4px 0 12px;padding:8px 10px;background:#f8fafc;'
+                   + 'border:1px solid #e2e8f0;border-radius:5px;font-size:11.5px;color:#475569;line-height:1.5;">'
+                   + 'The friendly address you type above is what leaders and goers are shown and what the '
+                   + '<b>Copy Link</b> button copies. Point it at this script:'
+                   + '<div style="margin:5px 0 4px;padding:5px 8px;background:#fff;border:1px solid #e2e8f0;'
+                   + 'border-radius:4px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;'
+                   + 'word-break:break-all;" id="cfgRedirectTarget">&#8230;</div>'
+                   + 'Set that up as a redirect with whoever hosts your website or DNS. '
+                   + 'Leave the box empty and everyone is given the address above instead, which works but is harder to remember.'
+                   + '</div>';
                 h += DashConfig.field('CURRENCY_SYMBOL', 'Currency Symbol', cfg.CURRENCY_SYMBOL, 'text');
                 h += DashConfig.field('ITEMS_PER_PAGE', 'Items Per Page', cfg.ITEMS_PER_PAGE, 'number');
                 h += DashConfig.field('MEMBER_TYPE_LEADER', 'Leader Member Type ID', cfg.MEMBER_TYPE_LEADER, 'number');
@@ -24757,6 +25324,20 @@ def render_settings_view(user_role):
                 h += DashConfig.field('COST_CATEGORIES', 'Categories (comma-separated)', (cfg.COST_CATEGORIES||''), 'text');
                 h += '</div>';
                 document.getElementById('configForm').innerHTML = h;
+                // Fill in the redirect target using this page's own address, so it shows the
+                // real script name rather than assuming it is called Mission_Dashboard.
+                var tgt = document.getElementById('cfgRedirectTarget');
+                if (tgt) {
+                    var parts = window.location.pathname.split('/'), name = 'Mission_Dashboard';
+                    for (var i = 0; i < parts.length; i++) {
+                        if (parts[i] === 'PyScript' || parts[i] === 'PyScriptForm') {
+                            if (i + 1 < parts.length && parts[i + 1]) { name = parts[i + 1].split('?')[0]; }
+                            break;
+                        }
+                    }
+                    tgt.textContent = window.location.protocol + '//' + window.location.host
+                                    + '/PyScript/' + name;
+                }
             },
             field: function(name, label, value, type, hint) {
                 var inp = type === 'color'
@@ -26140,6 +26721,8 @@ def main():
             render_readiness_view(user_role)
         elif view == 'costreport':
             render_cost_report_view(user_role)
+        elif view == 'guide':
+            render_guide_view(user_role)
         elif view == 'tasks':
             render_all_tasks_view(user_role)
         elif view == 'calendar':
