@@ -1,5 +1,5 @@
 """
-Mission Dashboard 4.5.1 - Costs, Logistics, Tasks & Reporting
+Mission Dashboard 4.6.0 - Costs, Logistics, Tasks & Reporting
 ======================================================
 Purpose: Comprehensive mission trip management dashboard with sidebar navigation
 Author: Ben Swaby
@@ -104,6 +104,10 @@ class Config:
     # Security Roles - any of these grants full admin access to all trips
     ADMIN_ROLES = ["Edit", "Admin", "Finance", "MissionsDirector"]
     LEADER_MEMBER_TYPES = [140, 310, 320]  # MemberTypeIds that indicate leadership
+
+    # How close a trip has to be before Trip Readiness complains that no prep meeting has
+    # actually happened yet. Months out it is simply too early to care.
+    READINESS_MEETING_LEAD_DAYS = 30
 
     # Roles allowed to SEE flight record locators, and then only on screen.
     # A record locator plus a surname is enough to change or cancel someone's booking, so
@@ -268,11 +272,18 @@ import re
 
 # ::CONFIG:: Version
 # Bump APP_VERSION on user-visible changes; keep the changelog short.
-APP_VERSION = "4.5.1"
+APP_VERSION = "4.6.0"
 APP_VERSION_DATE = "2026-08-07"
 # Version history:
 #   4.0.0  - Sidebar navigation, role-based views, per-trip sections
 #   4.1.0  - Hub & spoke intake (one hub involvement -> many trips)
+#   4.6.0  - Trip Readiness now excludes applications by the configured
+#            Application Org IDs rather than guessing from missing dates, so
+#            a real trip without dates is shown and flagged. Meeting lead
+#            days is now editable in Settings.
+#   4.5.2  - Trip Readiness also checks that a prep meeting has actually
+#            HAPPENED, not just been booked, once the trip is within
+#            Config.READINESS_MEETING_LEAD_DAYS of departure.
 #   4.5.1  - Trip Readiness: a trip with setup flags is never hidden as
 #            finished. A copied trip carries the original past dates, so it
 #            looked returned and the flags were buried.
@@ -396,6 +407,7 @@ def save_config(config):
         'MEMBER_TYPE_LEADER': config.MEMBER_TYPE_LEADER,
         'ATTENDANCE_TYPE_LEADER': config.ATTENDANCE_TYPE_LEADER,
         'ITEMS_PER_PAGE': config.ITEMS_PER_PAGE,
+        'READINESS_MEETING_LEAD_DAYS': config.READINESS_MEETING_LEAD_DAYS,
         'SHOW_CLOSED_BY_DEFAULT': config.SHOW_CLOSED_BY_DEFAULT,
         'ENABLE_SQL_DEBUG': config.ENABLE_SQL_DEBUG,
         'SEND_PAYMENT_REMINDERS': config.SEND_PAYMENT_REMINDERS,
@@ -15855,6 +15867,16 @@ def _rd_tasks(data, today):
             'created': len([t for t in open_t if t.get('nativeTaskIds')])}
 
 
+def _rd_days_between(a_iso, b_iso):
+    """Whole days from a to b, or None if either date is unusable."""
+    try:
+        a = datetime.datetime.strptime(str(a_iso)[:10], '%Y-%m-%d')
+        b = datetime.datetime.strptime(str(b_iso)[:10], '%Y-%m-%d')
+        return (b - a).days
+    except:
+        return None
+
+
 def _rd_org_meta():
     """{orgId: {'created': iso, 'regEnd': iso}} for every mission trip, in one query.
     RegEnd is TouchPoint's registration close date."""
@@ -15875,7 +15897,8 @@ def _rd_org_meta():
     return out
 
 
-def _rd_setup(name, dates, leaders, created='', trip_cost=None, meetings=None, reg_end=None):
+def _rd_setup(name, dates, leaders, created='', trip_cost=None, meetings=None, reg_end=None,
+              meetings_held=None, today_iso=''):
     """Gaps in the trip record itself, before any logistics/costs/tasks exist. A trip with
     no dates can't date its tasks and can't build an itinerary, so this is the first thing
     to fix."""
@@ -15899,6 +15922,13 @@ def _rd_setup(name, dates, leaders, created='', trip_cost=None, meetings=None, r
         gaps.append('no trip cost set')
     if meetings is not None and int(meetings) <= 0:
         gaps.append('no meetings scheduled')
+    elif meetings_held is not None and int(meetings_held) <= 0 and start and today_iso:
+        # Meetings are on the calendar but none has happened yet. Only worth saying once the
+        # trip is close; months out it is simply too early and would be noise.
+        days = _rd_days_between(today_iso, start)
+        if days is not None and days <= config.READINESS_MEETING_LEAD_DAYS:
+            gaps.append('no meetings held yet (departs in %d day%s)'
+                        % (days, '' if days == 1 else 's'))
     # Registration has to stop before the team travels, so the close date is part of the
     # date check rather than a separate concern.
     if reg_end is not None:
@@ -15910,13 +15940,19 @@ def _rd_setup(name, dates, leaders, created='', trip_cost=None, meetings=None, r
 
 
 def _rd_meeting_counts():
-    """{orgId: {'total': n, 'future': n}} in ONE query. `future` decides whether a
-    past-dated trip genuinely has nothing left; `total` catches a trip with no prep
-    meetings booked at all."""
+    """{orgId: {'total': n, 'future': n, 'held': n}} in ONE query.
+
+    `future` decides whether a past-dated trip genuinely has nothing left, `total` catches a
+    trip with no prep meetings booked, and `held` counts meetings whose date has passed and
+    that were NOT marked "did not meet". Held deliberately does not require recorded
+    attendance -- plenty of real meetings happen without anyone taking a register, and
+    flagging those would train people to ignore the page."""
     sql = '''
         SELECT m.OrganizationId AS OrgId,
                COUNT(*) AS Total,
-               SUM(CASE WHEN m.MeetingDate >= GETDATE() THEN 1 ELSE 0 END) AS Future
+               SUM(CASE WHEN m.MeetingDate >= GETDATE() THEN 1 ELSE 0 END) AS Future,
+               SUM(CASE WHEN m.MeetingDate < GETDATE() AND ISNULL(m.DidNotMeet, 0) = 0
+                        THEN 1 ELSE 0 END) AS Held
         FROM Meetings m WITH (NOLOCK)
         JOIN Organizations o WITH (NOLOCK) ON o.OrganizationId = m.OrganizationId
         WHERE o.IsMissionTrip = {0}
@@ -15926,13 +15962,16 @@ def _rd_meeting_counts():
     try:
         for r in q.QuerySql(sql):
             out[int(r.OrgId)] = {'total': int(getattr(r, 'Total', 0) or 0),
-                                 'future': int(getattr(r, 'Future', 0) or 0)}
+                                 'future': int(getattr(r, 'Future', 0) or 0),
+                                 'held': int(getattr(r, 'Held', 0) or 0)}
     except:
         pass
     return out
 
 
 def build_trip_readiness(include_closed=False, include_undated=False, include_finished=False):
+    # include_undated is retained for URL compatibility but is no longer used: undated
+    # TRIPS are now shown and flagged, and applications are excluded by id instead.
     """One row per trip with its Logistics / Costs / Tasks state.
 
     Involvements with NO dates at all are almost always intake forms rather than trips
@@ -15948,15 +15987,19 @@ def build_trip_readiness(include_closed=False, include_undated=False, include_fi
         trips = list(get_all_trips_for_sidebar(include_closed))
     except:
         trips = []
+    app_orgs = set(int(x) for x in (config.APPLICATION_ORG_IDS or []))
     meeting_counts = _rd_meeting_counts()
     org_meta = _rd_org_meta()
     for t in trips:
         oid = int(t.OrganizationId)
         name = (getattr(t, 'OrganizationName', '') or ('Trip %d' % oid))
-        lgd = _lg_trip_dates(oid)
-        if not lgd.get('start') and not lgd.get('end') and not include_undated:
+        # Applications and interest forms are identified by the list in
+        # Settings > Roles & Permissions > Application Org IDs, the same list the sidebar
+        # uses. They are not trips, so they never belong on a readiness page.
+        if oid in app_orgs:
             undated.append({'orgId': oid, 'name': name})
             continue
+        lgd = _lg_trip_dates(oid)
         lg = load_trip_logistics(oid)
         # prime the native-task cache per trip so _rd_tasks doesn't fire a query per task
         tdata = load_trip_tasks(oid)
@@ -15967,7 +16010,8 @@ def build_trip_readiness(include_closed=False, include_undated=False, include_fi
                           org_meta.get(oid, {}).get('created', ''),
                           get_effective_trip_cost(oid),
                           meeting_counts.get(oid, {}).get('total', 0),
-                          org_meta.get(oid, {}).get('regEnd', ''))
+                          org_meta.get(oid, {}).get('regEnd', ''),
+                          meeting_counts.get(oid, {}).get('held', 0), today)
         # A trip that has come home with nothing left to do is finished, and hiding it keeps
         # the page focused. But a trip with SETUP GAPS is never treated as finished: a copy
         # whose dates were carried over from the original looks long since returned, so
@@ -16062,17 +16106,15 @@ def render_readiness_view(user_role):
 
     # Undated involvements are almost always intake forms. Say so and how many, rather than
     # dropping them without a word.
-    if undated and not include_undated:
+    if undated:
         names = ', '.join(_escape_html(u['name']) for u in undated[:3])
-        print ('<div class="rd-hidden"><b>' + str(len(undated)) + '</b> involvement'
-               + ('' if len(undated) == 1 else 's') + ' with no dates set '
-               'are hidden &mdash; these are normally applications and interest forms ('
-               + names + (', &hellip;' if len(undated) > 3 else '') + '). '
-               + _toggle('undated', False, '', 'Show them anyway')
-               + ' if one of these is a real trip that still needs its dates.</div>')
-    elif include_undated:
-        print ('<div class="rd-hidden">Showing undated involvements too. '
-               + _toggle('undated', True, 'Hide them', '') + '</div>')
+        print ('<div class="rd-hidden"><b>' + str(len(undated)) + '</b> application'
+               + ('' if len(undated) == 1 else 's')
+               + ' and interest form' + ('' if len(undated) == 1 else 's')
+               + ' excluded (' + names + (', &hellip;' if len(undated) > 3 else '') + '). '
+               'These are the involvements listed under <a href="?view=settings">Settings '
+               '&rsaquo; Application Org IDs</a>. A real trip that is missing its dates stays '
+               'on the list below, flagged.</div>')
 
     # Trips that have come home with nothing outstanding are done -- listing them buries
     # the trips that still need work.
@@ -19324,6 +19366,7 @@ def handle_get_config():
             'MEMBER_TYPE_LEADER': config.MEMBER_TYPE_LEADER,
             'ATTENDANCE_TYPE_LEADER': config.ATTENDANCE_TYPE_LEADER,
             'ITEMS_PER_PAGE': config.ITEMS_PER_PAGE,
+            'READINESS_MEETING_LEAD_DAYS': config.READINESS_MEETING_LEAD_DAYS,
             'SHOW_CLOSED_BY_DEFAULT': config.SHOW_CLOSED_BY_DEFAULT,
             'ENABLE_SQL_DEBUG': config.ENABLE_SQL_DEBUG,
             'MY_MISSIONS_LINK': config.MY_MISSIONS_LINK,
@@ -19363,6 +19406,7 @@ def handle_save_config():
             ('ACTIVE_ORG_STATUS_ID', 'int'), ('MISSION_TRIP_FLAG', 'int'),
             ('MEMBER_TYPE_LEADER', 'int'), ('ATTENDANCE_TYPE_LEADER', 'int'),
             ('ITEMS_PER_PAGE', 'int'), ('SHOW_CLOSED_BY_DEFAULT', 'bool'),
+            ('READINESS_MEETING_LEAD_DAYS', 'int'),
             ('ENABLE_SQL_DEBUG', 'bool'), ('MY_MISSIONS_LINK', 'str'),
             ('CURRENCY_SYMBOL', 'str'), ('ADMIN_ROLES', 'list'),
             ('FINANCE_ROLES', 'list'), ('LEADER_MEMBER_TYPES', 'intlist'),
@@ -25294,6 +25338,7 @@ def render_settings_view(user_role):
                    + '</div>';
                 h += DashConfig.field('CURRENCY_SYMBOL', 'Currency Symbol', cfg.CURRENCY_SYMBOL, 'text');
                 h += DashConfig.field('ITEMS_PER_PAGE', 'Items Per Page', cfg.ITEMS_PER_PAGE, 'number');
+                h += DashConfig.field('READINESS_MEETING_LEAD_DAYS', 'Flag "no meetings held" within (days of departure)', cfg.READINESS_MEETING_LEAD_DAYS, 'number');
                 h += DashConfig.field('MEMBER_TYPE_LEADER', 'Leader Member Type ID', cfg.MEMBER_TYPE_LEADER, 'number');
                 h += DashConfig.field('ATTENDANCE_TYPE_LEADER', 'Leader Attendance Type ID', cfg.ATTENDANCE_TYPE_LEADER, 'number');
                 h += DashConfig.field('SIDEBAR_BG_COLOR', 'Sidebar Background Color', cfg.SIDEBAR_BG_COLOR, 'color');
