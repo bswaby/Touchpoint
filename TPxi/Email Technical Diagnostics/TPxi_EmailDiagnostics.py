@@ -1,3 +1,23 @@
+#####################################################################
+####TECH EMAIL REPORT INFORMATION - ENHANCED VERSION
+#####################################################################
+#This comprehensive email troubleshooting tool shows email success/failures 
+#from multiple perspectives with advanced diagnostics.
+#
+#Written By: Ben Swaby
+#Email: bswaby@fbchtn.org
+#
+#Features:
+# - Email status overview with failure classifications
+# - Organization-level email statistics
+# - User-level failure analysis
+# - Bounce rate trends
+# - Email queue monitoring
+# - Domain reputation analysis
+# - Quick links to email logs and individual records
+# - Detailed failure explanations and remediation steps
+# - Campaign send performance analysis
+# - Email body size and image analysis
 # Written By: Ben Swaby (TPxi Software, LLC)
 # Email: bswaby@fbchtn.org                                                                                                      
 # Website: https://tpxisoftware.com
@@ -15,27 +35,30 @@
 # or your phone. No tab switching, no lost context.
 # https://tpxigo.com                                                                                                            
 # ----------------------------------------------------------------
-
-#####################################################################
-####TECH EMAIL REPORT INFORMATION - ENHANCED VERSION
-#####################################################################
-#This comprehensive email troubleshooting tool shows email success/failures 
-#from multiple perspectives with advanced diagnostics.
-#
-#
-#Features:
-# - Email status overview with failure classifications
-# - Organization-level email statistics
-# - User-level failure analysis
-# - Bounce rate trends
-# - Email queue monitoring
-# - Domain reputation analysis
-# - Quick links to email logs and individual records
-# - Detailed failure explanations and remediation steps
-# - Campaign send performance analysis
-# - Email body size and image analysis
 #
 #Update Log:
+# 2026-08-10:
+#   - Added "Look up a single email by ID" at the top of the page. TouchPoint's
+#     send errors name the email ("EmailQueue 252474: no recipients found") but
+#     nothing else, so this shows who it was addressed to and why nothing went
+#     out. Distinguishes the two failure modes that look identical to a user:
+#     no recipient rows at all (bad/empty list) vs recipients present but none
+#     deliverable (people data), with a per-person reason: no address, address
+#     switched off, opted out of that From address, Do Not Mail, deceased,
+#     archived. Also reports what the provider sent back per person (bounced,
+#     blocked, invalid, marked spam, expired, opened) with the SendGrid failure
+#     reason, plus earlier hard bounces on OTHER emails -- the usual explanation
+#     for "it says sent and they still never got it", since a suppressed address
+#     looks perfectly healthy on this email's own row.
+#     Header adds: send flags (ReadyToSend off means it will sit in the queue
+#     forever with no error), Testing, CC parents, CC list, open rate, and
+#     whether the body carries base64-embedded images.
+#   - Fixed EnvironmentError 9829: STRING_AGG in the Email Queue Status query
+#     aggregated every pending EmailQueue.Id into one string and errors past
+#     8000 bytes rather than truncating, taking the whole page down for anyone
+#     with a large backlog. The column was hidden from the table anyway, so it
+#     was removed. Also LOB-cast the STRING_AGG that builds the dynamic failure
+#     columns, which had the same latent limit.
 # 2025-12-04:
 #   - Added Campaign Send Performance section with configurable minimum recipients filter
 #   - Added recipient size bucket analysis with visual bar chart (how recipient count affects send time)
@@ -74,6 +97,16 @@ import json
 current_date = datetime.date.today().strftime("%B %d, %Y")
 sDate = model.Data.sDate
 eDate = model.Data.eDate
+
+# Single-email lookup. Digits only: it goes straight into SQL, and it is the one
+# field on this page a user types by hand (off a TouchPoint error message).
+lookupEmailId = ''
+try:
+    _raw = str(model.Data.emailid or '').strip()
+    if _raw and _raw.isdigit():
+        lookupEmailId = str(int(_raw))
+except:
+    lookupEmailId = ''
 
 
 if model.Data.HideSuccess == 'yes':
@@ -395,7 +428,10 @@ sqlOrgStat = '''
     DECLARE @SQLQuery NVARCHAR(MAX);
     
     -- Step 1: Retrieve unique fe.Fail values dynamically
-    SELECT @DynamicColumns = STRING_AGG(QUOTENAME(Fail), ', ')
+    -- CAST to NVARCHAR(MAX) so the aggregate is a LOB: without it STRING_AGG
+    -- caps at 8000 bytes and ERRORS rather than truncating, which would break
+    -- this page for any church with a long list of distinct failure reasons.
+    SELECT @DynamicColumns = STRING_AGG(CAST(QUOTENAME(Fail) AS NVARCHAR(MAX)), ', ')
     FROM (SELECT DISTINCT Fail FROM FailedEmails WHERE Fail IS NOT NULL) AS Failures;
     
     -- Ensure @DynamicColumns is not NULL
@@ -516,8 +552,14 @@ SELECT
     COUNT(*) AS PendingEmails,
     MIN(eq.Queued) AS OldestQueued,
     MAX(eq.Queued) AS NewestQueued,
-    DATEDIFF(hour, MIN(eq.Queued), GETDATE()) AS HoursOld,
-    STRING_AGG(CAST(eq.Id AS VARCHAR), ',') AS EmailIds
+    DATEDIFF(hour, MIN(eq.Queued), GETDATE()) AS HoursOld
+    -- Removed: STRING_AGG(CAST(eq.Id AS VARCHAR), ',') AS EmailIds
+    -- STRING_AGG returns varchar(8000) unless its INPUT is a LOB type, and it
+    -- raises (error 9829) rather than truncating. One sender with a few
+    -- thousand queued emails is enough to overflow it and take the whole page
+    -- down. The column was in hide_columns anyway, so it was never displayed --
+    -- it only existed to be thrown away. If the ids are ever wanted, use
+    -- CAST(eq.Id AS VARCHAR(MAX)) and cap the row count.
 FROM EmailQueue eq
 LEFT JOIN People p ON p.PeopleId = eq.QueuedBy
 WHERE eq.Sent IS NULL
@@ -948,6 +990,19 @@ headerTemplate = '''
         </div>
     </div>
     
+    <div class="filter-form" style="background:#eef5fb;border:1px solid #cfe3ff;">
+        <form action="" method="GET">
+            <label for="emailid" style="font-weight:600;">Look up a single email by ID:</label>
+            <input type="number" id="emailid" name="emailid" value="{8}" placeholder="e.g. 252474" style="width:140px;">
+            <input type="submit" value="Diagnose" style="background:#1f4e79;color:white;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;">
+            <div class="no-print" style="font-size:0.85em;color:#555;margin-top:6px;">
+                TouchPoint error messages name the email, e.g.
+                <em>"EmailQueue 252474: no recipients found"</em>. Paste that number here to see
+                who it was addressed to and why nothing went out.
+            </div>
+        </form>
+    </div>
+
     <div class="filter-form">
         <form action="" method="GET">
             <div style="margin-bottom: 10px;">
@@ -972,8 +1027,350 @@ headerTemplate = '''
             <input type="submit" value="Generate Report" style="background: #667eea; color: white; border: none; padding: 8px 20px; border-radius: 4px; cursor: pointer;">
         </form>
     </div>
-'''.format(optionsDate,optioneDate,optionHideSuccess,frmProgramOption,frmFailClassificationsOption,current_date,frmSentByOption,frmMinRecipientsOption)
+'''.format(optionsDate,optioneDate,optionHideSuccess,frmProgramOption,frmFailClassificationsOption,current_date,frmSentByOption,frmMinRecipientsOption,lookupEmailId)
 
+
+
+
+####### Single Email Lookup #######
+# Answers "why did EmailQueue N not go out?". TouchPoint's own error text names the
+# email but nothing else, so the two failure modes it reports look identical to a user:
+#   "no recipients found"                          -> EmailQueueTo never got any rows
+#   "all N recipient(s) skipped (no valid email or opted out)" -> rows exist, none usable
+# The difference matters: the first is a bad/empty recipient list, the second is
+# people data. This section says which one happened and shows the evidence.
+lookupHtml = ''
+if lookupEmailId:
+    sqlLookupHeader = """
+        SELECT eq.Id, eq.Subject, eq.FromAddr, eq.FromName, eq.QueuedBy,
+               p.Name AS QueuedByName,
+               eq.Queued, eq.SendWhen, eq.Sent, eq.Started, eq.Error,
+               eq.Transactional, eq.Redacted, eq.SendFromOrgId,
+               o.OrganizationName,
+               (SELECT COUNT(*) FROM EmailQueueTo t WITH (NOLOCK) WHERE t.Id = eq.Id) AS RecipientRows,
+               (SELECT COUNT(*) FROM EmailQueueTo t WITH (NOLOCK) WHERE t.Id = eq.Id AND t.Sent IS NOT NULL) AS RecipientsSent,
+               DATALENGTH(eq.Body) AS BodyBytes,
+               -- Send configuration. ReadyToSend = 0 is the quiet one: the email
+               -- simply sits in the queue forever and nothing explains why.
+               ISNULL(eq.ReadyToSend, 1) AS ReadyToSend,
+               ISNULL(eq.Testing, 0) AS Testing,
+               ISNULL(eq.CCParents, 0) AS CCParents,
+               ISNULL(eq.NoReplacements, 0) AS NoReplacements,
+               ISNULL(eq.FinanceOnly, 0) AS FinanceOnly,
+               ISNULL(eq.CClist, '') AS CClist,
+               -- What actually happened after it left. These flags are populated
+               -- by the SendGrid callbacks.
+               (SELECT COUNT(*) FROM EmailQueueTo t WITH (NOLOCK) WHERE t.Id = eq.Id AND ISNULL(t.Bounced,0)=1) AS Bounced,
+               (SELECT COUNT(*) FROM EmailQueueTo t WITH (NOLOCK) WHERE t.Id = eq.Id AND ISNULL(t.BouncedAddress,0)=1) AS BadAddress,
+               (SELECT COUNT(*) FROM EmailQueueTo t WITH (NOLOCK) WHERE t.Id = eq.Id AND ISNULL(t.Blocked,0)=1) AS Blocked,
+               (SELECT COUNT(*) FROM EmailQueueTo t WITH (NOLOCK) WHERE t.Id = eq.Id AND ISNULL(t.Invalid,0)=1) AS InvalidCnt,
+               (SELECT COUNT(*) FROM EmailQueueTo t WITH (NOLOCK) WHERE t.Id = eq.Id AND (ISNULL(t.SpamReport,0)=1 OR ISNULL(t.SpamReporting,0)=1 OR ISNULL(t.SpamContent,0)=1)) AS SpamCnt,
+               (SELECT COUNT(*) FROM EmailQueueTo t WITH (NOLOCK) WHERE t.Id = eq.Id AND ISNULL(t.Expired,0)=1) AS ExpiredCnt,
+               (SELECT COUNT(*) FROM FailedEmails f WITH (NOLOCK) WHERE f.Id = eq.Id) AS FailedCnt,
+               (SELECT COUNT(DISTINCT r.PeopleId) FROM EmailResponses r WITH (NOLOCK)
+                 WHERE r.EmailQueueId = eq.Id AND r.Type = 'o') AS OpenedPeople,
+               -- Body weight. Embedded (base64) images are the usual reason a send
+               -- crawls or gets filtered; linked images cost ~100 bytes each.
+               (LEN(CAST(eq.Body AS nvarchar(MAX))) - LEN(REPLACE(CAST(eq.Body AS nvarchar(MAX)), '<img', ''))) / 4 AS ImgTags,
+               CASE WHEN CAST(eq.Body AS nvarchar(MAX)) LIKE '%data:image%' THEN 1 ELSE 0 END AS HasEmbedded
+        FROM EmailQueue eq WITH (NOLOCK)
+        LEFT JOIN People p WITH (NOLOCK) ON p.PeopleId = eq.QueuedBy
+        LEFT JOIN Organizations o WITH (NOLOCK) ON o.OrganizationId = eq.SendFromOrgId
+        WHERE eq.Id = {0}
+    """.format(lookupEmailId)
+
+    hdr = None
+    try:
+        for r in q.QuerySql(sqlLookupHeader):
+            hdr = r
+            break
+    except Exception as e:
+        lookupHtml += '<div class="alert alert-danger">Lookup failed: %s</div>' % str(e)
+
+    if hdr is None and not lookupHtml:
+        lookupHtml += '''
+        <div class="section">
+          <h2>Email #{0}</h2>
+          <div class="alert alert-warning">
+            <strong>No EmailQueue record with that ID.</strong>
+            Check the number from the error message. Very old queue rows can also be
+            purged, in which case the record is genuinely gone.
+          </div>
+        </div>'''.format(lookupEmailId)
+
+    elif hdr is not None:
+        recips = int(getattr(hdr, 'RecipientRows', 0) or 0)
+        sentcnt = int(getattr(hdr, 'RecipientsSent', 0) or 0)
+        err = (getattr(hdr, 'Error', '') or '').strip()
+
+        # Per-recipient deliverability. Mirrors what TouchPoint checks before sending:
+        # an enabled address that is non-empty, not opted out of this From address,
+        # not marked do-not-mail, not deceased, not archived.
+        sqlLookupRecips = """
+            SELECT TOP 300
+                   t.PeopleId, pp.Name, pp.EmailAddress, pp.EmailAddress2,
+                   pp.SendEmailAddress1, pp.SendEmailAddress2,
+                   pp.DoNotMailFlag, pp.IsDeceased, pp.ArchivedFlag,
+                   t.AddEmail, t.Sent,
+                   ISNULL(t.Bounced,0) AS Bounced, ISNULL(t.BouncedAddress,0) AS BadAddress,
+                   ISNULL(t.Blocked,0) AS Blocked, ISNULL(t.Invalid,0) AS Invalid,
+                   ISNULL(t.Expired,0) AS Expired,
+                   CASE WHEN ISNULL(t.SpamReport,0)=1 OR ISNULL(t.SpamReporting,0)=1
+                             OR ISNULL(t.SpamContent,0)=1 THEN 1 ELSE 0 END AS Spam,
+                   (SELECT TOP 1 f.Fail FROM FailedEmails f WITH (NOLOCK)
+                     WHERE f.Id = t.Id AND f.PeopleId = t.PeopleId
+                     ORDER BY f.time DESC) AS FailReason,
+                   -- History on OTHER emails. A person whose address has hard-bounced
+                   -- before is likely suppressed at the mail provider, which is invisible
+                   -- on this email's own row -- the send just quietly does not arrive.
+                   -- One OUTER APPLY rather than two correlated subqueries: the count and
+                   -- the date came from the same scan, and doing it twice per recipient
+                   -- doubled the cost of the whole lookup.
+                   hist.PriorHardFails, hist.LastHardFail,
+                   CASE WHEN EXISTS (SELECT 1 FROM EmailResponses r WITH (NOLOCK)
+                                     WHERE r.EmailQueueId = t.Id AND r.PeopleId = t.PeopleId
+                                       AND r.Type = 'o') THEN 1 ELSE 0 END AS Opened,
+                   CASE WHEN EXISTS (SELECT 1 FROM EmailOptOut oo WITH (NOLOCK)
+                                     WHERE oo.ToPeopleId = t.PeopleId
+                                       AND oo.FromEmail = eq.FromAddr) THEN 1 ELSE 0 END AS OptedOut
+            FROM EmailQueueTo t WITH (NOLOCK)
+            JOIN EmailQueue eq WITH (NOLOCK) ON eq.Id = t.Id
+            LEFT JOIN People pp WITH (NOLOCK) ON pp.PeopleId = t.PeopleId
+            OUTER APPLY (
+                SELECT COUNT(*) AS PriorHardFails, MAX(f2.time) AS LastHardFail
+                FROM FailedEmails f2 WITH (NOLOCK)
+                WHERE f2.PeopleId = t.PeopleId AND f2.Id <> t.Id
+                  AND f2.Fail IN ('Invalid Address','invalid','bouncedaddress',
+                                  'Mailbox Unavailable','Reputation')
+            ) hist
+            WHERE t.Id = {0}
+            ORDER BY pp.Name
+        """.format(lookupEmailId)
+        rows = []
+        try:
+            rows = list(q.QuerySql(sqlLookupRecips))
+        except:
+            rows = []
+
+        def _why(rr):
+            """Plain-language reason this person could not be emailed, or '' if they could."""
+            reasons = []
+            e1 = (getattr(rr, 'EmailAddress', '') or '').strip()
+            e2 = (getattr(rr, 'EmailAddress2', '') or '').strip()
+            # NULL means ENABLED, not disabled. Verified against live data: 4,015
+            # people hold a valid address with SendEmailAddress1 NULL, only 93 have
+            # an explicit 0, and people with NULL demonstrably receive email (8 of
+            # them were delivered EmailQueue 292742). Treating NULL as "off" would
+            # have accused thousands of people of a setting they never touched.
+            def _on(v):
+                return v is None or bool(v)
+            on1 = _on(getattr(rr, 'SendEmailAddress1', None))
+            on2 = _on(getattr(rr, 'SendEmailAddress2', None))
+            usable = (e1 and on1) or (e2 and on2)
+            if not e1 and not e2:
+                reasons.append('no email address on the record')
+            elif not usable:
+                reasons.append('has an address but both are switched off (Send Email unchecked)')
+            if getattr(rr, 'OptedOut', 0):
+                reasons.append('opted out of mail from this From address')
+            if getattr(rr, 'DoNotMailFlag', False):
+                reasons.append('Do Not Mail flag set')
+            if getattr(rr, 'IsDeceased', False):
+                reasons.append('marked deceased')
+            if getattr(rr, 'ArchivedFlag', False):
+                reasons.append('archived record')
+            return '; '.join(reasons)
+
+        def _history(rr):
+            """Not a hard block, but the usual explanation for "it says sent and they
+            still did not get it": the provider is suppressing the address."""
+            n = int(getattr(rr, 'PriorHardFails', 0) or 0)
+            if n < 3:
+                return ''
+            last = getattr(rr, 'LastHardFail', None)
+            when = (' (last %s)' % str(last)[:10]) if last else ''
+            return '%d earlier hard bounce%s%s - likely suppressed by the mail provider' % (
+                n, '' if n == 1 else 's', when)
+
+        def _outcome(rr):
+            """What the provider reported back for this specific send."""
+            if getattr(rr, 'Bounced', 0) or getattr(rr, 'BadAddress', 0):
+                return 'bounced'
+            if getattr(rr, 'Blocked', 0):
+                return 'blocked'
+            if getattr(rr, 'Invalid', 0):
+                return 'invalid address'
+            if getattr(rr, 'Spam', 0):
+                return 'marked spam'
+            if getattr(rr, 'Expired', 0):
+                return 'expired'
+            if getattr(rr, 'Sent', None):
+                return 'opened' if getattr(rr, 'Opened', 0) else 'delivered'
+            return ''
+
+        blocked = [rr for rr in rows if _why(rr)]
+        deliverable = len(rows) - len(blocked)
+
+        # ---- the verdict ----
+        if recips == 0:
+            verdict = ('''<div class="alert alert-danger">
+              <strong>Nobody was ever attached to this email.</strong>
+              TouchPoint created the message but wrote zero recipient rows, which is the
+              "no recipients found" error. The message itself is fine -- the problem is the
+              list it was addressed to. Usual causes: the search or saved query returned no
+              one, everyone in it had already been removed, or the email was composed from a
+              tag/list that was emptied before Send was pressed.
+              <br><br>Re-run the search that was used and confirm it returns people, then resend.
+            </div>''')
+        elif deliverable == 0:
+            verdict = ('''<div class="alert alert-danger">
+              <strong>%d recipient(s) were attached, but none could be emailed.</strong>
+              This is the "all N recipient(s) skipped (no valid email or opted out)" case.
+              The list was right; the people data is what stopped it. Reasons per person are
+              in the table below -- fix those records and resend.
+            </div>''' % recips)
+        elif not int(getattr(hdr, 'ReadyToSend', 1) or 0) and sentcnt == 0:
+            verdict = ('''<div class="alert alert-danger">
+              <strong>This email is flagged Not Ready To Send.</strong>
+              %d recipient(s) are attached and deliverable, but TouchPoint will not pick it
+              up while ReadyToSend is off. It will sit in the queue indefinitely with no
+              error. Re-open it in TouchPoint and send it properly, or delete it.
+            </div>''' % deliverable)
+        elif sentcnt == 0:
+            verdict = ('''<div class="alert alert-warning">
+              <strong>%d recipient(s) attached, %d deliverable, but nothing has been sent yet.</strong>
+              If this is not a scheduled send, the queue may be stalled -- check the
+              Email Queue Status section below for a backlog.
+            </div>''' % (recips, deliverable))
+        else:
+            verdict = ('''<div class="alert alert-success">
+              <strong>Sent to %d of %d recipient(s).</strong>
+              %d could not be emailed; see the table for why.
+            </div>''' % (sentcnt, recips, len(blocked)))
+
+        def _f(v, dash='&mdash;'):
+            return dash if v is None or str(v).strip() == '' else str(v)
+
+        def _flagText(h):
+            """Only the settings that change behaviour, so the row stays readable."""
+            out = []
+            if not int(getattr(h, 'ReadyToSend', 1) or 0):
+                out.append('<span style="color:#c00;font-weight:600;">NOT ready to send</span>')
+            if getattr(h, 'Testing', 0):
+                out.append('<span style="color:#c00;">Testing mode</span>')
+            if getattr(h, 'CCParents', 0):
+                out.append('CC parents')
+            if getattr(h, 'FinanceOnly', 0):
+                out.append('Finance only')
+            if getattr(h, 'NoReplacements', 0):
+                out.append('No replacement codes')
+            return ', '.join(out) if out else 'none set'
+
+        def _imgText(h):
+            n = int(getattr(h, 'ImgTags', 0) or 0)
+            emb = int(getattr(h, 'HasEmbedded', 0) or 0)
+            if not n and not emb:
+                return ''
+            bits = []
+            if n:
+                bits.append('%d image tag%s' % (n, '' if n == 1 else 's'))
+            if emb:
+                bits.append('<span style="color:#c00;">embedded (base64) images - '
+                            'these bloat every copy and can trip spam filters</span>')
+            return ' &mdash; ' + ', '.join(bits)
+
+        def _outcomeText(h):
+            parts = []
+            for label, attr in [('bounced', 'Bounced'), ('bad address', 'BadAddress'),
+                                ('blocked', 'Blocked'), ('invalid', 'InvalidCnt'),
+                                ('spam', 'SpamCnt'), ('expired', 'ExpiredCnt')]:
+                n = int(getattr(h, attr, 0) or 0)
+                if n:
+                    parts.append('%d %s' % (n, label))
+            fc = int(getattr(h, 'FailedCnt', 0) or 0)
+            if fc:
+                parts.append('%d recorded failure%s' % (fc, '' if fc == 1 else 's'))
+            if not parts:
+                return 'nothing reported back'
+            return '<span style="color:#c00;">' + ', '.join(parts) + '</span>'
+
+        def _openedText(h, total):
+            n = int(getattr(h, 'OpenedPeople', 0) or 0)
+            if not total:
+                return '&mdash;'
+            pctv = round(100.0 * n / total, 1) if total else 0
+            return '%d of %d (%s%%)' % (n, total, pctv)
+
+        lookupHtml += '''
+        <div class="section">
+          <h2>Email #{id} &mdash; diagnosis</h2>
+          {verdict}
+          <table class="table">
+            <tr><th style="width:170px;">Subject</th><td>{subj}</td></tr>
+            <tr><th>From</th><td>{fname} &lt;{faddr}&gt;</td></tr>
+            <tr><th>Queued by</th><td><a href="/Person2/{qbid}" target="_blank">{qbname}</a> (id {qbid})</td></tr>
+            <tr><th>Queued</th><td>{queued}</td></tr>
+            <tr><th>Scheduled for</th><td>{sendwhen}</td></tr>
+            <tr><th>Started / Sent</th><td>{started} / {sent}</td></tr>
+            <tr><th>Recipients attached</th><td>{recips}</td></tr>
+            <tr><th>Delivered rows</th><td>{sentcnt}</td></tr>
+            <tr><th>Sent from involvement</th><td>{org}</td></tr>
+            <tr><th>Transactional</th><td>{trans}</td></tr>
+            <tr><th>Send flags</th><td>{flags}</td></tr>
+            <tr><th>CC list</th><td>{cclist}</td></tr>
+            <tr><th>Body size</th><td>{bodykb} KB{imgs}</td></tr>
+            <tr><th>Delivery outcome</th><td>{outcome}</td></tr>
+            <tr><th>Opened by</th><td>{opened}</td></tr>
+            <tr><th>TouchPoint error</th><td>{err}</td></tr>
+          </table>
+          <p><a href="/Manage/Emails/{id}" target="_blank">Open this email in TouchPoint &raquo;</a></p>
+        '''.format(
+            id=lookupEmailId, verdict=verdict,
+            subj=_f(getattr(hdr, 'Subject', '')),
+            fname=_f(getattr(hdr, 'FromName', '')), faddr=_f(getattr(hdr, 'FromAddr', '')),
+            qbid=_f(getattr(hdr, 'QueuedBy', ''), '0'), qbname=_f(getattr(hdr, 'QueuedByName', '')),
+            queued=_f(getattr(hdr, 'Queued', '')), sendwhen=_f(getattr(hdr, 'SendWhen', '')),
+            started=_f(getattr(hdr, 'Started', '')), sent=_f(getattr(hdr, 'Sent', '')),
+            recips=recips, sentcnt=sentcnt,
+            org=_f(getattr(hdr, 'OrganizationName', '')),
+            trans='Yes' if getattr(hdr, 'Transactional', False) else 'No',
+            bodykb=round((getattr(hdr, 'BodyBytes', 0) or 0) / 1024.0, 1),
+            flags=_flagText(hdr), cclist=_f(getattr(hdr, 'CClist', '')),
+            imgs=_imgText(hdr), outcome=_outcomeText(hdr), opened=_openedText(hdr, recips),
+            err=('<span style="color:#c00;">%s</span>' % err) if err else '&mdash;')
+
+        if rows:
+            lookupHtml += '''<h3>Recipients ({0} shown{1})</h3>
+              <table class="table"><tr>
+                <th>Name</th><th>Email on record</th><th>Sent</th><th>Outcome</th>
+                <th>Why not sent / worth knowing</th>
+              </tr>'''.format(len(rows), ', first 300' if len(rows) >= 300 else '')
+            for rr in rows:
+                why = _why(rr)
+                hist = _history(rr)
+                fail = (getattr(rr, 'FailReason', '') or '').strip()
+                notes = [x for x in [why, ('provider said: %s' % fail) if fail else '', hist] if x]
+                outcome = _outcome(rr)
+                addr = (getattr(rr, 'AddEmail', '') or getattr(rr, 'EmailAddress', '')
+                        or getattr(rr, 'EmailAddress2', '') or '')
+                pid = getattr(rr, 'PeopleId', 0) or 0
+                shade = ''
+                if why or fail:
+                    shade = ' style="background:#f8d7da;"'      # could not be delivered
+                elif hist:
+                    shade = ' style="background:#fff3cd;"'      # delivered, but suspect
+                lookupHtml += (
+                    '<tr%s><td><a href="/Person2/%s" target="_blank">%s</a></td>'
+                    '<td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (
+                        shade, pid, _f(getattr(rr, 'Name', '')),
+                        _f(addr), 'yes' if getattr(rr, 'Sent', None) else 'no',
+                        outcome if outcome else '&mdash;',
+                        '; '.join(notes) if notes else '&mdash;'))
+            lookupHtml += '</table>'
+        elif recips == 0:
+            lookupHtml += ('<p><em>No recipient rows exist for this email, so there is '
+                           'nothing to list.</em></p>')
+        lookupHtml += '</div>'
 
 
 rsql = q.QuerySql(sql.format(sDate,eDate,sqlHideSuccess,filterProgram,filterFailClassfication,filterSentBy))
@@ -1311,7 +1708,7 @@ if rsqlEmailQueueStatus:
             }
             
             queue_columns = {
-                "hide_columns": ['QueuedBy', 'EmailIds'],
+                "hide_columns": ['QueuedBy'],
                 "column_order": ['QueuedByName', 'PendingEmails', 'HoursOld', 'OldestQueued', 'NewestQueued'],
             }
             
@@ -2041,6 +2438,10 @@ footerTemplate = '''
 )
 
 Report = model.RenderTemplate(headerTemplate)
+# The single-email diagnosis goes first: somebody who pasted an ID off an error
+# message wants that answer, not to scroll past the whole estate report.
+if lookupHtml:
+    Report += model.RenderTemplate(lookupHtml)
 Report += model.RenderTemplate(bodyTemplate)
 Report += model.RenderTemplate(footerTemplate)
 print Report
