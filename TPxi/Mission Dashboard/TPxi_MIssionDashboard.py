@@ -1,5 +1,5 @@
 """
-Mission Dashboard 4.6.0 - Costs, Logistics, Tasks & Reporting
+Mission Dashboard 4.6.1 - Costs, Logistics, Tasks & Reporting
 ======================================================
 Purpose: Comprehensive mission trip management dashboard with sidebar navigation
 Author: Ben Swaby
@@ -272,9 +272,20 @@ import re
 
 # ::CONFIG:: Version
 # Bump APP_VERSION on user-visible changes; keep the changelog short.
-APP_VERSION = "4.6.0"
-APP_VERSION_DATE = "2026-08-07"
+APP_VERSION = "4.6.1"
+APP_VERSION_DATE = "2026-08-10"
 # Version history:
+#   4.6.1  - Two install-breaking fixes reported from another church.
+#            format_currency was only defined in the `except` branch of the
+#            _FunctionLibrary load, but model.TextContent returns '' for a
+#            content item that does not exist rather than raising -- so exec('')
+#            succeeded, the fallback never ran, and the page died with
+#            NameError before rendering anything. The fallback is now defined
+#            unconditionally and the library overrides it.
+#            Cost Report raised KeyError: 'setup' because its sort used a key
+#            that only exists on Trip Readiness rows; _rd_costs never returns
+#            it. It now sorts trips with no cost estimate to the top, which is
+#            what the comment intended.
 #   4.0.0  - Sidebar navigation, role-based views, per-trip sections
 #   4.1.0  - Hub & spoke intake (one hub involvement -> many trips)
 #   4.6.0  - Trip Readiness now excludes applications by the configured
@@ -437,22 +448,37 @@ if not MY_MISSIONS_LINK.startswith('http'):
 # Display-friendly version (without the scheme)
 MY_MISSIONS_DISPLAY = MY_MISSIONS_LINK.replace('https://', '').replace('http://', '')
 
-# Check if function library exists and load it
+def _default_format_currency(value, use_symbol=True, use_separator=True):
+    """Format currency with proper symbols and separators"""
+    if value is None:
+        return "$0.00"
+    try:
+        formatted = "{:,.2f}".format(float(value)) if use_separator else "{:.2f}".format(float(value))
+        return config.CURRENCY_SYMBOL + formatted if use_symbol else formatted
+    except:
+        return "$0.00"
+
+
+# Define the fallback FIRST, then let the shared _FunctionLibrary override it.
+#
+# This used to define format_currency only inside the `except` branch, which
+# assumed that a missing library raises. It does not: model.TextContent returns
+# an empty string for a content item that does not exist, so `exec('')`
+# succeeded, the except never ran, and format_currency was never defined --
+# NameError on page load. Reported by another church whose install had no
+# _FunctionLibrary content. The same trap applies to a library that exists but
+# has been edited to drop the function.
+format_currency = _default_format_currency
+
 try:
     function_library = model.TextContent('_FunctionLibrary')
-    function_library = function_library.replace('\r', '')  # Normalize line endings
-    exec(function_library)
+    if function_library:
+        exec(function_library.replace('\r', ''))  # Normalize line endings
 except:
-    # Define essential functions if library not found
-    def format_currency(value, use_symbol=True, use_separator=True):
-        """Format currency with proper symbols and separators"""
-        if value is None:
-            return "$0.00"
-        try:
-            formatted = "{:,.2f}".format(float(value)) if use_separator else "{:.2f}".format(float(value))
-            return config.CURRENCY_SYMBOL + formatted if use_symbol else formatted
-        except:
-            return "$0.00"
+    pass
+
+if not callable(globals().get('format_currency')):
+    format_currency = _default_format_currency
 
 # Both the shared _FunctionLibrary and the fallback above build a negative as
 # "$" + "-150" => "$-150", which reads as a typo rather than as a credit. Wrap
@@ -16344,9 +16370,11 @@ def build_cost_report(scope='active', date_from='', date_to=''):
         c['variancePct'] = ((c['variance'] / c['estTotal'] * 100.0) if c['estTotal'] else 0.0)
         c['hasActual'] = c['actualTotal'] > 0
         rows.append(c)
-    # Anything with a setup gap sorts to the top: the whole point of the page is to surface
-    # trips that need attention, so they should not be buried under the healthy ones.
-    rows.sort(key=lambda r: (0 if r['setup'] else 1, r['start'] or 'zzzz'))
+    # Trips with no cost estimate sort to the top: the whole point of the page is to
+    # surface trips that need attention, so they should not be buried under the healthy
+    # ones. (This used to sort on r['setup'], a key that only exists on the readiness
+    # rows -- _rd_costs never returns it, so opening Cost Report raised KeyError.)
+    rows.sort(key=lambda r: (1 if r.get('hasEstimate') else 0, r.get('start') or 'zzzz'))
     return rows
 
 
