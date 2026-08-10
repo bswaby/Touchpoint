@@ -1,5 +1,5 @@
 """
-Mission Dashboard 4.6.1 - Costs, Logistics, Tasks & Reporting
+Mission Dashboard 4.6.2 - Costs, Logistics, Tasks & Reporting
 ======================================================
 Purpose: Comprehensive mission trip management dashboard with sidebar navigation
 Author: Ben Swaby
@@ -272,9 +272,18 @@ import re
 
 # ::CONFIG:: Version
 # Bump APP_VERSION on user-visible changes; keep the changelog short.
-APP_VERSION = "4.6.1"
+APP_VERSION = "4.6.2"
 APP_VERSION_DATE = "2026-08-10"
 # Version history:
+#   4.6.2  - FIX: Team Members died with "TypeError: int argument required" for
+#            admins. trip_id arrives as a STRING (str(model.Data.trip)) and every
+#            renderer uses it via str()/.format(), which tolerates that -- except
+#            one '%d' in the admin-only Review Registration button added in 4.5.x.
+#            render_trip_section now coerces org_id to int once, before dispatch,
+#            so no renderer has to care and the next '%d' cannot reintroduce it.
+#            An unparseable id returns a clean message instead of a traceback.
+#            Checked the other section renderers: their '%d' occurrences are all
+#            strftime date formats, so Team Members was the only one affected.
 #   4.6.1  - Two install-breaking fixes reported from another church.
 #            format_currency was only defined in the `except` branch of the
 #            _FunctionLibrary load, but model.TextContent returns '' for a
@@ -1502,6 +1511,18 @@ def render_trip_section(org_id, section, user_role):
         section: Section name (overview, team, meetings, budget, documents, messages, tasks)
         user_role: User role info from get_user_role_and_trips()
     """
+    # org_id arrives as a STRING: the caller builds it with
+    # str(model.Data.trip). Every section renderer then uses it via str() or
+    # .format(), which tolerates that -- except one '%d' in the admin-only
+    # Review Registration button, which raised "TypeError: int argument
+    # required" and took the whole Team Members page down for admins.
+    # Coerce once here so no renderer has to care, and so the next '%d' someone
+    # writes cannot reintroduce this.
+    try:
+        org_id = int(org_id)
+    except (TypeError, ValueError):
+        return '<div class="alert alert-danger">Invalid trip id.</div>'
+
     # Block non-admins from accessing the messages, costs and logistics sections
     if section in ('messages', 'costs', 'logistics', 'tasks') and not user_role.get('is_admin', False):
         section = 'overview'  # Redirect to overview
@@ -4296,7 +4317,7 @@ def render_trip_team(org_id, user_role):
             review_menu_item = ('<button class="actions-dropdown-item" onclick="event.stopPropagation(); '
                                 'ApprovalWorkflow.showModal(%d, \'%s\', %d, %s); ActionsDropdown.closeAll();">'
                                 '<span class="icon">&#128203;</span>Review Registration</button>'
-                                % (member.PeopleId, escaped_member_name_action, org_id,
+                                % (int(member.PeopleId), escaped_member_name_action, int(org_id),
                                    'true' if approvals_enabled else 'false'))
 
         # Passport menu item - admin only
