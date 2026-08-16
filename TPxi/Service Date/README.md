@@ -32,7 +32,7 @@ With this tool, admins can:
 The dashboard shows what is configured, whether the daily run is installed, and how many records need work. Preload populates the Extra Value for the first time, Force Full Rescan recomputes everything from scratch after a settings change, and both run in batches.
 
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Service%20Days/SD-1.png" width="700" alt="ServiceDate Dashboard">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Service%20Date/SD-1.png" width="700" alt="ServiceDate Dashboard">
 </p>
 
 ---
@@ -50,7 +50,7 @@ The Extra Value is only useful if staff can query it. The dashboard checks for a
 Scripts that already exist and match are left alone. Scripts you have edited yourself are detected and **not** overwritten unless you explicitly choose to replace them.
 
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Service%20Days/SD-2.png" width="700" alt="Search Builder scripts panel">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Service%20Date/SD-2.png" width="700" alt="Search Builder scripts panel">
 </p>
 
 ---
