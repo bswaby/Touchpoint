@@ -9491,14 +9491,25 @@ def render_filter_panel(report_def, filter_values=None, settings=None):
                 ('ytd', 'Year to Date'), ('fiscal_ytd', 'Fiscal Year to Date'),
                 ('custom', 'Custom Range...')
             ]
+            # A saved view stores a custom range as "start|end" rather than a
+            # preset name, so that shape selects "custom" and fills the dates.
+            dstart = dend = ''
+            dsel = str(pdefault or '')
+            if '|' in dsel:
+                bits = dsel.split('|', 1)
+                dstart, dend = bits[0].strip(), bits[1].strip()
+                dsel = 'custom'
             for val, label in presets:
-                sel = ' selected' if val == pdefault else ''
+                sel = ' selected' if val == dsel else ''
                 html.append('<option value="{0}"{1}>{2}</option>'.format(val, sel, label))
             html.append('</select>')
-            html.append('<div class="rb-custom-date-row" style="display:none;">')
-            html.append('<input type="date" class="rb-filter-input rb-date-start" data-param="{0}_start" />'.format(pname))
+            html.append('<div class="rb-custom-date-row" style="display:{0};">'.format(
+                'flex' if dsel == 'custom' else 'none'))
+            html.append('<input type="date" class="rb-filter-input rb-date-start" data-param="{0}_start" value="{1}" />'.format(
+                pname, html_escape(dstart)))
             html.append('<span> to </span>')
-            html.append('<input type="date" class="rb-filter-input rb-date-end" data-param="{0}_end" />'.format(pname))
+            html.append('<input type="date" class="rb-filter-input rb-date-end" data-param="{0}_end" value="{1}" />'.format(
+                pname, html_escape(dend)))
             html.append('</div>')
 
         elif ptype == 'dropdown':
@@ -9509,24 +9520,33 @@ def render_filter_panel(report_def, filter_values=None, settings=None):
             if not static_options:
                 html.append('<option value="">All</option>')
             for v, l in opts:
-                sel = ' selected' if static_options and v == str(pdefault) else ''
+                # Selection used to apply only to hardcoded option lists, so a
+                # data-driven filter (Campus, Member Status) never came back
+                # pre-set. A saved view depends on it doing so.
+                sel = ' selected' if (str(pdefault) != '' and v == str(pdefault)) else ''
                 html.append('<option value="{0}"{2}>{1}</option>'.format(
                     html_escape(v), html_escape(l), sel))
             html.append('</select>')
 
         elif ptype == 'multi_select':
+            # A saved view stores its selection as a comma list in `default`,
+            # so these have to be pre-selected the same way a dropdown is.
+            chosen = set(str(x).strip() for x in str(pdefault or '').split(',') if str(x).strip())
             html.append('<select name="filter_{0}" class="rb-filter-input rb-multi-select" data-param="{0}" multiple style="min-height:80px;">'.format(pname))
             for v, l in opts:
-                html.append('<option value="{0}">{1}</option>'.format(
-                    html_escape(v), html_escape(l)))
+                sel = ' selected' if v in chosen else ''
+                html.append('<option value="{0}"{2}>{1}</option>'.format(
+                    html_escape(v), html_escape(l), sel))
             html.append('</select>')
             html.append('<div style="font-size:10px;color:#94a3b8;margin-top:2px;">Hold Ctrl/Cmd to select multiple</div>')
 
         elif ptype == 'text':
-            html.append('<input type="text" class="rb-filter-input" data-param="{0}" placeholder="Search..." />'.format(pname))
+            html.append('<input type="text" class="rb-filter-input" data-param="{0}" placeholder="Search..." value="{1}" />'.format(
+                pname, html_escape(str(pdefault or ''))))
 
         elif ptype == 'number':
-            html.append('<input type="number" class="rb-filter-input" data-param="{0}" placeholder="0" />'.format(pname))
+            html.append('<input type="number" class="rb-filter-input" data-param="{0}" placeholder="0" value="{1}" />'.format(
+                pname, html_escape(str(pdefault or ''))))
 
         html.append('</div>')
 
@@ -9725,10 +9745,113 @@ def _augment_people_params(report_def):
         return report_def
 
 
+def expand_view_report(rdef, user_id):
+    """Resolve a saved view into a runnable report definition.
+
+    A saved view is a BASE report plus frozen filters, a data scope and the
+    grid layout. It is resolved on every run rather than copied at save time,
+    so a view inherits later fixes to the report it was made from instead of
+    quietly freezing a stale copy of that report's SQL.
+    """
+    base_id = rdef.get('base_report', '')
+    if not base_id:
+        return rdef
+
+    base = None
+    for r in get_all_reports(user_id):
+        # Guard against a view pointing at another view, which would recurse.
+        if r.get('id') == base_id and not r.get('base_report'):
+            base = r
+            break
+    if base is None:
+        out = dict(rdef)
+        out['sql_template'] = ''
+        out['view_error'] = ('This saved view is built on "{0}", which no longer exists or is '
+                             'no longer shared with you.'.format(safe_str(base_id)))
+        return out
+
+    merged = dict(base)
+    merged['id'] = rdef.get('id')
+    merged['name'] = rdef.get('name') or base.get('name', '')
+    merged['description'] = rdef.get('description', '')
+    merged['category'] = rdef.get('category') or base.get('category', '')
+    merged['icon'] = rdef.get('icon', 'fa-bookmark')
+    merged['is_builtin'] = False
+    merged['is_shared'] = rdef.get('is_shared', False)
+    for k in ('base_report', 'view_filters', 'view_scope_type', 'view_scope_org_id',
+              'view_scope_query', 'view_scope_label', 'view_columns', 'view_sort',
+              'view_grid_filter'):
+        if k in rdef:
+            merged[k] = rdef[k]
+
+    # The frozen filters become the parameters' defaults, so the filter panel
+    # opens already set to them and every downstream path (the panel, the run,
+    # the CSV, a schedule built from this view) sees them without special
+    # casing. The user can still change them on screen afterwards.
+    vf = rdef.get('view_filters') or {}
+    if vf:
+        params = []
+        for p in base.get('parameters', []):
+            p2 = dict(p)
+            val = vf.get(p.get('name', ''), '')
+            if val != '':
+                p2['default'] = val
+            params.append(p2)
+        merged['parameters'] = params
+    return merged
+
+
+def resolve_view_scope(rdef):
+    """A saved view's stored data scope as (people_ids, org_id, error).
+
+    Same gating as a scheduled report: a scope the SQL cannot apply must stop
+    the run rather than silently return the whole database.
+    """
+    st = rdef.get('view_scope_type', 'none')
+    if st not in ('org', 'query'):
+        return (None, None, None)
+    support = scope_support(rdef)
+
+    if st == 'query':
+        name = (rdef.get('view_scope_query') or '').strip()
+        if not name:
+            return (None, None, 'This view is scoped to a saved search, but none is stored.')
+        if not support['people']:
+            return (None, None, 'This report returns summary rows, so it cannot be limited to '
+                                'the people in a saved search.')
+        try:
+            ids = [int(x) for x in q.QueryPeopleIds(name)]
+        except Exception as e:
+            return (None, None, 'Saved search "{0}" would not run: {1}'.format(name, safe_str(e)))
+        if not ids:
+            return (None, None, 'Saved search "{0}" currently matches nobody.'.format(name))
+        return (ids, None, None)
+
+    try:
+        oid = int(rdef.get('view_scope_org_id') or 0) or None
+    except:
+        oid = None
+    if not oid:
+        return (None, None, 'This view is scoped to an involvement, but no involvement id is stored.')
+    if support['org_native']:
+        return (None, oid, None)
+    if not support['people']:
+        return (None, None, 'This report cannot be limited to a single involvement.')
+    try:
+        ids = org_member_ids(oid)
+    except Exception as e:
+        return (None, None, 'Could not read that involvement: ' + safe_str(e))
+    if not ids:
+        return (None, None, 'That involvement currently has no members.')
+    return (ids, None, None)
+
+
 def find_report(report_id, user_id):
     """Find a report by ID from built-in and custom reports."""
     for r in get_all_reports(user_id):
         if r.get('id') == report_id:
+            if r.get('base_report'):
+                r = expand_view_report(r, user_id)
             return _augment_people_params(r)
     return None
 
@@ -10319,11 +10442,25 @@ def handle_ajax(action, user_id, bt_people_ids, current_org_id=None):
 
         filter_values = _collect_filter_values(report_def)
 
+        if report_def.get('view_error'):
+            return json.dumps({'success': False, 'error': report_def['view_error']})
+
         use_bt = bt_people_ids if report_def.get('bluetoolbar', {}).get('supported', False) else None
         # current_org_id is only honored when BT is supported AND active.
         # Without BT, the user is browsing reports normally and shouldn't
         # be silently scoped to an org they may have visited days ago.
         use_org = current_org_id if (use_bt and current_org_id) else None
+
+        # A saved view's own scope wins over whatever the page happens to be
+        # scoped to. The whole point of opening one is to get that data set.
+        v_people, v_org, v_err = resolve_view_scope(report_def)
+        if v_err:
+            return json.dumps({'success': False, 'error': v_err})
+        if v_people is not None:
+            use_bt, use_org = v_people, None
+        elif v_org is not None:
+            use_org = v_org
+
         result = execute_report(report_def, filter_values, use_bt, settings,
                                 current_org_id=use_org,
                                 display_type=display_type)
@@ -10746,7 +10883,19 @@ def handle_ajax(action, user_id, bt_people_ids, current_org_id=None):
             'help_text': report_def.get('help_text', ''),
             'bt_supported': report_def.get('bluetoolbar', {}).get('supported', False),
             # Drives which data-scope choices the schedule modal offers.
-            'scope_support': scope_support(report_def)
+            'scope_support': scope_support(report_def),
+            # A saved view's stored grid layout. Columns, sort and grid filters
+            # live in AG Grid, so only the browser can restore them.
+            'view': {
+                'is_view': bool(report_def.get('base_report')),
+                'base_report': report_def.get('base_report', ''),
+                'hidden': report_def.get('view_columns', []) or [],
+                'sort': report_def.get('view_sort', []) or [],
+                'filter': report_def.get('view_grid_filter') or None,
+                'scope_type': report_def.get('view_scope_type', 'none'),
+                'scope_label': report_def.get('view_scope_label', ''),
+                'error': report_def.get('view_error', ''),
+            }
         }))
 
     elif action == 'export_csv':
@@ -10759,6 +10908,15 @@ def handle_ajax(action, user_id, bt_people_ids, current_org_id=None):
 
         use_bt = bt_people_ids if report_def.get('bluetoolbar', {}).get('supported', False) else None
         use_org = current_org_id if (use_bt and current_org_id) else None
+        # The CSV must be the same rows as the screen, so it honors a saved
+        # view's scope exactly as the run does.
+        v_people, v_org, v_err = resolve_view_scope(report_def)
+        if v_err:
+            return json.dumps({'success': False, 'error': v_err})
+        if v_people is not None:
+            use_bt, use_org = v_people, None
+        elif v_org is not None:
+            use_org = v_org
         # CSV export always uses table mode -- it's a tabular download.
         result = execute_report(report_def, filter_values, use_bt, settings,
                                 current_org_id=use_org,
@@ -10768,6 +10926,105 @@ def handle_ajax(action, user_id, bt_people_ids, current_org_id=None):
             'success': True, 'csv': csv_data,
             'filename': report_def.get('name', 'report').replace(' ', '_') + '.csv'
         }))
+
+    elif action == 'save_view':
+        # Save the report as it is currently set up: base report, filters,
+        # data scope and grid layout. Deliberately NOT a copy of the base
+        # report's SQL, so the view tracks later fixes to that report.
+        base_id = get_param('vw_base', '')
+        base = find_report(base_id, user_id)
+        if not base:
+            return json.dumps({'success': False, 'error': 'The report this view is built on was not found.'})
+        if base.get('base_report'):
+            return json.dumps({'success': False,
+                               'error': 'This is already a saved view. Open the report it was '
+                                        'built from to save a new one.'})
+        name = (get_param('vw_name', '') or '').strip()
+        if not name:
+            return json.dumps({'success': False, 'error': 'Give the view a name.'})
+
+        scope_type = get_param('vw_scope_type', 'none')
+        if scope_type not in ('none', 'org', 'query'):
+            scope_type = 'none'
+        scope_org = get_param('vw_scope_org_id', '')
+        scope_query = (get_param('vw_scope_query', '') or '').strip()
+        support = scope_support(base)
+
+        # Same refusal as scheduling: a scope this report cannot apply is
+        # rejected now, while the person choosing it is still looking.
+        if scope_type == 'query':
+            if not support['people']:
+                return json.dumps({'success': False,
+                                   'error': 'This report returns summary rows, so it cannot be '
+                                            'limited to the people in a saved search.'})
+            if not scope_query:
+                return json.dumps({'success': False, 'error': 'Pick the saved search to limit to.'})
+            try:
+                if not len([1 for _ in q.QueryPeopleIds(scope_query)]):
+                    return json.dumps({'success': False,
+                                       'error': 'Saved search "{0}" currently matches nobody.'.format(scope_query)})
+            except Exception as e:
+                return json.dumps({'success': False,
+                                   'error': 'Saved search "{0}" would not run: {1}'.format(
+                                       scope_query, safe_str(e))})
+        elif scope_type == 'org':
+            if not support['org']:
+                return json.dumps({'success': False,
+                                   'error': 'This report cannot be limited to a single involvement.'})
+            if not str(scope_org).strip().isdigit():
+                return json.dumps({'success': False, 'error': 'Pick the involvement to limit to.'})
+            if not support['org_native']:
+                try:
+                    if not org_member_ids(scope_org):
+                        return json.dumps({'success': False,
+                                           'error': 'That involvement currently has no members.'})
+                except Exception as e:
+                    return json.dumps({'success': False,
+                                       'error': 'Could not read that involvement: ' + safe_str(e)})
+
+        filters = {}
+        for p in base.get('parameters', []):
+            pname = p.get('name', '')
+            val = get_param('filter_' + pname, '')
+            if p.get('type') == 'daterange' and val == 'custom':
+                st = get_param('filter_' + pname + '_start', '')
+                en = get_param('filter_' + pname + '_end', '')
+                val = (st + '|' + en) if st and en else ''
+            if val:
+                filters[pname] = val
+
+        try:
+            grid_filter = json.loads(get_param('vw_grid_filter', '') or 'null')
+        except:
+            grid_filter = None
+
+        shared = get_param('vw_shared', 'false') == 'true'
+        vid = get_param('vw_id', '') or ('view_' + re.sub(r'[^a-z0-9]+', '_', name.lower())[:36]
+                                         + '_' + str(user_id))
+        vdef = {
+            'id': vid,
+            'name': name,
+            'description': (get_param('vw_desc', '') or '').strip()
+                           or ('Saved view of ' + safe_str(base.get('name', ''))),
+            'category': get_param('vw_category', '') or base.get('category', ''),
+            'icon': 'fa-bookmark',
+            'base_report': base_id,
+            'view_filters': filters,
+            'view_scope_type': scope_type,
+            'view_scope_org_id': scope_org if scope_type == 'org' else '',
+            'view_scope_query': scope_query if scope_type == 'query' else '',
+            'view_scope_label': get_param('vw_scope_label', ''),
+            'view_columns': [c for c in (get_param('vw_columns', '') or '').split(',') if c],
+            'view_sort': [s for s in (get_param('vw_sort', '') or '').split(',') if s],
+            'view_grid_filter': grid_filter,
+            'is_builtin': False,
+        }
+        try:
+            save_custom_report(user_id, vdef, shared)
+        except Exception as e:
+            return json.dumps({'success': False, 'error': 'Could not save: ' + safe_str(e)})
+        return json.dumps(sanitize_for_json({
+            'success': True, 'report_id': vid, 'name': name, 'shared': shared}))
 
     elif action == 'save_report':
         report_json = get_param('report_json', '')
@@ -11643,14 +11900,89 @@ function reportFromHash(){
     }catch(e){ return ""; }
 }
 
+// A shared link carries the whole VIEW, not just which report to open:
+// the filter selections, the involvement scope and the display mode. A link
+// that only named the report dropped the recipient into the unfiltered
+// version of it, which is rarely the thing worth sending.
+var pendingLink=null;
+
+function linkFromHash(){
+    try{
+        var h=(window.location.hash||"").replace(/^#/,"");
+        if(!h) return null;
+        var out={id:"",filters:{},org:"",orgName:"",display:"",
+                 grid:{hidden:[],sort:[],filter:null},extra:false};
+        var parts=h.split("&");
+        for(var i=0;i<parts.length;i++){
+            if(!parts[i]) continue;
+            var eq=parts[i].indexOf("=");
+            var k=decodeURIComponent(eq<0?parts[i]:parts[i].substring(0,eq));
+            var v=eq<0?"":decodeURIComponent(parts[i].substring(eq+1));
+            if(k==="report") out.id=v;
+            else if(k==="display"){ out.display=v; out.extra=true; }
+            else if(k==="org"){ out.org=v; out.extra=true; }
+            else if(k==="orgname"){ out.orgName=v; }
+            else if(k==="c"){ out.grid.hidden=v?v.split(","):[]; out.extra=true; }
+            else if(k==="s"){ out.grid.sort=v?v.split(","):[]; out.extra=true; }
+            else if(k==="gf"){
+                // A malformed filter model must not stop the report opening.
+                try{ out.grid.filter=JSON.parse(v); out.extra=true; }catch(e){}
+            }
+            else if(k.indexOf("f.")===0){ out.filters[k.substring(2)]=v; out.extra=true; }
+        }
+        return out.id?out:null;
+    }catch(e){ return null; }
+}
+
 function openFromHash(){
-    var id = reportFromHash();
-    if(id && id !== currentReport){ selectReport(id, true); }
+    var lk=linkFromHash();
+    if(!lk) return;
+    // Re-selecting the report we are already on would discard the filters the
+    // user has since changed, so only act when the link points somewhere else
+    // or carries settings to apply.
+    if(lk.id===currentReport && !lk.extra) return;
+    pendingLink=lk;
+    selectReport(lk.id, true);
+}
+
+// Puts the link's selections onto the filter controls before the report runs.
+// Has to happen after load_filters returns, because the panel does not exist
+// until then.
+function applyPendingFilters(){
+    if(!pendingLink) return;
+    var f=pendingLink.filters||{};
+    var ins=document.querySelectorAll("#rb-filter-panel .rb-filter-input");
+    for(var i=0;i<ins.length;i++){
+        var el=ins[i];
+        var pn=el.getAttribute("data-param");
+        if(!pn||!(pn in f)) continue;
+        var v=f[pn];
+        if(el.multiple){
+            var want=String(v).split(",");
+            for(var j=0;j<el.options.length;j++){
+                el.options[j].selected=(want.indexOf(el.options[j].value)>=0);
+            }
+        }else{
+            el.value=v;
+        }
+    }
+    // A custom date range arrives as the preset "custom" plus two dates, and
+    // its row is hidden until the select changes. Nothing changes it here, so
+    // the row is opened directly.
+    var sels=document.querySelectorAll("#rb-filter-panel .rb-daterange-select");
+    for(var k=0;k<sels.length;k++){
+        var row=sels[k].parentNode.querySelector(".rb-custom-date-row");
+        if(row) row.style.display=(sels[k].value==="custom")?"flex":"none";
+    }
 }
 
 function selectReport(id, fromHash){
     currentReport=id;
-    setReportHash(id, !!fromHash);
+    // Opening a shared link leaves its hash alone. Rewriting it to the bare
+    // #report=id would throw away the filters and columns that were the point
+    // of the link, so a refresh or a bookmark would silently show something
+    // else. Picking a report from the sidebar still rewrites it normally.
+    if(!(pendingLink&&pendingLink.extra)) setReportHash(id, !!fromHash);
     var items=document.querySelectorAll(".rb-report-item");
     for(var i=0;i<items.length;i++){items[i].classList.remove("active");if(items[i].getAttribute("data-id")===id) items[i].classList.add("active")}
     document.getElementById("rb-results").innerHTML='<div class="rb-loading"><div class="rb-spinner"></div><p>Loading...</p></div>';
@@ -11666,8 +11998,14 @@ function selectReport(id, fromHash){
         var fp=document.getElementById("rb-filter-panel");
         if(fp) fp.innerHTML=r.filter_html||"";
         scopeSupport=r.scope_support||{people:!!r.bt_supported,org:false};
+        var vw=r.view||{};
+        viewIsView=!!vw.is_view;
+        viewBaseId=vw.base_report||"";
         setupDR();
+        applyPendingFilters();
         currentDisplay=r.default_display||"table";
+        // A link's display choice wins over the report's default.
+        if(pendingLink&&pendingLink.display) currentDisplay=pendingLink.display;
         updateDT(r.display_types||["table"]);
         var bi=document.getElementById("rb-bt-indicator");
         if(bi){
@@ -11675,7 +12013,27 @@ function selectReport(id, fromHash){
             else if(btCount>0&&!r.bt_supported){bi.style.display="inline";bi.textContent="Scope N/A";bi.style.background="#fef3c7";bi.style.color="#92400e";bi.title="This report shows aggregate data and cannot be filtered by people selection"}
             else{bi.style.display="none"}
         }
-        runReport();
+
+        // Hand the grid settings off to renderGrid, which is the only place
+        // they can be applied, then finish consuming the link.
+        var lk=pendingLink; pendingLink=null;
+        pendingGridView=(lk&&lk.grid&&(lk.grid.hidden.length||lk.grid.sort.length||lk.grid.filter))
+                        ? lk.grid : null;
+        // A saved view carries its own grid layout. A link explicitly opened
+        // on top of it wins, since that is a deliberate act by the sender.
+        if(!pendingGridView&&viewIsView
+           &&((vw.hidden&&vw.hidden.length)||(vw.sort&&vw.sort.length)||vw.filter)){
+            pendingGridView={hidden:vw.hidden||[],sort:vw.sort||[],filter:vw.filter||null};
+        }
+
+        // An involvement scope has to resolve its membership first, and
+        // pickOrg runs the report itself once it has. Running here too would
+        // fire the report twice and race the two responses.
+        if(lk&&lk.org&&String(lk.org)!==String(selectedOrg||"")){
+            pickOrg(lk.org, lk.orgName||("Involvement "+lk.org));
+        }else{
+            runReport();
+        }
     });
 }
 
@@ -11758,6 +12116,11 @@ function renderRes(r){
     h+='<button class="rb-btn rb-btn-secondary rb-btn-sm" onclick="RB.printReport()"><i class="fas fa-print"></i> Print</button>';
     // Emailing and link-sharing sit with the other output actions, which is
     // where people look for 'get this report to someone'.
+    if(!viewIsView){
+        h+='<button class="rb-btn rb-btn-secondary rb-btn-sm" onclick="RB.openViewModal()" '
+          +'title="Save the current filters, scope and columns as a report in the sidebar">'
+          +'<i class="fas fa-bookmark"></i> Save View</button>';
+    }
     h+=schedButtonHtml();
     h+='<button class="rb-btn rb-btn-secondary rb-btn-sm" onclick="RB.copyReportLink()" title="Copy a direct link to this report"><i class="fas fa-link"></i> Copy Link</button>';
     h+='<button class="rb-btn rb-btn-secondary rb-btn-sm" id="rb-fs-btn" onclick="RB.toggleFullscreen()" title="Expand to full screen (Esc to exit)"><i class="fas fa-expand"></i> Fullscreen</button></div></div>';
@@ -12038,6 +12401,13 @@ function buildGrid(gd){
     }
 
     currentGrid=agGrid.createGrid(el,gridOptions);
+
+    // A link that carried column, sort or grid-filter settings can only be
+    // applied now, because none of those exist until the grid is built.
+    if(pendingGridView){
+        var gv=pendingGridView; pendingGridView=null;
+        setTimeout(function(){ applyGridView(gv); },0);
+    }
 }
 
 function renderChart(cd){
@@ -12519,6 +12889,61 @@ function hydrateCurrentOrg(oid){
 /* Columns dropdown -- AG Grid Community doesn't ship the Enterprise
    column tool panel, so we fake it. setColumnsVisible IS in Community,
    so visibility itself works fine; only the UI was paywalled. */
+// ---- Grid view state, for shareable links ----
+// Column visibility, sort and the grid's own column filters all live in AG
+// Grid rather than in our SQL, so they have to be read out of it and put back
+// after the grid is rebuilt. The report filter bar is separate and handled
+// with the filter panel.
+var pendingGridView=null;
+
+function gridViewState(){
+    if(!currentGrid) return null;
+    var out={hidden:[],sort:[],filter:null};
+    try{
+        var st=currentGrid.getColumnState?currentGrid.getColumnState():[];
+        var sorted=[];
+        for(var i=0;i<st.length;i++){
+            if(st[i].hide) out.hidden.push(st[i].colId);
+            if(st[i].sort) sorted.push({id:st[i].colId,dir:st[i].sort,
+                                        idx:(st[i].sortIndex==null?0:st[i].sortIndex)});
+        }
+        // Multi-column sort is ordered, so sortIndex has to survive the trip.
+        sorted.sort(function(a,b){return a.idx-b.idx});
+        for(var j=0;j<sorted.length;j++) out.sort.push(sorted[j].id+":"+sorted[j].dir);
+    }catch(e){}
+    try{
+        var fm=currentGrid.getFilterModel?currentGrid.getFilterModel():null;
+        var any=false;
+        for(var k in fm){ if(fm.hasOwnProperty(k)){ any=true; break } }
+        if(any) out.filter=fm;
+    }catch(e){}
+    return out;
+}
+
+function applyGridView(v){
+    if(!currentGrid||!v) return;
+    try{
+        var st=currentGrid.getColumnState?currentGrid.getColumnState():[];
+        var hid={},srt={};
+        for(var i=0;i<(v.hidden||[]).length;i++) hid[v.hidden[i]]=true;
+        for(var j=0;j<(v.sort||[]).length;j++){
+            var p=String(v.sort[j]).split(":");
+            srt[p[0]]={sort:(p[1]==="desc"?"desc":"asc"),sortIndex:j};
+        }
+        var state=[];
+        for(var k=0;k<st.length;k++){
+            var cid=st[k].colId;
+            var e={colId:cid,hide:!!hid[cid],sort:null,sortIndex:null};
+            if(srt[cid]){ e.sort=srt[cid].sort; e.sortIndex=srt[cid].sortIndex; }
+            state.push(e);
+        }
+        if(currentGrid.applyColumnState) currentGrid.applyColumnState({state:state});
+    }catch(e){}
+    try{
+        if(v.filter&&currentGrid.setFilterModel) currentGrid.setFilterModel(v.filter);
+    }catch(e){}
+}
+
 function toggleColsPanel(){
     var panel=document.getElementById("rb-cols-panel");
     if(!panel) return;
@@ -13724,10 +14149,256 @@ function saveLinkedReport(){
 }
 
 // Copy a link straight to the current report.
+// ---- Save this view ----
+// A shared link captures a view but has to live in someone's bookmarks. This
+// saves the same thing INTO the report list, where people find it by browsing.
+var viewScope={type:"none",orgId:"",query:"",label:""};
+var viewIsView=false;      // is the open report itself a saved view?
+var viewBaseId="";         // the report a new view would be built on
+
+function openViewModal(){
+    if(!currentReport){ alert("Open a report first."); return; }
+    if(viewIsView){
+        alert("This is already a saved view. Open the report it was built from to save a new one.");
+        return;
+    }
+    var m=document.getElementById("rb-view-modal");
+    if(!m) return;
+    m.style.display="flex";
+    viewScope={type:"none",orgId:"",query:"",label:""};
+    // Default to the involvement already on screen, since narrowing to it and
+    // then saving is the common path.
+    if(selectedOrg){
+        viewScope={type:"org",orgId:String(selectedOrg),query:"",
+                   label:selectedOrgName||("Involvement "+selectedOrg)};
+    }
+    var set=function(id,v){var e=document.getElementById(id); if(e) e.value=v||""};
+    set("rb-view-name",""); set("rb-view-desc","");
+    var msg=document.getElementById("rb-view-msg"); if(msg) msg.innerHTML="";
+    var sh=document.getElementById("rb-view-shared"); if(sh) sh.checked=false;
+    renderViewScope();
+    renderViewSummary();
+    ajax({action:"list_sources"},function(r){
+        linkedSources.queries=(r&&r.queries)||[];
+        linkedSources.queriesCapped=!!(r&&r.queries_capped);
+        linkedSources.cap=(r&&r.cap)||0;
+        fillViewQueries();
+    });
+}
+
+function renderViewScope(){
+    var el=document.getElementById("rb-view-scope");
+    if(!el) return;
+    var h='';
+    var row=function(v,label,note){
+        return '<label style="display:block;margin-bottom:3px"><input type="radio" '
+             +'name="rb-view-scope-choice" value="'+v+'"'+(viewScope.type===v?" checked":"")
+             +' onchange="RB.pickViewScope(this.value)"> '+label
+             +(note?'<span style="color:#64748b"> '+note+'</span>':'')+'</label>';
+    };
+    h+=row("none","Everything the report returns");
+    if(scopeSupport.people){
+        h+=row("query","Only people in a saved search",
+               "&ndash; re-run each time, so the view stays current");
+        h+='<div id="rb-view-query-row" style="margin:0 0 6px 22px;display:'
+          +(viewScope.type==="query"?"":"none")+'">'
+          +'<select id="rb-view-querysel" style="width:100%;max-width:420px;padding:5px 7px;'
+          +'font-size:12px;border:1px solid #cbd5e1;border-radius:5px"></select>'
+          +'<div id="rb-view-querynote" style="font-size:11px;color:#c2410c;margin-top:2px"></div></div>';
+    }
+    if(scopeSupport.org){
+        h+=row("org","Only one involvement","&ndash; membership re-read each time");
+        h+='<div id="rb-view-org-row" style="margin:0 0 6px 22px;display:'
+          +(viewScope.type==="org"?"":"none")+'">'
+          +'<div id="rb-view-org-chosen" style="font-size:12px;margin-bottom:3px">'
+          +(viewScope.orgId?('Using <strong>'+esc(viewScope.label)+'</strong>')
+                           :'<span style="color:#c2410c">None picked yet</span>')+'</div>'
+          +'<input id="rb-view-orgsearch" type="text" placeholder="Search involvements..." '
+          +'oninput="RB.viewOrgSearch()" style="width:100%;max-width:420px;padding:5px 7px;'
+          +'font-size:12px;border:1px solid #cbd5e1;border-radius:5px">'
+          +'<div id="rb-view-orgresults" style="display:none;max-height:150px;overflow:auto;'
+          +'border:1px solid #e2e8f0;border-radius:5px;margin-top:3px;max-width:420px"></div></div>';
+    }
+    if(!scopeSupport.people&&!scopeSupport.org){
+        h+='<div style="color:#64748b;margin-top:4px">This report returns summary rows, so it '
+          +'can only be narrowed with the filters above.</div>';
+    }
+    el.innerHTML=h;
+    if(viewScope.type==="query") fillViewQueries();
+}
+
+function pickViewScope(v){
+    viewScope.type=v;
+    if(v!=="org"){ viewScope.orgId=""; }
+    if(v!=="query"){ viewScope.query=""; }
+    if(v==="none"){ viewScope.label=""; }
+    var qr=document.getElementById("rb-view-query-row");
+    if(qr) qr.style.display=(v==="query")?"":"none";
+    var orow=document.getElementById("rb-view-org-row");
+    if(orow) orow.style.display=(v==="org")?"":"none";
+    if(v==="query") fillViewQueries();
+}
+
+function fillViewQueries(){
+    var sel=document.getElementById("rb-view-querysel");
+    if(!sel) return;
+    var qs=linkedSources.queries||[];
+    sel.innerHTML=qs.length?qs.map(function(x){
+        var nm=(typeof x==="string")?x:x.name;
+        return '<option value="'+escAttr(nm)+'">'+esc(nm)+'</option>'}).join("")
+        :'<option value="">No saved searches found</option>';
+    if(viewScope.query){
+        for(var i=0;i<sel.options.length;i++){
+            if(sel.options[i].value===viewScope.query){sel.selectedIndex=i;break}
+        }
+    }
+    sel.onchange=function(){ viewScope.query=sel.value; viewScope.label="Saved search: "+sel.value; };
+    if(!viewScope.query&&sel.value){ viewScope.query=sel.value; viewScope.label="Saved search: "+sel.value; }
+    var note=document.getElementById("rb-view-querynote");
+    if(note) note.innerHTML=linkedSources.queriesCapped
+        ? ("Showing the "+linkedSources.cap+" most recently used saved searches.") : "";
+}
+
+function viewOrgSearch(){
+    if(schedTimer) clearTimeout(schedTimer);
+    schedTimer=setTimeout(function(){
+        var term=(document.getElementById("rb-view-orgsearch")||{}).value||"";
+        var box=document.getElementById("rb-view-orgresults");
+        if(!box) return;
+        if(term.trim().length<2){ box.style.display="none"; return; }
+        ajax({action:"search_orgs",search_term:term},function(r){
+            if(!r||!r.orgs||!r.orgs.length){ box.style.display="none"; return; }
+            box.innerHTML=r.orgs.map(function(o){
+                return '<div class="rb-view-orgrow" data-id="'+o.id+'" data-name="'+escAttr(o.name)+'" '
+                     +'style="padding:5px 8px;cursor:pointer;font-size:12px;border-bottom:1px solid #f1f5f9">'
+                     +esc(o.name)+' <span style="color:#94a3b8">'+esc(o.program||"")
+                     +(o.members?(" &middot; "+o.members+" members"):"")+'</span></div>';
+            }).join("");
+            box.style.display="";
+            var rows=box.querySelectorAll(".rb-view-orgrow");
+            for(var i=0;i<rows.length;i++){
+                rows[i].onclick=function(){
+                    viewScope.type="org";
+                    viewScope.orgId=this.getAttribute("data-id");
+                    viewScope.label=this.getAttribute("data-name");
+                    viewScope.query="";
+                    var c=document.getElementById("rb-view-org-chosen");
+                    if(c) c.innerHTML='Using <strong>'+esc(viewScope.label)+'</strong>';
+                    box.style.display="none";
+                    var s=document.getElementById("rb-view-orgsearch"); if(s) s.value="";
+                };
+            }
+        });
+    },300);
+}
+
+// Says exactly what is about to be frozen, so nobody saves a view believing
+// it captured something it did not.
+function renderViewSummary(){
+    var el=document.getElementById("rb-view-summary");
+    if(!el) return;
+    var bits=[];
+    var f=describeFilters();
+    if(f.length) bits.push(f.map(function(x){
+        return esc(x.label.replace(/:$/,""))+" = <strong>"+esc(x.value)+"</strong>" }).join(" &middot; "));
+    var gv=gridViewState();
+    if(gv&&gv.hidden.length) bits.push(gv.hidden.length+" column"+(gv.hidden.length===1?"":"s")+" hidden");
+    if(gv&&gv.sort.length) bits.push("sorted by "+esc(gv.sort[0].split(":")[0]));
+    if(gv&&gv.filter){
+        var n=0; for(var k in gv.filter){ if(gv.filter.hasOwnProperty(k)) n++ }
+        bits.push(n+" column filter"+(n===1?"":"s"));
+    }
+    el.innerHTML=bits.length
+        ? ("<strong>Saving with:</strong> "+bits.join(" &middot; "))
+        : "<strong>Nothing extra to capture.</strong> No filters set and the grid is unchanged, "
+          +"so this view will match the report it is built on.";
+}
+
+function saveView(){
+    var msg=document.getElementById("rb-view-msg");
+    var nm=(document.getElementById("rb-view-name")||{}).value||"";
+    if(!nm.trim()){ if(msg) msg.innerHTML='<div style="color:#dc2626">Give the view a name.</div>'; return; }
+    var p={action:"save_view", vw_base:currentReport, vw_name:nm,
+           vw_desc:(document.getElementById("rb-view-desc")||{}).value||"",
+           vw_category:(document.getElementById("rb-view-category")||{}).value||"",
+           vw_scope_type:viewScope.type, vw_scope_org_id:viewScope.orgId||"",
+           vw_scope_query:viewScope.query||"", vw_scope_label:viewScope.label||"",
+           vw_shared:(document.getElementById("rb-view-shared")||{}).checked?"true":"false"};
+    // Same collector the run uses, so the view is the report on screen.
+    collectFilters(p);
+    var gv=gridViewState();
+    if(gv){
+        p.vw_columns=gv.hidden.join(",");
+        p.vw_sort=gv.sort.join(",");
+        if(gv.filter){ try{ p.vw_grid_filter=JSON.stringify(gv.filter); }catch(e){} }
+    }
+    if(msg) msg.innerHTML="Saving...";
+    ajax(p,function(r){
+        if(!r||!r.success){
+            if(msg) msg.innerHTML='<div style="color:#dc2626">'+esc((r&&r.error)||"Save failed")+'</div>';
+            return;
+        }
+        if(msg) msg.innerHTML='<div style="color:#15803d">Saved. Reloading...</div>';
+        // Reload so the sidebar picks it up, then open it.
+        window.location.hash="#report="+encodeURIComponent(r.report_id);
+        window.location.reload();
+    });
+}
+
+function closeViewModal(){
+    var m=document.getElementById("rb-view-modal");
+    if(m) m.style.display="none";
+}
+
 function copyReportLink(){
     if(!currentReport){ alert("Open a report first."); return; }
-    var url=window.location.origin+window.location.pathname+"#report="+encodeURIComponent(currentReport);
-    var done=function(){ alert("Link copied:\\n"+url); };
+    var parts=["report="+encodeURIComponent(currentReport)];
+    var summary=[];
+
+    // Report filters, read through the same collector the run uses.
+    var p={}; collectFilters(p);
+    var nf=0;
+    for(var k in p){
+        if(!p.hasOwnProperty(k)||k.indexOf("filter_")!==0) continue;
+        var v=p[k];
+        if(v===""||v===null||typeof v==="undefined") continue;
+        parts.push("f."+encodeURIComponent(k.substring(7))+"="+encodeURIComponent(v));
+        nf++;
+    }
+    if(nf) summary.push(nf+" filter"+(nf===1?"":"s"));
+
+    if(currentDisplay&&currentDisplay!=="table"){
+        parts.push("display="+encodeURIComponent(currentDisplay));
+        summary.push(currentDisplay+" view");
+    }
+    if(selectedOrg){
+        parts.push("org="+encodeURIComponent(selectedOrg));
+        if(selectedOrgName) parts.push("orgname="+encodeURIComponent(selectedOrgName));
+        summary.push("scoped to "+(selectedOrgName||("involvement "+selectedOrg)));
+    }
+
+    var gv=gridViewState();
+    if(gv){
+        if(gv.hidden.length){
+            parts.push("c="+encodeURIComponent(gv.hidden.join(",")));
+            summary.push(gv.hidden.length+" column"+(gv.hidden.length===1?"":"s")+" hidden");
+        }
+        if(gv.sort.length){
+            parts.push("s="+encodeURIComponent(gv.sort.join(",")));
+            summary.push("sorted by "+gv.sort[0].split(":")[0]);
+        }
+        if(gv.filter){
+            try{
+                parts.push("gf="+encodeURIComponent(JSON.stringify(gv.filter)));
+                var gfn=0; for(var q in gv.filter){ if(gv.filter.hasOwnProperty(q)) gfn++ }
+                summary.push(gfn+" column filter"+(gfn===1?"":"s"));
+            }catch(e){}
+        }
+    }
+
+    var url=window.location.origin+window.location.pathname+"#"+parts.join("&");
+    var what=summary.length?("Includes "+summary.join(", ")+"."):"No filters or column changes to include.";
+    var done=function(){ alert("Link copied. "+what+"\\n\\n"+url); };
     try{
         if(navigator.clipboard&&navigator.clipboard.writeText){
             navigator.clipboard.writeText(url).then(done,function(){window.prompt("Copy this link:",url)});
@@ -13754,6 +14425,8 @@ return{selectReport:selectReport,runReport:runReport,setDisplay:setDisplay,expor
     deleteSchedule:deleteSchedule,sendScheduleNow:sendScheduleNow,searchRecipients:searchRecipients,
     pickRecipientMode:pickRecipientMode,batchInstall:batchInstall,batchUninstall:batchUninstall,
     pickScope:pickScope,schedOrgSearch:schedOrgSearch,
+    openViewModal:openViewModal,closeViewModal:closeViewModal,saveView:saveView,
+    pickViewScope:pickViewScope,viewOrgSearch:viewOrgSearch,
     openSchedListModal:openSchedListModal,closeSchedListModal:closeSchedListModal,
     loadSchedIndex:loadSchedIndex,
     schedListOpen:schedListOpen,schedListToggle:schedListToggle,
@@ -14019,6 +14692,60 @@ def build_sidebar_html(all_reports, favs=None):
         <button class="rb-btn" onclick="RB.closeSchedModal()">Cancel</button>
         <button class="rb-btn rb-btn-primary" onclick="RB.saveSchedule()">Save schedule</button>
       </div>
+    </div>
+  </div>
+</div>''')
+
+    # Save this view. Turns the report on screen, as narrowed, into an entry
+    # in the sidebar that anyone with access can click.
+    html.append('''
+<div id="rb-view-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);
+     z-index:100050;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:10px;max-width:620px;width:94%;padding:20px;
+       max-height:88vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.25)">
+    <h3 style="margin:0 0 4px;font-size:17px">Save this view as a report</h3>
+    <p style="margin:0 0 14px;font-size:12px;color:#64748b">It appears in the sidebar like any
+       other report. It stays linked to the report it came from, so fixes to that report carry
+       through rather than being frozen into a copy.</p>
+
+    <div id="rb-view-summary" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;
+         padding:9px 11px;font-size:12px;margin-bottom:14px"></div>
+
+    <label style="font-size:12px;font-weight:600;color:#334155">Name
+      <input id="rb-view-name" type="text" placeholder="e.g. At-Risk Members, Youth"
+             style="width:100%;padding:6px 8px;margin-top:3px;border:1px solid #cbd5e1;
+             border-radius:5px;font-size:13px"></label>
+
+    <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-top:10px">
+      Description <span style="font-weight:400;color:#94a3b8">(optional)</span>
+      <input id="rb-view-desc" type="text"
+             style="width:100%;padding:6px 8px;margin-top:3px;border:1px solid #cbd5e1;
+             border-radius:5px;font-size:13px"></label>
+
+    <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-top:10px">
+      Category
+      <select id="rb-view-category" style="display:block;width:100%;padding:6px 8px;margin-top:3px;
+              border:1px solid #cbd5e1;border-radius:5px;font-size:13px">''')
+    # Defaults to where the base report already lives, so a saved view lands
+    # beside the thing it was made from unless the user moves it.
+    html.append('<option value="">Same as the report it is built on</option>')
+    for ck in CATEGORY_ORDER:
+        ci = CATEGORIES.get(ck)
+        if ci:
+            html.append('<option value="{0}">{1}</option>'.format(ck, html_escape(ci['name'])))
+    html.append('''</select></label>
+
+    <div style="font-size:12px;font-weight:600;color:#334155;margin:14px 0 5px">Data scope</div>
+    <div id="rb-view-scope" style="font-size:13px;margin-bottom:8px"></div>
+
+    <div style="font-size:12px;font-weight:600;color:#334155;margin:14px 0 5px">Who can see it</div>
+    <label style="font-size:13px;display:block">
+      <input id="rb-view-shared" type="checkbox"> Everyone (leave unticked to keep it to yourself)</label>
+
+    <div id="rb-view-msg" style="font-size:12px;margin-top:12px"></div>
+    <div style="margin-top:16px;text-align:right">
+      <button class="rb-btn" onclick="RB.closeViewModal()">Cancel</button>
+      <button class="rb-btn rb-btn-primary" onclick="RB.saveView()">Save view</button>
     </div>
   </div>
 </div>''')
