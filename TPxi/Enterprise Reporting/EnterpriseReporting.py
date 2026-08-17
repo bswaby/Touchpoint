@@ -35,16 +35,26 @@
 Enterprise Reporting for TouchPoint
 ==================================
 A single-file, enterprise-grade report builder for TouchPoint churches.
-65 built-in reports across 8 categories with auto-update via DisplayCache.
+152 built-in reports across 11 categories with auto-update via DisplayCache.
 
 Features:
-- 65+ built-in reports: Demographics, Financial, Attendance, Membership,
-  Engagement, Communications, Admin, Emergency
+- 152 built-in reports: Engagement (36), Financial (21), Data Health (16),
+  Attendance (15), Admin (15), Membership (12), Communications (12),
+  Demographics (10), Tasks (8), Transactions (6), Emergency (1)
 - Blue Toolbar integration: run any report on selected people
 - AJAX-driven UI: sidebar nav, dynamic filters, no full-page reloads
+- Correlated filters: each option shows how many rows it would return
+  INSIDE the current selection, not across the whole database
 - Display modes: Table (AG Grid), Chart (Chart.js), KPI cards
 - Bulk actions: Tag, Task, Note on selected people
 - Custom report builder with SQL editor
+- Linked reports: back a report with a saved Search Builder query or a
+  saved SQL script, editable after the fact
+- Favorites, column picker, deep-linkable report URLs
+- Scheduled email delivery, with an explicit data scope and a single list
+  of everything going out
+- Data Health worklists: the actual people whose records need fixing, ready
+  to tag, assign as tasks, or email to a data steward on a schedule
 - Save/load/delete custom reports per user or shared
 - CSV export and print via popup window
 - Auto-update via DisplayCache (scripts.displaycache.com)
@@ -53,6 +63,208 @@ Features:
 
 Written By: Ben Swaby
 Email: bswaby@fbchtn.org
+
+Changelog:
+  1.3.0  (2026-08-17)  Favorites, linked reports, scheduled email delivery,
+                       and Data Health. Everything below is new since 1.2.1.
+
+                       DATA HEALTH (new category, 16 reports)
+                       Missing data: Members Missing Email, Missing Phone,
+                       Missing Address, Missing Birth Date, Missing Gender,
+                       Members Missing Join Date, No Contact Information At
+                       All, New Records Missing Data.
+                       Wrong data: Malformed Email/Phone/Zip, Family Position
+                       Does Not Match Age, Family Missing a Head of
+                       Household, Deceased Still in Active Involvements.
+                       Duplicates: Possible Duplicate People (name + birth
+                       date), Possible Duplicates by Name (records with no
+                       birth date, so the two never overlap), Email Shared
+                       Across Families.
+                       Housekeeping: Inactive Records to Review (never
+                       attended, never gave, never in an involvement, and
+                       over two years old).
+
+                       These are worklists, not statistics. A dashboard tile
+                       saying "6,036 members have no email" cannot be acted
+                       on; these return the people, so the rows can be tagged,
+                       assigned as tasks, or emailed to whoever owns the
+                       cleanup on a schedule. New Records Missing Data is the
+                       one worth scheduling, because catching an incomplete
+                       record in the week it was entered is far cheaper than
+                       auditing the database later.
+
+                       Two details that are easy to get wrong: the address
+                       check reads the FAMILY record, since People.ZipCode is
+                       populated under 1% of the time against 91% on
+                       Families; and the missing-phone check clears a person
+                       if the FAMILY has a phone, so children reachable
+                       through the household are not flagged.
+
+                       Duplicate detection matches first name, last name AND
+                       birth date together. Name alone is far too loose in a
+                       church database.
+
+                       DEMOGRAPHIC COLUMN FIXES
+                       Ten reports were throwing "The multi-part identifier
+                       p.GenderId could not be bound" and returning nothing.
+                       The auto-injector located the outermost SELECT and
+                       added p.* columns there without checking that `p` was
+                       in scope. It usually is not: the common shape is a CTE
+                       that joins People and an outer query that selects from
+                       the CTE.
+
+                       Six of those were genuinely person-row and now declare
+                       {demographics_select} / {demographics_join} /
+                       {demographics_groupby} / {demographics_passthrough},
+                       which put the columns inside the CTE where `p` exists
+                       and carry them out through the outer SELECT. The other
+                       four were aggregates that should never have been
+                       flagged (one row per tier or per band, not per person)
+                       and are now marked accordingly, along with two more
+                       aggregates found the same way.
+
+                       Joining People back on at the outer level was tried
+                       first and does not work: those outer SELECTs reference
+                       their columns bare, so adding a table that shares any
+                       column name makes every one of them ambiguous.
+
+                       Three holes in the aggregate guard were fixed while
+                       proving the above. It matched only 'GROUP BY ' with a
+                       trailing space, so "GROUP BY\\n" slipped through; it
+                       ignored scalar aggregates (a COUNT with no GROUP BY at
+                       all); and it ignored an outer UNION. The aggregate
+                       test is subquery-aware, because a COUNT inside a
+                       correlated subquery is an ordinary per-person column
+                       and treating it as a roll-up stripped the columns from
+                       six working reports.
+
+                       Reports linked to a saved search now get demographics
+                       by default. That SQL is generated here, so it is known
+                       to be one row per person with People aliased `p`. The
+                       default is read at run time, so linked reports created
+                       before this pick the columns up without a rebuild.
+
+                       FAVORITES
+                       Star a report to pin it to the top of the sidebar.
+                       Stored per user in its own content record, so starring
+                       something can never disturb a report definition. The
+                       star is a copy rather than a move: people look for a
+                       report where they remember it living.
+
+                       LINKED REPORTS
+                       Back a report with a saved Search Builder query or a
+                       saved SQL script instead of writing SQL into the
+                       builder, and edit that link afterwards. Useful when the
+                       list already exists somewhere and should stay in one
+                       place.
+
+                       CORRELATED FILTERS
+                       Each dropdown option now shows how many rows it would
+                       return INSIDE the current selection rather than across
+                       the whole database, so picking a campus makes Member
+                       Status report that campus's numbers.
+
+                       A filter whose lookup table is empty on this install is
+                       suppressed at run time and named in a note underneath.
+                       Campus is the live case: it is 0% populated at some
+                       churches and fully populated at others, and 43 reports
+                       offer a Campus dropdown, so hardcoding either way is
+                       wrong.
+
+                       DEMOGRAPHIC COLUMNS
+                       Person-row reports gained Address, City, State, Zip,
+                       BirthDate and Origin, chosen by measured population
+                       (55% to 91%) rather than guesswork. Address lives on
+                       Families, not People (People.ZipCode is populated 0.4%
+                       of the time against 91% on Families), so all four
+                       address fields share one de-duplicated join.
+
+                       SCHEDULING - DATA SCOPE
+                       A schedule now stores BOTH halves of what the user was
+                       looking at. It previously stored neither reliably:
+                       'filters' was hardcoded to {} in save_schedule, so the
+                       Gender / Marital Status / Family Position selections
+                       behind the modal were dropped and the 6am run went out
+                       over everyone. collectFilters() is now the single
+                       collector shared by the run, the CSV export and the
+                       schedule, so the three cannot drift apart.
+
+                       The scope is now CHOSEN in the modal rather than
+                       inherited from whatever the screen happened to show:
+                         - everything the report returns
+                         - people in a saved search (re-resolved every send,
+                           so "current deacons" means current deacons that
+                           morning)
+                         - one involvement (membership re-resolved per send)
+                         - the exact selection on screen (fixed list, flagged
+                           as such because it never picks up new matches)
+
+                       Scopes are gated on what the SQL can actually honor,
+                       via scope_support(). A people scope is injected as
+                       `p.PeopleId IN (...)`, so it needs the `p` alias that
+                       bluetoolbar.supported already marks (63 of 136
+                       reports). An involvement scope substitutes
+                       {current_org_filter}, which only ONE report in the
+                       catalog carries - so on the other 135 an involvement
+                       is applied as its membership instead, taking that
+                       option from 1 report to 63.
+
+                       A scope the report cannot apply is now refused at save
+                       time and blocks the send, rather than being accepted,
+                       ignored, and mailed out over the whole database. Same
+                       for a saved search that will not run and an
+                       involvement with no members (148 active involvements
+                       here have none).
+
+                       SCHEDULING - VISIBILITY
+                       New "Scheduled Emails" list in the sidebar: every
+                       schedule, its frequency, recipients, data scope,
+                       filters, last send and any failure, with edit, pause,
+                       resume, send-now and delete. Scope and filters are
+                       summarized server-side because only the server has the
+                       report definition needed to turn stored ids back into
+                       labels ("Member Status = Member", not "= 10").
+                       Pause/resume is new; deleting was previously the only
+                       way to stop a report, which threw away its recipients,
+                       scope and filters with it.
+
+                       The toolbar button now reports its own state - green
+                       "Emailing every day", amber "Schedule paused", grey
+                       "Schedule Email" - with the recipients, scope and last
+                       send in the tooltip. Scheduled reports also carry a
+                       clock in the sidebar list, so the whole catalog is
+                       scannable without opening anything.
+
+                       SAVED SEARCH PICKERS
+                       Ordered by name. They were ordered by last-run, which
+                       looked shuffled. Note the cap and the display need
+                       DIFFERENT orders: TOP keeps the most recently used,
+                       the outer query sorts those alphabetically. Sorting
+                       the cap alphabetically would keep 1000 searches
+                       starting with "A" and drop the one used yesterday.
+
+                       Cap raised 300 -> 1000 (SOURCE_LIST_CAP). This
+                       database has 555 named searches visible to one user,
+                       so 255 real searches were silently missing from every
+                       picker. When the cap does bite it now says so, and
+                       says how to recover (run it once in Search Builder).
+
+                       ATTRIBUTE ESCAPING
+                       Added escAttr(). esc() round-trips through a textNode,
+                       which escapes < > & but leaves quotes intact - fine
+                       between tags, broken inside an attribute. Not
+                       theoretical: 5 involvements and 3 people here have
+                       double quotes in their names (Men's Wed Night Bible
+                       Study "Impact", Behel, Melissa "Missy"). The existing
+                       recipient picker was already broken for those three.
+                       Applied to all 7 attribute sites, including the
+                       saved-search <option value=>, where the value IS the
+                       search name posted back to the server.
+
+  1.2.1                 Previous release. Report catalog, AG Grid tables,
+                        charts and KPI cards, custom report builder, column
+                        picker, contact effort tracking, Blue Toolbar
+                        integration.
 
 --Upload Instructions Start--
 To upload code to Touchpoint, use the following steps:
@@ -72,17 +284,402 @@ import datetime
 # CONFIGURATION & CONSTANTS
 # ============================================================================
 
-APP_VERSION = '1.1.29'
+APP_VERSION = '1.3.0'
 APP_TITLE = 'Enterprise Reporting'
 DC_SCRIPT_ID = 'EnterpriseReporting'  # ID used on DisplayCache to identify this script
 # Use workers.dev URL for server-side fetches (bypasses Cloudflare Bot Fight Mode)
 # The scripts.displaycache.com custom domain is used for browser-side version checks
 DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
+
+# How many saved searches / SQL scripts the pickers will list. Sized against a
+# real install: this database has 555 named searches visible to one user, so a
+# smaller cap silently hides searches people are actively looking for. When the
+# cap does bite, the UI says so rather than just ending the list.
+SOURCE_LIST_CAP = 1000
 DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
 CONTENT_CATALOG = 'ReportBuilder_Catalog'
 CONTENT_USER_PREFIX = 'ReportBuilder_User_'
 CONTENT_BT_PREFIX = 'ReportBuilder_BT_'
 CONTENT_SETTINGS = 'ReportBuilder_Settings'
+
+# ============================================================================
+# DEMOGRAPHIC ENRICHMENT
+# ============================================================================
+# Person-row reports can opt in via include_demographics: True. The report
+# SQL must use 'p' as the People alias and include the {demographics_select}
+# and {demographics_join} placeholders. The columns ship hidden by default;
+# users toggle them on via the Columns dropdown.
+#
+# Each entry: (column_name, select_fragment, join_fragment_or_None).
+# The executor walks this list and skips any column whose name already
+# appears as a SELECT alias in the report -- so reports that already show
+# Email, MemberStatus, etc. don't double up. Aliases use _dm suffix to
+# avoid colliding with the report's existing JOIN aliases.
+DEMOGRAPHIC_FIELDS = [
+    ('Age',            ', p.Age',
+     None),
+    ('Gender',         ", ISNULL(g_dm.Description, '') AS Gender",
+     'LEFT JOIN lookup.Gender g_dm ON g_dm.Id = p.GenderId'),
+    ('Campus',         ", ISNULL(c_dm.Description, '') AS Campus",
+     'LEFT JOIN lookup.Campus c_dm ON c_dm.Id = p.CampusId'),
+    ('MemberStatus',   ", ISNULL(ms_dm.Description, '') AS MemberStatus",
+     'LEFT JOIN lookup.MemberStatus ms_dm ON ms_dm.Id = p.MemberStatusId'),
+    ('FamilyPosition', ", ISNULL(fp_dm.Description, '') AS FamilyPosition",
+     'LEFT JOIN lookup.FamilyPosition fp_dm ON fp_dm.Id = p.PositionInFamilyId'),
+    ('MaritalStatus',  ", ISNULL(ma_dm.Description, '') AS MaritalStatus",
+     'LEFT JOIN lookup.MaritalStatus ma_dm ON ma_dm.Id = p.MaritalStatusId'),
+    ('Email',          ", ISNULL(p.EmailAddress, '') AS Email",
+     None),
+    ('CellPhone',      ", ISNULL(p.CellPhone, '') AS CellPhone",
+     None),
+    ('HomePhone',      ", ISNULL(p.HomePhone, '') AS HomePhone",
+     None),
+    ('JoinDate',       ', p.JoinDate',
+     None),
+    ('FamilyId',       ', p.FamilyId',
+     None),
+    # --- Address. Lives on the FAMILY, not the person: People.ZipCode is
+    # populated for well under 1% of records, Families.ZipCode for ~91%.
+    # All four share one join, which _resolve_demographics de-duplicates.
+    ('Address',        ", ISNULL(f_dm.AddressLineOne, '') AS Address",
+     'LEFT JOIN dbo.Families f_dm ON f_dm.FamilyId = p.FamilyId'),
+    ('City',           ", ISNULL(f_dm.CityName, '') AS City",
+     'LEFT JOIN dbo.Families f_dm ON f_dm.FamilyId = p.FamilyId'),
+    ('State',          ", ISNULL(f_dm.StateCode, '') AS State",
+     'LEFT JOIN dbo.Families f_dm ON f_dm.FamilyId = p.FamilyId'),
+    ('Zip',            ", ISNULL(f_dm.ZipCode, '') AS Zip",
+     'LEFT JOIN dbo.Families f_dm ON f_dm.FamilyId = p.FamilyId'),
+    # Birth date as well as Age: Age answers "how old", BDate answers "when",
+    # which is what birthday and milestone reports actually need.
+    ('BirthDate',      ', p.BDate AS BirthDate',
+     None),
+    ('Origin',         ", ISNULL(o_dm.Description, '') AS Origin",
+     'LEFT JOIN lookup.Origin o_dm ON o_dm.Id = p.OriginId'),
+]
+
+# Demographic columns that are pointless on an install that does not use the
+# underlying feature. Checked against real data once per request rather than
+# hardcoded, because the same column is valuable at another church. Campus is
+# the live example: lookup.Campus is empty here, so the column was appearing on
+# every person report and was always blank.
+_CONDITIONAL_DEMOGRAPHICS = {
+    'Campus': "SELECT COUNT(*) AS n FROM lookup.Campus WHERE Id > 0",
+}
+_conditional_cache = {}
+
+
+def _demographic_is_useful(name):
+    probe = _CONDITIONAL_DEMOGRAPHICS.get(name)
+    if not probe:
+        return True
+    if name in _conditional_cache:
+        return _conditional_cache[name]
+    ok = False
+    try:
+        for r in q.QuerySql(probe):
+            ok = int(r.n or 0) > 0
+            break
+    except:
+        # If the probe cannot run, keep the column. Dropping data on an
+        # inconclusive check is the worse failure.
+        ok = True
+    _conditional_cache[name] = ok
+    return ok
+DEMOGRAPHIC_COLUMN_NAMES = [f[0] for f in DEMOGRAPHIC_FIELDS]
+
+
+# Columns where the People source name matches the demographic alias --
+# 'p.Age' in a SELECT IS effectively 'AS Age' to SQL Server. Detect both
+# forms to avoid duplicate-column errors. Email is excluded because the
+# People column is EmailAddress, not Email.
+_DEMO_BARE_COLLISIONS = {
+    'Age': 'Age',
+    'CellPhone': 'CellPhone',
+    'HomePhone': 'HomePhone',
+    'JoinDate': 'JoinDate',
+    'FamilyId': 'FamilyId',
+}
+
+
+def _resolve_demographics(sql):
+    """Build the demographic SELECT and JOIN fragments for a report SQL,
+    skipping any column whose name already appears as a SELECT alias in
+    the report (to avoid 'duplicate column name' errors). Returns
+    (select_fragment, join_fragment, set_of_added_column_names)."""
+    sel_parts = []
+    join_parts = []
+    added = set()
+    for name, sel, jn in DEMOGRAPHIC_FIELDS:
+        # Check 1: explicit 'AS <Name>' anywhere in the SQL.
+        if re.search(r'\bAS\s+' + re.escape(name) + r'\b', sql, re.IGNORECASE):
+            continue
+        # Check 2: bare 'p.<Col>' without an AS alias. SQL Server uses the
+        # column name as the implicit alias, so 'p.Age,' creates a column
+        # named 'Age' that would collide with our framework's 'AS Age'.
+        bare_col = _DEMO_BARE_COLLISIONS.get(name)
+        if bare_col:
+            if re.search(r'\bp\.' + re.escape(bare_col) + r'\b(?!\s+AS\b)',
+                         sql, re.IGNORECASE):
+                continue
+        # Skip a column that this install cannot populate (empty Campus, etc).
+        if not _demographic_is_useful(name):
+            continue
+        sel_parts.append(sel)
+        # De-duplicated: Address/City/State/Zip all hang off one Families join,
+        # and emitting it four times would be a duplicate-alias SQL error.
+        if jn and jn not in join_parts:
+            join_parts.append(jn)
+        added.add(name)
+    return ('\n            '.join(sel_parts),
+            '\n            '.join(join_parts),
+            added)
+
+
+def _demographics_groupby(added):
+    """The same expressions as the select fragment, minus their aliases.
+
+    Six of the CTE-shaped reports group inside the CTE, and SQL Server needs
+    every non-aggregate selected expression repeated in the GROUP BY. Derived
+    from the one field table so the two lists cannot drift.
+    """
+    if not added:
+        return ''
+    parts = []
+    for name, sel, _ in DEMOGRAPHIC_FIELDS:
+        if name not in added:
+            continue
+        expr = sel.lstrip(', ').strip()
+        expr = re.sub(r'\s+AS\s+\w+\s*$', '', expr, flags=re.IGNORECASE)
+        parts.append(expr)
+    return (', ' + ', '.join(parts)) if parts else ''
+
+
+def _demographics_passthrough(added):
+    """Bare column names for an outer SELECT, in DEMOGRAPHIC_FIELDS order.
+
+    A CTE-shaped report cannot use auto-injection: `p` exists only inside the
+    CTE, so the columns have to be selected there and then carried out through
+    the outer SELECT by name. That second half is what this emits, and it is
+    built from the SAME `added` set the select fragment used, so a column
+    skipped as a duplicate inside the CTE is not then referenced outside it.
+    """
+    if not added:
+        return ''
+    names = [name for name, _, _ in DEMOGRAPHIC_FIELDS if name in added]
+    return ', ' + ', '.join(names)
+
+
+def wants_demographics(report_def):
+    """Whether this report gets the standard demographic columns.
+
+    An explicit setting always wins. When there is none, a report linked to a
+    saved search defaults to ON, because that SQL is generated here: People
+    aliased `p`, one row per person, no GROUP BY, so injection always applies
+    cleanly. That default is read at run time rather than written at save
+    time, so linked reports created before this existed pick the columns up
+    without a migration.
+
+    Custom SQL reports stay OFF unless the author ticks the box, since their
+    SQL is arbitrary and they may already select these columns themselves.
+    """
+    if 'include_demographics' in report_def:
+        return bool(report_def.get('include_demographics'))
+    return report_def.get('source_type') == SOURCE_SAVED_QUERY
+
+
+_AGG_FUNCS = ('COUNT', 'SUM', 'AVG', 'MIN', 'MAX')
+
+
+def _has_top_level_aggregate(select_list):
+    """True if the select list aggregates at its own level.
+
+    Depth-aware on purpose: an aggregate nested inside a subquery belongs to
+    that subquery, not to this SELECT, and treating the two the same wrongly
+    classifies ordinary person-row reports as roll-ups.
+    """
+    upper = select_list.upper()
+    # One flag per open paren: is this group a subquery? Depth alone is not
+    # enough. ISNULL(MIN(d), 0) nests MIN one level down but still aggregates
+    # THIS select, while (SELECT COUNT(*) ...) does not.
+    groups = []
+    in_string = False
+    i = 0
+    while i < len(select_list):
+        c = select_list[i]
+        if in_string:
+            if c == "'":
+                in_string = False
+            i += 1
+            continue
+        if c == "'":
+            in_string = True
+        elif c == '(':
+            j = i + 1
+            while j < len(select_list) and select_list[j] in ' \n\t\r':
+                j += 1
+            groups.append(upper[j:j+6] == 'SELECT')
+        elif c == ')':
+            if groups:
+                groups.pop()
+        elif not any(groups) and (i == 0 or not (select_list[i-1].isalnum() or select_list[i-1] == '_')):
+            for fn in _AGG_FUNCS:
+                if upper[i:i+len(fn)] == fn:
+                    j = i + len(fn)
+                    while j < len(select_list) and select_list[j] in ' \n\t\r':
+                        j += 1
+                    if j < len(select_list) and select_list[j] == '(':
+                        return True
+        i += 1
+    return False
+
+
+def _inject_demographics_auto(sql):
+    """Auto-inject demographic SELECT and JOIN into the outermost SELECT
+    structure of a report SQL. Handles CTEs by tracking paren depth -- we
+    only target keywords at depth 0 so inner subquery FROMs are ignored.
+
+    Returns (new_sql, added_set). Returns (sql, empty_set) if injection
+    isn't safely possible (e.g., no outermost FROM found)."""
+    sel_frag, join_frag, added = _resolve_demographics(sql)
+    if not added:
+        return sql, set()
+
+    n = len(sql)
+    upper = sql.upper()
+    depth = 0
+    in_string = False
+    string_char = None
+
+    # Scan the SQL tracking paren depth and collect the positions of
+    # FROM / WHERE / GROUP BY / ORDER BY keywords that appear at depth 0.
+    keywords = []
+    i = 0
+    while i < n:
+        c = sql[i]
+        if in_string:
+            if c == string_char:
+                in_string = False
+            i += 1
+            continue
+        if c == "'":
+            in_string = True
+            string_char = c
+            i += 1
+            continue
+        if c == '(':
+            depth += 1
+        elif c == ')':
+            depth -= 1
+        elif depth == 0:
+            prev_ok = (i == 0) or (sql[i-1] in ' \n\t\r')
+            if prev_ok:
+                if upper[i:i+5] in ('FROM ', 'FROM\n', 'FROM\t'):
+                    keywords.append(('FROM', i))
+                elif upper[i:i+6] in ('WHERE ', 'WHERE\n', 'WHERE\t'):
+                    keywords.append(('WHERE', i))
+                # Any whitespace after the keyword, not just a space. Matching
+                # only 'GROUP BY ' missed every report that wrote the clause
+                # as "GROUP BY\n    CASE ...", which then defeated the
+                # aggregate guard below and produced Msg 8120 at run time.
+                elif upper[i:i+8] == 'GROUP BY' and (i+8 >= n or upper[i+8] in ' \n\t\r'):
+                    keywords.append(('GROUPBY', i))
+                elif upper[i:i+8] == 'ORDER BY' and (i+8 >= n or upper[i+8] in ' \n\t\r'):
+                    keywords.append(('ORDERBY', i))
+                elif upper[i:i+6] == 'SELECT' and (i+6 >= n or upper[i+6] in ' \n\t\r'):
+                    keywords.append(('SELECT', i))
+                elif upper[i:i+5] == 'UNION' and (i+5 >= n or upper[i+5] in ' \n\t\r'):
+                    keywords.append(('UNION', i))
+        i += 1
+
+    from_pos = next((p for kw, p in keywords if kw == 'FROM'), None)
+    if from_pos is None:
+        return sql, set()
+
+    # Aggregate guard: if the outermost query has GROUP BY, every column in
+    # the SELECT must either be in the GROUP BY or be an aggregate. Adding
+    # demographic columns would require also extending the GROUP BY, which
+    # is fragile to do programmatically. Skip and let the user request
+    # demographics via explicit placeholders if they really need them.
+    has_groupby_outer = any(kw == 'GROUPBY' for kw, _ in keywords)
+    if has_groupby_outer:
+        return sql, set()
+
+    # Both checks below look at the OUTERMOST select only. Scanning the whole
+    # statement would catch every COUNT() and UNION living inside a CTE, which
+    # are harmless, and would silently strip the columns from most reports.
+    outer_select = next((p for kw, p in keywords if kw == 'SELECT' and p < from_pos), None)
+    select_list = sql[outer_select:from_pos] if outer_select is not None else ''
+
+    # A SELECT that aggregates with NO GROUP BY is a scalar aggregate: it
+    # returns exactly one row, and every added column would have to be an
+    # aggregate too. "SELECT 'Total Active People', COUNT(*) FROM People p"
+    # is the shape, and adding p.Age to it is Msg 8120.
+    #
+    # Only aggregates at the TOP level of the select list count. A COUNT
+    # inside a correlated subquery, "(SELECT COUNT(*) FROM Attend a WHERE
+    # a.PeopleId = p.PeopleId) AS Visits", is just a column on a per-person
+    # row and must not trip this: matching it flatly stripped the columns
+    # from six person-row reports.
+    if _has_top_level_aggregate(select_list):
+        return sql, set()
+
+    # A UNION at the outer level stacks branches into one result, so injecting
+    # into the first branch alone leaves the branches with different column
+    # counts. A UNION inside a CTE is fine and must not trip this.
+    if any(kw == 'UNION' for kw, _ in keywords):
+        return sql, set()
+
+    # Scope guard: the fragments are written against `p`, so People must
+    # actually be aliased `p` in the OUTERMOST FROM clause. It frequently is
+    # not. The common shape is a CTE that does the joining and an outer query
+    # that selects from the CTE:
+    #
+    #     WITH PersonScores AS (SELECT ... FROM People p ...)
+    #     SELECT PeopleId, Name2 ... FROM PersonScores WHERE ...
+    #
+    # Here `p` exists only inside the CTE, so injecting p.GenderId into the
+    # outer SELECT produces "The multi-part identifier p.GenderId could not
+    # be bound" and the whole report dies. Skipping loses the extra columns;
+    # not skipping loses the report.
+    outer_end = n
+    for kw, pos in keywords:
+        if pos > from_pos and kw in ('WHERE', 'GROUPBY', 'ORDERBY'):
+            outer_end = pos
+            break
+    outer_from = sql[from_pos:outer_end]
+    if not re.search(r'\bPeople\b\s*(?:WITH\s*\([^)]*\)\s*)?(?:AS\s+)?p\b',
+                     outer_from, re.IGNORECASE):
+        # Joining People back on at this level looks tempting and does not
+        # work: the outer SELECT of a CTE report refers to its columns bare
+        # ("SELECT PeopleId, Name2 AS Name FROM PersonScores"), so adding any
+        # table that shares those names makes every one of them ambiguous.
+        # Reports shaped like this declare the placeholders instead, which
+        # puts the columns inside the CTE where `p` is genuinely in scope.
+        return sql, set()
+
+    # Find the first keyword AFTER the outermost FROM where we can insert
+    # the JOIN fragment. WHERE > GROUP BY > ORDER BY > end-of-sql.
+    next_kw_pos = None
+    for kw, p in keywords:
+        if p > from_pos and kw in ('WHERE', 'GROUPBY', 'ORDERBY'):
+            next_kw_pos = p
+            break
+
+    sel_insertion = ('\n            ' + sel_frag.strip()
+                     + '\n            ')
+    new_sql = sql[:from_pos] + sel_insertion + sql[from_pos:]
+
+    if join_frag:
+        shift = len(sel_insertion)
+        join_insertion = ('\n            ' + join_frag.strip()
+                          + '\n            ')
+        if next_kw_pos is not None:
+            target = next_kw_pos + shift
+            new_sql = new_sql[:target] + join_insertion + new_sql[target:]
+        else:
+            new_sql = new_sql + join_insertion
+
+    return new_sql, added
 
 # Default settings (overridden by admin via Settings panel)
 DEFAULT_SETTINGS = {
@@ -100,6 +697,7 @@ DEFAULT_SETTINGS = {
         'emergency':    [],
         'tasks':        [],
         'transactions': [],
+        'data_health':  [],
     },
     'engagement_weights': {
         'attend_recency':   {'enabled': True, 'weight': 30},
@@ -121,7 +719,16 @@ CATEGORIES = {
     'emergency':    {'name': 'Emergency',    'icon': 'fa-exclamation-triangle', 'color': '#dc2626'},
     'tasks':        {'name': 'Tasks & Notes','icon': 'fa-tasks', 'color': '#0d9488'},
     'transactions': {'name': 'Transactions', 'icon': 'fa-receipt', 'color': '#b45309'},
+    'data_health': {'name': 'Data Health', 'icon': 'fa-broom', 'color': '#0f766e'},
 }
+
+# Sidebar order, and the sort order of the catalog. ONE list: this used to be
+# duplicated in get_default_reports and build_sidebar_html, and a category
+# added to only one of them silently fell through to "Custom Reports".
+CATEGORY_ORDER = [
+    'attendance', 'demographics', 'engagement', 'membership', 'financial',
+    'transactions', 'communications', 'tasks', 'emergency', 'data_health', 'admin',
+]
 
 # ============================================================================
 # SETTINGS MANAGEMENT
@@ -1068,6 +1675,7 @@ def get_default_reports():
                                 'Y_MINUS_1': 'currency', 'Y_CURRENT': 'currency', 'GrandTotal': 'currency'},
                     'dynamic_labels': True},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -1322,6 +1930,7 @@ def get_default_reports():
         'display': {'types': ['table'], 'default': 'table',
                     'formats': {'AttendPct': 'percent'}},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -1496,6 +2105,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table', 'kpi'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -1726,6 +2336,7 @@ def get_default_reports():
                     'chart_type': 'bar', 'chart_label_col': 'TransYear',
                     'chart_data_cols': ['BecameMember', 'LeftMembership', 'Returned']},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -1761,6 +2372,7 @@ def get_default_reports():
                     'chart_type': 'bar', 'chart_label_col': 'LapsedYear',
                     'chart_data_cols': ['MembersLost']},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -1887,6 +2499,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -1931,6 +2544,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table', 'kpi'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -2053,6 +2667,7 @@ def get_default_reports():
         'parameters': [],
         'display': {'types': ['table', 'kpi'], 'default': 'table'},
         'bluetoolbar': {'supported': False},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -2130,6 +2745,7 @@ def get_default_reports():
         'parameters': [],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': False},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -2276,6 +2892,7 @@ def get_default_reports():
         'parameters': [],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': False},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -2586,6 +3203,7 @@ def get_default_reports():
         'parameters': [],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': False},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -2744,6 +3362,7 @@ def get_default_reports():
         'parameters': [],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': False},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -2785,6 +3404,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': False},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -3215,16 +3835,19 @@ def get_default_reports():
                         AND m.MeetingDate >= DATEADD(week, -26, GETDATE())
                         AND m.MeetingDate < DATEADD(week, -4, GETDATE()) THEN 1 END) AS PriorAttend,
                     MAX(CASE WHEN a.AttendanceFlag = 1 THEN m.MeetingDate END) AS LastAttended
+                    {demographics_select}
                 FROM Attend a
                 JOIN People p ON a.PeopleId = p.PeopleId
                 JOIN Meetings m ON a.MeetingId = m.MeetingId
                 JOIN Organizations o ON a.OrganizationId = o.OrganizationId
+                {demographics_join}
                 WHERE m.DidNotMeet = 0
                     AND m.MeetingDate >= DATEADD(week, -26, GETDATE())
                     AND p.IsDeceased = 0
                     AND o.OrganizationStatusId = 30
                                 {filters}
             GROUP BY a.PeopleId, p.Name2, o.OrganizationId, o.OrganizationName
+                {demographics_groupby}
             )
             SELECT
                 PeopleId,
@@ -3233,6 +3856,7 @@ def get_default_reports():
                 PriorAttend AS PriorVisits,
                 CONVERT(VARCHAR, LastAttended, 101) AS LastAttended,
                 DATEDIFF(day, LastAttended, GETDATE()) AS DaysSince
+                {demographics_passthrough}
             FROM PersonAttend
             WHERE PriorAttend >= 3 AND RecentAttend = 0
             ORDER BY LastAttended DESC
@@ -3240,6 +3864,7 @@ def get_default_reports():
         'parameters': [],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -3287,6 +3912,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -3335,6 +3961,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -3793,6 +4420,8 @@ def get_default_reports():
                     'chart_type': 'bar', 'chart_label_col': 'Stage',
                     'chart_data_cols': ['AvgDays']},
         'bluetoolbar': {'supported': True},
+        # No demographics: returns one row per journey stage, not one row per person.
+        'include_demographics': False,
         'is_builtin': True
     })
 
@@ -3855,6 +4484,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -3901,6 +4531,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -4037,6 +4668,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -4155,6 +4787,7 @@ def get_default_reports():
                     'chart_group_col': 'ContributionType',
                     'formats': {'TotalAmount': 'currency', 'AvgAmount': 'currency'}},
         'bluetoolbar': {'supported': False},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -4381,6 +5014,7 @@ def get_default_reports():
         'display': {'types': ['table', 'kpi'], 'default': 'table',
                     'formats': {'FirstDayTotal': 'currency'}},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -4439,6 +5073,8 @@ def get_default_reports():
                     'chart_data_cols': ['TotalAmount'],
                     'formats': {'TotalAmount': 'currency', 'AvgPerGiver': 'currency'}},
         'bluetoolbar': {'supported': True},
+        # No demographics: returns one row per giving-frequency band, not one row per person.
+        'include_demographics': False,
         'is_builtin': True
     })
 
@@ -4493,6 +5129,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -4540,6 +5177,7 @@ def get_default_reports():
                     'chart_data_cols': ['TotalAmount'],
                     'formats': {'TotalAmount': 'currency', 'AvgPerGiver': 'currency'}},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -4714,6 +5352,8 @@ def get_default_reports():
                     'chart_type': 'bar', 'chart_label_col': 'FunnelStep',
                     'chart_data_cols': ['PersonCount']},
         'bluetoolbar': {'supported': False},
+        # No demographics: returns one row per funnel step, not one row per person.
+        'include_demographics': False,
         'is_builtin': True
     })
 
@@ -4808,6 +5448,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -4924,6 +5565,8 @@ def get_default_reports():
                     'chart_type': 'bar', 'chart_label_col': 'EngagementTier',
                     'chart_data_cols': ['PersonCount']},
         'bluetoolbar': {'supported': True},
+        # No demographics: returns one row per engagement tier, not one row per person.
+        'include_demographics': False,
         'is_builtin': True
     })
 
@@ -4949,6 +5592,7 @@ def get_default_reports():
                     + CASE WHEN ISNULL(grp.GroupCount,0) >= 4 THEN 100 WHEN grp.GroupCount >= 3 THEN 80 WHEN grp.GroupCount >= 2 THEN 60 WHEN grp.GroupCount >= 1 THEN 40 ELSE 0 END * 20
                     + CASE WHEN ISNULL(srv.ServingCount,0) >= 3 THEN 100 WHEN srv.ServingCount >= 2 THEN 80 WHEN srv.ServingCount >= 1 THEN 60 ELSE 0 END * 20
                     ) / 100 AS EngagementScore
+                    {demographics_select}
                 FROM People p
                 LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
                 LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
@@ -4968,6 +5612,7 @@ def get_default_reports():
                     WHERE o.OrganizationStatusId=30 AND om.InactiveDate IS NULL AND om.MemberTypeId IN (140,310,320,710)
                     GROUP BY om.PeopleId
                 ) srv ON p.PeopleId = srv.PeopleId
+                {demographics_join}
                 WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 AND p.MemberStatusId = 10
                     {filters}
             )
@@ -4976,6 +5621,7 @@ def get_default_reports():
                 MemberStatus, Campus, EngagementScore,
                 DaysSinceAttend, Attend90 AS AttendCount90d,
                 Groups, Serving
+                {demographics_passthrough}
             FROM PersonScores
             WHERE EngagementScore < 40
             ORDER BY EngagementScore ASC
@@ -4987,6 +5633,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -5232,6 +5879,8 @@ def get_default_reports():
                     'chart_type': 'bar', 'chart_label_col': 'Pattern',
                     'chart_data_cols': ['FamilyCount']},
         'bluetoolbar': {'supported': False},
+        # No demographics: returns one row per family attendance pattern, not one row per person.
+        'include_demographics': False,
         'is_builtin': True
     })
 
@@ -5298,6 +5947,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -5521,6 +6171,7 @@ def get_default_reports():
             ]
         },
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -5744,6 +6395,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -6054,6 +6706,7 @@ def get_default_reports():
         'display': {'types': ['table'], 'default': 'table',
                     'formats': {'TotalPaid': 'currency', 'Coupons': 'currency', 'Outstanding': 'currency'}},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -6101,6 +6754,7 @@ def get_default_reports():
         'display': {'types': ['table'], 'default': 'table',
                     'formats': {'Amount': 'currency'}},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -6190,6 +6844,8 @@ def get_default_reports():
                     'chart_data_cols': ['TotalOutstanding'],
                     'formats': {'TotalOutstanding': 'currency', 'AvgBalance': 'currency'}},
         'bluetoolbar': {'supported': False},
+        # No demographics: returns one row per aging bucket, not one row per person.
+        'include_demographics': False,
         'is_builtin': True
     })
 
@@ -6288,12 +6944,15 @@ def get_default_reports():
                         AND tn.StatusId NOT IN (1, 5) THEN 1 END) AS Overdue,
                     AVG(CASE WHEN tn.StatusId = 1
                         THEN DATEDIFF(day, tn.CreatedDate, tn.CompletedDate) END) AS AvgDays
+                    {demographics_select}
                 FROM TaskNote tn
                 JOIN People p ON tn.AssigneeId = p.PeopleId
+                {demographics_join}
                 WHERE tn.IsNote = 0
                     AND tn.AssigneeId IS NOT NULL
                     {filters}
                 GROUP BY tn.AssigneeId, p.Name2
+                    {demographics_groupby}
             )
             SELECT
                 AssigneeId AS PeopleId,
@@ -6310,6 +6969,7 @@ def get_default_reports():
                 CASE WHEN (Completed + Pending) > 0
                     THEN CAST(ROUND(CAST(Completed AS FLOAT) / (Completed + Pending) * 100, 1) AS DECIMAL(5,1))
                     ELSE 0 END AS CompletionRate
+                {demographics_passthrough}
             FROM AssigneeStats
             WHERE Completed > 0 OR Pending > 0 OR Overdue > 0
             ORDER BY Completed DESC
@@ -6322,6 +6982,7 @@ def get_default_reports():
                     'chart_type': 'bar', 'chart_label_col': 'Assignee',
                     'chart_data_cols': ['Completed', 'Pending', 'Overdue']},
         'bluetoolbar': {'supported': False},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -6462,12 +7123,15 @@ def get_default_reports():
                             AND tn.CompletedDate >= DATEADD(day, -90, GETDATE())
                             THEN 1 ELSE 0 END) * 7.0 / 90.0
                         ELSE 0 END AS DECIMAL(10,2)) AS WeeklyRate
+                    {demographics_select}
                 FROM TaskNote tn
                 JOIN People p ON p.PeopleId = tn.AssigneeId
+                {demographics_join}
                 WHERE tn.IsNote = 0
                     AND tn.AssigneeId IS NOT NULL
                     {filters}
                 GROUP BY p.PeopleId, p.Name2
+                    {demographics_groupby}
             )
             SELECT
                 PeopleId,
@@ -6478,6 +7142,7 @@ def get_default_reports():
                 CompletedLast90d,
                 ISNULL(AvgCompletionDays, 0) AS AvgDays,
                 WeeklyRate
+                {demographics_passthrough}
             FROM TaskMetrics
             WHERE StaleTasks > 0 OR RecentOpen > 0 OR CompletedLast90d > 0
             ORDER BY (StaleTasks + RecentOpen) DESC
@@ -6490,6 +7155,7 @@ def get_default_reports():
                     'chart_type': 'bar', 'chart_label_col': 'StaffMember',
                     'chart_data_cols': ['StaleTasks', 'RecentOpen', 'CompletedLast90d']},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -6633,6 +7299,7 @@ def get_default_reports():
         ],
         'display': {'types': ['table'], 'default': 'table'},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -6711,12 +7378,14 @@ def get_default_reports():
                            WHEN sm.ServingCount >= 1 THEN 60
                            ELSE 0
                        END AS ServingScore
+                    {demographics_select}
                 FROM People p
                 LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
                 LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
                 LEFT JOIN AttendMetrics am ON p.PeopleId = am.PeopleId
                 LEFT JOIN InvMetrics im ON p.PeopleId = im.PeopleId
                 LEFT JOIN ServMetrics sm ON p.PeopleId = sm.PeopleId
+                {demographics_join}
                 WHERE p.IsDeceased = 0 AND p.DeceasedDate IS NULL
                     {filters}
             )
@@ -6737,6 +7406,7 @@ def get_default_reports():
                        WHEN (RecencyScore * 30 + FrequencyScore * 30 + GroupScore * 20 + ServingScore * 20) / 100 >= 20 THEN 'Low'
                        ELSE 'Not Engaged'
                    END AS EngagementTier
+                   {demographics_passthrough}
             FROM Scores
             ORDER BY EngagementScore DESC
         ''',
@@ -6753,6 +7423,7 @@ def get_default_reports():
                     'chart_data_cols': ['EngagementScore'],
                     'formats': {}},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -6882,6 +7553,7 @@ def get_default_reports():
                            WHEN td.TaskCount >= 1 THEN 40
                            ELSE 0
                        END AS TaskScore
+                    {demographics_select}
                 FROM People p
                 LEFT JOIN lookup.MemberStatus ms ON p.MemberStatusId = ms.Id
                 LEFT JOIN lookup.Campus c ON p.CampusId = c.Id
@@ -6890,6 +7562,7 @@ def get_default_reports():
                 LEFT JOIN ServData sv ON p.PeopleId = sv.PeopleId
                 LEFT JOIN FamEngaged fe ON p.PeopleId = fe.PeopleId
                 LEFT JOIN TaskData td ON p.PeopleId = td.PeopleId
+                {demographics_join}
                 WHERE p.IsDeceased = 0 AND p.DeceasedDate IS NULL
                   AND p.PositionInFamilyId IN (10, 20)
                     {filters}
@@ -6904,6 +7577,7 @@ def get_default_reports():
                    CAST((AttRecencyScore * 17 + AttFreqScore * 13 + InvScore * 9 + ServScore * 13
                          + EnrollRecencyScore * 9 + FamEngagedScore * 9 + StatusScore * 9 + TaskScore * 4) / 83.0
                          AS DECIMAL(5,1)) AS PriorityScore
+                   {demographics_passthrough}
             FROM Scores
             ORDER BY PriorityScore DESC
         ''',
@@ -6918,6 +7592,7 @@ def get_default_reports():
         'display': {'types': ['table', 'kpi'], 'default': 'table',
                     'formats': {}},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -6985,6 +7660,7 @@ def get_default_reports():
                     'chart_data_cols': ['MilestonesCompleted'],
                     'formats': {}},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -7115,6 +7791,7 @@ def get_default_reports():
                     'chart_data_cols': ['TenureDays'],
                     'formats': {}},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -7272,6 +7949,7 @@ def get_default_reports():
         'display': {'types': ['table', 'kpi'], 'default': 'table',
                     'formats': {'AttendPct': 'percent'}},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
         'is_builtin': True
     })
 
@@ -7360,12 +8038,650 @@ def get_default_reports():
                     'chart_data_cols': ['TenureDays'],
                     'formats': {}},
         'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    # ---- DATA HEALTH (8) ----
+    # Worklists, not statistics. Each one returns the actual people whose
+    # records need attention, so the rows can be tagged, assigned as tasks or
+    # emailed to whoever owns the cleanup on a schedule. A count on a
+    # dashboard tells you the number; these tell you who.
+
+    reports.append({
+        'id': 'dh_members_missing_email',
+        'name': 'Members Missing Email',
+        'description': 'Current members with no email address on file',
+        'help_text': '<strong>Members Missing Email</strong> lists people whose member status is '
+                     'Member but who have no email address in either email field. These are the '
+                     'records that quietly drop out of every email send. Use the Blue Toolbar or '
+                     'the bulk actions to tag them for follow-up, or schedule this report to your '
+                     'office staff weekly.',
+        'category': 'data_health',
+        'icon': 'fa-envelope-open',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                ISNULL(ms.Description, '') AS MemberStatus,
+                ISNULL(p.CellPhone, '') AS CellPhone,
+                CONVERT(VARCHAR, p.JoinDate, 101) AS JoinDate,
+                CONVERT(VARCHAR, p.CreatedDate, 101) AS RecordCreated
+            FROM dbo.People p WITH (NOLOCK)
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND p.MemberStatusId = 10
+                AND ISNULL(p.EmailAddress, '') = ''
+                AND ISNULL(p.EmailAddress2, '') = ''
+                {filters}
+            ORDER BY p.LastName, p.FirstName
+        ''',
+        'parameters': [
+            {'name': 'campus_id', 'label': 'Campus', 'type': 'dropdown', 'sql_column': 'p.CampusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.Campus WHERE Id > 0",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_missing_phone',
+        'name': 'Missing Phone Number',
+        'description': 'Active people with no phone number anywhere, including the family record',
+        'help_text': '<strong>Missing Phone Number</strong> checks cell, home and work phone on '
+                     'the person AND the home phone on their family record before calling a '
+                     'record unreachable, so it does not flag a child who is reachable through '
+                     'the family phone.',
+        'category': 'data_health',
+        'icon': 'fa-phone-slash',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                ISNULL(ms.Description, '') AS MemberStatus,
+                ISNULL(p.EmailAddress, '') AS Email,
+                CONVERT(VARCHAR, p.CreatedDate, 101) AS RecordCreated
+            FROM dbo.People p WITH (NOLOCK)
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            LEFT JOIN dbo.Families fph WITH (NOLOCK) ON fph.FamilyId = p.FamilyId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND ISNULL(p.CellPhone, '') = ''
+                AND ISNULL(p.HomePhone, '') = ''
+                AND ISNULL(p.WorkPhone, '') = ''
+                AND ISNULL(fph.HomePhone, '') = ''
+                {filters}
+            ORDER BY p.LastName, p.FirstName
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown',
+             'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus ORDER BY Description",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_missing_address',
+        'name': 'Missing Address',
+        'description': 'Active people whose family record has no street address',
+        'help_text': '<strong>Missing Address</strong> reads the address from the FAMILY record, '
+                     'which is where TouchPoint actually stores it. Checking People.ZipCode would '
+                     'report almost everyone as missing an address, because that column is '
+                     'populated for well under 1% of records.',
+        'category': 'data_health',
+        'icon': 'fa-map-marker-alt',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                ISNULL(ms.Description, '') AS MemberStatus,
+                ISNULL(p.EmailAddress, '') AS Email,
+                ISNULL(p.CellPhone, '') AS CellPhone,
+                CONVERT(VARCHAR, p.CreatedDate, 101) AS RecordCreated
+            FROM dbo.People p WITH (NOLOCK)
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            LEFT JOIN dbo.Families fad WITH (NOLOCK) ON fad.FamilyId = p.FamilyId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND ISNULL(fad.AddressLineOne, '') = ''
+                {filters}
+            ORDER BY p.LastName, p.FirstName
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown',
+             'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus ORDER BY Description",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_missing_birthdate',
+        'name': 'Missing Birth Date',
+        'description': 'Active people with no birth date, which breaks every age-based report',
+        'help_text': '<strong>Missing Birth Date</strong> matters more than it looks: age drives '
+                     'check-in, grade promotion, age-based filters and most demographic reporting. '
+                     'A missing birth date silently excludes the person from all of it.',
+        'category': 'data_health',
+        'icon': 'fa-birthday-cake',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                ISNULL(ms.Description, '') AS MemberStatus,
+                ISNULL(fp.Description, '') AS FamilyPosition,
+                ISNULL(p.EmailAddress, '') AS Email,
+                CONVERT(VARCHAR, p.CreatedDate, 101) AS RecordCreated
+            FROM dbo.People p WITH (NOLOCK)
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            LEFT JOIN lookup.FamilyPosition fp ON fp.Id = p.PositionInFamilyId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND p.BDate IS NULL
+                {filters}
+            ORDER BY p.LastName, p.FirstName
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown',
+             'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus ORDER BY Description",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_missing_gender',
+        'name': 'Missing Gender',
+        'description': 'Active people with no gender recorded',
+        'help_text': '<strong>Missing Gender</strong> lists records where gender is unset or '
+                     'Unknown. Gender drives class assignment and many ministry rosters, so an '
+                     'unset value tends to surface later as a person missing from a list.',
+        'category': 'data_health',
+        'icon': 'fa-venus-mars',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                ISNULL(ms.Description, '') AS MemberStatus,
+                ISNULL(p.EmailAddress, '') AS Email,
+                CONVERT(VARCHAR, p.CreatedDate, 101) AS RecordCreated
+            FROM dbo.People p WITH (NOLOCK)
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND ISNULL(p.GenderId, 0) NOT IN (1, 2)
+                {filters}
+            ORDER BY p.LastName, p.FirstName
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown',
+             'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus ORDER BY Description",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_new_records_incomplete',
+        'name': 'New Records Missing Data',
+        'description': 'Recently created records missing email, phone or birth date',
+        'help_text': '<strong>New Records Missing Data</strong> is the one to schedule. Catching '
+                     'an incomplete record in the week it was created, while whoever entered it '
+                     'still remembers the person, is far cheaper than auditing the whole database '
+                     'later. Use the Days filter to match how often you run it.',
+        'category': 'data_health',
+        'icon': 'fa-user-clock',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                CONVERT(VARCHAR, p.CreatedDate, 101) AS RecordCreated,
+                CASE WHEN ISNULL(p.EmailAddress, '') = '' THEN 'Yes' ELSE '' END AS NoEmail,
+                CASE WHEN ISNULL(p.CellPhone, '') = '' AND ISNULL(p.HomePhone, '') = ''
+                     THEN 'Yes' ELSE '' END AS NoPhone,
+                CASE WHEN p.BDate IS NULL THEN 'Yes' ELSE '' END AS NoBirthDate,
+                ISNULL(ms.Description, '') AS MemberStatus
+            FROM dbo.People p WITH (NOLOCK)
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND (ISNULL(p.EmailAddress, '') = ''
+                     OR (ISNULL(p.CellPhone, '') = '' AND ISNULL(p.HomePhone, '') = '')
+                     OR p.BDate IS NULL)
+                {filters}
+            ORDER BY p.CreatedDate DESC
+        ''',
+        'parameters': [
+            # A daterange parameter, not a number: the framework turns these
+            # into a WHERE clause itself. There is no mechanism that would
+            # substitute a bare {days_back} into the SQL text.
+            {'name': 'created', 'label': 'Record Created', 'type': 'daterange',
+             'sql_column': 'p.CreatedDate', 'default': 'last_90_days'}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_possible_duplicates',
+        'name': 'Possible Duplicate People',
+        'description': 'Two or more active records sharing a first name, last name and birth date',
+        'help_text': '<strong>Possible Duplicate People</strong> matches on first name, last name '
+                     'AND birth date together. Name alone produces far too many false matches in '
+                     'a church database, and birth date makes the match strong enough to act on. '
+                     'Rows are grouped so the candidates appear together. Review before merging.',
+        'category': 'data_health',
+        'icon': 'fa-clone',
+        'sql_template': '''
+            WITH dups AS (
+                SELECT p.FirstName, p.LastName, p.BDate
+                FROM dbo.People p WITH (NOLOCK)
+                WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                    AND p.BDate IS NOT NULL
+                    AND ISNULL(p.FirstName, '') <> ''
+                    AND ISNULL(p.LastName, '') <> ''
+                GROUP BY p.FirstName, p.LastName, p.BDate
+                HAVING COUNT(*) > 1
+            )
+            SELECT TOP 500
+                p.PeopleId,
+                p.Name2 AS Name,
+                CONVERT(VARCHAR, p.BDate, 101) AS BirthDate,
+                ISNULL(ms.Description, '') AS MemberStatus,
+                ISNULL(p.EmailAddress, '') AS Email,
+                CONVERT(VARCHAR, p.CreatedDate, 101) AS RecordCreated
+            FROM dbo.People p WITH (NOLOCK)
+            JOIN dups d ON d.FirstName = p.FirstName
+                AND d.LastName = p.LastName
+                AND d.BDate = p.BDate
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                {filters}
+            ORDER BY p.LastName, p.FirstName, p.BDate, p.PeopleId
+        ''',
+        'parameters': [],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_shared_email',
+        'name': 'Email Shared Across Families',
+        'description': 'One email address attached to people in more than one family',
+        'help_text': '<strong>Email Shared Across Families</strong> flags an address used by '
+                     'people in different families. Inside one family a shared address is normal; '
+                     'across families it usually means a duplicate person, a record created with '
+                     'a staff address, or an old address never updated. It also matters for '
+                     'sending, since TouchPoint email preferences and opt-outs follow the address.',
+        'category': 'data_health',
+        'icon': 'fa-people-arrows',
+        'sql_template': '''
+            WITH shared AS (
+                SELECT p.EmailAddress AS Addr
+                FROM dbo.People p WITH (NOLOCK)
+                WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                    AND ISNULL(p.EmailAddress, '') <> ''
+                GROUP BY p.EmailAddress
+                HAVING COUNT(DISTINCT p.FamilyId) > 1
+            )
+            SELECT TOP 500
+                p.PeopleId,
+                p.Name2 AS Name,
+                p.EmailAddress AS SharedEmail,
+                p.FamilyId,
+                ISNULL(ms.Description, '') AS MemberStatus,
+                CONVERT(VARCHAR, p.CreatedDate, 101) AS RecordCreated
+            FROM dbo.People p WITH (NOLOCK)
+            JOIN shared sh ON sh.Addr = p.EmailAddress
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                {filters}
+            ORDER BY p.EmailAddress, p.LastName, p.FirstName
+        ''',
+        'parameters': [],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_no_contact_at_all',
+        'name': 'No Contact Information At All',
+        'description': 'Active people with no email, no phone anywhere, and no address',
+        'help_text': '<strong>No Contact Information At All</strong> is the strictest of the '
+                     'contact checks: no email, no cell, home or work phone, no family phone and '
+                     'no family address. These records cannot be reached by any channel, so they '
+                     'are either bad data or people who need re-engagement by someone who knows '
+                     'them personally.',
+        'category': 'data_health',
+        'icon': 'fa-user-slash',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                ISNULL(ms.Description, '') AS MemberStatus,
+                CONVERT(VARCHAR, p.CreatedDate, 101) AS RecordCreated,
+                (SELECT MAX(a.MeetingDate) FROM dbo.Attend a WITH (NOLOCK)
+                 WHERE a.PeopleId = p.PeopleId AND a.AttendanceFlag = 1) AS LastAttended
+            FROM dbo.People p WITH (NOLOCK)
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            LEFT JOIN dbo.Families fnc WITH (NOLOCK) ON fnc.FamilyId = p.FamilyId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND ISNULL(p.EmailAddress, '') = '' AND ISNULL(p.EmailAddress2, '') = ''
+                AND ISNULL(p.CellPhone, '') = '' AND ISNULL(p.HomePhone, '') = ''
+                AND ISNULL(p.WorkPhone, '') = '' AND ISNULL(fnc.HomePhone, '') = ''
+                AND ISNULL(fnc.AddressLineOne, '') = ''
+                {filters}
+            ORDER BY p.LastName, p.FirstName
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown',
+             'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus ORDER BY Description",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_inactive_records',
+        'name': 'Inactive Records to Review',
+        'description': 'Older records with no attendance, no giving and no involvement ever',
+        'help_text': '<strong>Inactive Records to Review</strong> finds records created more than '
+                     'two years ago that have never attended, never given and have never belonged '
+                     'to an involvement. They are the strongest candidates for archiving, which '
+                     'matters because record count drives what you pay. Review before archiving: '
+                     'a legitimate member who simply is not tracked will appear here too.',
+        'category': 'data_health',
+        'icon': 'fa-box-archive',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                ISNULL(ms.Description, '') AS MemberStatus,
+                CONVERT(VARCHAR, p.CreatedDate, 101) AS RecordCreated,
+                DATEDIFF(day, p.CreatedDate, GETDATE()) AS DaysOld
+            FROM dbo.People p WITH (NOLOCK)
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND p.CreatedDate < DATEADD(year, -2, GETDATE())
+                AND NOT EXISTS (SELECT 1 FROM dbo.Attend a WITH (NOLOCK)
+                                WHERE a.PeopleId = p.PeopleId AND a.AttendanceFlag = 1)
+                AND NOT EXISTS (SELECT 1 FROM dbo.Contribution c WITH (NOLOCK)
+                                WHERE c.PeopleId = p.PeopleId)
+                AND NOT EXISTS (SELECT 1 FROM dbo.OrganizationMembers om WITH (NOLOCK)
+                                WHERE om.PeopleId = p.PeopleId)
+                {filters}
+            ORDER BY p.CreatedDate
+        ''',
+        'parameters': [
+            {'name': 'member_status', 'label': 'Member Status', 'type': 'dropdown',
+             'sql_column': 'p.MemberStatusId',
+             'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus ORDER BY Description",
+             'default': ''}
+        ],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_position_age_mismatch',
+        'name': 'Family Position Does Not Match Age',
+        'description': 'Adults filed as children, or children filed as primary adults',
+        'help_text': '<strong>Family Position Does Not Match Age</strong> catches the two '
+                     'directions separately: someone in the Primary Adult slot who is under 18, '
+                     'and someone in the Child slot who is 25 or older. Position drives check-in, '
+                     'family communication and who is treated as a head of household, so a wrong '
+                     'value has knock-on effects that are hard to trace back.',
+        'category': 'data_health',
+        'icon': 'fa-people-roof',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                p.Age,
+                ISNULL(fp.Description, '') AS FamilyPosition,
+                CASE WHEN p.PositionInFamilyId = 10 THEN 'Primary Adult but under 18'
+                     ELSE 'Child but 25 or older' END AS Problem,
+                ISNULL(ms.Description, '') AS MemberStatus
+            FROM dbo.People p WITH (NOLOCK)
+            LEFT JOIN lookup.FamilyPosition fp ON fp.Id = p.PositionInFamilyId
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND p.Age IS NOT NULL
+                AND ((p.PositionInFamilyId = 10 AND p.Age < 18)
+                     OR (p.PositionInFamilyId = 30 AND p.Age >= 25))
+                {filters}
+            ORDER BY p.LastName, p.FirstName
+        ''',
+        'parameters': [],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_family_no_head',
+        'name': 'Family Missing a Head of Household',
+        'description': 'Active people whose family has no living, unarchived head of household',
+        'help_text': '<strong>Family Missing a Head of Household</strong> lists the PEOPLE in '
+                     'affected families rather than the families themselves, so the rows can be '
+                     'tagged and worked like any other list. A family with no valid head breaks '
+                     'family-addressed mail and statements, and it usually happens when the head '
+                     'is archived or marked deceased without another member being promoted.',
+        'category': 'data_health',
+        'icon': 'fa-house-user',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                p.FamilyId,
+                ISNULL(fpos.Description, '') AS FamilyPosition,
+                ISNULL(ms.Description, '') AS MemberStatus
+            FROM dbo.People p WITH (NOLOCK)
+            JOIN dbo.Families fam WITH (NOLOCK) ON fam.FamilyId = p.FamilyId
+            LEFT JOIN lookup.FamilyPosition fpos ON fpos.Id = p.PositionInFamilyId
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND (fam.HeadOfHouseholdId IS NULL
+                     OR NOT EXISTS (SELECT 1 FROM dbo.People h WITH (NOLOCK)
+                                    WHERE h.PeopleId = fam.HeadOfHouseholdId
+                                      AND h.IsDeceased = 0 AND h.ArchivedFlag = 0))
+                {filters}
+            ORDER BY p.FamilyId, p.LastName, p.FirstName
+        ''',
+        'parameters': [],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_duplicates_by_name',
+        'name': 'Possible Duplicates by Name',
+        'description': 'Records sharing a first and last name where no birth date exists to confirm',
+        'help_text': '<strong>Possible Duplicates by Name</strong> is the weaker companion to '
+                     'Possible Duplicate People. It only looks at records with NO birth date, so '
+                     'the two reports never show the same person twice. Expect more false '
+                     'positives here, since a shared name is normal; sort by address or email to '
+                     'judge each pair.',
+        'category': 'data_health',
+        'icon': 'fa-user-group',
+        'sql_template': '''
+            WITH namedups AS (
+                SELECT p.FirstName, p.LastName
+                FROM dbo.People p WITH (NOLOCK)
+                WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                    AND p.BDate IS NULL
+                    AND ISNULL(p.FirstName, '') <> ''
+                    AND ISNULL(p.LastName, '') <> ''
+                GROUP BY p.FirstName, p.LastName
+                HAVING COUNT(*) > 1
+            )
+            SELECT TOP 500
+                p.PeopleId,
+                p.Name2 AS Name,
+                ISNULL(p.EmailAddress, '') AS Email,
+                ISNULL(p.CellPhone, '') AS CellPhone,
+                ISNULL(ms.Description, '') AS MemberStatus,
+                CONVERT(VARCHAR, p.CreatedDate, 101) AS RecordCreated
+            FROM dbo.People p WITH (NOLOCK)
+            JOIN namedups nd ON nd.FirstName = p.FirstName AND nd.LastName = p.LastName
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 AND p.BDate IS NULL
+                {filters}
+            ORDER BY p.LastName, p.FirstName, p.PeopleId
+        ''',
+        'parameters': [],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_malformed_contact',
+        'name': 'Malformed Email, Phone or Zip',
+        'description': 'Contact data that is present but cannot be valid',
+        'help_text': '<strong>Malformed Email, Phone or Zip</strong> catches the values that look '
+                     'filled in but are not usable: an email with no @ or no dot after it or a '
+                     'space in the middle, a phone with fewer than 10 digits once formatting is '
+                     'stripped, a zip shorter than five characters. These are worse than a blank '
+                     'field, because nothing flags them as missing.',
+        'category': 'data_health',
+        'icon': 'fa-triangle-exclamation',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                ISNULL(p.EmailAddress, '') AS Email,
+                ISNULL(p.CellPhone, '') AS CellPhone,
+                ISNULL(fmz.ZipCode, '') AS FamilyZip,
+                CASE
+                    WHEN ISNULL(p.EmailAddress, '') <> ''
+                         AND (p.EmailAddress NOT LIKE '%_@_%._%' OR p.EmailAddress LIKE '% %')
+                         THEN 'Email'
+                    WHEN ISNULL(p.CellPhone, '') <> ''
+                         AND LEN(REPLACE(REPLACE(REPLACE(REPLACE(p.CellPhone,'-',''),'(',''),')',''),' ','')) < 10
+                         THEN 'Phone'
+                    ELSE 'Zip'
+                END AS Problem,
+                ISNULL(ms.Description, '') AS MemberStatus
+            FROM dbo.People p WITH (NOLOCK)
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            LEFT JOIN dbo.Families fmz WITH (NOLOCK) ON fmz.FamilyId = p.FamilyId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND ((ISNULL(p.EmailAddress, '') <> ''
+                      AND (p.EmailAddress NOT LIKE '%_@_%._%' OR p.EmailAddress LIKE '% %'))
+                  OR (ISNULL(p.CellPhone, '') <> ''
+                      AND LEN(REPLACE(REPLACE(REPLACE(REPLACE(p.CellPhone,'-',''),'(',''),')',''),' ','')) < 10)
+                  OR (ISNULL(fmz.ZipCode, '') <> '' AND LEN(REPLACE(fmz.ZipCode,' ','')) < 5))
+                {filters}
+            ORDER BY p.LastName, p.FirstName
+        ''',
+        'parameters': [],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_members_no_joindate',
+        'name': 'Members Missing Join Date',
+        'description': 'People with member status Member but no join date recorded',
+        'help_text': '<strong>Members Missing Join Date</strong> matters for anniversary '
+                     'recognition, membership tenure reporting and new-member follow-up windows, '
+                     'all of which silently skip a member whose join date is blank.',
+        'category': 'data_health',
+        'icon': 'fa-calendar-xmark',
+        'sql_template': '''
+            SELECT
+                p.PeopleId,
+                p.Name2 AS Name,
+                ISNULL(jt.Description, '') AS JoinType,
+                ISNULL(p.EmailAddress, '') AS Email,
+                CONVERT(VARCHAR, p.CreatedDate, 101) AS RecordCreated
+            FROM dbo.People p WITH (NOLOCK)
+            LEFT JOIN lookup.JoinType jt ON jt.Id = p.JoinCodeId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                AND p.MemberStatusId = 10
+                AND p.JoinDate IS NULL
+                {filters}
+            ORDER BY p.LastName, p.FirstName
+        ''',
+        'parameters': [],
+        'display': {'types': ['table'], 'default': 'table'},
+        'bluetoolbar': {'supported': True},
+        'include_demographics': True,
+        'is_builtin': True
+    })
+
+    reports.append({
+        'id': 'dh_deceased_in_orgs',
+        'name': 'Deceased Still in Active Involvements',
+        'description': 'People marked deceased who are still enrolled in an active involvement',
+        'help_text': '<strong>Deceased Still in Active Involvements</strong> is small but worth '
+                     'clearing quickly: a deceased person left on a roster can still appear in '
+                     'attendance lists and emails to that involvement, which is the kind of '
+                     'mistake a family remembers.',
+        'category': 'data_health',
+        'icon': 'fa-heart-crack',
+        'sql_template': '''
+            SELECT DISTINCT
+                p.PeopleId,
+                p.Name2 AS Name,
+                CONVERT(VARCHAR, p.DeceasedDate, 101) AS DeceasedDate,
+                o.OrganizationName AS Involvement,
+                ISNULL(mt.Description, '') AS MemberType
+            FROM dbo.People p WITH (NOLOCK)
+            JOIN dbo.OrganizationMembers om WITH (NOLOCK) ON om.PeopleId = p.PeopleId
+            JOIN dbo.Organizations o WITH (NOLOCK) ON o.OrganizationId = om.OrganizationId
+            LEFT JOIN lookup.MemberType mt ON mt.Id = om.MemberTypeId
+            WHERE p.IsDeceased = 1
+                AND o.OrganizationStatusId = 30
+                {filters}
+            ORDER BY p.Name2
+        ''',
+        'parameters': [],
+        'display': {'types': ['table'], 'default': 'table'},
+        # Deliberately off: this is one row per person PER involvement, so the
+        # demographic columns would repeat down the page without adding
+        # anything, and the point of the report is the involvement name.
+        'include_demographics': False,
+        'bluetoolbar': {'supported': True},
         'is_builtin': True
     })
 
     # Sort reports alphabetically by name within each category
-    cat_order = ['attendance', 'demographics', 'engagement', 'membership', 'financial', 'transactions', 'communications', 'tasks', 'emergency', 'admin']
-    cat_rank = {c: i for i, c in enumerate(cat_order)}
+    cat_rank = {c: i for i, c in enumerate(CATEGORY_ORDER)}
     reports.sort(key=lambda r: (cat_rank.get(r.get('category', 'zzz'), 99), r.get('name', '').lower()))
 
     return reports
@@ -7374,10 +8690,96 @@ def get_default_reports():
 # REPORT EXECUTION ENGINE
 # ============================================================================
 
+# ----------------------------------------------------------------------------
+# LINKED SOURCES  --  reports backed by a saved SQL script or Search Builder query
+# ----------------------------------------------------------------------------
+# Resolved at RUN time, never copied at save time. The point of linking a report
+# to a saved script is that maintaining the script maintains the report; copying
+# the SQL once would quietly fork them the first time someone edits the original.
+
+SOURCE_SQL_SCRIPT = 'sql_script'
+SOURCE_SAVED_QUERY = 'saved_query'
+
+# A Search Builder query yields people, not rows, so its ids have to be inlined
+# into a SELECT. Capped because an unbounded IN list is how you turn a report
+# into an outage.
+SAVED_QUERY_MAX_IDS = 5000
+
+
+def resolve_linked_sql(report_def):
+    """SQL for a report, following a linked source when one is declared.
+
+    Returns (sql, error). error is a human-sentence, not a stack trace: the
+    common failures here are someone renaming or deleting the underlying
+    script, and the report should say exactly that.
+    """
+    stype = report_def.get('source_type', '')
+    sname = (report_def.get('source_name', '') or '').strip()
+
+    if not stype:
+        return (report_def.get('sql_template', ''), None)
+
+    if not sname:
+        return ('', 'This report is linked to a saved source, but no name was stored.')
+
+    if stype == SOURCE_SQL_SCRIPT:
+        try:
+            body = model.SqlContent(sname)
+        except Exception as e:
+            return ('', 'Could not read SQL script "{0}": {1}'.format(sname, str(e)))
+        if not body or not str(body).strip():
+            return ('', 'The SQL script "{0}" is empty or no longer exists. '
+                        'Check Special Content > SQL Scripts.'.format(sname))
+        return (str(body), None)
+
+    if stype == SOURCE_SAVED_QUERY:
+        try:
+            ids = list(q.QueryPeopleIds(sname))
+        except Exception as e:
+            return ('', 'Could not run saved query "{0}": {1}'.format(sname, str(e)))
+        if not ids:
+            return ('', 'The saved query "{0}" matched nobody, or no longer exists.'.format(sname))
+        truncated = len(ids) > SAVED_QUERY_MAX_IDS
+        ids = ids[:SAVED_QUERY_MAX_IDS]
+        id_csv = ','.join(str(int(i)) for i in ids)
+        sql = """
+            SELECT p.PeopleId, p.Name2 AS Name,
+                   ISNULL(p.EmailAddress,'') AS Email,
+                   ISNULL(p.CellPhone,'') AS CellPhone,
+                   p.Age,
+                   ISNULL(ms.Description,'') AS MemberStatus
+            FROM dbo.People p WITH (NOLOCK)
+            LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId
+            WHERE p.PeopleId IN ({ids})
+              AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+              {{filters}}
+            ORDER BY p.Name2
+        """.format(ids=id_csv)
+        if truncated:
+            # Surfaced rather than silently clipped. A report that quietly
+            # shows the first 5,000 of 9,000 is worse than one that says so.
+            return (sql, 'TRUNCATED:{0}'.format(SAVED_QUERY_MAX_IDS))
+        return (sql, None)
+
+    return ('', 'Unknown source type: ' + str(stype))
+
+
 def execute_report(report_def, filter_values, bt_people_ids=None, settings=None,
-                   current_org_id=None):
-    """Execute a report SQL with filters applied. Returns dict with rows, columns, error."""
-    sql = report_def.get('sql_template', '')
+                   current_org_id=None, display_type='table'):
+    """Execute a report SQL with filters applied. Returns dict with rows, columns, error.
+
+    display_type controls whether demographic columns get auto-injected:
+    only the 'table' view benefits from them. Chart and KPI views skip
+    injection so the SQL stays lean and the chart's selected columns
+    aren't surrounded by ignored extras."""
+    sql, link_err = resolve_linked_sql(report_def)
+    warning = None
+    if link_err:
+        if link_err.startswith('TRUNCATED:'):
+            warning = ('This saved query returned more than {0} people; showing the '
+                       'first {0}.'.format(link_err.split(':', 1)[1]))
+        else:
+            return {'error': link_err, 'rows': [], 'columns': []}
     if not sql:
         return {'error': 'No SQL template defined', 'rows': [], 'columns': []}
 
@@ -7403,6 +8805,35 @@ def execute_report(report_def, filter_values, bt_people_ids=None, settings=None,
                           'AND o.OrganizationId = {0}'.format(int(current_org_id)))
     else:
         sql = sql.replace('{current_org_filter}', '')
+
+    # include_demographics: True opts a person-row report into the standard
+    # demographic column set. Two modes:
+    #   - Placeholder mode: report SQL has {demographics_select} and
+    #     {demographics_join} placeholders for explicit placement.
+    #   - Auto-injection mode: no placeholders -- the framework finds the
+    #     outermost SELECT/FROM/WHERE via paren-depth tracking and injects
+    #     fragments there. Reports just set the flag; no SQL edits needed.
+    # In both modes, columns the report already SELECTs are skipped to
+    # avoid duplicate-column errors. Only applied for table display
+    # (chart and KPI views don't benefit from extra columns).
+    demographics_added = set()
+    if wants_demographics(report_def) and display_type == 'table':
+        if ('{demographics_select}' in sql or '{demographics_join}' in sql
+                or '{demographics_passthrough}' in sql):
+            sel_frag, join_frag, demographics_added = _resolve_demographics(sql)
+            sql = sql.replace('{demographics_select}', sel_frag)
+            sql = sql.replace('{demographics_join}', join_frag)
+            sql = sql.replace('{demographics_groupby}',
+                              _demographics_groupby(demographics_added))
+            sql = sql.replace('{demographics_passthrough}',
+                              _demographics_passthrough(demographics_added))
+        else:
+            sql, demographics_added = _inject_demographics_auto(sql)
+    else:
+        sql = sql.replace('{demographics_select}', '')
+        sql = sql.replace('{demographics_join}', '')
+        sql = sql.replace('{demographics_groupby}', '')
+        sql = sql.replace('{demographics_passthrough}', '')
     # Replace settings-driven placeholders
     if settings:
         fiscal_month = str(settings.get('fiscal_year_start_month', 10))
@@ -7496,7 +8927,10 @@ def execute_report(report_def, filter_values, bt_people_ids=None, settings=None,
     except Exception as e:
         return {'error': safe_str(e), 'rows': [], 'columns': []}
 
-    return {'rows': rows, 'columns': columns, 'error': None, 'row_count': len(rows)}
+    return {'rows': rows, 'columns': columns, 'error': None,
+            'row_count': len(rows),
+            'warning': warning,
+            '_demographics_added': demographics_added}
 
 # ============================================================================
 # REPORT RENDERERS
@@ -7538,6 +8972,11 @@ def render_grid_data(result, report_def):
     # the user opts in via the Columns dropdown. Lets reports ship optional
     # demographic/extra columns without forcing them on by default.
     default_hidden = set(display.get('default_hidden_columns', []) or [])
+    # include_demographics: True. We hide only the columns the framework
+    # actually added -- columns the report already SELECTed stay visible
+    # so existing user expectations aren't broken.
+    for c in (result.get('_demographics_added') or set()):
+        default_hidden.add(c)
 
     col_defs = []
     for col in columns:
@@ -7885,19 +9324,161 @@ def render_csv(result):
 # FILTER PANEL RENDERER
 # ============================================================================
 
-def render_filter_panel(report_def):
-    """Generate HTML for the dynamic filter panel."""
+def _collect_filter_values(report_def):
+    """Submitted filter values, keyed by parameter name.
+
+    Shared by the run path and the filter-panel path so the counts shown beside
+    each option are computed from exactly the values the report would run with.
+    """
+    filter_values = {}
+    for p in report_def.get('parameters', []):
+        pname = p.get('name', '')
+        ptype = p.get('type', '')
+        val = get_param('filter_' + pname, '')
+        if ptype == 'daterange' and val == 'custom':
+            start = get_param('filter_' + pname + '_start', '')
+            end = get_param('filter_' + pname + '_end', '')
+            val = (start + '|' + end) if start and end else ''
+        filter_values[pname] = val
+    return filter_values
+
+
+def _people_scoped_clauses(params, filter_values, skip_name=None, settings=None):
+    """WHERE fragments from the active filters that are safe OUTSIDE the report.
+
+    Only parameters bound to a People column survive. Every other filter binds
+    to an alias that exists solely inside its own report's SQL (pro, om, prog,
+    et and friends -- 63 of the 125 selectable parameters), and pasting one of
+    those into a standalone lookup query would simply fail.
+
+    skip_name leaves a parameter's own value out, so a facet does not narrow
+    itself down to whatever is already chosen.
+    """
+    subset = []
+    for p in params:
+        if skip_name and p.get('name') == skip_name:
+            continue
+        col = p.get('sql_column', '')
+        if col.startswith('p.'):
+            subset.append(p)
+    if not subset:
+        return []
+    return build_where_clauses(subset, filter_values, None, settings)
+
+
+def _facet_counts(p, params, filter_values, settings=None):
+    """Option list with counts, measured inside the other active filters.
+
+    Works automatically for People-bound filters. Any other parameter can opt in
+    by declaring facet_sql, which must return value/label/n.
+
+    Returns None when counting is not possible, which the caller treats as
+    "render the plain list" rather than as an error.
+    """
+    source_sql = p.get('source_sql', '')
+    facet_sql = p.get('facet_sql', '')
+    col = p.get('sql_column', '')
+
+    if facet_sql:
+        sql = facet_sql
+    elif source_sql and col.startswith('p.'):
+        others = _people_scoped_clauses(params, filter_values, p.get('name'), settings)
+        where = (' AND ' + ' AND '.join(others)) if others else ''
+        # LEFT JOIN so an option with nobody behind it still appears, as (0),
+        # rather than vanishing and leaving the user unable to tell an empty
+        # slice from a missing lookup value.
+        sql = """
+            SELECT src.value AS value, src.label AS label, COUNT(p.PeopleId) AS n
+            FROM ({source}) src
+            LEFT JOIN dbo.People p WITH (NOLOCK)
+                   ON {col} = src.value
+                  AND p.IsDeceased = 0
+                  AND p.ArchivedFlag = 0{where}
+            GROUP BY src.value, src.label
+            ORDER BY COUNT(p.PeopleId) DESC
+        """.format(source=source_sql, col=col, where=where)
+    else:
+        return None
+
+    out = []
+    try:
+        for r in q.QuerySql(sql):
+            try:
+                out.append((safe_str(r.value), safe_str(r.label), int(r.n or 0)))
+            except:
+                pass
+    except:
+        return None
+    return out or None
+
+
+def _param_options(p):
+    """Options for a dropdown/multi_select as [(value, label), ...].
+
+    Returns [] when the lookup this filter draws on has no rows. That is the
+    signal used to suppress the filter entirely: a control whose source is
+    empty can only ever return nothing, and the user has no way to tell that
+    from a genuine zero result.
+
+    This is decided at RUN TIME from the data, never hardcoded, because the
+    same filter is useful elsewhere. Campus is the live example: lookup.Campus
+    is empty at some churches and fully populated at others, and 43 built-in
+    reports offer a Campus dropdown.
+    """
+    static_options = p.get('options', [])
+    if static_options:
+        return [(str(o.get('value', '')), str(o.get('label', ''))) for o in static_options]
+    source_sql = p.get('source_sql', '')
+    if not source_sql:
+        return []
+    out = []
+    try:
+        for r in q.QuerySql(source_sql):
+            try:
+                out.append((safe_str(r.value), safe_str(r.label)))
+            except:
+                pass
+    except:
+        # A broken lookup is treated the same as an empty one. Rendering a
+        # filter whose source errored would be worse than not offering it.
+        return []
+    return out
+
+
+def render_filter_panel(report_def, filter_values=None, settings=None):
+    """Generate HTML for the dynamic filter panel.
+
+    filter_values, when supplied, turns the option lists into counts measured
+    inside the current selection: pick a campus and Member Status starts
+    reporting that campus's numbers rather than the whole database's.
+    """
     params = report_def.get('parameters', [])
     if not params:
         return ''
+    if filter_values is None:
+        filter_values = {}
 
     html = ['<div class="rb-filter-bar">']
+    suppressed = []
 
     for p in params:
         pname = p.get('name', '')
         plabel = p.get('label', pname)
         ptype = p.get('type', '')
         pdefault = p.get('default', '')
+
+        # Skip data-driven selects whose source is empty on THIS install.
+        if ptype in ('dropdown', 'multi_select'):
+            counted = _facet_counts(p, params, filter_values, settings)
+            if counted is not None:
+                opts = [(v, u'{0} ({1:,})'.format(l, n)) for v, l, n in counted]
+            else:
+                opts = _param_options(p)
+            if not opts:
+                suppressed.append(plabel)
+                continue
+        else:
+            opts = []
 
         html.append('<div class="rb-filter-group">')
         html.append('<label>{0}</label>'.format(html_escape(plabel)))
@@ -7921,37 +9502,23 @@ def render_filter_panel(report_def):
             html.append('</div>')
 
         elif ptype == 'dropdown':
-            source_sql = p.get('source_sql', '')
+            # Options already fetched above, so the lookup runs once per filter
+            # rather than twice.
             static_options = p.get('options', [])
             html.append('<select name="filter_{0}" class="rb-filter-input" data-param="{0}">'.format(pname))
             if not static_options:
                 html.append('<option value="">All</option>')
-            if static_options:
-                for opt in static_options:
-                    sel = ' selected' if str(opt.get('value', '')) == str(p.get('default', '')) else ''
-                    html.append('<option value="{0}"{2}>{1}</option>'.format(
-                        html_escape(str(opt.get('value', ''))), html_escape(str(opt.get('label', ''))), sel))
-            elif source_sql:
-                try:
-                    for r in q.QuerySql(source_sql):
-                        v = safe_str(r.value)
-                        l = safe_str(r.label)
-                        html.append('<option value="{0}">{1}</option>'.format(html_escape(v), html_escape(l)))
-                except:
-                    pass
+            for v, l in opts:
+                sel = ' selected' if static_options and v == str(pdefault) else ''
+                html.append('<option value="{0}"{2}>{1}</option>'.format(
+                    html_escape(v), html_escape(l), sel))
             html.append('</select>')
 
         elif ptype == 'multi_select':
-            source_sql = p.get('source_sql', '')
             html.append('<select name="filter_{0}" class="rb-filter-input rb-multi-select" data-param="{0}" multiple style="min-height:80px;">'.format(pname))
-            if source_sql:
-                try:
-                    for r in q.QuerySql(source_sql):
-                        v = safe_str(r.value)
-                        l = safe_str(r.label)
-                        html.append('<option value="{0}">{1}</option>'.format(html_escape(v), html_escape(l)))
-                except:
-                    pass
+            for v, l in opts:
+                html.append('<option value="{0}">{1}</option>'.format(
+                    html_escape(v), html_escape(l)))
             html.append('</select>')
             html.append('<div style="font-size:10px;color:#94a3b8;margin-top:2px;">Hold Ctrl/Cmd to select multiple</div>')
 
@@ -7967,6 +9534,17 @@ def render_filter_panel(report_def):
     html.append('<button class="rb-btn rb-btn-primary" onclick="RB.runReport()"><i class="fas fa-play"></i> Run Report</button>')
     html.append('</div>')
     html.append('</div>')
+
+    # Say what was hidden and why. A filter that silently disappears is its own
+    # kind of confusion, and this line is what tells an admin their lookup table
+    # is empty rather than leaving them to wonder where Campus went.
+    if suppressed:
+        html.append(
+            '<div class="rb-filter-note" style="font-size:11px;color:#94a3b8;'
+            'padding:4px 8px 0;">Hidden, because nothing is set up for them on this '
+            'database: <strong>{0}</strong>. They will appear automatically once those '
+            'lookups have values.</div>'.format(
+                html_escape(', '.join(suppressed))))
 
     return ''.join(html)
 
@@ -8025,6 +9603,46 @@ def delete_custom_report(user_id, report_id, shared=False):
 # REPORT LOOKUP HELPERS
 # ============================================================================
 
+# ============================================================================
+# FAVORITES
+# ============================================================================
+# Per user, because a favorite is a personal shortcut. Kept in its own content
+# record rather than inside the user's saved reports, so starring something can
+# never disturb a report definition.
+
+CONTENT_FAVORITES_PREFIX = 'ReportBuilder_Favs_'
+
+
+def load_favorites(user_id):
+    """Set of report ids this user has starred."""
+    try:
+        data = load_content_json(CONTENT_FAVORITES_PREFIX + str(user_id), {'ids': []})
+        return set(str(x) for x in (data.get('ids') or []))
+    except:
+        return set()
+
+
+def save_favorites(user_id, ids):
+    return save_content_json(CONTENT_FAVORITES_PREFIX + str(user_id),
+                             {'ids': sorted(set(str(x) for x in ids))})
+
+
+def toggle_favorite(user_id, report_id):
+    """Star or unstar. Returns (is_favorite_now, total_count)."""
+    rid = str(report_id or '').strip()
+    if not rid:
+        return (False, 0)
+    favs = load_favorites(user_id)
+    if rid in favs:
+        favs.discard(rid)
+        now = False
+    else:
+        favs.add(rid)
+        now = True
+    save_favorites(user_id, favs)
+    return (now, len(favs))
+
+
 def get_all_reports(user_id, settings=None):
     """Get all reports: built-in + custom, filtered by role access."""
     if settings is None:
@@ -8040,12 +9658,644 @@ def get_all_reports(user_id, settings=None):
             visible.append(r)
     return visible
 
+# Standard People filters offered to any person-grained report that does not
+# already declare its own. Each is an ordinary parameter dict, so it picks up
+# facet counts and empty-lookup suppression for free.
+_AUTO_PEOPLE_PARAMS = [
+    {'name': 'auto_member_status', 'label': 'Member Status', 'type': 'dropdown',
+     'sql_column': 'p.MemberStatusId',
+     'source_sql': "SELECT Id as value, Description as label FROM lookup.MemberStatus"},
+    {'name': 'auto_gender', 'label': 'Gender', 'type': 'dropdown',
+     'sql_column': 'p.GenderId',
+     'source_sql': "SELECT Id as value, Description as label FROM lookup.Gender"},
+    {'name': 'auto_marital', 'label': 'Marital Status', 'type': 'dropdown',
+     'sql_column': 'p.MaritalStatusId',
+     'source_sql': "SELECT Id as value, Description as label FROM lookup.MaritalStatus"},
+    {'name': 'auto_fampos', 'label': 'Family Position', 'type': 'dropdown',
+     'sql_column': 'p.PositionInFamilyId',
+     'source_sql': "SELECT Id as value, Description as label FROM lookup.FamilyPosition"},
+]
+
+_PEOPLE_ALIAS_RE = re.compile(r'\b(?:FROM|JOIN)\s+(?:dbo\.)?People\s+p\b', re.IGNORECASE)
+
+
+def _augment_people_params(report_def):
+    """Give a person-grained report standard People filters when it has none.
+
+    Two conditions, both required, because getting either wrong produces SQL
+    that will not run:
+      * the SQL has a {filters} placeholder, so there is somewhere to put them
+      * the SQL binds People to the alias p, so p.MemberStatusId resolves
+
+    Only fires when the report has no usable filter of its own. It is a floor,
+    not an override: a report that already ships filters keeps exactly those.
+    Suppressing the dead Campus dropdown left 16 reports with an empty filter
+    bar, and an empty bar is a worse answer than the useless control it replaced.
+    """
+    try:
+        sql = report_def.get('sql_template', '') or ''
+        if '{filters}' not in sql or not _PEOPLE_ALIAS_RE.search(sql):
+            return report_def
+
+        existing = report_def.get('parameters', []) or []
+        # A report is "already filtered" if it declares anything the user can
+        # actually operate other than a lookup that is empty here.
+        usable = []
+        for p in existing:
+            if p.get('type') in ('dropdown', 'multi_select'):
+                if _param_options(p):
+                    usable.append(p)
+            else:
+                usable.append(p)
+        if usable:
+            return report_def
+
+        taken = set(p.get('sql_column', '') for p in existing)
+        additions = [dict(a) for a in _AUTO_PEOPLE_PARAMS
+                     if a['sql_column'] not in taken]
+        if not additions:
+            return report_def
+
+        merged = dict(report_def)
+        merged['parameters'] = existing + additions
+        merged['_auto_filters'] = True
+        return merged
+    except:
+        # Never let this stop a report from loading.
+        return report_def
+
+
 def find_report(report_id, user_id):
     """Find a report by ID from built-in and custom reports."""
     for r in get_all_reports(user_id):
         if r.get('id') == report_id:
-            return r
+            return _augment_people_params(r)
     return None
+
+# ============================================================================
+# SCHEDULED EMAIL
+# ============================================================================
+# Morning batch does not fire at a predictable time -- it drifts, it is skipped,
+# the server reboots. So nothing here asks "is it Tuesday at 6am". Each schedule
+# records the date it last sent, and a send is due when enough days have passed.
+# A batch that runs late, twice, or not at all for a week still produces exactly
+# one send per period. Same reasoning as TPxi_ServiceDays.
+
+CONTENT_SCHEDULES = 'ReportBuilder_Schedules'
+BATCH_TRIGGER = 'run_report_emails'
+_SCHED_MARKER_START = '# >>> EnterpriseReporting email schedules (managed by app, do not edit) >>>'
+_SCHED_MARKER_END = '# <<< EnterpriseReporting email schedules end <<<'
+_BATCH_CONTENT_NAME = 'MorningBatch'
+# ScheduledTasks is a DIFFERENT TouchPoint feature. A trigger placed there looks
+# installed and never runs with the daily batch, so it is only ever scanned for
+# strays, never written to.
+_OTHER_BATCH_SLOTS = ['ScheduledTasks']
+_DEFAULT_SCRIPT_NAME = 'EnterpriseReporting'
+
+FREQUENCIES = [
+    ('daily', 'Every day', 1),
+    ('weekly', 'Every week', 7),
+    ('biweekly', 'Every two weeks', 14),
+    ('monthly', 'Every month', 28),
+]
+_FREQ_DAYS = dict((k, d) for k, _, d in FREQUENCIES)
+
+
+def load_schedules():
+    data = load_content_json(CONTENT_SCHEDULES, {'items': []})
+    return data.get('items', []) or []
+
+
+def save_schedules(items):
+    return save_content_json(CONTENT_SCHEDULES, {'items': items})
+
+
+def get_batch_script_name():
+    """What this script is called on THIS install.
+
+    TouchPoint does not hand a script its own name, and model.URL is usually
+    empty here, so the page posts script_name from window.location and that is
+    what gets registered. Admins rename scripts; the default is only a fallback.
+    """
+    try:
+        posted = (get_param('script_name', '') or '').strip()
+        if posted:
+            return posted
+    except:
+        pass
+    try:
+        url = str(getattr(model, 'URL', '') or '')
+        m = re.search(r'/PyScript(?:Form)?/([^/?#&]+)', url)
+        if m:
+            return m.group(1)
+    except:
+        pass
+    return _DEFAULT_SCRIPT_NAME
+
+
+def _batch_block(script_name):
+    return (_SCHED_MARKER_START + "\n"
+            "try:\n"
+            "    Data." + BATCH_TRIGGER + " = 'true'\n"
+            "    model.CallScript('" + script_name + "')\n"
+            "except Exception as _er_e:\n"
+            "    print 'EnterpriseReporting email error: ' + str(_er_e)\n"
+            + _SCHED_MARKER_END + "\n")
+
+
+def _read_batch(slot):
+    try:
+        return (model.PythonContent(slot) or ''), True
+    except:
+        return '', False
+
+
+def batch_status():
+    """Installed, where, and under what name.
+
+    registered_name is parsed out of the installed block rather than guessed,
+    because on a plain page load the guess is always the default and would
+    show the wrong name forever.
+    """
+    sn = get_batch_script_name()
+    text, ok = _read_batch(_BATCH_CONTENT_NAME)
+    if not ok:
+        return {'readable': False, 'installed': False, 'script_name': sn,
+                'registered_name': '', 'slot': _BATCH_CONTENT_NAME, 'stray': []}
+    installed = _SCHED_MARKER_START in text
+    registered = ''
+    if installed:
+        try:
+            m = re.search(re.escape(_SCHED_MARKER_START) + r".*?CallScript\(\s*['\"]([^'\"]+)['\"]"
+                          r".*?" + re.escape(_SCHED_MARKER_END), text, re.DOTALL)
+            if m:
+                registered = m.group(1)
+        except:
+            pass
+    stray = []
+    for other in _OTHER_BATCH_SLOTS:
+        t2, ok2 = _read_batch(other)
+        if ok2 and _SCHED_MARKER_START in t2:
+            stray.append(other)
+    return {'readable': True, 'installed': installed, 'script_name': sn,
+            'registered_name': registered, 'slot': _BATCH_CONTENT_NAME, 'stray': stray}
+
+
+def batch_install():
+    sn = get_batch_script_name()
+    text, ok = _read_batch(_BATCH_CONTENT_NAME)
+    if not ok:
+        return {'success': False, 'message': 'Could not read ' + _BATCH_CONTENT_NAME + '.'}
+    if _SCHED_MARKER_START in text:
+        return {'success': True, 'message': 'Already installed.'}
+    new = text.rstrip() + ("\n\n" if text.strip() else "") + _batch_block(sn)
+    try:
+        model.WriteContentPython(_BATCH_CONTENT_NAME, new)
+        return {'success': True,
+                'message': 'Added to {0} as "{1}". Scheduled reports will send on the '
+                           'next morning batch.'.format(_BATCH_CONTENT_NAME, sn)}
+    except Exception as e:
+        return {'success': False, 'message': 'Could not write ' + _BATCH_CONTENT_NAME + ': ' + safe_str(e)}
+
+
+def batch_uninstall():
+    """Removes from the real slot AND any stray copy, so an earlier mistake
+    cannot sit invisibly in ScheduledTasks forever."""
+    removed, errors = [], []
+    for slot in [_BATCH_CONTENT_NAME] + _OTHER_BATCH_SLOTS:
+        text, ok = _read_batch(slot)
+        if not ok or _SCHED_MARKER_START not in text:
+            continue
+        try:
+            pat = re.escape(_SCHED_MARKER_START) + r".*?" + re.escape(_SCHED_MARKER_END) + r"\n?"
+            model.WriteContentPython(slot, re.sub(pat, '', text, flags=re.DOTALL).rstrip() + "\n")
+            removed.append(slot)
+        except Exception as e:
+            errors.append(slot + ': ' + safe_str(e))
+    if not removed and not errors:
+        return {'success': True, 'message': 'Nothing to remove.'}
+    msg = ('Removed from ' + ', '.join(removed) + '.') if removed else ''
+    if errors:
+        msg += ' Problems: ' + '; '.join(errors)
+    return {'success': len(errors) == 0, 'message': msg.strip()}
+
+
+def _today():
+    return datetime.datetime.now().date()
+
+
+def _parse_date(s):
+    try:
+        return datetime.datetime.strptime(str(s)[:10], '%Y-%m-%d').date()
+    except:
+        return None
+
+
+def schedule_is_due(item, today=None):
+    """Due when it has never sent, or enough days have passed since it did.
+
+    Deliberately NOT "is today the configured weekday". If the batch is skipped
+    on the day a weekly report was meant to go, a weekday test silently drops
+    that week entirely; an elapsed-days test sends it the next time the batch
+    runs and carries on from there.
+    """
+    if not item.get('enabled', True):
+        return False
+    today = today or _today()
+    last = _parse_date(item.get('last_sent'))
+    if not last:
+        return True
+    need = _FREQ_DAYS.get(item.get('frequency', 'weekly'), 7)
+    return (today - last).days >= need
+
+
+def render_email_table(result, report_def, max_rows=500):
+    """A self-contained HTML table for the email body.
+
+    render_table_html only emits an AG Grid container that the browser fills in,
+    which is invisible in an inbox, so email needs its own renderer. Styles are
+    inline because mail clients discard stylesheets.
+    """
+    rows = result.get('rows', []) or []
+    cols = result.get('columns', []) or []
+    if not rows:
+        return '<p style="font:14px Arial,sans-serif;color:#555">No rows matched.</p>'
+
+    truncated = len(rows) > max_rows
+    shown = rows[:max_rows]
+
+    th = ('padding:6px 9px;border:1px solid #d8dee4;background:#f1f5f9;'
+          'font:600 12px Arial,sans-serif;text-align:left')
+    td = 'padding:5px 9px;border:1px solid #e6eaee;font:12px Arial,sans-serif'
+
+    out = ['<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%">']
+    out.append('<tr>' + ''.join('<th style="%s">%s</th>' % (th, html_escape(safe_str(c)))
+                                for c in cols) + '</tr>')
+    for r in shown:
+        cells = []
+        for c in cols:
+            v = r.get(c, '') if isinstance(r, dict) else ''
+            cells.append('<td style="%s">%s</td>' % (td, html_escape(safe_str(v))))
+        out.append('<tr>' + ''.join(cells) + '</tr>')
+    out.append('</table>')
+    if truncated:
+        out.append('<p style="font:12px Arial,sans-serif;color:#a35c00">'
+                   'Showing the first {0:,} of {1:,} rows. Open the report for the rest.'
+                   '</p>'.format(max_rows, len(rows)))
+    return ''.join(out)
+
+
+def name_search_where(search_term, alias='p'):
+    """Tokenised name search. Same shape as TPxi_TaskRunner so the two behave
+    identically:
+        "Last, First" -> starts-with on LastName plus FirstName/NickName
+        "ben swa"     -> every token must match somewhere in the name fields
+    Returns '1=0' on empty input so the surrounding query stays valid.
+    """
+    term = (search_term or '').strip()
+    if not term:
+        return '1=0'
+    a = alias
+    if ',' in term:
+        parts = term.split(',', 1)
+        last_tok = parts[0].strip().replace("'", "''")
+        first_tok = parts[1].strip().replace("'", "''")
+        clauses = []
+        if last_tok:
+            clauses.append("{0}.LastName LIKE '{1}%'".format(a, last_tok))
+        if first_tok:
+            clauses.append("({0}.FirstName LIKE '{1}%' OR {0}.NickName LIKE '{1}%')".format(a, first_tok))
+        return ' AND '.join(clauses) if clauses else '1=0'
+    tokens = [t for t in term.split() if t]
+    if not tokens:
+        return '1=0'
+    out = []
+    for raw in tokens:
+        tok = raw.replace("'", "''")
+        out.append("({0}.FirstName LIKE '%{1}%' OR {0}.LastName LIKE '%{1}%' "
+                   "OR {0}.NickName LIKE '%{1}%' OR {0}.Name2 LIKE '%{1}%')".format(a, tok))
+    return ' AND '.join(out)
+
+
+def resolve_recipients(item):
+    """Who a schedule sends to, as (peopleIds, problems).
+
+    Two modes, because they fail differently:
+      people  a fixed list of PeopleIds chosen by name. Stable, and obvious
+              when someone should be removed.
+      query   a saved Search Builder search, re-run at send time. The right
+              choice for "all staff" or "current deacons", where the point is
+              that the list maintains itself.
+    """
+    mode = item.get('recipient_type', 'people')
+    problems = []
+
+    if mode == 'query':
+        qname = (item.get('recipient_query', '') or '').strip()
+        if not qname:
+            return [], ['No saved search was chosen.']
+        try:
+            ids = [int(x) for x in q.QueryPeopleIds(qname)]
+        except Exception as e:
+            return [], ['Saved search "{0}" would not run: {1}'.format(qname, safe_str(e))]
+        if not ids:
+            problems.append('Saved search "{0}" currently matches nobody.'.format(qname))
+        return ids, problems
+
+    ids = []
+    for raw in str(item.get('recipient_ids', '') or '').split(','):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            ids.append(int(raw))
+        except:
+            problems.append('Ignored a recipient that was not a person id: ' + raw)
+    return ids, problems
+
+
+def scope_support(rdef):
+    """Which data scopes this report can actually honor.
+
+    Both limits come from how the SQL is written, not from preference:
+      people  a people scope is injected as `p.PeopleId IN (...)`, so it only
+              works on reports whose person table is aliased `p`. That is
+              exactly what bluetoolbar.supported already marks.
+      org     an involvement scope is applied by substituting
+              {current_org_filter}. A report without that placeholder would
+              accept the scope, ignore it, and mail out the whole database.
+
+    Offering a scope the report cannot apply is worse than not offering it, so
+    this is what the UI and the save path are both gated on.
+    """
+    if not rdef:
+        return {'people': False, 'org': False, 'org_native': False}
+    people = bool(rdef.get('bluetoolbar', {}).get('supported', False))
+    native = '{current_org_filter}' in (rdef.get('sql_template', '') or '')
+    # Only one report in the catalog carries the placeholder, so on its own
+    # an involvement scope would be an option that almost never appears. Any
+    # people-capable report can be scoped to an involvement by resolving its
+    # membership to PeopleIds instead, which is what the page already does
+    # when you pick an involvement on screen.
+    return {'people': people, 'org': native or people, 'org_native': native}
+
+
+def org_member_ids(oid):
+    """Current membership of an involvement, resolved fresh.
+
+    Re-resolved on every send rather than frozen at save time: "the youth
+    leaders" should mean whoever they are that morning.
+    """
+    out = []
+    for r in q.QuerySql("""
+        SELECT om.PeopleId
+        FROM dbo.OrganizationMembers om WITH (NOLOCK)
+        WHERE om.OrganizationId = {0}
+    """.format(int(oid))):
+        out.append(int(r.PeopleId))
+    return out
+
+
+def describe_scope(item):
+    """One-line plain English for what a schedule is limited to."""
+    t = item.get('scope_type', 'none')
+    if t == 'query':
+        return 'Saved search: ' + safe_str(item.get('scope_query', ''))
+    if t == 'org':
+        return safe_str(item.get('scope_label')
+                        or ('Involvement ' + safe_str(item.get('scope_org_id', ''))))
+    if t == 'people':
+        n = len([x for x in str(item.get('scope_people_ids', '') or '').split(',') if x.strip()])
+        return '{0} fixed people'.format(n)
+    return 'Everything'
+
+
+# Lookup options are resolved with SQL, so a list of schedules over the same
+# report would re-run the same query per row. Keyed on the source SQL because
+# that is what actually determines the result.
+_PARAM_OPT_CACHE = {}
+
+# Same presets render_filter_panel offers, so the summary reads back the way
+# the dropdown reads.
+_DATERANGE_LABELS = {
+    'last_30_days': 'Last 30 Days', 'last_90_days': 'Last 90 Days',
+    'last_6_months': 'Last 6 Months', 'last_12_months': 'Last 12 Months',
+    'ytd': 'Year to Date', 'fiscal_ytd': 'Fiscal Year to Date',
+}
+
+
+def describe_filters(item, rdef):
+    """The saved filters as readable text, with ids resolved back to labels.
+
+    "Member Status = Member" is checkable at a glance; "Member Status = 10"
+    is not, and the whole point of showing this is that someone can spot a
+    schedule that is narrower or wider than they meant.
+    """
+    vals = item.get('filters', {}) or {}
+    if not vals or not rdef:
+        return ''
+    out = []
+    for p in rdef.get('parameters', []):
+        name = p.get('name', '')
+        raw = vals.get(name, '')
+        if not raw:
+            continue
+        ptype = p.get('type', '')
+        label = p.get('label', name)
+        if ptype in ('dropdown', 'multi_select'):
+            key = p.get('source_sql', '') or ('static:' + name)
+            if key not in _PARAM_OPT_CACHE:
+                try:
+                    _PARAM_OPT_CACHE[key] = dict(_param_options(p))
+                except:
+                    _PARAM_OPT_CACHE[key] = {}
+            lookup = _PARAM_OPT_CACHE[key]
+            shown = ', '.join(lookup.get(x.strip(), x.strip())
+                              for x in str(raw).split(',') if x.strip())
+        elif ptype == 'daterange':
+            shown = (str(raw).replace('|', ' to ') if '|' in str(raw)
+                     else _DATERANGE_LABELS.get(str(raw), safe_str(raw)))
+        else:
+            shown = safe_str(raw)
+        if shown:
+            out.append(u'{0} = {1}'.format(label, shown))
+    return u'; '.join(out)
+
+
+def send_scheduled_report(item, settings=None):
+    """Run one schedule and email it. Returns a result dict; never raises."""
+    if settings is None:
+        settings = load_settings()
+    name = item.get('report_name') or item.get('report_id')
+    try:
+        rdef = find_report(item.get('report_id', ''), item.get('owner_id', 0))
+        if not rdef:
+            return {'ok': False, 'msg': 'Report no longer exists: ' + safe_str(item.get('report_id'))}
+
+        # Replay whatever the report was scoped to when the schedule was made.
+        # Without this a report built from an involvement page or a Blue Toolbar
+        # selection would run against EVERYONE at 6am, because neither of those
+        # scopes exists in a batch context. Running wider than the person
+        # intended is the worst possible silent failure for an emailed report.
+        scope_type = item.get('scope_type', 'none')
+        support = scope_support(rdef)
+        scope_people = None
+        scope_org = None
+        if scope_type == 'people':
+            scope_people = [int(x) for x in str(item.get('scope_people_ids', '') or '').split(',')
+                            if str(x).strip().isdigit()]
+            if not scope_people:
+                return {'ok': False, 'msg': 'This schedule was scoped to a saved list of people, '
+                                            'but the list is now empty. Rebuild the schedule.'}
+        elif scope_type == 'query':
+            # Re-run every time, which is the point: "current deacons" should
+            # mean current deacons on the morning it sends, not on the morning
+            # it was scheduled.
+            qname = (item.get('scope_query', '') or '').strip()
+            if not qname:
+                return {'ok': False, 'msg': 'This schedule is scoped to a saved search, but no '
+                                            'search name is stored. Rebuild the schedule.'}
+            try:
+                scope_people = [int(x) for x in q.QueryPeopleIds(qname)]
+            except Exception as e:
+                return {'ok': False, 'msg': 'Saved search "{0}" would not run: {1}'.format(
+                    qname, safe_str(e))}
+            if not scope_people:
+                return {'ok': False, 'msg': 'Saved search "{0}" currently matches nobody.'.format(qname)}
+        elif scope_type == 'org':
+            try:
+                oid = int(item.get('scope_org_id') or 0) or None
+            except:
+                oid = None
+            if not oid:
+                return {'ok': False, 'msg': 'This schedule was scoped to an involvement, but the '
+                                            'involvement id is missing. Rebuild the schedule.'}
+            if support['org_native']:
+                scope_org = oid
+            else:
+                # No placeholder in this report's SQL, so the involvement is
+                # applied as its membership instead.
+                try:
+                    scope_people = org_member_ids(oid)
+                except Exception as e:
+                    return {'ok': False, 'msg': 'Could not read the involvement membership: '
+                                                + safe_str(e)}
+                if not scope_people:
+                    return {'ok': False, 'msg': 'Involvement {0} currently has no members.'.format(oid)}
+
+        # A report that cannot apply its own saved scope must stop, not widen.
+        # A people scope on a report with no `p` alias is a SQL error; an
+        # involvement scope on a report with no {current_org_filter} is worse,
+        # because it silently succeeds and mails the whole database.
+        if scope_people and not support['people']:
+            return {'ok': False, 'msg': 'This report cannot be limited to a list of people, so it '
+                                        'was not sent rather than sent unscoped. Re-scope it with '
+                                        'the report filters.'}
+        if scope_org and not support['org']:
+            return {'ok': False, 'msg': 'This report cannot be limited to one involvement, so it '
+                                        'was not sent rather than sent over everything. Re-scope '
+                                        'it with a saved search or the report filters.'}
+
+        result = execute_report(rdef, item.get('filters', {}) or {}, scope_people, settings,
+                                scope_org, 'table')
+        if result.get('error'):
+            return {'ok': False, 'msg': 'Report failed: ' + safe_str(result['error'])}
+
+        ids, unknown = resolve_recipients(item)
+        if not ids:
+            return {'ok': False, 'msg': 'No recipients: ' + ('; '.join(unknown) or 'none configured')}
+
+        count = result.get('row_count', len(result.get('rows', [])))
+        if not count and item.get('skip_if_empty'):
+            return {'ok': True, 'skipped': True,
+                    'msg': 'No rows; skipped as configured.'}
+
+        body = [
+            '<div style="font:14px Arial,sans-serif;color:#1e293b">',
+            '<h2 style="margin:0 0 4px">', html_escape(safe_str(name)), '</h2>',
+            '<p style="margin:0 0 12px;color:#64748b;font-size:12px">',
+            'Automated report, {0:,} row(s), generated {1}.'.format(
+                count, datetime.datetime.now().strftime('%d %b %Y %I:%M %p')),
+            '</p>',
+            render_email_table(result, rdef),
+        ]
+        if unknown:
+            body.append('<p style="font-size:11px;color:#a35c00">{0}</p>'.format(
+                html_escape('; '.join(unknown))))
+        body.append('</div>')
+
+        queued_by = item.get('owner_id') or 0
+        try:
+            if not queued_by:
+                queued_by = model.UserPeopleId
+        except:
+            pass
+
+        model.Email("peopleids='{0}'".format(','.join(str(i) for i in ids)),
+                    queued_by,
+                    item.get('from_email', '') or '',
+                    item.get('from_name', '') or 'Enterprise Reporting',
+                    item.get('subject') or safe_str(name),
+                    ''.join(body),
+                    '')
+        return {'ok': True, 'msg': 'Sent to {0} recipient(s), {1:,} row(s).'.format(len(ids), count)}
+    except Exception as e:
+        return {'ok': False, 'msg': safe_str(e)}
+
+
+def run_scheduled_reports(force_id=None):
+    """Batch entry point. Sends everything due and stamps each one.
+
+    Every schedule is wrapped individually: one broken report must not stop the
+    ones after it, which is the same reason the morning batch block itself is
+    wrapped in try/except.
+    """
+    items = load_schedules()
+    if not items:
+        return {'checked': 0, 'sent': 0, 'skipped': 0, 'failed': 0, 'log': []}
+
+    settings = load_settings()
+    today = _today()
+    sent = skipped = failed = 0
+    log = []
+
+    for item in items:
+        try:
+            if force_id:
+                if item.get('id') != force_id:
+                    continue
+            elif not schedule_is_due(item, today):
+                skipped += 1
+                continue
+
+            res = send_scheduled_report(item, settings)
+            label = safe_str(item.get('report_name') or item.get('report_id'))
+            if res.get('ok'):
+                if res.get('skipped'):
+                    skipped += 1
+                else:
+                    sent += 1
+                # Stamped even when skipped-because-empty, so an empty report
+                # does not retry every single morning.
+                item['last_sent'] = str(today)
+                item['last_result'] = res.get('msg', '')
+            else:
+                failed += 1
+                item['last_result'] = 'FAILED: ' + res.get('msg', '')
+                item['last_failed'] = str(today)
+            log.append(label + ': ' + res.get('msg', ''))
+        except Exception as e:
+            failed += 1
+            log.append('Unhandled: ' + safe_str(e))
+
+    try:
+        save_schedules(items)
+    except Exception as e:
+        log.append('State not saved: ' + safe_str(e))
+
+    return {'checked': len(items), 'sent': sent, 'skipped': skipped,
+            'failed': failed, 'log': log}
+
 
 # ============================================================================
 # AJAX HANDLER
@@ -8067,16 +10317,7 @@ def handle_ajax(action, user_id, bt_people_ids, current_org_id=None):
         if not user_has_category_access(cat, settings):
             return json.dumps({'success': False, 'error': 'Access denied: you do not have permission for ' + cat + ' reports'})
 
-        filter_values = {}
-        for p in report_def.get('parameters', []):
-            pname = p['name']
-            ptype = p.get('type', '')
-            val = get_param('filter_' + pname, '')
-            if ptype == 'daterange' and val == 'custom':
-                start = get_param('filter_' + pname + '_start', '')
-                end = get_param('filter_' + pname + '_end', '')
-                val = (start + '|' + end) if start and end else ''
-            filter_values[pname] = val
+        filter_values = _collect_filter_values(report_def)
 
         use_bt = bt_people_ids if report_def.get('bluetoolbar', {}).get('supported', False) else None
         # current_org_id is only honored when BT is supported AND active.
@@ -8084,7 +10325,8 @@ def handle_ajax(action, user_id, bt_people_ids, current_org_id=None):
         # be silently scoped to an org they may have visited days ago.
         use_org = current_org_id if (use_bt and current_org_id) else None
         result = execute_report(report_def, filter_values, use_bt, settings,
-                                current_org_id=use_org)
+                                current_org_id=use_org,
+                                display_type=display_type)
 
         if result.get('error'):
             return json.dumps(sanitize_for_json({'success': False, 'error': result['error']}))
@@ -8117,6 +10359,374 @@ def handle_ajax(action, user_id, bt_people_ids, current_org_id=None):
                 'row_count': result.get('row_count', 0)
             }))
 
+    elif action == 'list_schedules':
+        items = load_schedules()
+        mine = [i for i in items if is_admin_user() or i.get('owner_id') == user_id]
+        st = batch_status()
+        for i in mine:
+            i['due'] = schedule_is_due(i)
+            # Summarized here rather than in the browser: only the server has
+            # the report definition needed to turn stored ids back into the
+            # labels the user picked.
+            rd = find_report(i.get('report_id', ''), i.get('owner_id', user_id))
+            i['missing'] = rd is None
+            i['scope_summary'] = describe_scope(i)
+            i['filter_summary'] = describe_filters(i, rd)
+        return json.dumps(sanitize_for_json({
+            'success': True, 'items': mine, 'batch': st,
+            'frequencies': [{'value': k, 'label': l} for k, l, _ in FREQUENCIES]}))
+
+    elif action == 'save_schedule':
+        # sch_ prefix throughout: ASP.NET silently drops some bare POST field
+        # names and returns an empty 200 that never reaches this handler.
+        rid = get_param('report_id', '')
+        rdef = find_report(rid, user_id)
+        if not rdef:
+            return json.dumps({'success': False, 'error': 'Report not found'})
+        rmode = get_param('sch_recipient_type', 'people')
+        if rmode not in ('people', 'query'):
+            rmode = 'people'
+        probe = {'recipient_type': rmode,
+                 'recipient_ids': get_param('sch_recipient_ids', ''),
+                 'recipient_query': get_param('sch_recipient_query', '')}
+        # Resolved BEFORE saving. A schedule that cannot reach anybody is a
+        # silent failure every morning, and the batch log is not somewhere
+        # people look.
+        ids, unknown = resolve_recipients(probe)
+        if not ids:
+            return json.dumps({'success': False,
+                               'error': 'No recipients resolved. ' + ('; '.join(unknown))})
+        freq = get_param('sch_frequency', 'weekly')
+        if freq not in _FREQ_DAYS:
+            freq = 'weekly'
+
+        # Scope. A report the user was viewing through a Blue Toolbar selection
+        # or an involvement is NOT the same report unscoped, so the choice is
+        # made explicit and stored rather than quietly dropped.
+        scope_type = get_param('sch_scope_type', 'none')
+        if scope_type not in ('none', 'org', 'people', 'query'):
+            scope_type = 'none'
+        scope_org_id = get_param('sch_scope_org_id', '')
+        scope_people_ids = get_param('sch_scope_people_ids', '')
+        scope_query = (get_param('sch_scope_query', '') or '').strip()
+        support = scope_support(rdef)
+
+        # Rejected at save time rather than at 6am. The batch log is not
+        # somewhere anyone looks, so a scope this report cannot apply has to
+        # fail while the person who chose it is still looking at the screen.
+        if scope_type in ('people', 'query') and not support['people']:
+            return json.dumps({'success': False,
+                               'error': 'This report returns summary rows rather than people, so '
+                                        'it cannot be limited to a list of people. Use the report '
+                                        'filters instead.'})
+        if scope_type == 'org' and not support['org']:
+            return json.dumps({'success': False,
+                               'error': 'This report cannot be limited to a single involvement. '
+                                        'Scope it with a saved search or the report filters.'})
+        if scope_type == 'query':
+            if not scope_query:
+                return json.dumps({'success': False,
+                                   'error': 'Pick the saved search to limit the report to.'})
+            # Proven to run now, so a typo or a deleted search surfaces here.
+            try:
+                probe_n = len([1 for _ in q.QueryPeopleIds(scope_query)])
+            except Exception as e:
+                return json.dumps({'success': False,
+                                   'error': 'Saved search "{0}" would not run: {1}'.format(
+                                       scope_query, safe_str(e))})
+            if not probe_n:
+                return json.dumps({'success': False,
+                                   'error': 'Saved search "{0}" currently matches nobody.'.format(
+                                       scope_query)})
+        if scope_type == 'org':
+            if not str(scope_org_id).strip().isdigit():
+                return json.dumps({'success': False,
+                                   'error': 'Pick the involvement to limit the report to.'})
+            if not support['org_native']:
+                # Proven now rather than at 6am: an empty involvement would
+                # produce an empty report every morning with no explanation.
+                try:
+                    n_mem = len(org_member_ids(scope_org_id))
+                except Exception as e:
+                    return json.dumps({'success': False,
+                                       'error': 'Could not read that involvement: ' + safe_str(e)})
+                if not n_mem:
+                    return json.dumps({'success': False,
+                                       'error': 'That involvement has no members, so the report '
+                                                'would always be empty.'})
+        if scope_type == 'people':
+            keep = [x.strip() for x in str(scope_people_ids or '').split(',') if x.strip().isdigit()]
+            if not keep:
+                return json.dumps({'success': False,
+                                   'error': 'The selection was lost. Re-run the report with your '
+                                            'selection and schedule it again.'})
+            scope_people_ids = ','.join(keep)
+        items = load_schedules()
+        sid = get_param('sch_id', '') or ('sch_' + re.sub(r'[^a-z0-9]+', '', rid.lower())[:24]
+                                               + '_' + str(user_id))
+        entry = {
+            'id': sid,
+            'report_id': rid,
+            'report_name': rdef.get('name', rid),
+            'owner_id': user_id,
+            'recipient_type': rmode,
+            'recipient_ids': probe['recipient_ids'],
+            'recipient_query': probe['recipient_query'],
+            'recipient_count': len(ids),
+            'scope_type': scope_type,
+            'scope_org_id': scope_org_id,
+            'scope_people_ids': scope_people_ids if scope_type == 'people' else '',
+            'scope_query': scope_query if scope_type == 'query' else '',
+            'scope_label': get_param('sch_scope_label', ''),
+            'frequency': freq,
+            'subject': (get_param('sch_subject', '') or rdef.get('name', rid)),
+            'from_email': get_param('sch_from_email', ''),
+            'from_name': get_param('sch_from_name', '') or 'Enterprise Reporting',
+            'skip_if_empty': get_param('sch_skip_if_empty', 'false') == 'true',
+            'enabled': get_param('sch_enabled', 'true') != 'false',
+            # Read with the same collector the run path uses, so a scheduled
+            # send reproduces the filters that were on screen when it was saved
+            # rather than quietly running the report wide open.
+            'filters': _collect_filter_values(rdef),
+            'last_sent': '',
+            'last_result': '',
+        }
+        replaced = False
+        for idx, old in enumerate(items):
+            if old.get('id') == sid:
+                entry['last_sent'] = old.get('last_sent', '')
+                entry['last_result'] = old.get('last_result', '')
+                items[idx] = entry
+                replaced = True
+                break
+        if not replaced:
+            items.append(entry)
+        save_schedules(items)
+        return json.dumps(sanitize_for_json({
+            'success': True, 'schedule': entry, 'unknown': unknown,
+            'batch': batch_status()}))
+
+    elif action == 'search_recipients':
+        term = (get_param('sch_term', '') or '').strip()
+        if len(term) < 2:
+            return json.dumps({'success': True, 'people': []})
+        sql = """
+            SELECT TOP 20 p.PeopleId, ISNULL(p.Name2,'') AS Name2,
+                   ISNULL(p.EmailAddress,'') AS Email
+            FROM dbo.People p WITH (NOLOCK)
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+              AND ({0})
+            ORDER BY p.LastName, p.FirstName
+        """.format(name_search_where(term, 'p'))
+        people = []
+        try:
+            for r in q.QuerySql(sql):
+                people.append({'peopleId': int(r.PeopleId),
+                               'name': safe_str(r.Name2),
+                               'email': safe_str(r.Email)})
+        except Exception as e:
+            return json.dumps({'success': False, 'error': safe_str(e)})
+        return json.dumps(sanitize_for_json({'success': True, 'people': people}))
+
+    elif action == 'resolve_recipient_names':
+        # Turn stored ids back into names so an existing schedule can be shown
+        # and edited rather than being an opaque list of numbers.
+        raw = get_param('sch_recipient_ids', '')
+        ids = []
+        for x in str(raw or '').split(','):
+            x = x.strip()
+            if x.isdigit():
+                ids.append(int(x))
+        if not ids:
+            return json.dumps({'success': True, 'people': []})
+        people = []
+        try:
+            for r in q.QuerySql("""
+                SELECT p.PeopleId, ISNULL(p.Name2,'') AS Name2,
+                       ISNULL(p.EmailAddress,'') AS Email
+                FROM dbo.People p WITH (NOLOCK)
+                WHERE p.PeopleId IN ({0})
+            """.format(','.join(str(i) for i in ids))):
+                people.append({'peopleId': int(r.PeopleId),
+                               'name': safe_str(r.Name2),
+                               'email': safe_str(r.Email)})
+        except Exception as e:
+            return json.dumps({'success': False, 'error': safe_str(e)})
+        return json.dumps(sanitize_for_json({'success': True, 'people': people}))
+
+    elif action == 'delete_schedule':
+        sid = get_param('sch_id', '')
+        items = [i for i in load_schedules() if i.get('id') != sid]
+        save_schedules(items)
+        return json.dumps({'success': True, 'count': len(items)})
+
+    elif action == 'toggle_schedule':
+        # Pausing beats deleting for a report that is only wanted part of the
+        # year: the recipients, scope and filters survive the pause.
+        sid = get_param('sch_id', '')
+        items = load_schedules()
+        state = None
+        for i in items:
+            if i.get('id') == sid:
+                state = not (i.get('enabled', True) is not False)
+                i['enabled'] = state
+                break
+        if state is None:
+            return json.dumps({'success': False, 'error': 'That schedule no longer exists.'})
+        save_schedules(items)
+        return json.dumps({'success': True, 'enabled': state})
+
+    elif action == 'send_schedule_now':
+        sid = get_param('sch_id', '')
+        r = run_scheduled_reports(force_id=sid)
+        return json.dumps(sanitize_for_json({
+            'success': r['failed'] == 0,
+            'message': '; '.join(r.get('log', [])) or 'Nothing matched that schedule.'}))
+
+    elif action == 'batch_install':
+        return json.dumps(sanitize_for_json(batch_install()))
+
+    elif action == 'batch_uninstall':
+        return json.dumps(sanitize_for_json(batch_uninstall()))
+
+    elif action == 'batch_status':
+        return json.dumps(sanitize_for_json(batch_status()))
+
+    elif action == 'get_linked_report':
+        rdef = find_report(get_param('report_id', ''), user_id)
+        if not rdef or not rdef.get('source_type'):
+            return json.dumps({'success': False, 'error': 'Not a linked report.'})
+        return json.dumps(sanitize_for_json({
+            'success': True,
+            'report_id': rdef.get('id', ''),
+            'name': rdef.get('name', ''),
+            'source_type': rdef.get('source_type', ''),
+            'source_name': rdef.get('source_name', ''),
+            'is_shared': rdef.get('is_shared', False)}))
+
+    elif action == 'list_sources':
+        # What can be linked to. Read live so a script saved a minute ago is
+        # offered immediately.
+        scripts, queries = [], []
+        try:
+            for r in q.QuerySql("""
+                SELECT Name FROM dbo.Content
+                WHERE TypeID = 4 AND ISNULL(Archived, 0) = 0
+                ORDER BY Name
+            """):
+                scripts.append(safe_str(r.Name))
+        except Exception as e:
+            pass
+        try:
+            # Search Builder auto-saves work in progress into this same table:
+            # on this database 794 rows are named "Draft" and 367 have no name
+            # at all, out of 2,108. Those are scratch state, not saved searches,
+            # and listing them buries the real ones.
+            #
+            # The cap keeps the most RECENTLY USED searches, then the outer
+            # query sorts those alphabetically. Both orders matter and they are
+            # not the same one: picking the cap alphabetically would keep 1000
+            # searches starting with "A" and drop the one used yesterday, while
+            # displaying by last-run makes a name impossible to find by eye.
+            #
+            # Also de-duplicated by name (823 distinct names across 862 rows,
+            # because a search can be saved more than once) and limited to
+            # searches the user can legitimately pick: public ones, plus their
+            # own. Users is not 1:1 with PeopleId, so every username belonging
+            # to this person counts.
+            for r in q.QuerySql("""
+                WITH mine AS (
+                    SELECT Username FROM dbo.Users WITH (NOLOCK)
+                    WHERE PeopleId = {user_id} AND ISNULL(Username,'') <> ''
+                ),
+                named AS (
+                    SELECT qq.name AS Nm, qq.owner AS Owner, qq.lastRun AS LastRun,
+                           ROW_NUMBER() OVER (PARTITION BY qq.name
+                                              ORDER BY qq.lastRun DESC, qq.created DESC) AS rn
+                    FROM dbo.Query qq WITH (NOLOCK)
+                    WHERE ISNULL(qq.name,'') <> ''
+                      AND qq.name NOT IN ('Draft', 'OrgFilter')
+                      AND (qq.ispublic = 1 OR qq.owner IN (SELECT Username FROM mine))
+                )
+                SELECT Name, Owner, LastRun FROM (
+                    SELECT TOP {cap} Nm AS Name, ISNULL(Owner,'') AS Owner,
+                           ISNULL(CONVERT(varchar(10), LastRun, 120), '') AS LastRun
+                    FROM named WHERE rn = 1
+                    ORDER BY LastRun DESC, Nm
+                ) t
+                ORDER BY Name
+            """.format(user_id=int(user_id or 0), cap=SOURCE_LIST_CAP)):
+                queries.append({'name': safe_str(r.Name),
+                                'owner': safe_str(r.Owner),
+                                'created': safe_str(r.LastRun)})
+        except Exception as e:
+            pass
+        return json.dumps(sanitize_for_json({
+            'success': True, 'scripts': scripts, 'queries': queries,
+            # A list that just stops at the cap reads as "that search does not
+            # exist", which is the wrong conclusion.
+            'queries_capped': len(queries) >= SOURCE_LIST_CAP,
+            'cap': SOURCE_LIST_CAP}))
+
+    elif action == 'save_linked_report':
+        # Parameter names are prefixed lr_ deliberately. ASP.NET silently
+        # swallows some POST field names -- "name" among them -- returning
+        # HTTP 200 with an empty body, which surfaces as "Request failed (200)"
+        # and never reaches this handler at all.
+        name = (get_param('lr_name', '') or '').strip()
+        stype = get_param('lr_source_type', '')
+        sname = (get_param('lr_source_name', '') or '').strip()
+        category = get_param('lr_category', 'custom') or 'custom'
+        shared = get_param('lr_shared', 'false') == 'true'
+        if not name or not sname or stype not in (SOURCE_SQL_SCRIPT, SOURCE_SAVED_QUERY):
+            return json.dumps({'success': False, 'error': 'Name and a source are both required.'})
+
+        # Editing keeps the SAME id. Minting a new one on every save would
+        # orphan any schedule, favorite or deep link pointing at the report.
+        existing_id = (get_param('lr_report_id', '') or '').strip()
+        rid = existing_id or ('linked_' + re.sub(r'[^a-z0-9_]+', '_', name.lower())[:40]
+                              + '_' + str(user_id))
+        rdef = {
+            'id': rid,
+            'name': name,
+            'description': ('Linked to SQL script "{0}"' if stype == SOURCE_SQL_SCRIPT
+                            else 'Linked to saved query "{0}"').format(sname),
+            'help_text': ('This report reads <strong>{0}</strong> every time it runs, so '
+                          'editing that source updates this report automatically.'.format(
+                              html_escape(sname))),
+            'category': category,
+            'icon': 'fa-link',
+            'sql_template': '',
+            'source_type': stype,
+            'source_name': sname,
+            'parameters': [],
+            'display': {'types': ['table'], 'default': 'table'},
+            'bluetoolbar': {'supported': False},
+            'is_builtin': False,
+        }
+        # Prove it runs BEFORE saving. Saving a report that errors on open is a
+        # worse outcome than refusing to save it.
+        probe_sql, probe_err = resolve_linked_sql(rdef)
+        if probe_err and not probe_err.startswith('TRUNCATED:'):
+            return json.dumps({'success': False, 'error': probe_err})
+        try:
+            save_custom_report(user_id, rdef, shared)
+        except Exception as e:
+            return json.dumps({'success': False, 'error': 'Could not save: ' + safe_str(e)})
+        return json.dumps(sanitize_for_json({
+            'success': True, 'report_id': rid, 'name': name}))
+
+    elif action == 'toggle_favorite':
+        rid = get_param('report_id', '')
+        rdef = find_report(rid, user_id)
+        if not rdef:
+            return json.dumps({'success': False, 'error': 'Report not found'})
+        is_fav, total = toggle_favorite(user_id, rid)
+        return json.dumps(sanitize_for_json({
+            'success': True, 'is_favorite': is_fav, 'count': total,
+            'report_id': rid, 'report_name': rdef.get('name', ''),
+            'icon': rdef.get('icon', 'fa-file-alt')}))
+
     elif action == 'load_filters':
         report_id = get_param('report_id')
         report_def = find_report(report_id, user_id)
@@ -8125,13 +10735,18 @@ def handle_ajax(action, user_id, bt_people_ids, current_org_id=None):
         display = report_def.get('display', {})
         return json.dumps(sanitize_for_json({
             'success': True,
-            'filter_html': render_filter_panel(report_def),
+            # Current values are passed through so a re-load recomputes the
+            # counts inside whatever is already selected.
+            'filter_html': render_filter_panel(
+                report_def, _collect_filter_values(report_def), settings),
             'display_types': display.get('types', ['table']),
             'default_display': display.get('default', 'table'),
             'report_name': report_def.get('name', ''),
             'report_desc': report_def.get('description', ''),
             'help_text': report_def.get('help_text', ''),
-            'bt_supported': report_def.get('bluetoolbar', {}).get('supported', False)
+            'bt_supported': report_def.get('bluetoolbar', {}).get('supported', False),
+            # Drives which data-scope choices the schedule modal offers.
+            'scope_support': scope_support(report_def)
         }))
 
     elif action == 'export_csv':
@@ -8140,21 +10755,14 @@ def handle_ajax(action, user_id, bt_people_ids, current_org_id=None):
         if not report_def:
             return json.dumps({'success': False, 'error': 'Report not found'})
 
-        filter_values = {}
-        for p in report_def.get('parameters', []):
-            pname = p['name']
-            ptype = p.get('type', '')
-            val = get_param('filter_' + pname, '')
-            if ptype == 'daterange' and val == 'custom':
-                start = get_param('filter_' + pname + '_start', '')
-                end = get_param('filter_' + pname + '_end', '')
-                val = (start + '|' + end) if start and end else ''
-            filter_values[pname] = val
+        filter_values = _collect_filter_values(report_def)
 
         use_bt = bt_people_ids if report_def.get('bluetoolbar', {}).get('supported', False) else None
         use_org = current_org_id if (use_bt and current_org_id) else None
+        # CSV export always uses table mode -- it's a tabular download.
         result = execute_report(report_def, filter_values, use_bt, settings,
-                                current_org_id=use_org)
+                                current_org_id=use_org,
+                                display_type='table')
         csv_data = render_csv(result)
         return json.dumps(sanitize_for_json({
             'success': True, 'csv': csv_data,
@@ -8769,6 +11377,25 @@ def build_css():
 .rb-report-item.active{background:#dbeafe;color:#1d4ed8;font-weight:600}
 .rb-report-item .fa,.rb-report-item .fas{width:16px;font-size:11px;text-align:center}
 .rb-bt-badge{margin-left:auto;color:#2563eb;font-size:9px;opacity:0.5}.rb-report-item:hover .rb-bt-badge{opacity:0.8}
+.rb-sched-badge{margin-left:auto;color:#0f766e;font-size:9px;opacity:.75}
+.rb-sched-badge.paused{color:#c2410c}
+.rb-report-item:hover .rb-sched-badge{opacity:1}
+/* A scheduled report reads as ON at a glance, so nobody has to open the modal
+   to find out whether the thing is already going out. */
+.rb-btn.rb-sched-on{background:#ecfdf5;border-color:#a7f3d0;color:#047857}
+.rb-btn.rb-sched-on:hover{background:#d1fae5}
+.rb-btn.rb-sched-on.paused{background:#fff7ed;border-color:#fed7aa;color:#c2410c}
+.rb-btn.rb-sched-on.paused:hover{background:#ffedd5}
+.rb-fav{margin-left:auto;color:#cbd5e1;font-size:11px;padding:2px 4px;border-radius:3px;flex:0 0 auto}
+.rb-fav:hover{color:#f59e0b;background:rgba(245,158,11,0.12)}
+.rb-fav.on{color:#f59e0b}
+.rb-bt-badge + .rb-fav{margin-left:6px}
+/* Stars stay visible, just dim. Hiding them until row-hover made the whole
+   feature undiscoverable: there was nothing to click, and the Favorites
+   section only appears once you have a favorite, so nothing hinted it existed. */
+.rb-report-item .rb-fav{opacity:.45}
+.rb-report-item:hover .rb-fav,.rb-report-item .rb-fav.on{opacity:1}
+.rb-fav-empty{padding:8px 16px 10px 44px;font-size:11px;color:#94a3b8;line-height:1.5}
 .rb-sidebar-footer{padding:12px 16px;border-top:1px solid #e2e8f0;background:#fff}
 .rb-new-report-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:8px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;transition:background 0.15s}
 .rb-new-report-btn:hover{background:#1d4ed8}
@@ -8966,6 +11593,10 @@ var lastGridData=null;
 var ctEnabled=''' + ('true' if ct_enabled else 'false') + ''';
 var ctLookbackDays=''' + str(ct_days) + ''';
 var ctContactMap=null;
+/* Which data scopes the open report can actually apply, from load_filters.
+   Offering a scope the SQL cannot honor is how a "limited" report ends up
+   emailing the whole database, so the choices are gated on this. */
+var scopeSupport={people:false,org:false};
 
 function ajax(params,cb){
     var data="ajax=true";
@@ -8977,14 +11608,49 @@ function ajax(params,cb){
         if(xhr.readyState===4){
             if(xhr.status===200&&xhr.responseText){
                 try{cb(JSON.parse(xhr.responseText))}catch(e){cb({success:false,error:"Parse error: "+e.message})}
+            }else if(xhr.status===200){
+                // 200 with an empty body almost always means ASP.NET swallowed
+                // a POST field name it reserves (name, type, role and friends).
+                // The handler never ran. Naming the cause here saves an hour.
+                cb({success:false,error:"The server returned an empty response. This usually "
+                    +"means a form field name is reserved by ASP.NET; try prefixing the "
+                    +"parameter names for this action."});
             }else{cb({success:false,error:"Request failed ("+xhr.status+")"})}
         }
     };
     xhr.send(data);
 }
 
-function selectReport(id){
+// Deep links. The report id lives in the URL hash, so a refresh returns you to
+// the report you were on instead of the empty landing page, and a link to a
+// report can be pasted to someone else. replaceState is used when restoring so
+// reopening on load does not push a duplicate history entry.
+function setReportHash(id, replace){
+    try{
+        var h = id ? ("#report=" + encodeURIComponent(id)) : "";
+        if(replace && window.history && history.replaceState){
+            history.replaceState(null, "", window.location.pathname + window.location.search + h);
+        }else if(window.location.hash !== h){
+            window.location.hash = h;
+        }
+    }catch(e){}
+}
+
+function reportFromHash(){
+    try{
+        var m = (window.location.hash || "").match(/report=([^&]+)/);
+        return m ? decodeURIComponent(m[1]) : "";
+    }catch(e){ return ""; }
+}
+
+function openFromHash(){
+    var id = reportFromHash();
+    if(id && id !== currentReport){ selectReport(id, true); }
+}
+
+function selectReport(id, fromHash){
     currentReport=id;
+    setReportHash(id, !!fromHash);
     var items=document.querySelectorAll(".rb-report-item");
     for(var i=0;i<items.length;i++){items[i].classList.remove("active");if(items[i].getAttribute("data-id")===id) items[i].classList.add("active")}
     document.getElementById("rb-results").innerHTML='<div class="rb-loading"><div class="rb-spinner"></div><p>Loading...</p></div>';
@@ -8999,6 +11665,7 @@ function selectReport(id){
         if(hp){if(r.help_text){hp.innerHTML=r.help_text;hp.classList.remove("open")}else{hp.innerHTML="";hp.classList.remove("open")}}
         var fp=document.getElementById("rb-filter-panel");
         if(fp) fp.innerHTML=r.filter_html||"";
+        scopeSupport=r.scope_support||{people:!!r.bt_supported,org:false};
         setupDR();
         currentDisplay=r.default_display||"table";
         updateDT(r.display_types||["table"]);
@@ -9012,6 +11679,58 @@ function selectReport(id){
     });
 }
 
+// Every path that runs a report reads the filter bar through here, so the
+// run, the CSV and the scheduled copy can never drift apart on what "the
+// current filters" means.
+function collectFilters(p){
+    var ins=document.querySelectorAll("#rb-filter-panel .rb-filter-input");
+    for(var i=0;i<ins.length;i++){
+        var el=ins[i];
+        var pn=el.getAttribute("data-param");
+        if(!pn) continue;
+        if(el.multiple){
+            var sv=[];
+            for(var j=0;j<el.options.length;j++){ if(el.options[j].selected) sv.push(el.options[j].value) }
+            p["filter_"+pn]=sv.join(",");
+        }else{
+            p["filter_"+pn]=el.value||"";
+        }
+    }
+    return p;
+}
+
+// Human-readable version of the same selections, for the schedule modal.
+// Values are shown as the option TEXT the user actually picked, not the id,
+// because "Member (1,204)" is checkable at a glance and "10" is not.
+function describeFilters(){
+    var out=[];
+    var groups=document.querySelectorAll("#rb-filter-panel .rb-filter-group");
+    for(var i=0;i<groups.length;i++){
+        var g=groups[i];
+        var lab=g.querySelector("label");
+        var ins=g.querySelectorAll(".rb-filter-input");
+        for(var k=0;k<ins.length;k++){
+            var el=ins[k];
+            if(!el.getAttribute("data-param")) continue;
+            var vals=[];
+            if(el.multiple){
+                for(var j=0;j<el.options.length;j++){
+                    if(el.options[j].selected) vals.push(el.options[j].text);
+                }
+            }else if(el.tagName==="SELECT"){
+                var o=el.options[el.selectedIndex];
+                // An empty value is the "All" case: nothing narrowed, nothing to report.
+                if(o&&el.value) vals.push(o.text);
+            }else if(el.value){
+                vals.push(el.value);
+            }
+            if(vals.length) out.push({label:(lab?lab.textContent:el.getAttribute("data-param")),
+                                      value:vals.join(", ")});
+        }
+    }
+    return out;
+}
+
 function runReport(){
     if(!currentReport) return;
     var res=document.getElementById("rb-results");
@@ -9022,8 +11741,7 @@ function runReport(){
     // Forward CurrentOrgId so BT-supported reports with {current_org_filter}
     // get scoped to the involvement the BT was invoked from.
     if(currentOrgIdFromUrl) p.current_org_id=currentOrgIdFromUrl;
-    var ins=document.querySelectorAll("#rb-filter-panel .rb-filter-input");
-    for(var i=0;i<ins.length;i++){var el=ins[i];var pn=el.getAttribute("data-param");if(pn){if(el.multiple){var sv=[];for(var j=0;j<el.options.length;j++){if(el.options[j].selected)sv.push(el.options[j].value)}p["filter_"+pn]=sv.join(",")}else{p["filter_"+pn]=el.value||""}}}
+    collectFilters(p);
     ajax(p,function(r){
         if(!r.success){res.innerHTML='<div class="rb-empty"><i class="fas fa-exclamation-circle"></i><p>'+esc(r.error||"Error")+'</p></div>';return}
         renderRes(r);
@@ -9038,6 +11756,10 @@ function renderRes(r){
     h+='<div class="rb-results-actions"><div class="rb-cols-dd"><button class="rb-btn rb-btn-secondary rb-btn-sm" id="rb-cols-btn" onclick="RB.toggleColsPanel()" title="Show or hide columns"><i class="fas fa-columns"></i> Columns</button><div id="rb-cols-panel" class="rb-cols-panel" style="display:none;"></div></div>';
     h+='<button class="rb-btn rb-btn-secondary rb-btn-sm" onclick="RB.exportCsv()"><i class="fas fa-download"></i> CSV</button>';
     h+='<button class="rb-btn rb-btn-secondary rb-btn-sm" onclick="RB.printReport()"><i class="fas fa-print"></i> Print</button>';
+    // Emailing and link-sharing sit with the other output actions, which is
+    // where people look for 'get this report to someone'.
+    h+=schedButtonHtml();
+    h+='<button class="rb-btn rb-btn-secondary rb-btn-sm" onclick="RB.copyReportLink()" title="Copy a direct link to this report"><i class="fas fa-link"></i> Copy Link</button>';
     h+='<button class="rb-btn rb-btn-secondary rb-btn-sm" id="rb-fs-btn" onclick="RB.toggleFullscreen()" title="Expand to full screen (Esc to exit)"><i class="fas fa-expand"></i> Fullscreen</button></div></div>';
     // Action bar for selected rows (hidden until rows selected)
     h+='<div id="rb-action-bar" class="rb-action-bar" style="display:none;">';
@@ -9360,8 +12082,7 @@ function exportCsv(){
     var p={action:"export_csv",report_id:currentReport};
     if(btPeopleIds&&btPeopleIds.length>0) p.people_ids=btPeopleIds.join(",");
     if(currentOrgIdFromUrl) p.current_org_id=currentOrgIdFromUrl;
-    var ins=document.querySelectorAll("#rb-filter-panel .rb-filter-input");
-    for(var i=0;i<ins.length;i++){var el=ins[i];var pn=el.getAttribute("data-param");if(pn){if(el.multiple){var sv=[];for(var j=0;j<el.options.length;j++){if(el.options[j].selected)sv.push(el.options[j].value)}p["filter_"+pn]=sv.join(",")}else{p["filter_"+pn]=el.value||""}}}
+    collectFilters(p);
     ajax(p,function(r){
         if(!r.success||!r.csv){alert(r.error||"Export failed");return}
         var blob=new Blob([r.csv],{type:"text/csv;charset=utf-8;"});
@@ -9475,8 +12196,76 @@ function filterSidebar(){
 }
 
 function toggleCategory(el){el.classList.toggle("open");el.nextElementSibling.classList.toggle("open")}
+
+// Favorites. The star is updated optimistically and reverted if the save
+// fails, so the sidebar never sits in a state the server disagrees with.
+function toggleFav(id,el){
+    var icon=el.querySelector("i");
+    var wasOn=el.classList.contains("on");
+    el.classList.toggle("on");
+    if(icon){icon.className=(wasOn?"far":"fas")+" fa-star"}
+    ajax({action:"toggle_favorite",report_id:id},function(r){
+        if(!r||!r.success){
+            el.classList.toggle("on");
+            if(icon){icon.className=(wasOn?"fas":"far")+" fa-star"}
+            alert((r&&r.error)||"Could not save favorite");
+            return;
+        }
+        syncFavSection(r);
+    });
+}
+
+// Keep the Favorites list in step without a page reload. Every copy of a
+// report's star has to move together, since a favorited report appears both
+// in its category and in the Favorites list.
+function syncFavSection(r){
+    var sec=document.getElementById("rb-fav-section");
+    var body=document.getElementById("rb-fav-body");
+    if(!sec||!body) return;
+    var stars=document.querySelectorAll('.rb-fav[onclick*="'+r.report_id+'"]');
+    for(var i=0;i<stars.length;i++){
+        var ic=stars[i].querySelector("i");
+        if(r.is_favorite){stars[i].classList.add("on");if(ic)ic.className="fas fa-star"}
+        else{stars[i].classList.remove("on");if(ic)ic.className="far fa-star"}
+    }
+    var existing=body.querySelector('.rb-report-item[data-id="'+r.report_id+'"]');
+    if(r.is_favorite&&!existing){
+        // Built with DOM calls rather than an innerHTML string. The string
+        // version needed nested single quotes inside a Python non-raw literal,
+        // where \\' collapses to ' and silently breaks the whole bundle.
+        var d=document.createElement("div");
+        d.className="rb-report-item";
+        d.setAttribute("data-id",r.report_id);
+        d.setAttribute("data-fav","1");
+        d.onclick=(function(id){return function(){RB.selectReport(id)}})(r.report_id);
+        var ico=document.createElement("i");
+        ico.className="fas "+r.icon;
+        d.appendChild(ico);
+        d.appendChild(document.createTextNode(" "+r.report_name));
+        var star=document.createElement("span");
+        star.className="rb-fav on";
+        star.innerHTML='<i class="fas fa-star"></i>';
+        star.onclick=(function(id){return function(e){
+            e.stopPropagation();RB.toggleFav(id,this)}})(r.report_id);
+        d.appendChild(star);
+        body.appendChild(d);
+    }else if(!r.is_favorite&&existing){
+        existing.parentNode.removeChild(existing);
+    }
+    // The section itself always stays; only the "click a star" hint toggles.
+    var empty=document.getElementById("rb-fav-empty");
+    if(empty) empty.style.display=body.querySelectorAll(".rb-report-item").length?"none":"";
+}
 function dismissBt(){btPeopleIds=[];btCount=0;selectedOrg=null;selectedOrgName="";orgPeopleIds=[];updateScopeUI()}
 function esc(t){var d=document.createElement("div");d.appendChild(document.createTextNode(t));return d.innerHTML}
+
+/* esc() is for text BETWEEN tags: a textNode round-trip escapes < > &, but
+   leaves quotes alone, which breaks the moment the value goes INSIDE an
+   attribute. Not theoretical on this data: 5 involvements and 3 people here
+   have double quotes in their names, e.g. Men's Wed Night Bible Study
+   "Impact" and Behel, Melissa "Missy". Use this for anything in title=,
+   data-*= or value=. */
+function escAttr(t){return esc(t).replace(/"/g,"&quot;").replace(/'/g,"&#39;")}
 
 /* Organization Search */
 function onOrgSearch(){
@@ -10120,10 +12909,839 @@ function _renderPersonDetail(pid,d){
     body.innerHTML=h;
 }
 
+// ---- Email schedules ----
+var schedChosen=[];      // [{peopleId,name,email}]
+var schedCurrent=null;   // existing schedule for the open report, if any
+var schedTimer=null;
+// report_id -> schedule, so "is this one already going out?" is answerable
+// without opening the modal. Populated once at load and refreshed whenever a
+// schedule changes; list_schedules only returns the current user's own
+// schedules (or everything, for an admin), so this reflects the same set the
+// modal would edit.
+var schedIndex={};
+var schedFreqLabels={};
+
+function loadSchedIndex(cb){
+    ajax({action:"list_schedules"},function(r){
+        schedIndex={};
+        if(r&&r.success){
+            var it=r.items||[];
+            for(var i=0;i<it.length;i++) schedIndex[it[i].report_id]=it[i];
+            var fq=r.frequencies||[];
+            for(var j=0;j<fq.length;j++) schedFreqLabels[fq[j].value]=fq[j].label;
+        }
+        markSidebarScheduled();
+        refreshSchedButton();
+        if(cb) cb();
+    });
+}
+
+// A clock against each scheduled report in the list, so the answer is visible
+// without opening anything at all.
+function markSidebarScheduled(){
+    var items=document.querySelectorAll(".rb-report-item");
+    for(var i=0;i<items.length;i++){
+        var el=items[i];
+        var old=el.querySelector(".rb-sched-badge");
+        if(old) old.parentNode.removeChild(old);
+        var s=schedIndex[el.getAttribute("data-id")];
+        if(!s) continue;
+        var paused=(s.enabled===false);
+        var b=document.createElement("i");
+        b.className="fas fa-clock rb-sched-badge"+(paused?" paused":"");
+        b.title=paused?"Scheduled, currently paused"
+                      :("Emailed "+((schedFreqLabels[s.frequency]||s.frequency)||"").toLowerCase());
+        el.appendChild(b);
+    }
+}
+
+// Rewrites the toolbar button in place rather than re-running the report,
+// which would throw away the grid the user is looking at.
+function refreshSchedButton(){
+    var b=document.getElementById("rb-sched-btn");
+    if(b) b.outerHTML=schedButtonHtml();
+}
+
+function schedButtonHtml(){
+    var s=schedIndex[currentReport];
+    if(!s){
+        return '<button id="rb-sched-btn" class="rb-btn rb-btn-secondary rb-btn-sm" '
+             +'onclick="RB.openSchedModal()" title="Email this report on a schedule">'
+             +'<i class="fas fa-clock"></i> Schedule Email</button>';
+    }
+    var freq=(schedFreqLabels[s.frequency]||s.frequency||"").toLowerCase();
+    var who=(s.recipient_type==="query")
+              ? ("saved search: "+(s.recipient_query||""))
+              : ((s.recipient_count||0)+" recipient"+((s.recipient_count===1)?"":"s"));
+    var scope=s.scope_summary||"Everything";
+    if(s.enabled===false){
+        return '<button id="rb-sched-btn" class="rb-btn rb-btn-sm rb-sched-on paused" '
+             +'onclick="RB.openSchedModal()" title="'+escAttr("Paused. Was emailing "+freq
+                 +" to "+who+". Data scope: "+scope)+'">'
+             +'<i class="fas fa-clock"></i> Schedule paused</button>';
+    }
+    return '<button id="rb-sched-btn" class="rb-btn rb-btn-sm rb-sched-on" '
+         +'onclick="RB.openSchedModal()" title="'+escAttr("Emailing "+freq+" to "+who
+             +". Data scope: "+scope+(s.last_sent?(". Last sent "+s.last_sent):". Not sent yet"))+'">'
+         +'<i class="fas fa-clock"></i> Emailing '+esc(freq)+'</button>';
+}
+
+function openSchedModal(){
+    if(!currentReport){ alert("Open a report first."); return; }
+    var m=document.getElementById("rb-sched-modal");
+    if(!m) return;
+    m.style.display="flex";
+    schedChosen=[]; schedCurrent=null;
+    var msg=document.getElementById("rb-sched-msg"); if(msg) msg.innerHTML="";
+    ajax({action:"list_schedules"},function(r){
+        if(!r||!r.success) return;
+        var freq=document.getElementById("rb-sched-freq");
+        if(freq) freq.innerHTML=(r.frequencies||[]).map(function(f){
+            return '<option value="'+esc(f.value)+'">'+esc(f.label)+'</option>'}).join("");
+        renderBatchPanel(r.batch);
+        // Editing an existing schedule for this report rather than making a
+        // second one, which would double-send.
+        var mine=(r.items||[]).filter(function(x){return x.report_id===currentReport});
+        var cur=mine.length?mine[0]:null;
+        if(cur) schedCurrent=cur;
+        prefillSchedule(cur);
+        initSchedScope(cur);
+        renderScopeOptions();
+        renderScopePanel(cur);
+        renderFiltersPanel(cur);
+    });
+    ajax({action:"list_sources"},function(r){
+        // Cached so the scope picker and the recipient picker share one fetch.
+        linkedSources.queries=(r&&r.queries)||[];
+        linkedSources.queriesCapped=!!(r&&r.queries_capped);
+        linkedSources.cap=(r&&r.cap)||0;
+        fillScopeQueries();
+        var sel=document.getElementById("rb-rcp-querysel");
+        if(!sel) return;
+        var qs=linkedSources.queries;
+        sel.innerHTML=qs.length?qs.map(function(x){
+            return '<option value="'+escAttr(x.name)+'">'+esc(x.name)+'</option>'}).join("")
+            :'<option value="">No saved searches found</option>';
+        if(schedCurrent&&schedCurrent.recipient_query){
+            for(var i=0;i<sel.options.length;i++){
+                if(sel.options[i].value===schedCurrent.recipient_query){sel.selectedIndex=i;break}
+            }
+        }
+    });
+}
+
+function prefillSchedule(s){
+    var rep=document.getElementById("rb-sched-report");
+    if(rep) rep.textContent=s?("Editing the existing schedule for this report."
+                              +(s.last_sent?(" Last sent "+s.last_sent+"."):" Never sent yet."))
+                            :"No schedule yet for this report.";
+    var set=function(id,v){var e=document.getElementById(id); if(e) e.value=v||""};
+    var chk=function(id,v){var e=document.getElementById(id); if(e) e.checked=!!v};
+    if(!s){
+        set("rb-sched-subject",""); set("rb-sched-from",""); set("rb-sched-fromname","");
+        chk("rb-sched-skipempty",true); chk("rb-sched-enabled",true);
+        schedChosen=[]; renderChosen(); return;
+    }
+    set("rb-sched-subject",s.subject); set("rb-sched-from",s.from_email);
+    set("rb-sched-fromname",s.from_name);
+    chk("rb-sched-skipempty",s.skip_if_empty); chk("rb-sched-enabled",s.enabled!==false);
+    var f=document.getElementById("rb-sched-freq");
+    if(f) for(var i=0;i<f.options.length;i++) if(f.options[i].value===s.frequency){f.selectedIndex=i;break}
+    var rt=document.querySelector('input[name="rb-rcp-type"][value="'+(s.recipient_type||"people")+'"]');
+    if(rt) rt.checked=true;
+    pickRecipientMode();
+    if((s.recipient_type||"people")==="people"&&s.recipient_ids){
+        ajax({action:"resolve_recipient_names",sch_recipient_ids:s.recipient_ids},function(d){
+            schedChosen=(d&&d.people)||[]; renderChosen();
+        });
+    }
+}
+
+// What the report is currently scoped to, and whether that scope can survive
+// until 6am tomorrow. This is the crux: an involvement is a durable id we can
+// replay, whereas a Blue Toolbar selection is an ad-hoc list that exists only
+// in this browser session. Dropping it silently would email a report over the
+// whole database when the user was looking at 40 people.
+var schedScope={type:"none",orgId:"",peopleIds:"",query:"",label:""};
+
+function detectScope(){
+    if(selectedOrg){
+        return {type:"org",orgId:String(selectedOrg),peopleIds:"",
+                label:selectedOrgName||("Involvement "+selectedOrg),durable:true};
+    }
+    if(currentOrgIdFromUrl){
+        return {type:"org",orgId:String(currentOrgIdFromUrl),peopleIds:"",
+                label:"the involvement this was opened from",durable:true};
+    }
+    if(btCount>0&&btPeopleIds&&btPeopleIds.length){
+        return {type:"people",orgId:"",peopleIds:btPeopleIds.join(","),
+                label:btCount+" selected people",durable:false};
+    }
+    return {type:"none",orgId:"",peopleIds:"",label:"",durable:true};
+}
+
+// The scope is CHOSEN here, not merely inherited from whatever the screen
+// happened to show. Inheriting was the original design and it left no way to
+// schedule "this report, but only for the youth ministry" unless you happened
+// to have arrived from that involvement's page.
+function initSchedScope(existing){
+    if(existing&&existing.scope_type&&existing.scope_type!=="none"){
+        schedScope={type:existing.scope_type,orgId:existing.scope_org_id||"",
+                    peopleIds:existing.scope_people_ids||"",query:existing.scope_query||"",
+                    label:existing.scope_label||""};
+        return;
+    }
+    // No saved scope: start from what is on screen, since arriving from an
+    // involvement and scheduling is the common case worth defaulting to.
+    var live=detectScope();
+    var usable=(live.type==="org"&&scopeSupport.org)||(live.type==="people"&&scopeSupport.people);
+    schedScope=usable?{type:live.type,orgId:live.orgId,peopleIds:live.peopleIds,query:"",
+                       label:live.label}
+                     :{type:"none",orgId:"",peopleIds:"",query:"",label:""};
+}
+
+function scopeRow(val,label,note){
+    var on=(schedScope.type===val);
+    return '<label style="display:block;margin-bottom:3px"><input type="radio" name="rb-scope-choice" '
+         +'value="'+val+'"'+(on?" checked":"")+' onchange="RB.pickScope(this.value)"> '+label
+         +(note?'<span style="color:#64748b"> '+note+'</span>':'')+'</label>';
+}
+
+function renderScopeOptions(){
+    var el=document.getElementById("rb-scope-opts");
+    if(!el) return;
+    var live=detectScope();
+    var h='';
+    h+=scopeRow("none","Everything the report returns");
+
+    if(scopeSupport.people){
+        h+=scopeRow("query","Only people in a saved search",
+                    "&ndash; re-run each time, so the list stays current");
+        h+='<div id="rb-scope-query-row" style="margin:0 0 6px 22px;display:'
+          +(schedScope.type==="query"?"":"none")+'">'
+          +'<select id="rb-scope-querysel" style="width:100%;max-width:420px;padding:5px 7px;'
+          +'font-size:12px;border:1px solid #cbd5e1;border-radius:5px"></select>'
+          +'<div id="rb-scope-querynote" style="font-size:11px;color:#c2410c;margin-top:2px"></div></div>';
+    }
+
+    if(scopeSupport.org){
+        h+=scopeRow("org","Only one involvement");
+        h+='<div id="rb-scope-org-row" style="margin:0 0 6px 22px;display:'
+          +(schedScope.type==="org"?"":"none")+'">'
+          +'<div id="rb-scope-org-chosen" style="font-size:12px;margin-bottom:3px">'
+          +(schedScope.orgId?('Using <strong>'+esc(schedScope.label||("Involvement "+schedScope.orgId))
+                              +'</strong>'):'<span style="color:#c2410c">None picked yet</span>')+'</div>'
+          +'<input id="rb-scope-orgsearch" type="text" placeholder="Search involvements..." '
+          +'oninput="RB.schedOrgSearch()" style="width:100%;max-width:420px;padding:5px 7px;'
+          +'font-size:12px;border:1px solid #cbd5e1;border-radius:5px">'
+          +'<div id="rb-scope-orgresults" style="display:none;max-height:150px;overflow:auto;'
+          +'border:1px solid #e2e8f0;border-radius:5px;margin-top:3px;max-width:420px"></div></div>';
+    }
+
+    // Only offered when a selection actually exists to freeze. It is listed
+    // last because it is the weakest option: a fixed list never picks up
+    // anyone new, which is rarely what a recurring report wants.
+    if(live.type==="people"&&scopeSupport.people){
+        h+=scopeRow("people","Only the "+btCount+" people selected right now",
+                    "&ndash; fixed list, will not pick up new matches");
+    }
+
+    if(!scopeSupport.people&&!scopeSupport.org){
+        h+='<div style="color:#64748b;margin-top:4px">This report returns summary rows rather '
+          +'than people, so it can only be narrowed with the report filters below.</div>';
+    }
+    el.innerHTML=h;
+    if(schedScope.type==="query") fillScopeQueries();
+}
+
+function pickScope(v){
+    schedScope.type=v;
+    if(v!=="org"){ schedScope.orgId=""; }
+    if(v!=="query"){ schedScope.query=""; }
+    if(v==="people"){
+        var live=detectScope();
+        schedScope.peopleIds=live.peopleIds; schedScope.label=live.label;
+    }else{ schedScope.peopleIds=""; }
+    if(v==="none") schedScope.label="";
+    var qr=document.getElementById("rb-scope-query-row");
+    if(qr) qr.style.display=(v==="query")?"":"none";
+    var orow=document.getElementById("rb-scope-org-row");
+    if(orow) orow.style.display=(v==="org")?"":"none";
+    if(v==="query") fillScopeQueries();
+    // The advisory tracks the choice, so switching to "everything" while
+    // viewing a selection warns immediately rather than at save time.
+    renderScopePanel(null);
+}
+
+// Shares the saved-search list already fetched for the recipient picker.
+function fillScopeQueries(){
+    var sel=document.getElementById("rb-scope-querysel");
+    if(!sel) return;
+    var qs=linkedSources.queries||[];
+    sel.innerHTML=qs.length?qs.map(function(x){
+        var nm=(typeof x==="string")?x:x.name;
+        return '<option value="'+escAttr(nm)+'">'+esc(nm)+'</option>'}).join("")
+        :'<option value="">No saved searches found</option>';
+    if(schedScope.query){
+        for(var i=0;i<sel.options.length;i++){
+            if(sel.options[i].value===schedScope.query){sel.selectedIndex=i;break}
+        }
+    }
+    sel.onchange=function(){ schedScope.query=sel.value; };
+    if(!schedScope.query&&sel.value) schedScope.query=sel.value;
+    var note=document.getElementById("rb-scope-querynote");
+    if(note) note.innerHTML=linkedSources.queriesCapped
+        ? ("Showing the "+linkedSources.cap+" most recently used saved searches. "
+           +"If yours is missing, run it once in Search Builder and it will appear here.")
+        : "";
+}
+
+function schedOrgSearch(){
+    if(schedTimer) clearTimeout(schedTimer);
+    schedTimer=setTimeout(function(){
+        var term=(document.getElementById("rb-scope-orgsearch")||{}).value||"";
+        var box=document.getElementById("rb-scope-orgresults");
+        if(!box) return;
+        if(term.trim().length<2){ box.style.display="none"; return; }
+        ajax({action:"search_orgs",search_term:term},function(r){
+            if(!r||!r.orgs||!r.orgs.length){ box.style.display="none"; return; }
+            box.innerHTML=r.orgs.map(function(o){
+                return '<div class="rb-scope-orgrow" data-id="'+o.id+'" data-name="'+escAttr(o.name)+'" '
+                     +'style="padding:5px 8px;cursor:pointer;font-size:12px;border-bottom:1px solid #f1f5f9">'
+                     +esc(o.name)+' <span style="color:#94a3b8">'+esc(o.program||"")
+                     +(o.members?(" &middot; "+o.members+" members"):"")+'</span></div>';
+            }).join("");
+            box.style.display="";
+            var rows=box.querySelectorAll(".rb-scope-orgrow");
+            for(var i=0;i<rows.length;i++){
+                rows[i].onclick=function(){
+                    chooseSchedOrg(this.getAttribute("data-id"),this.getAttribute("data-name"));
+                };
+            }
+        });
+    },300);
+}
+
+function chooseSchedOrg(id,name){
+    schedScope.type="org"; schedScope.orgId=String(id); schedScope.label=name;
+    schedScope.peopleIds=""; schedScope.query="";
+    var c=document.getElementById("rb-scope-org-chosen");
+    if(c) c.innerHTML='Using <strong>'+esc(name)+'</strong>';
+    var box=document.getElementById("rb-scope-orgresults");
+    if(box) box.style.display="none";
+    var s=document.getElementById("rb-scope-orgsearch");
+    if(s) s.value="";
+}
+
+// Warnings only. The choices themselves live in rb-scope-opts.
+function renderScopePanel(existing){
+    var el=document.getElementById("rb-scope-panel");
+    if(!el) return;
+    var live=detectScope();
+    if(live.type==="people"&&schedScope.type==="people"){
+        el.style.display="";
+        el.style.background="#fff7ed"; el.style.border="1px solid #fed7aa";
+        el.innerHTML='<strong style="color:#c2410c">That selection came from a search that is '
+            +'not saved</strong>, so it cannot be re-run later. The schedule will email this '
+            +'exact list of people every time. For a list that stays current, save the search in '
+            +'Search Builder and pick it above instead.';
+        return;
+    }
+    if(live.type!=="none"&&schedScope.type==="none"){
+        el.style.display="";
+        el.style.background="#eff6ff"; el.style.border="1px solid #bfdbfe";
+        el.innerHTML='You are viewing '+esc(live.label)+', but this schedule is set to run over '
+            +'everything. Pick a scope above if that is not what you want.';
+        return;
+    }
+    el.style.display="none";
+}
+
+// Filters are the other half of the scope, and they are the half that is easy
+// to forget: the involvement is named in the panel above, but "Adults, Member,
+// Campus 2" lives in a bar the modal covers up. Stating it here means nobody
+// schedules a report believing it is narrower than it is.
+function renderFiltersPanel(existing){
+    var el=document.getElementById("rb-schfilter-panel");
+    if(!el) return;
+    var live=describeFilters();
+
+    if(live.length){
+        el.style.display="";
+        el.innerHTML='<strong>Filters that will be used:</strong> '
+            +live.map(function(f){
+                return esc(f.label.replace(/:$/,""))+' = <strong>'+esc(f.value)+'</strong>'
+            }).join(" &middot; ")
+            +'<div style="margin-top:5px;color:#64748b">Saving captures these. To change them, '
+            +'close this, adjust the filters, re-run the report and schedule it again.</div>';
+        return;
+    }
+
+    // No filters set. If the saved schedule HAS filters, the two disagree and
+    // saving now would silently widen it, so say so instead of showing nothing.
+    var had=existing&&existing.filters;
+    var hadAny=false;
+    if(had) for(var k in had){ if(had[k]) { hadAny=true; break } }
+    if(hadAny){
+        el.style.display="";
+        el.style.background="#fff7ed"; el.style.border="1px solid #fed7aa";
+        el.innerHTML='<strong style="color:#c2410c">This schedule was saved with filters, but '
+            +'none are set on screen right now.</strong> Saving will replace the saved filters '
+            +'with no filters, widening the report.';
+        return;
+    }
+    el.style.display="none";
+}
+
+function pickRecipientMode(){
+    var t=document.querySelector('input[name="rb-rcp-type"]:checked');
+    var mode=t?t.value:"people";
+    var p=document.getElementById("rb-rcp-people");
+    var qy=document.getElementById("rb-rcp-query");
+    if(p) p.style.display=(mode==="people")?"":"none";
+    if(qy) qy.style.display=(mode==="query")?"":"none";
+}
+
+function searchRecipients(){
+    if(schedTimer) clearTimeout(schedTimer);
+    schedTimer=setTimeout(function(){
+        var term=(document.getElementById("rb-rcp-search")||{}).value||"";
+        var box=document.getElementById("rb-rcp-results");
+        if(!box) return;
+        if(term.trim().length<2){ box.style.display="none"; return; }
+        ajax({action:"search_recipients",sch_term:term},function(r){
+            if(!r||!r.success||!r.people||!r.people.length){ box.style.display="none"; return; }
+            box.innerHTML=r.people.map(function(p){
+                var warn=p.email?"":' <span style="color:#c2410c">(no email on file)</span>';
+                return '<div class="rb-rcp-row" data-pid="'+p.peopleId+'" '
+                     +'data-name="'+escAttr(p.name)+'" data-email="'+escAttr(p.email)+'" '
+                     +'style="padding:6px 9px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9">'
+                     +esc(p.name)+warn+'</div>';
+            }).join("");
+            box.style.display="";
+            var rows=box.querySelectorAll(".rb-rcp-row");
+            for(var i=0;i<rows.length;i++){
+                rows[i].onclick=function(){
+                    addRecipient(this.getAttribute("data-pid"),
+                                 this.getAttribute("data-name"),
+                                 this.getAttribute("data-email"));
+                };
+            }
+        });
+    },200);
+}
+
+function addRecipient(pid,name,email){
+    for(var i=0;i<schedChosen.length;i++) if(String(schedChosen[i].peopleId)===String(pid)) return;
+    schedChosen.push({peopleId:parseInt(pid,10),name:name,email:email});
+    renderChosen();
+    var s=document.getElementById("rb-rcp-search"); if(s) s.value="";
+    var b=document.getElementById("rb-rcp-results"); if(b) b.style.display="none";
+}
+
+function removeRecipient(pid){
+    schedChosen=schedChosen.filter(function(x){return String(x.peopleId)!==String(pid)});
+    renderChosen();
+}
+
+function renderChosen(){
+    var box=document.getElementById("rb-rcp-chosen");
+    var none=document.getElementById("rb-rcp-none");
+    if(!box) return;
+    box.innerHTML="";
+    schedChosen.forEach(function(p){
+        var chip=document.createElement("span");
+        chip.style.cssText="background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;"
+            +"padding:3px 8px;font-size:12px;display:inline-flex;align-items:center;gap:6px";
+        chip.appendChild(document.createTextNode(p.name+(p.email?"":" (no email)")));
+        var x=document.createElement("span");
+        x.textContent="\\u00d7";
+        x.style.cssText="cursor:pointer;color:#64748b;font-weight:700";
+        x.onclick=(function(id){return function(){removeRecipient(id)}})(p.peopleId);
+        chip.appendChild(x);
+        box.appendChild(chip);
+    });
+    if(none) none.style.display=schedChosen.length?"none":"";
+}
+
+function renderBatchPanel(b){
+    var el=document.getElementById("rb-batch-panel");
+    if(!el||!b) return;
+    if(b.installed){
+        el.style.display="";
+        el.style.background="#f0fdf4"; el.style.borderColor="#bbf7d0";
+        el.innerHTML='<strong style="color:#15803d">Scheduled sending is active.</strong> '
+            +'Registered in '+esc(b.slot)+' as <code>'+esc(b.registered_name||b.script_name)+'</code>. '
+            +'<button class="rb-btn" style="padding:2px 8px;font-size:11px" '
+            +'onclick="RB.batchUninstall()">Remove</button>';
+    }else{
+        el.style.display="";
+        el.style.background="#fff7ed"; el.style.borderColor="#fed7aa";
+        el.innerHTML='<strong style="color:#c2410c">Nothing is sending these yet.</strong> '
+            +'Schedules only run once this script is in '+esc(b.slot)+'. '
+            +'<button class="rb-btn rb-btn-primary" style="padding:2px 10px;font-size:11px" '
+            +'onclick="RB.batchInstall()">Add to '+esc(b.slot)+'</button>';
+    }
+    if(b.stray&&b.stray.length){
+        el.innerHTML+='<div style="margin-top:6px;color:#b91c1c">Found our block in <strong>'
+            +esc(b.stray.join(", "))+'</strong>, which does not run with the morning batch. '
+            +'<button class="rb-btn" style="padding:2px 8px;font-size:11px" '
+            +'onclick="RB.batchUninstall()">Clean up</button></div>';
+    }
+}
+
+function batchInstall(){
+    ajax({action:"batch_install",script_name:scriptNameFromUrl()},function(r){
+        var msg=document.getElementById("rb-sched-msg");
+        if(msg) msg.innerHTML='<div style="color:'+(r.success?"#15803d":"#dc2626")+'">'
+            +esc(r.message||"")+'</div>';
+        ajax({action:"batch_status",script_name:scriptNameFromUrl()},renderBatchPanel);
+    });
+}
+
+function batchUninstall(){
+    ajax({action:"batch_uninstall"},function(r){
+        var msg=document.getElementById("rb-sched-msg");
+        if(msg) msg.innerHTML='<div style="color:#334155">'+esc(r.message||"")+'</div>';
+        ajax({action:"batch_status",script_name:scriptNameFromUrl()},renderBatchPanel);
+    });
+}
+
+// TouchPoint does not tell Python the script's own name, so the browser reads
+// it from the URL and posts it. Without this the batch registers the default
+// name and silently fails on a renamed script.
+function scriptNameFromUrl(){
+    try{
+        var m=(window.location.pathname||"").match(/\\/PyScript(?:Form)?\\/([^\\/?#]+)/i);
+        return m?decodeURIComponent(m[1]):"";
+    }catch(e){ return ""; }
+}
+
+function schedPayload(){
+    var t=document.querySelector('input[name="rb-rcp-type"]:checked');
+    var mode=t?t.value:"people";
+    var qsel=document.getElementById("rb-rcp-querysel");
+    var p={
+        action:"save_schedule", report_id:currentReport,
+        sch_id:(schedCurrent&&schedCurrent.id)||"",
+        sch_recipient_type:mode,
+        sch_recipient_ids:schedChosen.map(function(p){return p.peopleId}).join(","),
+        sch_recipient_query:(mode==="query"&&qsel)?qsel.value:"",
+        sch_frequency:(document.getElementById("rb-sched-freq")||{}).value||"weekly",
+        sch_subject:(document.getElementById("rb-sched-subject")||{}).value||"",
+        sch_from_email:(document.getElementById("rb-sched-from")||{}).value||"",
+        sch_from_name:(document.getElementById("rb-sched-fromname")||{}).value||"",
+        sch_scope_type:schedScope.type,
+        sch_scope_org_id:schedScope.orgId,
+        sch_scope_people_ids:schedScope.peopleIds,
+        sch_scope_query:schedScope.query||"",
+        sch_scope_label:schedScope.label,
+        sch_skip_if_empty:(document.getElementById("rb-sched-skipempty")||{}).checked?"true":"false",
+        sch_enabled:(document.getElementById("rb-sched-enabled")||{}).checked?"true":"false"
+    };
+    // The filter bar is half of "who is in this report". Sending it through the
+    // same collector the run path uses means the 6am copy is the report the
+    // user was looking at, not an unfiltered superset of it.
+    return collectFilters(p);
+}
+
+function saveSchedule(){
+    var msg=document.getElementById("rb-sched-msg");
+    if(msg) msg.innerHTML="Checking recipients...";
+    ajax(schedPayload(),function(r){
+        if(!r||!r.success){
+            if(msg) msg.innerHTML='<div style="color:#dc2626">'+esc((r&&r.error)||"Save failed")+'</div>';
+            return;
+        }
+        schedCurrent=r.schedule;
+        var extra=(r.unknown&&r.unknown.length)?(" "+r.unknown.join("; ")):"";
+        if(msg) msg.innerHTML='<div style="color:#15803d">Saved. '
+            +esc(String(r.schedule.recipient_count||0))+' recipient(s).'+esc(extra)+'</div>';
+        renderBatchPanel(r.batch);
+        loadSchedIndex();
+    });
+}
+
+function sendScheduleNow(){
+    if(!schedCurrent||!schedCurrent.id){
+        var m0=document.getElementById("rb-sched-msg");
+        if(m0) m0.innerHTML='<div style="color:#c2410c">Save the schedule first.</div>';
+        return;
+    }
+    var msg=document.getElementById("rb-sched-msg");
+    if(msg) msg.innerHTML="Sending...";
+    ajax({action:"send_schedule_now",sch_id:schedCurrent.id},function(r){
+        if(msg) msg.innerHTML='<div style="color:'+(r.success?"#15803d":"#dc2626")+'">'
+            +esc(r.message||"")+'</div>';
+    });
+}
+
+function deleteSchedule(){
+    if(!schedCurrent||!schedCurrent.id){ closeSchedModal(); return; }
+    if(!confirm("Stop emailing this report?")) return;
+    ajax({action:"delete_schedule",sch_id:schedCurrent.id},function(r){
+        schedCurrent=null;
+        closeSchedModal();
+        loadSchedIndex();
+    });
+}
+
+function closeSchedModal(){
+    var m=document.getElementById("rb-sched-modal");
+    if(m) m.style.display="none";
+}
+
+// ---- All schedules, in one place ----
+// Previously the only way to see whether a report was scheduled was to open
+// that report and then open its modal, which meant nobody could answer "what
+// is this system emailing out?" without checking 65 reports one at a time.
+function openSchedListModal(){
+    var m=document.getElementById("rb-schedlist-modal");
+    if(!m) return;
+    m.style.display="flex";
+    loadSchedList();
+}
+
+function loadSchedList(){
+    var body=document.getElementById("rb-schedlist-body");
+    if(body) body.innerHTML='<div class="rb-loading"><div class="rb-spinner"></div><p>Loading...</p></div>';
+    ajax({action:"list_schedules"},function(r){
+        if(!body) return;
+        if(!r||!r.success){ body.innerHTML='<div style="color:#dc2626">Could not load schedules.</div>'; return; }
+        renderSchedList(r.items||[],r.batch);
+    });
+}
+
+function renderSchedList(items,batch){
+    var body=document.getElementById("rb-schedlist-body");
+    if(!body) return;
+    if(!items.length){
+        body.innerHTML='<div class="rb-empty"><i class="fas fa-clock"></i>'
+            +'<p>Nothing is scheduled yet. Open a report and use <strong>Schedule Email</strong>.</p></div>';
+        return;
+    }
+    // The batch state belongs here more than in the per-report modal: if it is
+    // not installed then NONE of these are sending, which is a fact about the
+    // whole list rather than about whichever report you happened to open.
+    var h='';
+    if(batch&&!batch.installed){
+        h+='<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:9px 11px;'
+          +'font-size:12px;margin-bottom:12px"><strong style="color:#b91c1c">Not registered in '
+          +'MorningBatch.</strong> Nothing below will send until it is. Open any report, then '
+          +'Schedule Email, to register it.</div>';
+    }
+    h+='<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    h+='<thead><tr style="text-align:left;color:#475569;border-bottom:2px solid #e2e8f0">'
+      +'<th style="padding:6px 8px">Report</th><th style="padding:6px 8px">How often</th>'
+      +'<th style="padding:6px 8px">To</th><th style="padding:6px 8px">Data scope</th>'
+      +'<th style="padding:6px 8px">Last sent</th><th style="padding:6px 8px"></th></tr></thead><tbody>';
+
+    for(var i=0;i<items.length;i++){
+        var s=items[i];
+        var off=(s.enabled===false);
+        var to=(s.recipient_type==="query")
+                ? ('Saved search: '+esc(s.recipient_query||""))
+                : ((s.recipient_count||0)+" "+((s.recipient_count===1)?"person":"people"));
+        var last=s.last_sent?esc(s.last_sent):'<span style="color:#94a3b8">never</span>';
+        var failed=(s.last_result||"").indexOf("FAILED")===0;
+
+        h+='<tr style="border-bottom:1px solid #f1f5f9'+(off?";opacity:.55":"")+'">';
+        h+='<td style="padding:6px 8px"><strong>'+esc(s.report_name||s.report_id)+'</strong>';
+        if(s.missing) h+=' <span style="color:#b91c1c">(report no longer exists)</span>';
+        if(off) h+=' <span style="color:#c2410c">(paused)</span>';
+        if(s.filter_summary) h+='<div style="color:#64748b;margin-top:2px">'+esc(s.filter_summary)+'</div>';
+        h+='</td>';
+        h+='<td style="padding:6px 8px">'+esc(s.frequency||"")+'</td>';
+        h+='<td style="padding:6px 8px">'+to+'</td>';
+        h+='<td style="padding:6px 8px">'+esc(s.scope_summary||"Everything")+'</td>';
+        h+='<td style="padding:6px 8px">'+last;
+        if(failed) h+='<div style="color:#b91c1c;margin-top:2px">'+esc(s.last_result)+'</div>';
+        h+='</td>';
+        h+='<td style="padding:6px 8px;white-space:nowrap">'
+          +'<button class="rb-btn rb-btn-secondary rb-btn-sm" data-id="'+esc(s.report_id)+'" '
+          +'onclick="RB.schedListOpen(this.dataset.id)" title="Open this report and edit its schedule">Edit</button> '
+          +'<button class="rb-btn rb-btn-secondary rb-btn-sm" data-id="'+esc(s.id)+'" '
+          +'onclick="RB.schedListToggle(this.dataset.id)">'+(off?"Resume":"Pause")+'</button> '
+          +'<button class="rb-btn rb-btn-secondary rb-btn-sm" data-id="'+esc(s.id)+'" '
+          +'onclick="RB.schedListSend(this.dataset.id)">Send now</button> '
+          +'<button class="rb-btn rb-btn-secondary rb-btn-sm" data-id="'+esc(s.id)+'" '
+          +'style="color:#b91c1c" onclick="RB.schedListDelete(this.dataset.id)">Delete</button>'
+          +'</td></tr>';
+    }
+    h+='</tbody></table>';
+    h+='<div id="rb-schedlist-msg" style="font-size:12px;margin-top:10px"></div>';
+    body.innerHTML=h;
+}
+
+function schedListOpen(reportId){
+    closeSchedListModal();
+    selectReport(reportId);
+    // selectReport re-runs the report; the modal reads the filter bar, so it
+    // has to wait for that to land or it would capture an empty filter set.
+    setTimeout(function(){ openSchedModal(); },600);
+}
+
+function schedListToggle(sid){
+    ajax({action:"toggle_schedule",sch_id:sid},function(r){ loadSchedList(); loadSchedIndex(); });
+}
+
+function schedListSend(sid){
+    var msg=document.getElementById("rb-schedlist-msg");
+    if(msg) msg.innerHTML="Sending...";
+    ajax({action:"send_schedule_now",sch_id:sid},function(r){
+        if(msg) msg.innerHTML='<div style="color:'+(r.success?"#15803d":"#dc2626")+'">'
+            +esc(r.message||"")+'</div>';
+        loadSchedList();
+    });
+}
+
+function schedListDelete(sid){
+    if(!confirm("Stop emailing this report?")) return;
+    ajax({action:"delete_schedule",sch_id:sid},function(r){ loadSchedList(); loadSchedIndex(); });
+}
+
+function closeSchedListModal(){
+    var m=document.getElementById("rb-schedlist-modal");
+    if(m) m.style.display="none";
+}
+
+// ---- Linked reports: back a report with a saved SQL script or Search Builder query ----
+var linkedSources={scripts:[],queries:[]};
+var linkedEditingId="";
+
+// Called with no argument to create, or with a report id to edit. The source
+// list has to load before the stored values can be selected, so the prefill
+// runs inside the callback rather than alongside it.
+function openLinkedModal(reportId){
+    var m=document.getElementById("rb-linked-modal");
+    if(!m) return;
+    linkedEditingId=reportId||"";
+    m.style.display="flex";
+    var sel=document.getElementById("rb-linked-source");
+    var msg=document.getElementById("rb-linked-msg");
+    if(msg) msg.innerHTML="";
+    if(sel) sel.innerHTML='<option value="">Loading...</option>';
+    var title=document.getElementById("rb-linked-title");
+    var btn=document.getElementById("rb-linked-save");
+    if(title) title.textContent=linkedEditingId?"Edit linked report":"Report from a saved query or SQL script";
+    if(btn) btn.textContent=linkedEditingId?"Save changes":"Create report";
+    if(!linkedEditingId){
+        var n=document.getElementById("rb-linked-name"); if(n) n.value="";
+        var sh=document.getElementById("rb-linked-shared"); if(sh) sh.checked=false;
+        var r0=document.querySelector('input[name="rb-src-type"][value="sql_script"]');
+        if(r0) r0.checked=true;
+    }
+    ajax({action:"list_sources"},function(r){
+        if(!r||!r.success){ if(sel) sel.innerHTML='<option value="">Could not load sources</option>'; return; }
+        linkedSources={scripts:r.scripts||[],queries:r.queries||[],
+                       queriesCapped:!!r.queries_capped,cap:r.cap||0};
+        if(!linkedEditingId){ pickSourceType(); return; }
+        ajax({action:"get_linked_report",report_id:linkedEditingId},function(d){
+            if(!d||!d.success){
+                if(msg) msg.innerHTML='<div style="color:#dc2626">'+esc((d&&d.error)||"Could not load it")+'</div>';
+                pickSourceType(); return;
+            }
+            var n=document.getElementById("rb-linked-name"); if(n) n.value=d.name||"";
+            var sh=document.getElementById("rb-linked-shared"); if(sh) sh.checked=!!d.is_shared;
+            var rt=document.querySelector('input[name="rb-src-type"][value="'+d.source_type+'"]');
+            if(rt) rt.checked=true;
+            pickSourceType();
+            // Keep the stored source selectable even if it has since been
+            // deleted or renamed, so an edit can repair it rather than silently
+            // switching to whatever happens to be first in the list.
+            if(sel){
+                var found=false;
+                for(var i=0;i<sel.options.length;i++){
+                    if(sel.options[i].value===d.source_name){sel.selectedIndex=i;found=true;break}
+                }
+                if(!found&&d.source_name){
+                    var o=document.createElement("option");
+                    o.value=d.source_name;
+                    o.textContent=d.source_name+" (missing from this database)";
+                    sel.insertBefore(o,sel.firstChild);
+                    sel.selectedIndex=0;
+                    if(msg) msg.innerHTML='<div style="color:#a35c00">The linked source was '
+                        +'not found. Pick a replacement, or fix the name in Special Content.</div>';
+                }
+            }
+        });
+    });
+}
+
+function closeLinkedModal(){
+    linkedEditingId="";
+    var m=document.getElementById("rb-linked-modal");
+    if(m) m.style.display="none";
+    var msg=document.getElementById("rb-linked-msg");
+    if(msg) msg.innerHTML="";
+}
+
+function pickSourceType(){
+    var t=document.querySelector('input[name="rb-src-type"]:checked');
+    var type=t?t.value:"sql_script";
+    var sel=document.getElementById("rb-linked-source");
+    var hint=document.getElementById("rb-linked-hint");
+    if(!sel) return;
+    var list=(type==="sql_script")?linkedSources.scripts:linkedSources.queries;
+    if(!list||!list.length){
+        sel.innerHTML='<option value="">None found on this database</option>';
+    }else{
+        sel.innerHTML=list.map(function(x){
+            var name=(typeof x==="string")?x:x.name;
+            var extra=(typeof x==="string")?"":(x.created?" ("+x.created+")":"");
+            return '<option value="'+escAttr(name)+'">'+esc(name)+esc(extra)+'</option>';
+        }).join("");
+    }
+    if(hint){
+        hint.textContent=(type==="sql_script")
+            ? "The script is read every time the report runs, so editing it updates this report."
+            : "A saved search returns people, so the report shows a person list. Large searches are capped.";
+    }
+}
+
+function saveLinkedReport(){
+    var name=(document.getElementById("rb-linked-name")||{}).value||"";
+    var t=document.querySelector('input[name="rb-src-type"]:checked');
+    var sel=document.getElementById("rb-linked-source");
+    var msg=document.getElementById("rb-linked-msg");
+    if(!name.trim()){ if(msg) msg.innerHTML='<div style="color:#dc2626">Give the report a name.</div>'; return; }
+    if(!sel||!sel.value){ if(msg) msg.innerHTML='<div style="color:#dc2626">Pick a source.</div>'; return; }
+    if(msg) msg.innerHTML="Checking the source runs...";
+    // lr_ prefix on every field: ASP.NET drops some bare names (notably "name")
+    // and returns an empty 200, which looks like a network failure.
+    ajax({action:"save_linked_report",lr_name:name,lr_report_id:linkedEditingId,
+          lr_source_type:t?t.value:"sql_script",
+          lr_source_name:sel.value,
+          lr_shared:(document.getElementById("rb-linked-shared")||{}).checked?"true":"false"},
+        function(r){
+            if(!r||!r.success){
+                if(msg) msg.innerHTML='<div style="color:#dc2626">'+esc((r&&r.error)||"Save failed")+'</div>';
+                return;
+            }
+            window.location.hash="#report="+encodeURIComponent(r.report_id);
+            window.location.reload();
+        });
+}
+
+// Copy a link straight to the current report.
+function copyReportLink(){
+    if(!currentReport){ alert("Open a report first."); return; }
+    var url=window.location.origin+window.location.pathname+"#report="+encodeURIComponent(currentReport);
+    var done=function(){ alert("Link copied:\\n"+url); };
+    try{
+        if(navigator.clipboard&&navigator.clipboard.writeText){
+            navigator.clipboard.writeText(url).then(done,function(){window.prompt("Copy this link:",url)});
+        }else{
+            window.prompt("Copy this link:",url);
+        }
+    }catch(e){ window.prompt("Copy this link:",url); }
+}
+
 return{selectReport:selectReport,runReport:runReport,setDisplay:setDisplay,exportCsv:exportCsv,
     printReport:printReport,openNewReportModal:openNewReportModal,closeModal:closeModal,
     saveCustomReport:saveCustomReport,validateSql:validateSql,deleteReport:deleteReport,
     filterSidebar:filterSidebar,toggleCategory:toggleCategory,dismissBt:dismissBt,
+    toggleFav:toggleFav,
     onOrgSearch:onOrgSearch,pickOrg:pickOrg,clearScope:clearScope,closeOrgDropdown:closeOrgDropdown,
     hydrateBt:hydrateBt,hydrateCurrentOrg:hydrateCurrentOrg,toggleFullscreen:toggleFullscreen,toggleColsPanel:toggleColsPanel,toggleCol:toggleCol,toggleAllCols:toggleAllCols,filterColsPanel:filterColsPanel,closeColsPanel:closeColsPanel,openSettings:openSettings,closeSettings:closeSettings,saveSettings:saveSettings,
     showBulkAction:showBulkAction,closeBulkModal:closeBulkModal,executeBulkTag:executeBulkTag,
@@ -10131,7 +13749,35 @@ return{selectReport:selectReport,runReport:runReport,setDisplay:setDisplay,expor
     checkForUpdate:checkForUpdate,applyUpdate:applyUpdate,toggleHelp:toggleHelp,
     showPersonModal:showPersonModal,closePersonModal:closePersonModal,
     addContactMethod:addContactMethod,removeContactMethod:removeContactMethod,setCtKeyword:setCtKeyword,updateCtField:updateCtField,
+    openFromHash:openFromHash,openLinkedModal:openLinkedModal,closeLinkedModal:closeLinkedModal,
+    openSchedModal:openSchedModal,closeSchedModal:closeSchedModal,saveSchedule:saveSchedule,
+    deleteSchedule:deleteSchedule,sendScheduleNow:sendScheduleNow,searchRecipients:searchRecipients,
+    pickRecipientMode:pickRecipientMode,batchInstall:batchInstall,batchUninstall:batchUninstall,
+    pickScope:pickScope,schedOrgSearch:schedOrgSearch,
+    openSchedListModal:openSchedListModal,closeSchedListModal:closeSchedListModal,
+    loadSchedIndex:loadSchedIndex,
+    schedListOpen:schedListOpen,schedListToggle:schedListToggle,
+    schedListSend:schedListSend,schedListDelete:schedListDelete,
+    pickSourceType:pickSourceType,saveLinkedReport:saveLinkedReport,copyReportLink:copyReportLink,
     isAdmin:isAdmin};
+})();
+
+// Deep-link restore. Runs after the module is built so RB exists, and covers
+// both a fresh load with a #report= hash and back/forward navigation.
+(function(){
+    function boot(){
+        try{ RB.openFromHash(); }catch(e){}
+        // After openFromHash so the report is already loading: the index only
+        // decorates the sidebar and the toolbar button, and must never delay
+        // the report itself.
+        try{ RB.loadSchedIndex(); }catch(e){}
+    }
+    if(document.readyState === "loading"){
+        document.addEventListener("DOMContentLoaded", boot);
+    }else{
+        boot();
+    }
+    window.addEventListener("hashchange", function(){ try{ RB.openFromHash(); }catch(e){} });
 })();
 // Close org dropdown when clicking outside
 document.addEventListener("click",function(e){
@@ -10174,7 +13820,23 @@ window.addEventListener("load",function(){
 # UI BUILDER - HTML Components
 # ============================================================================
 
-def build_sidebar_html(all_reports):
+def _fav_star(report_id, favs):
+    """The star control. event.stopPropagation matters: the whole row is a
+    click target that opens the report, so without it starring would also
+    navigate."""
+    on = str(report_id) in favs
+    return ('<span class="rb-fav {0}" title="{1}" '
+            'onclick="event.stopPropagation();RB.toggleFav(\'{2}\',this)">'
+            '<i class="{3} fa-star"></i></span>').format(
+        'on' if on else '',
+        'Remove from favorites' if on else 'Add to favorites',
+        html_escape(str(report_id)),
+        'fas' if on else 'far')
+
+
+def build_sidebar_html(all_reports, favs=None):
+    if favs is None:
+        favs = set()
     html = []
     html.append('<div class="rb-sidebar">')
     html.append('<div class="rb-sidebar-header">')
@@ -10183,6 +13845,30 @@ def build_sidebar_html(all_reports):
     html.append('</div>')
     html.append('<div class="rb-sidebar-nav">')
 
+    # Favorites first, as a flat list. Deliberately a copy of the entries
+    # rather than a move: people look for a report where they remember it
+    # living, and starring it should not take it out of its category.
+    fav_reports = [r for r in all_reports if str(r.get('id', '')) in favs]
+    # Always rendered, even with nothing in it. The empty state is what tells
+    # someone the feature exists and how to use it.
+    html.append('<div class="rb-cat-section" id="rb-fav-section">')
+    html.append('<div class="rb-cat-header open" onclick="RB.toggleCategory(this)">')
+    html.append('<span class="rb-cat-icon" style="background:#f59e0b"><i class="fas fa-star"></i></span>')
+    html.append('<span>Favorites</span>')
+    html.append('<span class="rb-cat-arrow"><i class="fas fa-chevron-right"></i></span>')
+    html.append('</div><div class="rb-cat-body open" id="rb-fav-body">')
+    for r in fav_reports:
+        html.append('<div class="rb-report-item" data-id="{0}" data-fav="1" onclick="RB.selectReport(\'{0}\')">'.format(
+            html_escape(r['id'])))
+        html.append('<i class="fas {0}"></i> {1}{2}</div>'.format(
+            r.get('icon', 'fa-file-alt'), html_escape(r.get('name', '')),
+            _fav_star(r['id'], favs)))
+    html.append('<div class="rb-fav-empty" id="rb-fav-empty"{0}>'.format(
+        ' style="display:none"' if fav_reports else ''))
+    html.append('Click the <i class="far fa-star" style="color:#f59e0b"></i> next to any '
+                'report to pin it here.</div>')
+    html.append('</div></div>')
+
     cat_reports = {}
     for r in all_reports:
         cat = r.get('category', 'custom')
@@ -10190,10 +13876,9 @@ def build_sidebar_html(all_reports):
             cat_reports[cat] = []
         cat_reports[cat].append(r)
 
-    cat_order = ['attendance', 'demographics', 'engagement', 'membership', 'financial', 'transactions', 'communications', 'tasks', 'emergency', 'admin']
     rendered = set()
 
-    for ck in cat_order:
+    for ck in CATEGORY_ORDER:
         if ck not in cat_reports:
             continue
         rendered.add(ck)
@@ -10207,7 +13892,9 @@ def build_sidebar_html(all_reports):
         for r in cat_reports[ck]:
             html.append('<div class="rb-report-item" data-id="{0}" onclick="RB.selectReport(\'{0}\')">'.format(html_escape(r['id'])))
             bt_badge = ' <span class="rb-bt-badge" title="Supports Blue Toolbar"><i class="fas fa-hand-pointer"></i></span>' if r.get('bluetoolbar', {}).get('supported', False) else ''
-            html.append('<i class="fas {0}"></i> {1}{2}</div>'.format(r.get('icon', 'fa-file-alt'), html_escape(r.get('name', '')), bt_badge))
+            html.append('<i class="fas {0}"></i> {1}{2}{3}</div>'.format(
+                r.get('icon', 'fa-file-alt'), html_escape(r.get('name', '')), bt_badge,
+                _fav_star(r['id'], favs)))
         html.append('</div></div>')
 
     # Custom reports
@@ -10224,18 +13911,173 @@ def build_sidebar_html(all_reports):
                 html.append('<div class="rb-report-item" data-id="{0}" onclick="RB.selectReport(\'{0}\')">'.format(html_escape(r['id'])))
                 html.append('<i class="fas {0}"></i> {1}'.format(r.get('icon', 'fa-file-alt'), html_escape(r.get('name', ''))))
                 if not r.get('is_builtin', False):
-                    html.append(' <span style="cursor:pointer;color:#dc2626;font-size:10px;margin-left:auto" '
+                    # Linked reports get an edit pencil: the source they point at
+                    # gets renamed or replaced, and without this the only remedy
+                    # is delete and recreate.
+                    if r.get('source_type'):
+                        html.append(' <span style="cursor:pointer;color:#0f766e;font-size:10px;margin-left:auto" '
+                            'title="Edit the linked source" '
+                            'onclick="event.stopPropagation();RB.openLinkedModal(\'{0}\')">'
+                            '<i class="fas fa-pen"></i></span>'.format(html_escape(r['id'])))
+                    html.append(' <span style="cursor:pointer;color:#dc2626;font-size:10px;{2}" '
                         'onclick="event.stopPropagation();RB.deleteReport(\'{0}\',{1})"><i class="fas fa-trash"></i></span>'.format(
-                            html_escape(r['id']), 'true' if r.get('is_shared', False) else 'false'))
+                            html_escape(r['id']), 'true' if r.get('is_shared', False) else 'false',
+                            '' if r.get('source_type') else 'margin-left:auto'))
                 html.append('</div>')
         html.append('</div></div>')
 
     html.append('</div>')
     html.append('<div class="rb-sidebar-footer">')
     html.append('<button class="rb-new-report-btn" onclick="RB.openNewReportModal()"><i class="fas fa-plus"></i> New Custom Report</button>')
+    html.append('<button class="rb-new-report-btn" style="background:#0f766e" '
+                'onclick="RB.openLinkedModal()"><i class="fas fa-link"></i> Link Saved Query / SQL</button>')
+    # Lives beside the report list rather than inside a report, because it is a
+    # question about the whole system, not about whichever report is open.
+    html.append('<button class="rb-new-report-btn" style="background:#475569" '
+                'onclick="RB.openSchedListModal()"><i class="fas fa-clock"></i> '
+                'Scheduled Emails</button>')
     if is_admin_user():
         html.append('<button class="rb-settings-btn" onclick="RB.openSettings()"><i class="fas fa-cog"></i> Settings</button>')
     html.append('</div></div>')
+
+    # Email schedule modal.
+    html.append('''
+<div id="rb-sched-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);
+     z-index:100050;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:10px;max-width:640px;width:94%;padding:20px;
+       max-height:88vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.25)">
+    <h3 style="margin:0 0 4px;font-size:17px">Email this report on a schedule</h3>
+    <p id="rb-sched-report" style="margin:0 0 14px;font-size:12px;color:#64748b"></p>
+
+    <div id="rb-batch-panel" style="display:none;background:#fff7ed;border:1px solid #fed7aa;
+         border-radius:6px;padding:9px 11px;font-size:12px;margin-bottom:14px"></div>
+
+    <div style="font-size:12px;font-weight:600;color:#334155;margin-bottom:5px">Data scope</div>
+    <div id="rb-scope-opts" style="font-size:13px;margin-bottom:8px"></div>
+
+    <div id="rb-scope-panel" style="display:none;border-radius:6px;padding:9px 11px;
+         font-size:12px;margin-bottom:14px"></div>
+
+    <div id="rb-schfilter-panel" style="display:none;background:#f8fafc;border:1px solid #e2e8f0;
+         border-radius:6px;padding:9px 11px;font-size:12px;margin-bottom:14px"></div>
+
+    <div style="font-size:12px;font-weight:600;color:#334155;margin-bottom:5px">Send to</div>
+    <label style="font-size:13px;margin-right:16px">
+      <input type="radio" name="rb-rcp-type" value="people" checked onchange="RB.pickRecipientMode()">
+      Specific people</label>
+    <label style="font-size:13px">
+      <input type="radio" name="rb-rcp-type" value="query" onchange="RB.pickRecipientMode()">
+      A saved search</label>
+
+    <div id="rb-rcp-people" style="margin-top:8px">
+      <input id="rb-rcp-search" type="text" placeholder="Type a name, e.g. Swaby, Ben"
+             oninput="RB.searchRecipients()" autocomplete="off"
+             style="width:100%;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box">
+      <div id="rb-rcp-results" style="border:1px solid #e2e8f0;border-top:none;max-height:150px;
+           overflow:auto;display:none"></div>
+      <div id="rb-rcp-chosen" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px"></div>
+      <div id="rb-rcp-none" class="rb-hint" style="font-size:11px;color:#94a3b8;margin-top:6px">
+        Nobody added yet. People without an email address on file cannot receive it.</div>
+    </div>
+
+    <div id="rb-rcp-query" style="margin-top:8px;display:none">
+      <select id="rb-rcp-querysel" style="width:100%;padding:7px 9px;border:1px solid #cbd5e1;
+              border-radius:6px;box-sizing:border-box"></select>
+      <div style="font-size:11px;color:#94a3b8;margin-top:5px">
+        Re-run at send time, so the recipient list maintains itself.</div>
+    </div>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px">
+      <label style="font-size:12px;font-weight:600;color:#334155">How often
+        <select id="rb-sched-freq" style="display:block;margin-top:3px;padding:6px 8px;
+                border:1px solid #cbd5e1;border-radius:6px"></select></label>
+      <label style="font-size:12px;font-weight:600;color:#334155;flex:1;min-width:200px">Subject
+        <input id="rb-sched-subject" type="text" style="width:100%;padding:6px 8px;margin-top:3px;
+               border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box"></label>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px">
+      <label style="font-size:12px;font-weight:600;color:#334155;flex:1;min-width:200px">Reply-to address
+        <input id="rb-sched-from" type="text" placeholder="you@church.org"
+               style="width:100%;padding:6px 8px;margin-top:3px;border:1px solid #cbd5e1;
+                      border-radius:6px;box-sizing:border-box"></label>
+      <label style="font-size:12px;font-weight:600;color:#334155;flex:1;min-width:200px">From name
+        <input id="rb-sched-fromname" type="text" placeholder="Enterprise Reporting"
+               style="width:100%;padding:6px 8px;margin-top:3px;border:1px solid #cbd5e1;
+                      border-radius:6px;box-sizing:border-box"></label>
+    </div>
+
+    <label style="display:block;font-size:12px;color:#334155;margin-top:12px">
+      <input id="rb-sched-skipempty" type="checkbox" checked> Do not send when the report has no rows</label>
+    <label style="display:block;font-size:12px;color:#334155;margin-top:5px">
+      <input id="rb-sched-enabled" type="checkbox" checked> Active</label>
+
+    <div id="rb-sched-msg" style="font-size:12px;margin-top:10px"></div>
+    <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <button class="rb-btn" style="color:#dc2626" onclick="RB.deleteSchedule()">Delete</button>
+      <div>
+        <button class="rb-btn" onclick="RB.sendScheduleNow()">Send now</button>
+        <button class="rb-btn" onclick="RB.closeSchedModal()">Cancel</button>
+        <button class="rb-btn rb-btn-primary" onclick="RB.saveSchedule()">Save schedule</button>
+      </div>
+    </div>
+  </div>
+</div>''')
+
+    # All schedules, in one list. Answers "what is this thing emailing out?"
+    # without opening every report in turn.
+    html.append('''
+<div id="rb-schedlist-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);
+     z-index:100050;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:10px;max-width:1000px;width:96%;padding:20px;
+       max-height:88vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.25)">
+    <h3 style="margin:0 0 4px;font-size:17px">Scheduled emails</h3>
+    <p style="margin:0 0 14px;font-size:12px;color:#64748b">Every report this system emails on a
+       schedule, what it is limited to, and who receives it.</p>
+    <div id="rb-schedlist-body"></div>
+    <div style="margin-top:16px;text-align:right">
+      <button class="rb-btn" onclick="RB.closeSchedListModal()">Close</button>
+    </div>
+  </div>
+</div>''')
+
+    # Linked-report modal.
+    html.append('''
+<div id="rb-linked-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);
+     z-index:100050;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:10px;max-width:560px;width:92%;padding:20px;
+       box-shadow:0 20px 50px rgba(0,0,0,.25)">
+    <h3 id="rb-linked-title" style="margin:0 0 4px 0;font-size:17px">Report from a saved query or SQL script</h3>
+    <p style="margin:0 0 14px;font-size:12px;color:#64748b">
+      The source is read each time the report runs, so maintaining the script or search
+      maintains the report.</p>
+
+    <label style="display:block;font-size:12px;font-weight:600;color:#334155">Report name
+      <input id="rb-linked-name" type="text" placeholder="e.g. Guests to call this week"
+             style="width:100%;padding:7px 9px;margin-top:4px;border:1px solid #cbd5e1;
+                    border-radius:6px;box-sizing:border-box"></label>
+
+    <div style="margin:12px 0 6px;font-size:12px;font-weight:600;color:#334155">Source</div>
+    <label style="font-size:13px;margin-right:16px">
+      <input type="radio" name="rb-src-type" value="sql_script" checked
+             onchange="RB.pickSourceType()"> Saved SQL script</label>
+    <label style="font-size:13px">
+      <input type="radio" name="rb-src-type" value="saved_query"
+             onchange="RB.pickSourceType()"> Saved search (Search Builder)</label>
+
+    <select id="rb-linked-source" style="width:100%;padding:7px 9px;margin-top:8px;
+            border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box"></select>
+    <div id="rb-linked-hint" style="font-size:11px;color:#94a3b8;margin-top:5px"></div>
+
+    <label style="display:block;font-size:12px;color:#334155;margin-top:12px">
+      <input id="rb-linked-shared" type="checkbox"> Share with everyone (otherwise only you see it)</label>
+
+    <div id="rb-linked-msg" style="font-size:12px;margin-top:10px"></div>
+    <div style="margin-top:16px;text-align:right">
+      <button class="rb-btn" onclick="RB.closeLinkedModal()">Cancel</button>
+      <button id="rb-linked-save" class="rb-btn rb-btn-primary" onclick="RB.saveLinkedReport()">Create report</button>
+    </div>
+  </div>
+</div>''')
     return ''.join(html)
 
 def build_main_html(bt_count):
@@ -10410,8 +14252,7 @@ def build_settings_modal(settings):
         reports_by_cat[rcat].append({'id': r.get('id', ''), 'name': r.get('name', '')})
     report_roles = settings.get('report_roles', {})
 
-    cat_order = ['attendance', 'demographics', 'engagement', 'membership', 'financial', 'transactions', 'communications', 'tasks', 'emergency', 'admin']
-    for ck in cat_order:
+    for ck in CATEGORY_ORDER:
         ci = CATEGORIES.get(ck, {})
         roles = cat_roles.get(ck, [])
         roles_str = ', '.join(roles) if roles else ''
@@ -10613,8 +14454,37 @@ try:
 except:
     current_user_id = 0
 
+# ---------------------------------------------------------------------------
+# MORNING BATCH ENTRY POINT
+# ---------------------------------------------------------------------------
+# Triggered from MorningBatch with:
+#     try:
+#         Data.run_report_emails = "true"
+#         model.CallScript("EnterpriseReporting")
+#     except Exception as e:
+#         print "EnterpriseReporting email error: " + str(e)
+#
+# Checked before anything else so the batch never pays for building the UI.
+_batch_flag = ''
+try:
+    _batch_flag = str(getattr(model.Data, BATCH_TRIGGER, '') or '').strip().lower()
+except:
+    _batch_flag = ''
+
+if _batch_flag in ('true', '1', 'yes'):
+    try:
+        _r = run_scheduled_reports()
+        print 'EnterpriseReporting: {0} schedule(s) checked, {1} sent, {2} skipped, {3} failed.'.format(
+            _r['checked'], _r['sent'], _r['skipped'], _r['failed'])
+        for _line in _r.get('log', [])[:20]:
+            print '  ' + safe_str(_line)
+    except Exception as _e:
+        # Reported, never raised. An exception escaping here would take down
+        # whatever the morning batch runs after this script.
+        print 'EnterpriseReporting: scheduled email run FAILED: ' + safe_str(_e)
+
 # Handle AJAX requests
-if model.HttpMethod == 'post' and get_param('ajax') == 'true':
+elif model.HttpMethod == 'post' and get_param('ajax') == 'true':
     action = get_param('action', '')
 
     # On AJAX: read people_ids from POST data (sent by JavaScript)
@@ -10736,7 +14606,7 @@ else:
     page.append(build_css())
     page.append('</style>')
     page.append('<div class="rb-root">')
-    page.append(build_sidebar_html(all_reports))
+    page.append(build_sidebar_html(all_reports, load_favorites(current_user_id)))
     page.append(build_main_html(bt_count))
     page.append('</div>')
     page.append(build_modal_html())
