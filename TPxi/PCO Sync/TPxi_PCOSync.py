@@ -51,8 +51,166 @@
 #   TPxi_PaymentManager.py      - verified-apply-update pattern
 #   TPxi_RollSheet.py           - safe_json transliteration pattern
 #
+# Constraints worth knowing before changing this:
+#
+#   model.Rest* discards the HTTP status code (RestSharp does not throw on
+#   non-2xx, and PythonModel returns response.Content). A 403 or 429 arrives
+#   as a valid JSON body, so an unrecognized error reads as "the far side has
+#   nothing" unless something checks. That mistake caused a mass roster
+#   removal once and three near-misses since. Every read guards for it, and
+#   every write is confirmed by reading the value back.
+#
+#   TouchPoint has no PATCH -- only GET/POST/POSTJSON/POSTXML/DELETE, with
+#   the verb hardcoded. PCO needs PATCH to update. POST carrying
+#   X-HTTP-Method-Override: PATCH works, but that is UNDOCUMENTED behavior,
+#   which is the other reason writes are verified rather than trusted.
+#
+#   Field sync direction is single per field, never both. PCO exposes only
+#   resource-level timestamps, so after a PCO edit there is no way to tell
+#   WHICH field changed; last-writer-wins is not implementable. One
+#   direction per field means a value flows one way and stops.
+#
+#   The PCO API version is per request and differs per app -- People is on
+#   2026-06-04 while Services is still 2018-11-01. Send none and PCO uses
+#   the organization's default, so identical code can get different data at
+#   different sites.
+#
+#   A PCO Personal Access Token inherits the permissions of the user who
+#   created it. A 403 is a permission to grant on that user, not a bad token.
+#
+#   TouchPoint field mappings that are not obvious:
+#     PreferredName, not FirstName, is the goes-by name and the right match
+#       for PCO's first_name. TouchPoint's own export agrees
+#       (ChAiIndividualData: FirstName = p.PreferredName).
+#     Addresses: People.AddressTypeId picks the live one (10 = family,
+#       30 = person). Read the source columns, not People.Primary*, which
+#       the PrimaryAddress function truncates to 60 characters.
+#     Background checks: dbo.BackgroundChecks is the per-check history
+#       (dbo.Volunteer is one summary row per person and cannot hold it).
+#       ApprovalStatus is the provider-agnostic status; StatusID is vendor
+#       workflow with no lookup table. Updated is the completion date.
+#
 # Changelog:
-#   1.0.3  (2026-06-05)  First production release.
+#   1.0.4  (2026-08-30)  Roster safety, diagnostics, and TouchPoint -> PCO.
+#
+#                        Protecting the roster (the reason for the release)
+#                          - A sync now refuses to remove anyone when the
+#                            PCO read was incomplete, or when PCO returned
+#                            nobody while TouchPoint has linked members.
+#                            Skipped removals and the reason appear in the
+#                            UI and in the scheduled-run email.
+#                          - Rate limits (429) are retried with backoff
+#                            under a per-run time budget. A rate-limited
+#                            read now fails visibly instead of looking
+#                            like "PCO has nobody".
+#                          - The Mappings tab flags two mappings pointing
+#                            at the same involvement -- they remove each
+#                            other's people on every run.
+#
+#                        New: TouchPoint -> PCO field sync
+#                          - Per field, per direction, every field off by
+#                            default. Names (goes-by), email, cell/home
+#                            phone, birthdate, gender, household address,
+#                            and background checks.
+#                          - Preview first: it reads PCO and reports
+#                            exactly what an apply would write, changes
+#                            nothing, and shares one code path with the
+#                            real run. Tick the rows you want; flagged
+#                            rows start unticked.
+#                          - Every write is read back to confirm it
+#                            landed. A field whose value keeps coming
+#                            back different is marked stuck and stops
+#                            being retried.
+#                          - Blank TouchPoint values are never pushed. A
+#                            blank means missing data, not "erase it".
+#                          - Rows where the two names are unrelated are
+#                            flagged as a probable bad link, with Open
+#                            and Unlink on the row.
+#
+#                        New: Diagnostics and Activity Log (Settings)
+#                          - Read-only health check: credentials, what
+#                            the PCO token can actually reach, linked
+#                            people, mapped involvements that no longer
+#                            exist, conflicting mappings, scheduler and
+#                            storage state. "Copy for support" produces
+#                            a pasteable summary.
+#                          - Activity Log shows what the tool has
+#                            changed, when, and who ran it.
+#
+#                        New: background check sync (TouchPoint -> PCO)
+#                          - Reads dbo.BackgroundChecks and publishes the
+#                            latest genuine outcome, skipping abandoned
+#                            submissions. Status, completion date,
+#                            expiry and report link.
+#                          - Validity window is a setting, in months;
+#                            blank leaves PCO's own expiration policy in
+#                            charge.
+#                          - Requires background check permission on the
+#                            PCO user whose token this is. Without it the
+#                            whole field is skipped rather than written
+#                            blind.
+#
+#                        Fixes and smaller changes
+#                          - Scheduled syncs now apply person field rules.
+#                            They never had, so the same mapping behaved
+#                            differently by hand than on a timer, with no
+#                            error either way.
+#                          - The API version sent to PCO is pinned per
+#                            app. Previously PCO chose it, so two churches
+#                            on identical code could get different data.
+#                          - Tabs are addressable (#mappings), so a
+#                            refresh stays put and notification emails can
+#                            link straight to the mapping they are about.
+#                          - Proposed matches gained a manual TouchPoint
+#                            search for when the suggestion is wrong.
+#                          - Copy fixes on the Mappings tab, and the
+#                            one-way-sync wording is now scoped to the
+#                            tab it is true of.
+#
+#                        Known gaps
+#                          - Update check is unwired, so a later fix does
+#                            not reach an installed copy on its own.
+#                          - Background check sync is built and tested but
+#                            unproven against live PCO, pending that
+#                            permission grant.
+#                          - TouchPoint -> PCO is manual only, by choice.
+#
+#   1.0.3  (2026-06-05)  Email link fix. model.CmsHost can already
+#                        include 'https://', so the email backlink
+#                        ended up as 'https://https://myfbch.com/...'.
+#                        Normalize to handle either form.
+#   1.0.2  (2026-06-05)  Email fix: use model.Email instead of
+#                        model.SendEmail. The PythonModel object does
+#                        not actually expose SendEmail (the older
+#                        CLAUDE.md was wrong). Signature copied from
+#                        TPxi_OpsCheckList:
+#                          model.Email(pid, queuedBy, fromEmail,
+#                                      fromName, subject, body)
+#                        queuedBy prefers model.UserPeopleId (UI path),
+#                        falls back to the recipient PeopleId for the
+#                        scheduled / background path.
+#   1.0.1  (2026-06-05)  Scheduler post-1.0 fixes.
+#                          - Fix silent email failure: model.SendEmail
+#                            is 4-arg (person, subject, body, fromEmail).
+#                            v1.0.0 passed a 5th from_name which caused
+#                            the call to throw silently in the
+#                            ScheduledTasks context. Now matches the
+#                            documented signature.
+#                          - Audit log captures email_sent / email_failed
+#                            with the error message, so when the sync
+#                            runs but the email vanishes, the cause is
+#                            recorded.
+#                          - Run scheduler test button now distinguishes:
+#                              fired count (and email sent / failed),
+#                              skipped already-fired-this-hour (with
+#                                  a Force re-run link),
+#                              not-due / disabled.
+#                            Old behavior conflated all three as "no
+#                            mappings due."
+#                          - Force re-run on the test button bypasses
+#                            the per-hour-slot dedup so staff can
+#                            verify a mapping that already auto-fired.
+#   1.0.0  (2026-06-05)  First production release.
 #
 #                        Settings & connection
 #                          - PCO Personal Access Token auth (App ID +
@@ -197,7 +355,7 @@ import base64
 model.Header = 'PCO Sync'
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.0.3'
+APP_VERSION = '1.0.4'
 DC_SCRIPT_ID = 'TPxi_PCOSync'
 
 # v3.3.1: scheduler install (matches ProspectBuilder pattern). We
@@ -228,11 +386,887 @@ LOG_KEY_PREFIX = 'PCOSync_Log_'   # suffixed with YYYYMM
 # direct PCO People API writes / sub-resource fetches). Mapping: PCO field
 # name on the team_members include=person object -> TouchPoint UpdatePerson
 # field name.
+# Master switch for TouchPoint -> PCO writing. ON as of 2026-08-30, now
+# that the executor, verify-after-write and churn breaker are in place.
+#
+# Turning this ON does NOT start writing anything. Three things still have
+# to be true before a single value moves:
+#   1. A field has to be set to tp_to_pco in the sync rules. Every field
+#      defaults to 'none' and TouchPoint stays authoritative until someone
+#      chooses otherwise.
+#   2. Someone has to run Preview, which only reads.
+#   3. Someone has to click Apply, which sends an explicit confirm token.
+# The scheduler never calls the outbound path, so nothing writes to PCO
+# unattended. Set this back to False to hard-disable the whole half.
+PCO_WRITE_ENABLED = True
+
+
+# ---------------------------------------------------------------------
+# Person field registry
+# ---------------------------------------------------------------------
+# Each field declares where it lives on both sides, how to compare it, and
+# which directions are actually implementable.
+#
+#   pcoKind  'attribute'  lives on the Person resource itself. Writing it
+#                         needs PATCH, which TouchPoint reaches only via
+#                         X-HTTP-Method-Override (confirmed working
+#                         2026-08-30, but undocumented -- verify by
+#                         read-back, never trust the response).
+#            'child'      a separate PCO resource (emails, phone_numbers,
+#                         addresses). Adding one is a plain POST; changing
+#                         an existing one still needs the override.
+#   norm     which comparator to use. This is load-bearing: a comparator
+#            that disagrees with how the far side stores a value produces
+#            an endless rewrite (see WRITE CHURN below), not a one-off bug.
+#   tpToPco / pcoToTp  whether that direction is implemented. Fields are
+#            listed before their write path exists so the UI can show them
+#            greyed rather than pretending they are missing.
+#
+# DIRECTION IS SINGLE, NEVER BOTH -- see the loop-prevention note below.
 PERSON_SYNC_FIELDS = [
-    {'key': 'first_name', 'tpField': 'FirstName', 'label': 'First Name'},
-    {'key': 'last_name',  'tpField': 'LastName',  'label': 'Last Name'},
-    {'key': 'email',      'tpField': 'EmailAddress', 'label': 'Email'},
+    # PreferredName, NOT FirstName. TouchPoint's FirstName is the LEGAL
+    # first name; PreferredName is what the person goes by (it resolves
+    # NickName, falling back to FirstName). PCO's first_name holds the
+    # goes-by name, and TouchPoint's own export agrees -- ChAiIndividualData
+    # maps 'FirstName = p.PreferredName'.
+    #
+    # Caught by the dry run before anything was written: mapping FirstName
+    # would have renamed Chuck to Charles, Matt to Matthew, Mike to Michael,
+    # and -- where someone goes by a middle name -- Shannon to Richard and
+    # Davy to James, across the whole matched roster.
+    #
+    # pcoToTp stays off: writing PCO's goes-by back into TouchPoint would
+    # have to choose between FirstName and NickName, and guessing wrong
+    # overwrites a legal name.
+    {'key': 'first_name', 'tpField': 'PreferredName', 'label': 'First Name (goes by)',
+     'pcoKind': 'attribute', 'pcoAttr': 'first_name', 'norm': 'text',
+     'pcoToTp': False, 'tpToPco': True, 'kind': 'field',
+     'unavailableReason': 'PCO -> TouchPoint is off: PCO has one name field, '
+                          'TouchPoint has both a legal FirstName and a goes-by '
+                          'NickName, and there is no safe way to guess which one '
+                          'an incoming value should overwrite.'},
+    {'key': 'last_name',  'tpField': 'LastName',     'label': 'Last Name',
+     'pcoKind': 'attribute', 'pcoAttr': 'last_name',  'norm': 'text',
+     'pcoToTp': True,  'tpToPco': True, 'kind': 'field'},
+    {'key': 'email',      'tpField': 'EmailAddress', 'label': 'Email',
+     'pcoKind': 'child',     'pcoAttr': 'address',    'norm': 'email',
+     'pcoChild': 'emails',
+     'pcoToTp': True,  'tpToPco': True, 'kind': 'field'},
+    {'key': 'cell_phone', 'tpField': 'CellPhone',    'label': 'Cell Phone',
+     'pcoKind': 'child',     'pcoAttr': 'number',     'norm': 'phone',
+     'pcoChild': 'phone_numbers', 'pcoLocation': 'Mobile',
+     'pcoToTp': True,  'tpToPco': True, 'kind': 'field'},
+    {'key': 'home_phone', 'tpField': 'HomePhone',    'label': 'Home Phone',
+     'pcoKind': 'child',     'pcoAttr': 'number',     'norm': 'phone',
+     'pcoChild': 'phone_numbers', 'pcoLocation': 'Home',
+     'pcoToTp': True,  'tpToPco': True, 'kind': 'field'},
+    {'key': 'birthdate',  'tpField': 'BDate',        'label': 'Birthdate',
+     'pcoKind': 'attribute', 'pcoAttr': 'birthdate',  'norm': 'date',
+     'pcoToTp': True,  'tpToPco': True, 'kind': 'field'},
+    {'key': 'gender',     'tpField': 'GenderId',     'label': 'Gender',
+     'pcoKind': 'attribute', 'pcoAttr': 'gender',     'norm': 'gender',
+     'pcoToTp': True,  'tpToPco': True, 'kind': 'field'},
+    # Address is composite and ONE-WAY OUT. FBCH maintains household
+    # addresses in TouchPoint, so TouchPoint is the maintainer and nothing
+    # flows back -- which is also what makes this safe. Writing INTO
+    # TouchPoint would have meant either moving a whole household or
+    # flipping a person's AddressTypeId to 30, permanently detaching them
+    # from the family address. Pushing OUT raises neither question.
+    #
+    # TouchPoint genuinely supports BOTH person and family addresses; the
+    # switch is People.AddressTypeId (10 = family, 30 = person, NOT NULL
+    # default 10), per dbo.PrimaryAddress(). We read whichever that
+    # nominates, so a church using person-level addresses works unchanged.
+    #
+    # Read the SOURCE columns, not People.Primary*: the function filling
+    # PrimaryAddress RETURNS nvarchar(60) while AddressLineOne is
+    # nvarchar(100), so the derived column is silently truncated at 60.
+    {'key': 'address',    'tpField': '',             'label': 'Address (household)',
+     'pcoKind': 'child',     'pcoAttr': 'street_line_1', 'norm': 'address',
+     'pcoChild': 'addresses', 'pcoLocation': 'Home', 'composite': True,
+     'pcoToTp': False, 'tpToPco': True,
+     'unavailableReason': 'PCO -> TouchPoint is deliberately off for address: it '
+                          'would either rewrite a whole household or detach a '
+                          'person from the family address. TouchPoint is the '
+                          'maintainer here.'},
+    # Background check belongs in this list because that is where an admin
+    # looks to decide what syncs and in which direction -- the schema detail
+    # that it is a RECORD rather than a scalar is ours to absorb, not
+    # theirs to learn. kind='record' routes it to its own executor
+    # (background_check_sync_decision) instead of the scalar
+    # compare-and-write path in apply_person_sync_for_one, which only ever
+    # runs for pco_to_tp and so skips this entry on its own.
+    {'key': 'background_check', 'tpField': '', 'label': 'Background Check',
+     'pcoKind': 'child', 'pcoAttr': 'status', 'norm': 'text',
+     'pcoChild': 'background_checks', 'kind': 'record',
+     'pcoToTp': False, 'tpToPco': True,
+     'unavailableReason': 'PCO -> TouchPoint is off by design: TouchPoint is where '
+                          'checks are ordered and recorded, and its history is the '
+                          'system of record. Latest outcome only, never a backfill.'},
 ]
+
+
+def person_field_by_key(key):
+    for f in PERSON_SYNC_FIELDS:
+        if f['key'] == key:
+            return f
+    return None
+
+
+# --- comparators -----------------------------------------------------
+# Both sides are normalized through the SAME function before comparison.
+# If these disagree with how either system stores a value, the sync will
+# write the same field forever.
+
+def _norm_text(v):
+    return safe_str(v).strip()
+
+
+def _norm_email(v):
+    return safe_str(v).strip().lower()
+
+
+def _norm_phone(v):
+    """Digits only, US 1-prefix dropped. TouchPoint stores '6155551234',
+    PCO renders '(615) 555-1234'; comparing raw guarantees churn."""
+    digits = ''.join(ch for ch in safe_str(v) if ch.isdigit())
+    if len(digits) == 11 and digits.startswith('1'):
+        digits = digits[1:]
+    return digits
+
+
+def _norm_date(v):
+    """Compare on yyyy-mm-dd only. IronPython str() on a .NET DateTime is
+    US format ('8/30/2026 12:00:00 AM'), NOT ISO, so slicing is wrong."""
+    s = safe_str(v).strip()
+    if not s:
+        return ''
+    if 'T' in s:
+        s = s.split('T')[0]
+    if '-' in s and len(s) >= 10 and s[4] == '-':
+        return s[:10]
+    part = s.split(' ')[0]
+    for sep in ('/', '-'):
+        if sep in part:
+            bits = part.split(sep)
+            if len(bits) == 3:
+                try:
+                    m, d, y = int(bits[0]), int(bits[1]), int(bits[2])
+                    if y < 100:
+                        y += 1900 if y > 30 else 2000
+                    return '%04d-%02d-%02d' % (y, m, d)
+                except Exception:
+                    return part
+    return part
+
+
+def _norm_gender(v):
+    """Canonical 'M' / 'F' / ''. TouchPoint stores GenderId (1/2/9), PCO
+    stores a string that has appeared as 'M', 'Male', 'male' and ''."""
+    s = safe_str(v).strip().lower()
+    if not s:
+        return ''
+    if s in ('1', 'm', 'male'):
+        return 'M'
+    if s in ('2', 'f', 'female'):
+        return 'F'
+    return ''
+
+
+def _norm_address(v):
+    """Canonical form of a whole address, so the five parts compare as one
+    unit. A half-written address is worse than none, so they move together
+    or not at all.
+
+    Accepts the dict shape returned by person_household_address(). Case and
+    punctuation are dropped because PCO normalizes both on its side, and a
+    comparator that disagrees writes forever."""
+    if not isinstance(v, dict):
+        return _norm_text(v).lower()
+    parts = []
+    for k in ('street_line_1', 'street_line_2', 'city', 'state', 'zip'):
+        s = safe_str(v.get(k, '')).strip().lower()
+        s = ''.join(ch for ch in s if ch.isalnum() or ch == ' ')
+        s = ' '.join(s.split())
+        parts.append(s)
+    if not any(parts):
+        return ''
+    return '|'.join(parts)
+
+
+PERSON_FIELD_NORMALIZERS = {
+    'text': _norm_text, 'email': _norm_email, 'phone': _norm_phone,
+    'date': _norm_date, 'gender': _norm_gender, 'address': _norm_address,
+}
+
+
+def person_household_address(tp_people_id):
+    """The address TouchPoint considers current for this person, in PCO's
+    field names.
+
+    Mirrors dbo.PrimaryAddress exactly: AddressTypeId 10 takes the FAMILY
+    address, 30 takes the PERSON's own, and anything else yields nothing --
+    TouchPoint itself shows no address in that case, so neither do we.
+
+    Returns {} when there is no usable address; callers must treat that as
+    "nothing to say", never as "clear it in PCO"."""
+    try:
+        pid = int(tp_people_id)
+    except Exception:
+        return {}
+    sql = """
+        SELECT
+            CASE p.AddressTypeId WHEN 30 THEN p.AddressLineOne
+                                 WHEN 10 THEN f.AddressLineOne END AS Line1,
+            CASE p.AddressTypeId WHEN 30 THEN p.AddressLineTwo
+                                 WHEN 10 THEN f.AddressLineTwo END AS Line2,
+            CASE p.AddressTypeId WHEN 30 THEN p.CityName
+                                 WHEN 10 THEN f.CityName    END AS City,
+            CASE p.AddressTypeId WHEN 30 THEN p.StateCode
+                                 WHEN 10 THEN f.StateCode   END AS St,
+            CASE p.AddressTypeId WHEN 30 THEN p.ZipCode
+                                 WHEN 10 THEN f.ZipCode     END AS Zip,
+            p.AddressTypeId AS AType
+        FROM dbo.People p WITH (NOLOCK)
+        JOIN dbo.Families f WITH (NOLOCK) ON f.FamilyId = p.FamilyId
+        WHERE p.PeopleId = %d
+    """ % pid
+    try:
+        for r in q.QuerySql(sql):
+            out = {
+                'street_line_1': safe_str(getattr(r, 'Line1', '') or '').strip(),
+                'street_line_2': safe_str(getattr(r, 'Line2', '') or '').strip(),
+                'city':          safe_str(getattr(r, 'City', '') or '').strip(),
+                'state':         safe_str(getattr(r, 'St', '') or '').strip(),
+                'zip':           safe_str(getattr(r, 'Zip', '') or '').strip(),
+                'addressTypeId': int(getattr(r, 'AType', 0) or 0),
+            }
+            # Street plus SOMETHING locating it. A lone street line pushed to
+            # PCO is not an address, it is a fragment.
+            if not out['street_line_1']:
+                return {}
+            if not (out['city'] or out['zip']):
+                return {}
+            return out
+    except Exception:
+        return {}
+    return {}
+
+
+def person_address_pco_payload(addr):
+    """PCO Address attributes for a create. country_name is not creatable
+    on PCO's side (only country_code), so country is left alone rather than
+    guessed at from a free-text TouchPoint value."""
+    if not addr:
+        return None
+    return {
+        'street_line_1': addr.get('street_line_1', ''),
+        'street_line_2': addr.get('street_line_2', ''),
+        'city':          addr.get('city', ''),
+        'state':         addr.get('state', ''),
+        'zip':           addr.get('zip', ''),
+        'location':      'Home',
+        'primary':       True,
+    }
+
+
+def person_field_norm(field_key, value):
+    f = person_field_by_key(field_key)
+    fn = PERSON_FIELD_NORMALIZERS.get((f or {}).get('norm', 'text'), _norm_text)
+    return fn(value)
+
+
+# --- cross-system value conversion -----------------------------------
+
+def person_value_tp_to_pco(field_key, tp_value):
+    """Render a TouchPoint value the way PCO wants to receive it."""
+    if field_key == 'gender':
+        g = _norm_gender(tp_value)
+        return {'M': 'Male', 'F': 'Female'}.get(g, '')
+    if field_key == 'birthdate':
+        return _norm_date(tp_value)
+    if field_key in ('cell_phone', 'home_phone'):
+        return _norm_phone(tp_value)
+    return _norm_text(tp_value)
+
+
+def person_value_pco_to_tp(field_key, pco_value):
+    """Render a PCO value the way TouchPoint wants to store it."""
+    if field_key == 'gender':
+        g = _norm_gender(pco_value)
+        return {'M': 1, 'F': 2}.get(g, 9)
+    if field_key == 'birthdate':
+        return _norm_date(pco_value)
+    if field_key in ('cell_phone', 'home_phone'):
+        return _norm_phone(pco_value)
+    return _norm_text(pco_value)
+
+
+# ---------------------------------------------------------------------
+# LOOP PREVENTION
+# ---------------------------------------------------------------------
+# Two distinct mechanisms, because there are two distinct loops.
+#
+# 1. PING-PONG (A writes B, B writes A, forever).
+#    Prevented STRUCTURALLY: direction is one of none / pco_to_tp /
+#    tp_to_pco. Never both. A value therefore flows one way and stops --
+#    there is no return path to bounce off.
+#
+#    The tempting alternative, "whichever side changed most recently
+#    wins", is NOT IMPLEMENTABLE here: PCO exposes created_at/updated_at
+#    on the Person RESOURCE, with no per-field timestamps, so after a PCO
+#    edit we cannot tell WHICH field moved. TouchPoint can (dbo.ChangeLog
+#    is per-field), but one side knowing is not enough. Single direction
+#    is a consequence of the data model, not a simplification.
+#
+# 2. WRITE CHURN (one direction, but the same write repeats forever).
+#    The real risk once TP -> PCO exists. If our comparator disagrees
+#    with how the far side stores a value -- phone punctuation, a name
+#    PCO title-cases, a date PCO re-renders -- then every run sees a
+#    difference, writes, and sees the same difference next run. No loop
+#    in the ping-pong sense; just one pointless write per person per run,
+#    forever, silently burning the rate limit.
+#
+#    Guarded by verify-after-write: read the value back, and if what came
+#    back does not match what we sent, count it. After
+#    PERSON_WRITE_CHURN_LIMIT consecutive failures that (person, field)
+#    is marked stuck and skipped until a human clears it. A stuck field
+#    is a comparator bug, so it surfaces in Diagnostics rather than
+#    retrying into the void.
+PERSON_WRITE_CHURN_KEY = 'PCOSync_WriteChurn'
+PERSON_WRITE_CHURN_LIMIT = 3
+
+
+def _churn_id(tp_people_id, field_key):
+    return str(int(tp_people_id)) + ':' + field_key
+
+
+def person_write_is_stuck(tp_people_id, field_key):
+    """True if this (person, field) has failed verification too often."""
+    try:
+        st = load_json(PERSON_WRITE_CHURN_KEY, {}) or {}
+        e = st.get(_churn_id(tp_people_id, field_key))
+        return bool(e and e.get('stuck'))
+    except Exception:
+        return False
+
+
+def person_write_record_result(tp_people_id, field_key, sent, observed):
+    """Record one verify-after-write outcome.
+
+    Returns (ok, stuck_now). ok is True when the far side agrees with what
+    we sent, which clears any history. Disagreement counts toward the
+    limit and, on reaching it, marks the pair stuck."""
+    key = _churn_id(tp_people_id, field_key)
+    try:
+        st = load_json(PERSON_WRITE_CHURN_KEY, {}) or {}
+        if not isinstance(st, dict):
+            st = {}
+    except Exception:
+        st = {}
+    agreed = (person_field_norm(field_key, sent) ==
+              person_field_norm(field_key, observed))
+    if agreed:
+        if key in st:
+            del st[key]
+            try:
+                save_json(PERSON_WRITE_CHURN_KEY, st)
+            except Exception:
+                pass
+        return True, False
+    e = st.get(key) or {'n': 0}
+    e['n'] = int(e.get('n', 0)) + 1
+    e['sent'] = safe_str(sent)
+    e['observed'] = safe_str(observed)
+    e['lastAt'] = now_iso()
+    e['stuck'] = e['n'] >= PERSON_WRITE_CHURN_LIMIT
+    st[key] = e
+    try:
+        save_json(PERSON_WRITE_CHURN_KEY, st)
+    except Exception:
+        pass
+    return False, bool(e['stuck'])
+
+
+def person_write_stuck_list():
+    """Stuck (person, field) pairs, for Diagnostics."""
+    out = []
+    try:
+        st = load_json(PERSON_WRITE_CHURN_KEY, {}) or {}
+        if isinstance(st, dict):
+            for k, e in st.items():
+                if e and e.get('stuck'):
+                    bits = str(k).split(':')
+                    out.append({
+                        'tpPeopleId': bits[0],
+                        'field': bits[1] if len(bits) > 1 else '',
+                        'sent': safe_str(e.get('sent', '')),
+                        'observed': safe_str(e.get('observed', '')),
+                        'attempts': int(e.get('n', 0)),
+                    })
+    except Exception:
+        pass
+    return out
+
+
+def person_field_direction(rules, field_key):
+    """Effective direction for a field, enforcing capability.
+
+    A rule can name a direction the field cannot actually do (an older
+    save, or a field whose write path is not built). Returning 'none'
+    here means the caller never has to re-check."""
+    f = person_field_by_key(field_key)
+    if not f:
+        return 'none'
+    d = str(((rules or {}).get(field_key) or {}).get('direction', 'none')).lower()
+    if d not in ('pco_to_tp', 'tp_to_pco'):
+        return 'none'
+    if d == 'pco_to_tp' and not f.get('pcoToTp'):
+        return 'none'
+    if d == 'tp_to_pco' and not f.get('tpToPco'):
+        return 'none'
+    if d == 'tp_to_pco' and not PCO_WRITE_ENABLED:
+        # The rule is allowed to be SAVED before the writer exists -- a site
+        # can configure ahead of time -- but it must not resolve to an
+        # action. A disabled dropdown is not a security boundary.
+        return 'none'
+    return d
+
+
+# ---------------------------------------------------------------------
+# Background checks: TouchPoint dbo.BackgroundChecks -> PCO BackgroundCheck
+# ---------------------------------------------------------------------
+# CORRECTION (2026-08-30): an earlier version of this read dbo.Volunteer.
+# That was wrong. dbo.Volunteer has PeopleId as its SOLE primary key, so it
+# holds one summary row per person and cannot express history at all.
+# dbo.BackgroundChecks is the real per-check table: ID is an IDENTITY key
+# and PeopleID repeats. Measured at FBCH: 8,800 checks across 5,355 people,
+# up to 8 for one person, spanning 2012-2026.
+#
+# That makes this collection -> collection, which is a much better fit for
+# PCO than the one-row model I first built.
+#
+# WHICH COLUMN CARRIES THE STATUS:
+#   ApprovalStatus (nvarchar) is the church's decision and the generic
+#   layer -- exactly four values in practice, matching
+#   lookup.BackGroundCheckApprovalCodes (10 Pending / 20 Approved /
+#   30 Not Approved / 40 Abandoned):
+#       Approved 8395 | Abandoned 364 | Not Approved 30 | Pending 11
+#   StatusID is the VENDOR's workflow state (3, 4, 50, 60, 70, 80, 90,
+#   100 all appear) with no lookup table anywhere in the schema, so it is
+#   provider-specific and deliberately not mapped.
+#
+# DATES: Created is submission, Updated is when it reached its current
+#   state. They are usually the same day but run up to 288 days apart on
+#   Approved rows, so Updated is the completion date.
+#
+# REPORT LINK: ReportLink holds the provider's report URL (Protect My
+#   Ministry at FBCH; 2,579 of 8,800 rows have one). PCO's report_url is
+#   documented as needing authentication, which such a link does.
+BACKGROUND_CHECK_APPROVAL_MAP = {
+    'approved':     'complete_clear',
+    'not approved': 'complete_not_clear',
+    'pending':      'report_processing',
+    'abandoned':    'canceled',
+}
+
+# Abandoned checks are started-and-dropped submissions, not outcomes.
+# There are 364 of them at FBCH; pushing each as a PCO 'canceled' record
+# buries the real history. Off by default, overridable per site.
+BACKGROUND_CHECK_SKIP_STATUSES = ('abandoned',)
+
+# Every check we create is stamped with its TouchPoint row id. That gives
+# dedupe an exact key instead of guessing from status-plus-date, which
+# matters here because re-runs on the same day are real -- person 2918 has
+# two checks both dated 2023-07-19.
+BACKGROUND_CHECK_TAG = 'TPBC'
+
+
+def background_check_status_map():
+    """ApprovalStatus (lowercased) -> PCO status. Overridable per site."""
+    m = dict(BACKGROUND_CHECK_APPROVAL_MAP)
+    try:
+        s = load_json(SETTINGS_KEY, {})
+        ov = (s or {}).get('backgroundCheckStatusMap')
+        if isinstance(ov, dict):
+            for k, v in ov.items():
+                m[safe_str(k).strip().lower()] = safe_str(v)
+    except Exception:
+        pass
+    return m
+
+
+# How long a check stays good. There is no right answer -- it is church
+# policy, and dbo.BackgroundChecks has no expiration column -- so it lives
+# in Settings.
+#
+# MONTHS, not days, because that is how the policy is written ("good for
+# two years") and because day arithmetic drifts across leap years:
+# 2026-03-14 + 730 days is 2028-03-13, a day early.
+#
+# 0 means leave expires_on blank and let PCO apply the ORGANIZATION's own
+# expiration policy, which is the safer default: PCO already has an answer
+# and guessing a different one here would silently override it.
+BACKGROUND_CHECK_VALIDITY_MONTHS_DEFAULT = 0
+
+
+def background_check_validity_months():
+    """Configured validity window in months, 0 when unset."""
+    try:
+        s = load_json(SETTINGS_KEY, {}) or {}
+        v = s.get('backgroundCheckValidityMonths')
+        if v in (None, ''):
+            return BACKGROUND_CHECK_VALIDITY_MONTHS_DEFAULT
+        n = int(v)
+        # A negative window would expire every check on creation.
+        return n if n > 0 else 0
+    except Exception:
+        return BACKGROUND_CHECK_VALIDITY_MONTHS_DEFAULT
+
+
+def background_checks_for_person(tp_people_id, limit=25):
+    """This person's TouchPoint background checks, newest first.
+
+    Ordered by Updated (the completion date) then ID, so same-day re-runs
+    still order deterministically."""
+    try:
+        pid = int(tp_people_id)
+    except Exception:
+        return []
+    sql = """
+        SELECT TOP %d
+               bc.ID, bc.PeopleID, bc.StatusID, bc.ApprovalStatus,
+               bc.Created, bc.Updated, bc.ReportLink, bc.IssueCount,
+               bc.ServiceCode
+        FROM dbo.BackgroundChecks bc WITH (NOLOCK)
+        WHERE bc.PeopleID = %d
+        ORDER BY bc.Updated DESC, bc.ID DESC
+    """ % (int(limit), pid)
+    out = []
+    try:
+        for r in q.QuerySql(sql):
+            out.append({
+                'id':        int(getattr(r, 'ID', 0) or 0),
+                'approval':  safe_str(getattr(r, 'ApprovalStatus', '') or '').strip(),
+                'statusId':  int(getattr(r, 'StatusID', 0) or 0),
+                'created':   _norm_date(getattr(r, 'Created', '') or ''),
+                'updated':   _norm_date(getattr(r, 'Updated', '') or ''),
+                'reportLink': safe_str(getattr(r, 'ReportLink', '') or '').strip(),
+                'issueCount': int(getattr(r, 'IssueCount', 0) or 0),
+                'serviceCode': safe_str(getattr(r, 'ServiceCode', '') or '').strip(),
+            })
+    except Exception:
+        return []
+    return out
+
+
+def background_check_skip_statuses():
+    try:
+        s = load_json(SETTINGS_KEY, {}) or {}
+        ov = s.get('backgroundCheckSkipStatuses')
+        if isinstance(ov, list):
+            return tuple(safe_str(x).strip().lower() for x in ov)
+    except Exception:
+        pass
+    return BACKGROUND_CHECK_SKIP_STATUSES
+
+
+def latest_background_check_for_person(tp_people_id):
+    """The check worth publishing: newest one that is an actual outcome.
+
+    LATEST ONLY, by decision (2026-08-30). TouchPoint keeps full history
+    and so does PCO, but TP -> PCO publishes just the current outcome:
+    backfilling FBCH's 8,800 checks would be thousands of POSTs against a
+    rate limit that already needs a 45-second retry budget, and PCO's
+    compliance surfaces (expiration, list conditions) only ever read the
+    current one. History stays in TouchPoint, which is where it is
+    maintained.
+
+    Abandoned submissions are skipped, so a dropped attempt last week does
+    not hide a clear check from last year."""
+    skip = background_check_skip_statuses()
+    for c in background_checks_for_person(tp_people_id):
+        if safe_str(c.get('approval', '')).strip().lower() in skip:
+            continue
+        return c
+    return None
+
+
+def _add_months_iso(iso_date, months):
+    """yyyy-mm-dd plus N calendar months, clamping to the end of a short
+    month (Jan 31 + 1 month = Feb 28, or 29 in a leap year). Returns '' on
+    anything unparseable."""
+    try:
+        y, m, d = [int(x) for x in iso_date.split('-')]
+        months = int(months)
+        total = (y * 12 + (m - 1)) + months
+        ny, nm = total // 12, (total % 12) + 1
+        if nm == 2:
+            leap = (ny % 4 == 0 and ny % 100 != 0) or (ny % 400 == 0)
+            last = 29 if leap else 28
+        elif nm in (4, 6, 9, 11):
+            last = 30
+        else:
+            last = 31
+        return '%04d-%02d-%02d' % (ny, nm, min(d, last))
+    except Exception:
+        return ''
+
+
+def _bgc_skip_sql_list():
+    """Quoted, escaped ApprovalStatus values to exclude, or '' if none."""
+    vals = []
+    for s_ in background_check_skip_statuses():
+        v = safe_str(s_).strip().lower().replace("'", "''")
+        if v:
+            vals.append("'" + v + "'")
+    return ','.join(vals)
+
+
+def latest_background_checks_for_people(people_ids):
+    """{tpPeopleId: latest publishable check} for many people in ONE query.
+
+    dbo.BackgroundChecks has no index on PeopleID -- the only index is the
+    clustered PK on ID -- so a per-person lookup scans the whole table each
+    time. At FBCH that is 8,800 rows x 156 linked people. One windowed pass
+    replaces all of it.
+
+    Abandoned rows are excluded BEFORE the ranking, so the newest genuine
+    outcome wins rather than being hidden by a dropped submission."""
+    ids = []
+    for p in (people_ids or []):
+        try:
+            n = int(p)
+            if n > 0:
+                ids.append(str(n))
+        except Exception:
+            continue
+    if not ids:
+        return {}
+    out = {}
+    skip = _bgc_skip_sql_list()
+    skip_clause = ('AND LOWER(ISNULL(bc.ApprovalStatus, %s)) NOT IN (%s)'
+                   % ("''", skip)) if skip else ''
+    # Chunked so the IN list stays sane on very large syncs.
+    for i in range(0, len(ids), 500):
+        chunk = ','.join(ids[i:i + 500])
+        sql = """
+            WITH ranked AS (
+                SELECT bc.ID, bc.PeopleID, bc.StatusID, bc.ApprovalStatus,
+                       bc.Created, bc.Updated, bc.ReportLink, bc.IssueCount,
+                       bc.ServiceCode,
+                       ROW_NUMBER() OVER (PARTITION BY bc.PeopleID
+                                          ORDER BY bc.Updated DESC, bc.ID DESC) AS rn
+                FROM dbo.BackgroundChecks bc WITH (NOLOCK)
+                WHERE bc.PeopleID IN (%s)
+                %s
+            )
+            SELECT * FROM ranked WHERE rn = 1
+        """ % (chunk, skip_clause)
+        try:
+            for r in q.QuerySql(sql):
+                pid = int(getattr(r, 'PeopleID', 0) or 0)
+                if not pid:
+                    continue
+                out[pid] = {
+                    'id':          int(getattr(r, 'ID', 0) or 0),
+                    'approval':    safe_str(getattr(r, 'ApprovalStatus', '') or '').strip(),
+                    'statusId':    int(getattr(r, 'StatusID', 0) or 0),
+                    'created':     _norm_date(getattr(r, 'Created', '') or ''),
+                    'updated':     _norm_date(getattr(r, 'Updated', '') or ''),
+                    'reportLink':  safe_str(getattr(r, 'ReportLink', '') or '').strip(),
+                    'issueCount':  int(getattr(r, 'IssueCount', 0) or 0),
+                    'serviceCode': safe_str(getattr(r, 'ServiceCode', '') or '').strip(),
+                }
+        except Exception:
+            continue
+    return out
+
+
+def background_check_pco_payload(c, validity_months=None):
+    """PCO BackgroundCheck attributes for one TouchPoint check, or None.
+
+    Returns None -- rather than a cleared check -- whenever TouchPoint has
+    nothing to assert. Absence of data is not evidence a check failed."""
+    if not c:
+        return None
+    approval = safe_str(c.get('approval', '')).strip().lower()
+    status = background_check_status_map().get(approval, '')
+    if not status:
+        return None
+    completed = safe_str(c.get('updated', '') or c.get('created', ''))
+    # A cleared check with no date is not something to publish as fact.
+    if status in ('complete_clear', 'complete_not_clear') and not completed:
+        return None
+
+    if validity_months is None:
+        validity_months = background_check_validity_months()
+    expires_on = ''
+    if completed and int(validity_months) > 0:
+        expires_on = _add_months_iso(completed, validity_months)
+
+    bits = ['%s:%d' % (BACKGROUND_CHECK_TAG, int(c.get('id', 0)))]
+    bits.append('Synced from TouchPoint')
+    if c.get('approval'):
+        bits.append('approval: ' + safe_str(c['approval']))
+    if c.get('serviceCode'):
+        bits.append('service: ' + safe_str(c['serviceCode']))
+    if int(c.get('issueCount', 0) or 0) > 0:
+        bits.append('issues: %d' % int(c['issueCount']))
+
+    out = {'status': status, 'note': ' | '.join(bits)}
+    if completed:
+        out['completed_at'] = completed
+    if expires_on:
+        out['expires_on'] = expires_on
+    if c.get('reportLink'):
+        out['report_url'] = safe_str(c['reportLink'])
+    return out
+
+
+# PCO-side states that belong to the provider's own workflow. A check
+# sitting in one of these is mid-flight on PCO's side; writing over it from
+# TouchPoint would stomp a live process.
+BACKGROUND_CHECK_PCO_OWNED = (
+    'awaiting_applicant', 'expired_invitation', 'report_processing', 'needs_review',
+)
+
+
+def _bgc_tp_id_in_note(note):
+    """The TouchPoint check id we stamped into a PCO note, or 0."""
+    m = re.search(BACKGROUND_CHECK_TAG + r':(\d+)', safe_str(note))
+    return int(m.group(1)) if m else 0
+
+
+def background_check_should_write(payload, pco_checks, tp_check_id=0):
+    """(should_write, reason).
+
+    Dedupe is by the TouchPoint row id stamped in the PCO note, not by
+    status-plus-date: same-day re-runs are real in this data, so a
+    value-based key would collapse two distinct checks into one."""
+    if not payload:
+        return False, 'TouchPoint has no background check worth publishing for this person.'
+    checks = pco_checks or []
+    if tp_check_id:
+        for c in checks:
+            if _bgc_tp_id_in_note(c.get('note', '')) == int(tp_check_id):
+                return False, ('TouchPoint check #%d is already in PCO.' % int(tp_check_id))
+    if not checks:
+        return True, 'No background check in PCO yet.'
+    latest = checks[0]
+    cur_status = safe_str(latest.get('status', '')).strip().lower()
+    if cur_status in BACKGROUND_CHECK_PCO_OWNED:
+        return False, ('PCO is mid-process on its latest check (%s). Leaving it alone '
+                       'so the sync does not stomp a live workflow.' % cur_status)
+    cur_completed = _norm_date(latest.get('completed_at', '') or '')
+    new_completed = _norm_date(payload.get('completed_at', ''))
+    if new_completed and cur_completed and new_completed < cur_completed:
+        return False, ('PCO already has a newer check (%s) than this TouchPoint one (%s).'
+                       % (cur_completed, new_completed))
+    if (cur_status == safe_str(payload.get('status', '')).strip().lower()
+            and cur_completed == new_completed):
+        return False, 'PCO already matches TouchPoint.'
+    return True, ('TouchPoint says %s/%s, PCO latest is %s/%s.'
+                  % (payload.get('status', ''), new_completed or '(no date)',
+                     cur_status or '(none)', cur_completed or '(no date)'))
+
+
+def _bgc_sort_key(attrs):
+    """Recency key for one PCO background check.
+
+    status_updated_at is the only recency field PCO will order by
+    server-side, so it leads here too and the fallbacks only matter for
+    records that predate it or came in through an import."""
+    return (
+        safe_str(attrs.get('status_updated_at', '') or ''),
+        safe_str(attrs.get('completed_at', '') or ''),
+        safe_str(attrs.get('expires_on', '') or ''),
+    )
+
+
+def pco_person_background_checks(pco_person_id):
+    """All of one person's PCO background checks, newest first.
+
+    Returns (list_of_dicts, error). Each dict is the PCO attributes plus
+    'id'. Ordered server-side by -status_updated_at, then re-sorted here
+    because PCO will not order by completed_at and older records can carry
+    a null status_updated_at."""
+    pid = safe_str(pco_person_id).strip()
+    if not pid:
+        return [], 'No PCO person id.'
+    path = ('/people/v2/people/' + pid + '/background_checks'
+            '?order=-status_updated_at&per_page=100')
+    data, err = pco_get(path)
+    if err:
+        return [], err
+    out = []
+    try:
+        for row in (data.get('data') or []):
+            attrs = dict(row.get('attributes') or {})
+            attrs['id'] = safe_str(row.get('id', ''))
+            out.append(attrs)
+    except Exception as e:
+        return [], 'Unexpected background_checks shape: ' + safe_str(e)
+    out.sort(key=_bgc_sort_key, reverse=True)
+    return out, None
+
+
+def pco_latest_background_check(checks):
+    """The check a new write would be duplicating: the most recent one,
+    regardless of whether it is still current.
+
+    Deliberately NOT the one flagged current. 'current' folds in the
+    organization's expiration policy, so an old cleared check that has
+    since expired reports current=false -- and comparing against nothing
+    would make us re-POST that same check every run, each copy resetting
+    the clock on a check that never actually happened again."""
+    return checks[0] if checks else None
+
+
+def pco_current_background_check(checks):
+    """The check PCO itself considers current, or None. Answers 'does this
+    person have a valid check' -- a different question from dedupe."""
+    for c in (checks or []):
+        if c.get('current') is True:
+            return c
+    return None
+
+
+def background_check_sync_decision(tp_people_id, pco_person_id, validity_months=None):
+    """Full read-side decision for one person, with no writes.
+
+    Returns a dict the preview and the writer both consume, so the dry run
+    and the real run cannot drift apart."""
+    out = {
+        'tpPeopleId': tp_people_id, 'pcoPersonId': safe_str(pco_person_id),
+        'write': False, 'reason': '', 'payload': None, 'tpCheckId': 0,
+        'tpCheckCount': 0, 'pcoCheckCount': 0,
+        'pcoLatest': None, 'pcoCurrent': None, 'error': '',
+    }
+    all_tp = background_checks_for_person(tp_people_id)
+    out['tpCheckCount'] = len(all_tp)
+    tp = latest_background_check_for_person(tp_people_id)
+    out['tpCheckId'] = int((tp or {}).get('id', 0))
+    payload = background_check_pco_payload(tp, validity_months)
+    out['payload'] = payload
+
+    checks, err = pco_person_background_checks(pco_person_id)
+    if err:
+        # A failed read must never look like "PCO has nothing", which would
+        # append a duplicate on every run. Same rule as removal_safety.
+        out['error'] = err
+        out['reason'] = ('Could not read the PCO background checks for this '
+                         'person, so nothing was written. ' + err)
+        return out
+    out['pcoCheckCount'] = len(checks)
+    out['pcoLatest'] = pco_latest_background_check(checks)
+    out['pcoCurrent'] = pco_current_background_check(checks)
+    write, reason = background_check_should_write(payload, checks, out['tpCheckId'])
+    out['write'] = write
+    out['reason'] = reason
+    return out
+
+
 
 def default_person_sync_rules():
     """Default = no syncing. TP is authoritative until the admin opts in."""
@@ -271,6 +1305,55 @@ PCO_PERSON_ID_FIELD = 'PCO_PersonId'  # Extra Value name on People
 
 # --- PCO API ---------------------------------------------------------
 PCO_BASE_URL = 'https://api.planningcenteronline.com'
+
+# PCO pins the API version PER REQUEST via the X-PCO-API-Version header, and
+# the "current" version differs per app -- People is on 2026-06-04 while
+# Services is still on 2018-11-01 -- so a single global constant would be
+# wrong for one of them. The version is chosen from the path prefix instead.
+#
+# Sending no header at all (the pre-1.0.4 behavior) means PCO serves the
+# ORGANIZATION's default version. That is invisible with one church and a
+# portability bug with several: identical code can get different attribute
+# shapes at different sites, with no way to tell from the response.
+#
+# Two traps behind these values:
+#   - A date with no matching version silently resolves to the nearest
+#     EARLIER version. No warning, no error, just older data.
+#   - 'LATEST' is explicitly not for production.
+#
+# Verified against the docs before pinning: every Person attribute this
+# script reads (first_name, last_name, name, birthdate, status,
+# email_address) still exists in People 2026-06-04.
+#
+# An unrecognized app falls back to '' -- no header, old behavior -- rather
+# than guessing a version for an endpoint we have not checked.
+PCO_API_VERSIONS = {
+    'people':   '2026-06-04',
+    'services': '2018-11-01',
+}
+
+
+def _pco_api_version_for(path):
+    """Pick the X-PCO-API-Version value for a request path.
+
+    Settings may override per app under 'apiVersions' so a site can pin a
+    different version without a code change. Returns '' when unknown."""
+    try:
+        app = str(path).lstrip('/').split('/')[0].lower()
+    except Exception:
+        return ''
+    if not app:
+        return ''
+    try:
+        s = load_json(SETTINGS_KEY, {})
+        if isinstance(s, dict):
+            ov = s.get('apiVersions')
+            if isinstance(ov, dict) and ov.get(app):
+                return str(ov.get(app)).strip()
+    except Exception:
+        pass
+    return PCO_API_VERSIONS.get(app, '')
+
 
 # =====================================================================
 # Latin-1 -> ASCII transliteration (CLAUDE.md pattern)
@@ -854,9 +1937,148 @@ def _pco_auth_header():
         encoded = base64.b64encode(raw)
     return 'Basic ' + str(encoded)
 
-def pco_get(path):
+# =====================================================================
+# REMOVAL SAFETY
+# =====================================================================
+# Mirroring drops out of PCO means deleting people from a TouchPoint
+# involvement. That is only safe when we are CERTAIN the PCO side was read
+# completely. Two ways it can be wrong:
+#
+#   1. The fetch errored. The pagination walk breaks on the first bad page
+#      and returns what it had, so a failure on page 3 of 200 makes ~19,700
+#      people look "no longer in PCO".
+#   2. The fetch returned nothing. A failed team lookup yields [], the scope
+#      set is empty, and EVERY linked member matches "not in PCO".
+#
+# Both produce a mass removal that looks like a successful sync. The rule
+# here is simple: additive work always proceeds, removals only run when the
+# PCO read is trustworthy. A skipped removal is a row that stays for another
+# day; a wrong removal is someone quietly dropped off a serving team.
+
+def removal_safety(fetch_errors, pco_scope_count, tp_linked_count):
+    """
+    Decide whether it is safe to mirror removals.
+
+    Returns (allowed, reason). reason is '' when allowed, otherwise a
+    sentence fit to show a user or put in the sync email.
+    """
+    errs = [e for e in (fetch_errors or []) if e]
+    if errs:
+        first = str(errs[0])
+        if len(first) > 160:
+            first = first[:160] + '...'
+        return False, ('PCO data was incomplete (%d fetch error%s), so nobody was '
+                       'removed from the involvement. First error: %s'
+                       % (len(errs), '' if len(errs) == 1 else 's', first))
+
+    # An empty PCO scope against a non-empty TouchPoint roster would remove
+    # everyone. That is occasionally legitimate (a team really was emptied),
+    # but it is far more often a failed read, so it needs a deliberate action
+    # rather than happening as a side effect of a routine sync.
+    if tp_linked_count > 0 and pco_scope_count == 0:
+        return False, ('PCO returned no people at all while TouchPoint has %d linked '
+                       'member%s. Nobody was removed. If the team really is empty in '
+                       'PCO, remove them in TouchPoint directly.'
+                       % (tp_linked_count, '' if tp_linked_count == 1 else 's'))
+
+    return True, ''
+
+
+# How hard to try when PCO rate-limits us. PCO's limit resets on a short
+# window, so a couple of spaced retries clears it; more than this and we are
+# just holding a TouchPoint request open. Total worst-case added wait is the
+# sum of these, so keep it well under the page timeout.
+PCO_RETRY_WAITS = [3, 7, 12]
+
+# Ceiling on time spent WAITING across the whole request. A people walk is up
+# to 200 sequential calls; if each one burned its full retry allowance the page
+# would hang for over an hour. Once this budget is gone we stop sleeping and
+# report the read as incomplete, which the removal guard already treats as
+# "do not drop anyone".
+PCO_RETRY_BUDGET_SECONDS = 45
+_PCO_RETRY_SPENT = [0]          # list so nested functions can mutate it
+
+
+def _pco_retry_budget_left():
+    return max(0, _PCO_RETRY_BUDGET[0] - _PCO_RETRY_SPENT[0])
+
+
+_PCO_RETRY_BUDGET = [PCO_RETRY_BUDGET_SECONDS]
+
+
+def reset_pco_retry_budget(budget_seconds=None):
+    """Call at the start of a sync run so budgets do not leak between requests.
+
+    budget_seconds raises the ceiling for bulk work. A per-mapping roster
+    sync is a handful of calls and 45s is plenty; a person-by-person sweep
+    is one call per person, which crosses PCO's short-window limit on any
+    real roster and needs room to wait it out."""
+    _PCO_RETRY_SPENT[0] = 0
+    _PCO_RETRY_BUDGET[0] = int(budget_seconds or PCO_RETRY_BUDGET_SECONDS)
+
+
+# Sentinel for "PCO returned an error we could not classify". Truthy on
+# purpose: every caller tests `if code:`, and a failure that tests false is
+# a failure that gets mistaken for data.
+PCO_ERROR_UNKNOWN = -1
+
+
+def _pco_error_from_body(parsed):
+    """
+    Pull a JSON:API error out of a parsed PCO response.
+
+    model.RestGet returns response.Content and DISCARDS the status code
+    (verified in bvcms PythonModel.Misc.cs: RestSharp's Execute does not throw
+    on non-2xx). So a 429 or 401 arrives as a perfectly valid JSON body and
+    json.loads succeeds. Without this check the caller sees a dict with no
+    'data' key, reads it as "PCO has nobody", and a sync mirrors that emptiness
+    onto the TouchPoint roster.
+
+    Returns (status_code_int_or_0, message) or (0, '') when the body is fine.
+    """
+    if not isinstance(parsed, dict):
+        return 0, ''
+    errs = parsed.get('errors')
+    if not errs or not isinstance(errs, (list, tuple)):
+        return 0, ''
+    first = errs[0] if errs else {}
+    if not isinstance(first, dict):
+        return 0, str(first)[:200]
+    # PCO does not always spell the status the same way. Read 'status',
+    # fall back to 'code', and if NEITHER parses, still report an error --
+    # returning 0 here made callers read `if code:` as false and treat a
+    # failure as a success, which is how a rate-limited read turned into
+    # "PCO returned no person record". An error envelope is an error even
+    # when we cannot classify it.
+    code = 0
+    for k in ('status', 'code'):
+        raw = first.get(k, None)
+        if raw in (None, ''):
+            continue
+        try:
+            code = int(str(raw).strip())
+            break
+        except (TypeError, ValueError):
+            continue
+    title = safe_str(first.get('title', '') or '')
+    detail = safe_str(first.get('detail', '') or '')
+    msg = (title + (': ' + detail if detail else '')).strip(': ')
+    if not msg:
+        msg = safe_str(str(first)[:200])
+    if not code:
+        # Unclassifiable, but still a failure. PCO_ERROR_UNKNOWN is truthy
+        # so every `if code:` guard fires.
+        return PCO_ERROR_UNKNOWN, msg
+    return code, msg
+
+
+def pco_get(path, _attempt=0):
     """GET a path from the PCO API. Returns (parsed_json, error_message).
-    error_message is None on success."""
+    error_message is None on success.
+
+    Retries on 429 (rate limited). PCO limits requests per short window, and a
+    full people walk is 200 sequential calls, so hitting it is normal rather
+    than exceptional."""
     auth = _pco_auth_header()
     if not auth:
         return None, 'PCO credentials not configured. Open Settings tab and enter your Personal Access Token.'
@@ -865,15 +2087,557 @@ def pco_get(path):
     url = PCO_BASE_URL + path
     try:
         headers = {'Authorization': auth, 'Accept': 'application/json'}
+        _ver = _pco_api_version_for(path)
+        if _ver:
+            headers['X-PCO-API-Version'] = _ver
         body = model.RestGet(url, headers)
         if body is None:
             return None, 'PCO API returned no body for ' + path
         try:
-            return json.loads(str(body)), None
+            parsed = json.loads(str(body))
         except Exception as je:
             return None, 'PCO API returned non-JSON for ' + path + ': ' + str(je)
+
+        code, msg = _pco_error_from_body(parsed)
+        if code == 0 and isinstance(parsed, dict) and 'data' not in parsed \
+                and 'meta' not in parsed and 'errors' not in parsed:
+            # A body we do not recognize. Every real PCO response carries
+            # data or meta, so this is an error we have not learned to parse
+            # yet -- and the one thing it must NOT become is an empty result.
+            # That is how a read failure turns into "the far side has
+            # nothing", which is the same defect that once emptied rosters.
+            return None, ('PCO returned an unrecognized response for ' + path
+                          + ' (no data, meta or errors). First 200 chars: '
+                          + safe_str(str(body)[:200]))
+        if code == 429:
+            wait = PCO_RETRY_WAITS[_attempt] if _attempt < len(PCO_RETRY_WAITS) else 0
+            if wait and wait <= _pco_retry_budget_left():
+                _PCO_RETRY_SPENT[0] += wait
+                try:
+                    import time as _t
+                    _t.sleep(wait)
+                except Exception:
+                    pass
+                return pco_get(path, _attempt + 1)
+            if wait:
+                return None, ('PCO rate limit reached and the retry budget for this '
+                              'run is exhausted (%ds). This read is incomplete: %s'
+                              % (_PCO_RETRY_BUDGET[0], msg))
+            return None, ('PCO rate limit reached and still limited after %d retries. '
+                          'This read is incomplete: %s' % (len(PCO_RETRY_WAITS), msg))
+        if code:
+            return None, 'PCO API error %d for %s: %s' % (code, path, msg)
+
+        return parsed, None
     except Exception as e:
         return None, 'PCO API call failed (' + path + '): ' + str(e)
+
+# =====================================================================
+# TP -> PCO WRITE EXECUTOR
+# =====================================================================
+# Everything here is plan-then-execute. plan_tp_to_pco_for_person() does
+# the reads and decides; execute_tp_to_pco_plan() does the writes. The dry
+# run is the SAME plan with apply=False, so the preview and the real run
+# cannot describe different things -- the failure mode where a preview
+# says one thing and the run does another is the one that destroys trust
+# in a sync tool.
+#
+# Standing hazards this code is written against:
+#   1. model.Rest* DISCARDS the HTTP status code (verified in bvcms
+#      PythonModel.Misc.cs). A 403 comes back as a JSON body, not an
+#      exception. Success is therefore never assumed -- it is read back.
+#   2. TouchPoint has no PATCH. Updates go out as POST carrying
+#      X-HTTP-Method-Override: PATCH, which PCO honors (probed
+#      2026-08-30) but does not document. Undocumented means verify.
+#   3. An empty TouchPoint value is missing data, not an instruction to
+#      erase the PCO value. Blanks never propagate.
+
+# JSON:API resource type per vertex. Confirmed against a live response:
+# the probe returned {"data":{"type":"Person",...}}.
+PCO_RESOURCE_TYPES = {
+    'people': 'Person', 'emails': 'Email', 'phone_numbers': 'PhoneNumber',
+    'addresses': 'Address', 'background_checks': 'BackgroundCheck',
+}
+
+
+def _pco_write_headers(path, override=None):
+    auth = _pco_auth_header()
+    if not auth:
+        return None
+    h = {'Authorization': auth, 'Accept': 'application/json',
+         'Content-Type': 'application/json'}
+    ver = _pco_api_version_for(path)
+    if ver:
+        h['X-PCO-API-Version'] = ver
+    if override:
+        h['X-HTTP-Method-Override'] = override
+    return h
+
+
+def pco_write(path, resource_type, attributes, resource_id=None, override=None):
+    """POST a JSON:API document to PCO. Returns (data_or_None, error).
+
+    override='PATCH' turns this into an update. There is no RestPatch in
+    TouchPoint, so that header is the only route to one."""
+    headers = _pco_write_headers(path, override)
+    if headers is None:
+        return None, 'PCO credentials not configured.'
+    doc = {'data': {'type': resource_type, 'attributes': attributes or {}}}
+    if resource_id:
+        doc['data']['id'] = safe_str(resource_id)
+    try:
+        body = json.dumps(doc)
+    except Exception as e:
+        return None, 'Could not encode the request body: ' + safe_str(e)
+    try:
+        raw = model.RestPost(PCO_BASE_URL + path, headers, body)
+    except Exception as e:
+        return None, 'PCO write threw: ' + safe_str(e)
+    if raw is None:
+        return None, 'PCO returned no body for ' + path
+    try:
+        parsed = json.loads(str(raw))
+    except Exception:
+        # Almost always an HTML error page. Status is unavailable to us, so
+        # the body is the only evidence there is.
+        return None, ('PCO returned a non-JSON response for ' + path
+                      + ' (first 200 chars): ' + safe_str(str(raw)[:200]))
+    code, msg = _pco_error_from_body(parsed)
+    if code:
+        return None, 'PCO API error %d for %s: %s' % (code, path, safe_str(msg))
+    return parsed, None
+
+
+def pco_person_children(pco_person_id, child):
+    """One person's child resources (emails / phone_numbers / addresses).
+    Returns (list, error); each entry is its attributes plus 'id'."""
+    pid = safe_str(pco_person_id).strip()
+    if not pid:
+        return [], 'No PCO person id.'
+    data, err = pco_get('/people/v2/people/%s/%s?per_page=100' % (pid, child))
+    if err:
+        return [], err
+    out = []
+    try:
+        for row in (data.get('data') or []):
+            attrs = dict(row.get('attributes') or {})
+            attrs['id'] = safe_str(row.get('id', ''))
+            out.append(attrs)
+    except Exception as e:
+        return [], 'Unexpected %s shape: %s' % (child, safe_str(e))
+    return out, None
+
+
+def pco_match_child_for_field(children, field):
+    """Which existing child a field owns, or None to create a new one.
+
+    Phones are matched on location, because a person legitimately has
+    several and overwriting the wrong one is silent corruption. Emails and
+    addresses match the primary."""
+    want_loc = safe_str(field.get('pcoLocation', '')).strip().lower()
+    if want_loc:
+        for c in children:
+            if safe_str(c.get('location', '')).strip().lower() == want_loc:
+                return c
+        return None
+    for c in children:
+        if c.get('primary') is True:
+            return c
+    return children[0] if children else None
+
+
+def name_relationship(a, b):
+    """How two names relate: 'same' | 'variant' | 'initials' | 'unrelated'.
+
+    A goes-by name is almost always derived from the legal one -- Will from
+    William, Ben from Benjamin, Angela from Elisangela. When two names share
+    NOTHING, the likeliest explanation is not that someone goes by an
+    unrelated name; it is that the two records are different people and the
+    link is wrong.
+
+    This does not block anything. It flags the row so a human looks before a
+    name gets overwritten on the strength of a bad match."""
+    x = safe_str(a).strip().lower()
+    y = safe_str(b).strip().lower()
+    if not x or not y:
+        return 'unrelated'
+    if x == y:
+        return 'same'
+    # Compare first tokens too, so "Jonah Thomas" vs "Jonah" reads as a
+    # variant rather than a mismatch.
+    xf, yf = x.split(' ')[0], y.split(' ')[0]
+    for p, q in ((x, y), (xf, yf), (x, yf), (xf, y)):
+        if not p or not q:
+            continue
+        if p == q or p.startswith(q) or q.startswith(p) or p in q or q in p:
+            return 'variant'
+    # Initialisms: CJ for Christopher James, TJ, JD. Same first letter and
+    # one side very short -- plausible, but worth a look.
+    if xf[0] == yf[0] and (len(xf) <= 3 or len(yf) <= 3):
+        return 'initials'
+    return 'unrelated'
+
+
+def _plan_item(field, action, reason, **kw):
+    d = {'field': field.get('key', ''), 'label': field.get('label', ''),
+         'kind': field.get('kind', 'field'), 'action': action, 'detail': '',
+         'warn': False,
+         'reason': reason, 'willWrite': action not in ('skip',),
+         'tpValue': '', 'pcoValue': '', 'path': '', 'resourceType': '',
+         'resourceId': '', 'override': None, 'attributes': None}
+    d.update(kw)
+    return d
+
+
+def _tp_outbound_value(tp_people_id, field):
+    """The TouchPoint value to send, already in PCO's shape."""
+    key = field['key']
+    if key == 'address':
+        return person_household_address(tp_people_id)
+    try:
+        person = model.GetPerson(int(tp_people_id))
+    except Exception:
+        person = None
+    if not person:
+        return ''
+    return person_value_tp_to_pco(key, _tp_person_field(person, field['tpField']))
+
+
+def pco_run_capabilities():
+    """What this token can actually do, checked ONCE per run.
+
+    Background checks are permission-gated in PCO and a PAT inherits the
+    permissions of the user who created it, so a token can read People
+    perfectly well and still be refused every background check. That
+    refusal is dangerous rather than merely annoying: dedupe works by
+    reading the checks already in PCO, so a denied read makes every person
+    look like they have none, and the writer would happily create a
+    duplicate for someone who already has a check it could not see.
+
+    One probe, and if it is denied we do not write background checks at
+    all this run."""
+    caps = {'backgroundChecks': True, 'backgroundChecksReason': ''}
+    data, err = pco_get('/people/v2/background_checks?per_page=1')
+    if err:
+        low = err.lower()
+        if '403' in err or 'forbidden' in low or 'not have access' in low:
+            caps['backgroundChecks'] = False
+            caps['backgroundChecksReason'] = (
+                'PCO denied access to background checks (403), so we cannot see '
+                'what is already there. Writing blind would create duplicates for '
+                'people who already have a check. Grant background check access to '
+                'the PCO user whose token this is, then re-run.')
+        else:
+            caps['backgroundChecks'] = False
+            caps['backgroundChecksReason'] = (
+                'Could not read background checks from PCO, so dedupe would be '
+                'blind. Nothing was written. ' + err)
+    return caps
+
+
+def plan_tp_to_pco_for_person(tp_people_id, pco_person_id, rules=None, caps=None):
+    """Everything that WOULD be written for one person. No writes.
+
+    This is the dry run. execute_tp_to_pco_plan() consumes exactly this."""
+    if rules is None:
+        rules = normalize_person_sync_rules(load_json(PERSON_SYNC_RULES_KEY, {}))
+    plan = {'tpPeopleId': tp_people_id, 'pcoPersonId': safe_str(pco_person_id),
+            'items': [], 'errors': []}
+    child_cache = {}
+    # One person read per plan, not one per attribute field. With gender,
+    # birthdate and first name all outbound this was three identical GETs
+    # per person -- and PCO rate limits per short window, so wasted reads
+    # are what pushes a run over the edge.
+    person_cache = {}
+
+    for field in PERSON_SYNC_FIELDS:
+        key = field['key']
+        if person_field_direction(rules, key) != 'tp_to_pco':
+            continue
+
+        if person_write_is_stuck(tp_people_id, key):
+            plan['items'].append(_plan_item(
+                field, 'skip',
+                'Skipped: this field is stuck. We wrote it and PCO kept reporting '
+                'something else, which means the comparator disagrees with how PCO '
+                'stores it. Fix that rather than retrying.'))
+            continue
+
+        # ---- background check: its own executor, its own dedupe ----------
+        if field.get('kind') == 'record' and key == 'background_check':
+            if caps is not None and not caps.get('backgroundChecks', True):
+                plan['items'].append(_plan_item(
+                    field, 'skip', caps.get('backgroundChecksReason', 'Unavailable.')))
+                continue
+            dec = background_check_sync_decision(tp_people_id, pco_person_id)
+            if dec.get('error'):
+                plan['errors'].append(dec['error'])
+                plan['items'].append(_plan_item(field, 'skip', dec['reason']))
+                continue
+            if not dec.get('write'):
+                plan['items'].append(_plan_item(
+                    field, 'skip', dec['reason'],
+                    tpValue=safe_str((dec.get('payload') or {}).get('status', ''))))
+                continue
+            # A background check is a compliance record, not a single value.
+            # Show the dates and the report link in the preview -- "what
+            # exactly am I about to publish" has to be answerable BEFORE the
+            # write, not by reading it back out of PCO afterwards.
+            _p = dec['payload']
+            _detail = 'status: ' + safe_str(_p.get('status', ''))
+            _detail += ' | completed: ' + (safe_str(_p.get('completed_at', '')) or '(none)')
+            _detail += ' | expires: ' + (safe_str(_p.get('expires_on', ''))
+                                         or '(unset -- PCO applies its own policy)')
+            if _p.get('report_url'):
+                _detail += ' | report link included'
+            plan['items'].append(_plan_item(
+                field, 'create_background_check', dec['reason'],
+                detail=_detail,
+                tpValue=safe_str(dec['payload'].get('status', '')),
+                pcoValue=safe_str((dec.get('pcoLatest') or {}).get('status', '')),
+                path='/people/v2/people/%s/background_checks' % safe_str(pco_person_id),
+                resourceType='BackgroundCheck', attributes=dec['payload']))
+            continue
+
+        tp_val = _tp_outbound_value(tp_people_id, field)
+        # Blank means missing, not "erase it". Never propagate.
+        if not tp_val:
+            plan['items'].append(_plan_item(
+                field, 'skip',
+                'TouchPoint has no value for this field. Blanks are treated as '
+                'missing data, never as an instruction to clear PCO.'))
+            continue
+
+        # ---- Person attribute: needs PATCH ------------------------------
+        if field.get('pcoKind') == 'attribute':
+            if 'person' not in person_cache:
+                person_cache['person'] = pco_get('/people/v2/people/%s'
+                                                 % safe_str(pco_person_id))
+            cur, err = person_cache['person']
+            if err:
+                plan['errors'].append(err)
+                plan['items'].append(_plan_item(field, 'skip',
+                                                'Could not read the PCO person: ' + err))
+                continue
+            # Defence in depth. Even if a future response shape slips past
+            # pco_get, a person GET with no data block is a failed read --
+            # NOT a person whose every attribute is blank. Planning a write
+            # off that would mass-overwrite PCO with TouchPoint values.
+            attrs_block = None
+            try:
+                attrs_block = (cur or {}).get('data')
+            except Exception:
+                attrs_block = None
+            if not attrs_block:
+                msg = ('PCO returned no person record for id '
+                       + safe_str(pco_person_id) + '. Treating as a failed read, '
+                       'not as an empty person.')
+                plan['errors'].append(msg)
+                plan['items'].append(_plan_item(field, 'skip', msg))
+                continue
+            pco_val = ''
+            try:
+                pco_val = safe_str((attrs_block.get('attributes') or {})
+                                   .get(field['pcoAttr'], ''))
+            except Exception:
+                pco_val = ''
+            if person_field_norm(key, tp_val) == person_field_norm(key, pco_val):
+                plan['items'].append(_plan_item(field, 'skip', 'PCO already matches.',
+                                                tpValue=safe_str(tp_val), pcoValue=pco_val))
+                continue
+            _warn = ''
+            if field.get('norm') == 'text' and key in ('first_name', 'last_name'):
+                _rel = name_relationship(tp_val, pco_val)
+                if _rel == 'unrelated':
+                    _warn = ('These two names are not variants of each other, which '
+                             'usually means the PCO link points at a different person '
+                             'rather than that they go by an unrelated name. Verify '
+                             'the match before writing.')
+                elif _rel == 'initials':
+                    _warn = ('Looks like an initialism. Probably fine, but worth a '
+                             'glance before overwriting a name.')
+            plan['items'].append(_plan_item(
+                field, 'patch_person',
+                'PCO differs from TouchPoint.' + (' ' + _warn if _warn else ''),
+                detail=_warn, warn=bool(_warn),
+                tpValue=safe_str(tp_val), pcoValue=pco_val,
+                path='/people/v2/people/%s' % safe_str(pco_person_id),
+                resourceType='Person', resourceId=safe_str(pco_person_id),
+                override='PATCH', attributes={field['pcoAttr']: tp_val}))
+            continue
+
+        # ---- child resource: create or update ---------------------------
+        child = field.get('pcoChild', '')
+        if child not in child_cache:
+            kids, err = pco_person_children(pco_person_id, child)
+            child_cache[child] = (kids, err)
+        kids, err = child_cache[child]
+        if err:
+            plan['errors'].append(err)
+            plan['items'].append(_plan_item(field, 'skip',
+                                            'Could not read PCO %s: %s' % (child, err)))
+            continue
+
+        existing = pco_match_child_for_field(kids, field)
+        rtype = PCO_RESOURCE_TYPES.get(child, 'Unknown')
+
+        if key == 'address':
+            attrs = person_address_pco_payload(tp_val)
+            cmp_new = person_field_norm(key, tp_val)
+            cmp_old = person_field_norm(key, existing) if existing else ''
+            show_new = safe_str(attrs.get('street_line_1', '')) if attrs else ''
+            show_old = safe_str((existing or {}).get('street_line_1', ''))
+        else:
+            attrs = {field['pcoAttr']: tp_val}
+            if field.get('pcoLocation'):
+                attrs['location'] = field['pcoLocation']
+            if not existing:
+                attrs['primary'] = True
+            cmp_new = person_field_norm(key, tp_val)
+            cmp_old = person_field_norm(key, (existing or {}).get(field['pcoAttr'], ''))
+            show_new, show_old = safe_str(tp_val), safe_str(cmp_old)
+
+        if existing and cmp_new == cmp_old:
+            plan['items'].append(_plan_item(field, 'skip', 'PCO already matches.',
+                                            tpValue=show_new, pcoValue=show_old))
+            continue
+
+        if existing:
+            plan['items'].append(_plan_item(
+                field, 'patch_child', 'PCO differs from TouchPoint.',
+                tpValue=show_new, pcoValue=show_old,
+                path='/people/v2/%s/%s' % (child, existing['id']),
+                resourceType=rtype, resourceId=existing['id'],
+                override='PATCH', attributes=attrs))
+        else:
+            plan['items'].append(_plan_item(
+                field, 'create_child', 'PCO has no %s for this person yet.' % field['label'],
+                tpValue=show_new, pcoValue='',
+                path='/people/v2/people/%s/%s' % (safe_str(pco_person_id), child),
+                resourceType=rtype, attributes=attrs))
+
+    return plan
+
+
+def _verify_written(item, tp_people_id, pco_person_id):
+    """Read the value back. Returns (observed, ok, note).
+
+    Never trusts the write response: the status code is unavailable and an
+    undocumented override header is doing the work."""
+    field = person_field_by_key(item['field'])
+    if not field:
+        return '', True, 'No field definition to verify against.'
+    key = field['key']
+    if key == 'background_check':
+        checks, err = pco_person_background_checks(pco_person_id)
+        if err:
+            return '', False, 'Could not verify: ' + err
+        want = _bgc_tp_id_in_note((item.get('attributes') or {}).get('note', ''))
+        for c in checks:
+            if want and _bgc_tp_id_in_note(c.get('note', '')) == want:
+                return safe_str(c.get('status', '')), True, 'Found in PCO.'
+        return '', False, 'The new check did not come back from PCO.'
+    if field.get('pcoKind') == 'attribute':
+        cur, err = pco_get('/people/v2/people/%s' % safe_str(pco_person_id))
+        if err:
+            return '', False, 'Could not verify: ' + err
+        try:
+            v = safe_str(((cur.get('data') or {}).get('attributes') or {})
+                         .get(field['pcoAttr'], ''))
+        except Exception:
+            v = ''
+        return v, True, ''
+    kids, err = pco_person_children(pco_person_id, field.get('pcoChild', ''))
+    if err:
+        return '', False, 'Could not verify: ' + err
+    match = pco_match_child_for_field(kids, field)
+    if not match:
+        return '', False, 'Nothing came back from PCO to verify against.'
+    if key == 'address':
+        return match, True, ''
+    return safe_str(match.get(field['pcoAttr'], '')), True, ''
+
+
+def execute_tp_to_pco_plan(plan, apply=False):
+    """Run a plan. apply=False is the dry run and touches nothing.
+
+    Every write is followed by a read-back. Agreement clears the field's
+    churn history; disagreement counts toward the limit and eventually
+    marks it stuck, so a comparator that disagrees with PCO stops writing
+    instead of writing forever."""
+    res = {'applied': bool(apply), 'written': 0, 'skipped': 0, 'failed': 0,
+           'stuck': 0, 'items': [], 'errors': list(plan.get('errors') or [])}
+    tp_id, pco_id = plan.get('tpPeopleId'), plan.get('pcoPersonId')
+
+    for item in plan.get('items') or []:
+        out = dict(item)
+        if not item.get('willWrite'):
+            res['skipped'] += 1
+            out['result'] = 'skipped'
+            res['items'].append(out)
+            continue
+        if not apply:
+            out['result'] = 'would_write'
+            res['items'].append(out)
+            continue
+        if not PCO_WRITE_ENABLED:
+            out['result'] = 'blocked'
+            out['reason'] = 'TP -> PCO writing is disabled (PCO_WRITE_ENABLED).'
+            res['skipped'] += 1
+            res['items'].append(out)
+            continue
+
+        data, err = pco_write(item['path'], item['resourceType'], item['attributes'],
+                              resource_id=item.get('resourceId') or None,
+                              override=item.get('override'))
+        if err:
+            res['failed'] += 1
+            out['result'] = 'failed'
+            out['error'] = err
+            res['errors'].append('%s: %s' % (item['label'], err))
+            append_audit({'action': 'pco_write_failed', 'tpPeopleId': tp_id,
+                          'pcoPersonId': pco_id, 'field': item['field'],
+                          'path': item['path'], 'error': err})
+            res['items'].append(out)
+            continue
+
+        observed, ok, note = _verify_written(item, tp_id, pco_id)
+        if not ok:
+            res['failed'] += 1
+            out['result'] = 'unverified'
+            out['error'] = note
+            res['errors'].append('%s: %s' % (item['label'], note))
+            append_audit({'action': 'pco_write_unverified', 'tpPeopleId': tp_id,
+                          'pcoPersonId': pco_id, 'field': item['field'], 'note': note})
+            res['items'].append(out)
+            continue
+
+        sent = item['tpValue']
+        if item['field'] == 'address':
+            sent = person_household_address(tp_id)
+        elif item['field'] == 'background_check':
+            sent = (item.get('attributes') or {}).get('status', '')
+        agreed, stuck_now = person_write_record_result(tp_id, item['field'], sent, observed)
+        out['observed'] = observed if not isinstance(observed, dict) else \
+            safe_str(observed.get('street_line_1', ''))
+        if agreed:
+            res['written'] += 1
+            out['result'] = 'written'
+        else:
+            res['written'] += 1
+            out['result'] = 'written_mismatch'
+            out['error'] = ('PCO stored something different from what we sent. '
+                            + ('Marked stuck; it will not be retried.' if stuck_now
+                               else 'Counted toward the stuck limit.'))
+            if stuck_now:
+                res['stuck'] += 1
+        append_audit({'action': 'pco_write', 'tpPeopleId': tp_id, 'pcoPersonId': pco_id,
+                      'field': item['field'], 'path': item['path'],
+                      'sent': safe_str(sent), 'observed': safe_str(out.get('observed', '')),
+                      'agreed': bool(agreed),
+                      'by': safe_str(model.UserName) if hasattr(model, 'UserName') else ''})
+        res['items'].append(out)
+    return res
 
 # =====================================================================
 # AJAX HANDLERS (POST)
@@ -881,6 +2645,668 @@ def pco_get(path):
 # Each action is a small isolated handler. Per-tab actions are grouped
 # together for grep-ability. Most return JSON; the response shape is
 # {success: bool, message?: str, ...}.
+
+# =====================================================================
+# DIAGNOSTICS
+# =====================================================================
+# A support surface. This script now runs at sites we cannot log into, so
+# "the sync isn't working" has to be answerable from a block of text an
+# admin can paste to us. Every check here is READ-ONLY. The one probe that
+# writes (handle_test_pco_write_probe) is a separate, opt-in action.
+
+DIAG_OK, DIAG_WARN, DIAG_FAIL, DIAG_INFO = 'ok', 'warn', 'fail', 'info'
+
+
+def _diag(name, status, detail):
+    return {'name': safe_str(name), 'status': status, 'detail': safe_str(detail)}
+
+
+def _diag_pco_probe(label, path, denied_hint=''):
+    """GET a PCO path and classify the outcome. Used for scope probes where
+    a 403 is a meaningful answer ('token cannot see this') rather than an
+    outage. denied_hint says how to FIX a 403 -- a bare 'Forbidden' sends
+    an admin hunting, and every site will hit these same two or three."""
+    data, err = pco_get(path)
+    if err:
+        low = err.lower()
+        if '403' in err or 'forbidden' in low or 'not have access' in low:
+            msg = ('Token reached PCO but was denied. A Personal Access Token '
+                   'inherits the permissions of the PCO user who created it, so '
+                   'this is a permission on that user, not a bad token.')
+            if denied_hint:
+                msg += ' ' + denied_hint
+            return _diag(label, DIAG_WARN, msg + ' ' + err)
+        if '401' in err or 'unauthorized' in low:
+            return _diag(label, DIAG_FAIL, 'Authentication rejected. ' + err)
+        if '404' in err:
+            return _diag(label, DIAG_WARN,
+                         'Endpoint not found on this account (app may not be '
+                         'enabled). ' + err)
+        return _diag(label, DIAG_FAIL, err)
+    if isinstance(data, dict) and ('data' in data or 'meta' in data):
+        n = None
+        try:
+            meta = data.get('meta') or {}
+            n = meta.get('total_count')
+        except Exception:
+            n = None
+        detail = 'Reachable.'
+        if n is not None:
+            detail += ' total_count=' + str(n)
+        return _diag(label, DIAG_OK, detail)
+    return _diag(label, DIAG_WARN, 'Unexpected response shape.')
+
+
+def handle_run_diagnostics():
+    """Read-only health battery for support."""
+    checks = []
+    try:
+        # ---- environment -------------------------------------------------
+        checks.append(_diag('Script version', DIAG_INFO, 'PCO Sync v' + APP_VERSION))
+        try:
+            checks.append(_diag('TouchPoint host', DIAG_INFO,
+                                str(getattr(model, 'CmsHost', '') or '(unknown)')))
+        except Exception:
+            checks.append(_diag('TouchPoint host', DIAG_INFO, '(unavailable)'))
+
+        # ---- credentials -------------------------------------------------
+        app_id, secret = _get_pco_credentials()
+        if not app_id or not secret:
+            checks.append(_diag('PCO credentials', DIAG_FAIL,
+                                'Not configured. Enter the PCO Application ID and '
+                                'Secret above, then Test Connection.'))
+        else:
+            checks.append(_diag('PCO credentials', DIAG_OK,
+                                'Configured (App ID ends ...' + safe_str(app_id[-4:]) + ').'))
+
+            # ---- API versions actually being sent ------------------------
+            vbits = []
+            for app in sorted(PCO_API_VERSIONS.keys()):
+                vbits.append(app + '=' + (_pco_api_version_for('/' + app + '/v2/x') or '(none)'))
+            checks.append(_diag('API version pinned', DIAG_INFO, ', '.join(vbits)))
+
+            # ---- reachability + scope probes -----------------------------
+            checks.append(_diag_pco_probe('PCO Services access',
+                                          '/services/v2/service_types?per_page=1'))
+            checks.append(_diag_pco_probe('PCO People access',
+                                          '/people/v2/people?per_page=1'))
+            # Relevant to background-check write-back; a warn here is the
+            # expected answer when the PAT lacks the scope.
+            checks.append(_diag_pco_probe(
+                'PCO Background Checks access',
+                '/people/v2/background_checks?per_page=1',
+                denied_hint=('Background check access is delegated explicitly in PCO: '
+                             'an Organization Administrator has it by default and can '
+                             'grant it to a person or a permission group. Grant it to '
+                             'the user whose token this is. Only needed if you plan to '
+                             'sync background checks.')))
+
+        # ---- TouchPoint side: linked people -----------------------------
+        try:
+            sql = ("""
+                SELECT COUNT(*) AS N
+                FROM PeopleExtra WITH (NOLOCK)
+                WHERE Field = '%s'
+                  AND COALESCE(NULLIF(Data, ''), StrValue, '') <> ''
+            """ % PCO_PERSON_ID_FIELD)
+            n = 0
+            for r in q.QuerySql(sql):
+                n = int(getattr(r, 'N', 0) or 0)
+            if n:
+                checks.append(_diag('People linked to PCO', DIAG_OK,
+                                    str(n) + ' TouchPoint people carry a '
+                                    + PCO_PERSON_ID_FIELD + ' value.'))
+            else:
+                checks.append(_diag('People linked to PCO', DIAG_WARN,
+                                    'No TouchPoint person carries a ' + PCO_PERSON_ID_FIELD
+                                    + ' value yet. Run a Preview & Sync to create links.'))
+        except Exception as e:
+            checks.append(_diag('People linked to PCO', DIAG_FAIL,
+                                'Query failed: ' + safe_str(e)))
+
+        # ---- mappings ----------------------------------------------------
+        team_maps = load_json(TEAM_MAPPINGS_KEY, {}) or {}
+        people_maps = load_json(PEOPLE_MAPPINGS_KEY, {}) or {}
+        all_people = load_json(ALL_PEOPLE_MAPPING_KEY, {}) or {}
+        n_team = len(team_maps) if isinstance(team_maps, dict) else 0
+        n_people = len(people_maps) if isinstance(people_maps, dict) else 0
+        n_all = 1 if (isinstance(all_people, dict) and all_people.get('orgId')) else 0
+        total_maps = n_team + n_people + n_all
+        checks.append(_diag('Mappings configured',
+                            DIAG_OK if total_maps else DIAG_WARN,
+                            '%d service type, %d team, %d all-people.'
+                            % (n_people, n_team, n_all)))
+
+        # ---- involvement targets resolve --------------------------------
+        targets = {}   # orgId -> [labels]
+
+        def _note_target(org_id, label):
+            try:
+                oid = int(org_id)
+            except Exception:
+                return
+            if not oid:
+                return
+            targets.setdefault(oid, []).append(label)
+
+        if isinstance(people_maps, dict):
+            for k, v in people_maps.items():
+                if isinstance(v, dict):
+                    _note_target(v.get('orgId', 0), 'Service Type ' + safe_str(k))
+        if isinstance(team_maps, dict):
+            for k, v in team_maps.items():
+                if isinstance(v, dict):
+                    _note_target(v.get('orgId', 0), 'Team ' + safe_str(k))
+        if n_all:
+            _note_target(all_people.get('orgId', 0), 'All People')
+
+        if targets:
+            try:
+                ids = ','.join(str(i) for i in targets.keys())
+                found = {}
+                sql = ("""
+                    SELECT OrganizationId, OrganizationName, OrganizationStatusId
+                    FROM Organizations WITH (NOLOCK)
+                    WHERE OrganizationId IN (%s)
+                """ % ids)
+                for r in q.QuerySql(sql):
+                    found[int(r.OrganizationId)] = (
+                        safe_str(r.OrganizationName),
+                        int(getattr(r, 'OrganizationStatusId', 0) or 0))
+                missing, inactive = [], []
+                for oid in targets:
+                    if oid not in found:
+                        missing.append(str(oid))
+                    elif found[oid][1] != 30:
+                        inactive.append('#%d %s' % (oid, found[oid][0]))
+                if missing:
+                    checks.append(_diag('Involvement targets', DIAG_FAIL,
+                                        'These mapped involvements no longer exist: '
+                                        + ', '.join(missing)
+                                        + '. Those mappings will fail every run.'))
+                elif inactive:
+                    checks.append(_diag('Involvement targets', DIAG_WARN,
+                                        'Mapped but not active: ' + ', '.join(inactive)))
+                else:
+                    checks.append(_diag('Involvement targets', DIAG_OK,
+                                        '%d involvement(s), all present and active.'
+                                        % len(targets)))
+            except Exception as e:
+                checks.append(_diag('Involvement targets', DIAG_FAIL,
+                                    'Query failed: ' + safe_str(e)))
+
+            # ---- the collision the UI flags, repeated here so it lands in
+            # ---- a pasted support dump.
+            dupes = []
+            for oid, labels in targets.items():
+                if len(labels) > 1:
+                    dupes.append('#%d <- %s' % (oid, ' | '.join(labels)))
+            if dupes:
+                checks.append(_diag('Conflicting mappings', DIAG_FAIL,
+                                    'More than one mapping writes to the same '
+                                    'involvement, so each run removes the other\'s '
+                                    'people and the roster never settles: '
+                                    + '; '.join(dupes)))
+            else:
+                checks.append(_diag('Conflicting mappings', DIAG_OK,
+                                    'Every mapping has its own involvement.'))
+
+        # ---- scheduler ---------------------------------------------------
+        try:
+            installed = _scheduler_installed()
+            checks.append(_diag('Scheduler', DIAG_OK if installed else DIAG_INFO,
+                                'Installed.' if installed
+                                else 'Not installed. Mappings can only be synced by hand.'))
+        except Exception:
+            checks.append(_diag('Scheduler', DIAG_INFO, 'Could not determine install state.'))
+
+        # ---- storage keys readable --------------------------------------
+        bad_keys = []
+        for key in (SETTINGS_KEY, TEAM_MAPPINGS_KEY, PEOPLE_MAPPINGS_KEY,
+                    ALL_PEOPLE_MAPPING_KEY, PERSON_SYNC_RULES_KEY):
+            try:
+                load_json(key, {})
+            except Exception:
+                bad_keys.append(key)
+        checks.append(_diag('Special Content storage',
+                            DIAG_FAIL if bad_keys else DIAG_OK,
+                            ('Unreadable: ' + ', '.join(bad_keys)) if bad_keys
+                            else 'All storage keys readable.'))
+
+        # ---- field sync rules + write churn ------------------------------
+        try:
+            rules = normalize_person_sync_rules(load_json(PERSON_SYNC_RULES_KEY, {}))
+            active = []
+            for f in PERSON_SYNC_FIELDS:
+                d = person_field_direction(rules, f['key'])
+                if d != 'none':
+                    active.append('%s %s' % (f['label'],
+                                             '(PCO->TP)' if d == 'pco_to_tp' else '(TP->PCO)'))
+            checks.append(_diag('Field sync rules', DIAG_INFO,
+                                ', '.join(active) if active
+                                else 'No field is syncing. TouchPoint stays authoritative.'))
+        except Exception as e:
+            checks.append(_diag('Field sync rules', DIAG_FAIL, 'Could not read: ' + safe_str(e)))
+
+        try:
+            stuck = person_write_stuck_list()
+            if stuck:
+                bits = []
+                for s_ in stuck[:10]:
+                    bits.append('person %s / %s (sent "%s", PCO kept "%s", %d tries)'
+                                % (s_['tpPeopleId'], s_['field'], s_['sent'],
+                                   s_['observed'], s_['attempts']))
+                checks.append(_diag('Write churn', DIAG_FAIL,
+                                    '%d field(s) stuck: we write a value and the far side '
+                                    'keeps reporting something else, which means the '
+                                    'comparator disagrees with how it stores that field. '
+                                    'These are skipped rather than retried forever. %s'
+                                    % (len(stuck), '; '.join(bits))))
+            else:
+                checks.append(_diag('Write churn', DIAG_OK,
+                                    'No field is stuck in a rewrite loop.'))
+        except Exception as e:
+            checks.append(_diag('Write churn', DIAG_FAIL, 'Could not read: ' + safe_str(e)))
+
+        # ---- plain-text version for pasting to support -------------------
+        lines = ['PCO Sync diagnostics -- v' + APP_VERSION]
+        for c in checks:
+            lines.append('[%-4s] %s: %s' % (c['status'].upper(), c['name'], c['detail']))
+        text = '\n'.join(lines)
+
+        print json.dumps({'success': True, 'checks': checks, 'text': safe_str(text)})
+    except Exception as e:
+        print json.dumps({'success': False,
+                          'message': 'Diagnostics failed: ' + safe_str(e)})
+
+
+def handle_test_pco_write_probe():
+    """Determine whether PCO honors X-HTTP-Method-Override: PATCH.
+
+    TouchPoint's Rest* methods hardcode their HTTP verb -- there is no PUT
+    and no PATCH (verified in bvcms PythonModel.Misc.cs) -- so whether PCO
+    accepts an override header decides whether TP -> PCO field sync is
+    possible at all for Person attributes.
+
+    The probe is a NO-OP by construction: it reads the person, writes back
+    the first_name it just read, then reads again to confirm nothing moved.
+    It still writes, so it is a separate opt-in action and never runs as
+    part of the read-only battery."""
+    pco_person_id = safe_str(getattr(Data, 'pco_person_id', '') or '').strip()
+    if not pco_person_id:
+        print json.dumps({'success': False, 'message': 'A PCO Person ID is required.'})
+        return
+    if not pco_person_id.isdigit():
+        print json.dumps({'success': False, 'message': 'PCO Person ID must be numeric.'})
+        return
+
+    auth = _pco_auth_header()
+    if not auth:
+        print json.dumps({'success': False, 'message': 'PCO credentials not configured.'})
+        return
+
+    path = '/people/v2/people/' + pco_person_id
+    before, err = pco_get(path)
+    if err:
+        print json.dumps({'success': False, 'message': 'Could not read that person: ' + err})
+        return
+    try:
+        attrs = (before.get('data') or {}).get('attributes') or {}
+    except Exception:
+        attrs = {}
+    original = safe_str(attrs.get('first_name', ''))
+    person_name = safe_str(attrs.get('name', '') or original)
+    if not original:
+        print json.dumps({'success': False,
+                          'message': 'That person has no first_name to echo back, so '
+                                     'the probe cannot be made no-op. Pick another.'})
+        return
+
+    payload = json.dumps({'data': {'type': 'Person',
+                                   'id': pco_person_id,
+                                   'attributes': {'first_name': original}}})
+    headers = {
+        'Authorization': auth,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'X-HTTP-Method-Override': 'PATCH',
+    }
+    ver = _pco_api_version_for(path)
+    if ver:
+        headers['X-PCO-API-Version'] = ver
+
+    raw = None
+    try:
+        raw = model.RestPost(PCO_BASE_URL + path, headers, payload)
+    except Exception as e:
+        print json.dumps({'success': False,
+                          'message': 'The override request threw: ' + safe_str(e)})
+        return
+
+    parsed, parse_err = None, None
+    try:
+        parsed = json.loads(str(raw))
+    except Exception as pe:
+        parse_err = safe_str(pe)
+
+    honored, verdict = False, ''
+    if parsed is not None:
+        code, msg = _pco_error_from_body(parsed)
+        if code:
+            verdict = ('PCO refused it (%d): %s. Override is NOT usable, so '
+                       'TouchPoint cannot PATCH PCO. TP -> PCO stays limited to '
+                       'creates (POST).' % (code, safe_str(msg)))
+        elif isinstance(parsed, dict) and parsed.get('data'):
+            honored = True
+            verdict = ('PCO accepted a POST carrying X-HTTP-Method-Override: PATCH '
+                       'and returned the updated resource. Full TP -> PCO field '
+                       'sync is possible.')
+        else:
+            verdict = 'Unrecognized response shape; treat as unsupported.'
+    else:
+        verdict = ('PCO returned a non-JSON body (%s). Almost certainly an HTML '
+                   'error page, i.e. the override was not honored.'
+                   % (parse_err or 'unparseable'))
+
+    # Read back regardless of what we think happened.
+    after, aerr = pco_get(path)
+    now = ''
+    if not aerr:
+        try:
+            now = safe_str(((after.get('data') or {}).get('attributes') or {}).get('first_name', ''))
+        except Exception:
+            now = ''
+    unchanged = (now == original)
+
+    print json.dumps({
+        'success': True,
+        'overrideHonored': honored,
+        'verdict': safe_str(verdict),
+        'personName': person_name,
+        'firstNameBefore': original,
+        'firstNameAfter': now,
+        'unchanged': unchanged,
+        'rawSnippet': safe_str(str(raw)[:300]) if raw is not None else '',
+    })
+
+def _linked_people(limit=200):
+    """Matched people only: (tpPeopleId, name, pcoPersonId). The sync has
+    never operated on anyone else and neither does this."""
+    sql = """
+        SELECT TOP %d p.PeopleId, p.Name2,
+               COALESCE(NULLIF(pe.Data, ''), pe.StrValue, '') AS PCOID
+        FROM PeopleExtra pe WITH (NOLOCK)
+        JOIN People p WITH (NOLOCK) ON p.PeopleId = pe.PeopleId
+        WHERE pe.Field = '%s'
+          AND COALESCE(NULLIF(pe.Data, ''), pe.StrValue, '') <> ''
+          AND p.IsDeceased = 0 AND p.ArchivedFlag = 0
+        ORDER BY p.Name2
+    """ % (int(limit), PCO_PERSON_ID_FIELD)
+    out = []
+    try:
+        for r in q.QuerySql(sql):
+            out.append((int(r.PeopleId), safe_str(r.Name2), safe_str(r.PCOID)))
+    except Exception:
+        pass
+    return out
+
+
+def _tp_to_pco_run(apply_writes, limit, only_people_id=0, selected=None):
+    """Shared body for preview and apply. One code path, so the dry run
+    cannot describe something the real run would not do."""
+    rules = normalize_person_sync_rules(load_json(PERSON_SYNC_RULES_KEY, {}))
+    outbound = [f['label'] for f in PERSON_SYNC_FIELDS
+                if person_field_direction(rules, f['key']) == 'tp_to_pco']
+    if not outbound:
+        return {'success': True, 'applied': bool(apply_writes), 'people': [],
+                'totals': {'people': 0, 'wouldWrite': 0, 'written': 0,
+                           'skipped': 0, 'failed': 0, 'stuck': 0},
+                'message': ('No field is set to TouchPoint -> PCO'
+                            + ('' if PCO_WRITE_ENABLED
+                               else ', and outbound writing is switched off in this build')
+                            + '. Nothing to do.'),
+                'fields': []}
+
+    # One read per person means a real roster crosses PCO's short-window
+    # limit partway through. Give the sweep enough room to wait it out
+    # rather than returning a page of confusing per-person failures.
+    reset_pco_retry_budget(180)
+
+    # Probe once, not per person.
+    caps = {'backgroundChecks': True, 'backgroundChecksReason': ''}
+    if any(f.get('kind') == 'record'
+           and person_field_direction(rules, f['key']) == 'tp_to_pco'
+           for f in PERSON_SYNC_FIELDS):
+        caps = pco_run_capabilities()
+
+    people = _linked_people(limit)
+    if only_people_id:
+        people = [p for p in people if p[0] == int(only_people_id)]
+
+    rows, errors = [], []
+    rate_limited = [0]
+    tot = {'people': 0, 'wouldWrite': 0, 'written': 0, 'skipped': 0,
+           'failed': 0, 'stuck': 0}
+    for tp_id, name, pco_id in people:
+        # One bad person must not take the run down with them. Handled
+        # failures (a 404 on a dead PCO id, a denied read) already skip that
+        # person and carry on. This catches the UNhandled case, where an
+        # unexpected response shape would raise, unwind the whole loop and
+        # discard every result already computed -- and on an apply, hide
+        # which writes had already landed.
+        try:
+            plan = plan_tp_to_pco_for_person(tp_id, pco_id, rules, caps)
+            # An apply with a selection writes ONLY what was ticked. The
+            # preview surfaces bad links as well as real changes, so
+            # all-or-nothing would force someone to accept a suspect row to
+            # get the good ones.
+            if apply_writes and selected is not None:
+                for _it in plan.get('items') or []:
+                    if _it.get('willWrite'):
+                        if ('%d|%s' % (tp_id, _it.get('field', ''))) not in selected:
+                            _it['willWrite'] = False
+                            _it['action'] = 'skip'
+                            _it['reason'] = 'Not selected for this apply.'
+            res = execute_tp_to_pco_plan(plan, apply=bool(apply_writes))
+            acts = [i for i in res['items'] if i.get('result') != 'skipped']
+            tot['skipped'] += res['skipped']
+            tot['written'] += res['written']
+            tot['failed'] += res['failed']
+            tot['stuck'] += res['stuck']
+            tot['wouldWrite'] += len([i for i in res['items']
+                                      if i.get('result') == 'would_write'])
+            for e in (res.get('errors') or []):
+                low = safe_str(e).lower()
+                if 'rate limit' in low or '429' in low:
+                    rate_limited[0] += 1
+                errors.append('%s: %s' % (name, e))
+            if acts:
+                tot['people'] += 1
+                rows.append({
+                    'tpPeopleId': tp_id, 'name': name, 'pcoPersonId': pco_id,
+                    'items': [{
+                        'field': i.get('field', ''), 'label': i.get('label', ''),
+                        'action': i.get('action', ''), 'result': i.get('result', ''),
+                        'tpValue': safe_str(i.get('tpValue', ''))[:120],
+                        'pcoValue': safe_str(i.get('pcoValue', ''))[:120],
+                        'observed': safe_str(i.get('observed', ''))[:120],
+                        'reason': safe_str(i.get('reason', ''))[:200],
+                        'detail': safe_str(i.get('detail', ''))[:220],
+                        'warn': bool(i.get('warn')),
+                        'error': safe_str(i.get('error', ''))[:200],
+                    } for i in acts],
+                })
+        except Exception as pe:
+            tot['failed'] += 1
+            errors.append('%s: unexpected failure. Skipped this person and '
+                          'continued with the rest. %s' % (name, safe_str(pe)))
+
+    note = ''
+    if rate_limited[0]:
+        note = ('PCO rate-limited %d of %d people. Those rows were NOT read, so this '
+                'run is incomplete -- treat anything missing as unknown rather than '
+                '"no change needed". Re-run to pick up the rest.'
+                % (rate_limited[0], len(people)))
+    return {'success': True, 'applied': bool(apply_writes), 'people': rows,
+            'rateLimited': rate_limited[0], 'note': note,
+            'totals': tot,
+            # The list is capped for payload size, but the COUNT must be the
+            # real one -- reporting the cap understates how wrong a run went.
+            'errors': errors[:50], 'errorCount': len(errors),
+            'capabilities': caps, 'fields': outbound,
+            'writeEnabled': PCO_WRITE_ENABLED}
+
+
+def handle_preview_tp_to_pco():
+    """Dry run. Reads PCO, writes nothing, reports exactly what an apply
+    would do."""
+    try:
+        limit = 200
+        try:
+            limit = max(1, min(500, int(safe_str(get_data('limit', '200')))))
+        except Exception:
+            limit = 200
+        pid = 0
+        try:
+            pid = int(safe_str(get_data('people_id', '0')) or 0)
+        except Exception:
+            pid = 0
+        print json.dumps(_tp_to_pco_run(False, limit, pid))
+    except Exception as e:
+        print json.dumps({'success': False, 'message': 'Preview failed: ' + safe_str(e)})
+
+
+def handle_apply_tp_to_pco():
+    """Apply. Refuses unless the caller echoes back the confirmation, so a
+    stray request cannot start writing to PCO."""
+    try:
+        if not PCO_WRITE_ENABLED:
+            print json.dumps({'success': False,
+                              'message': 'TouchPoint -> PCO writing is switched off in '
+                                         'this build (PCO_WRITE_ENABLED).'})
+            return
+        if safe_str(get_data('confirm', '')) != 'WRITE':
+            print json.dumps({'success': False,
+                              'message': 'Missing confirmation. Run the preview first.'})
+            return
+        limit = 200
+        try:
+            limit = max(1, min(500, int(safe_str(get_data('limit', '200')))))
+        except Exception:
+            limit = 200
+        pid = 0
+        try:
+            pid = int(safe_str(get_data('people_id', '0')) or 0)
+        except Exception:
+            pid = 0
+        # A selection restricts the apply to exactly those rows. Absent,
+        # the apply covers everything the plan would write -- which is only
+        # reachable from a client that never sent one.
+        sel = None
+        raw = safe_str(get_data('selected_json', '')).strip()
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    sel = set(safe_str(x) for x in parsed)
+            except Exception:
+                print json.dumps({'success': False,
+                                  'message': 'Could not read the selection.'})
+                return
+        if sel is not None and not sel:
+            print json.dumps({'success': False,
+                              'message': 'Nothing selected. Tick at least one row to apply.'})
+            return
+        print json.dumps(_tp_to_pco_run(True, limit, pid, sel))
+    except Exception as e:
+        print json.dumps({'success': False, 'message': 'Apply failed: ' + safe_str(e)})
+
+
+def _log_keys_back(months):
+    """Log keys for the last N months, newest first."""
+    keys = []
+    try:
+        now = datetime.datetime.now()
+        y, m = now.year, now.month
+        for _ in range(max(1, int(months))):
+            keys.append(LOG_KEY_PREFIX + ('%04d%02d' % (y, m)))
+            m -= 1
+            if m == 0:
+                m = 12
+                y -= 1
+    except Exception:
+        keys = [log_key_for_now()]
+    return keys
+
+
+# Actions that CHANGED something, as opposed to the many that merely
+# record a sync having run. When someone asks "what did this tool do to
+# my data", these are the answer.
+AUDIT_WRITE_ACTIONS = (
+    'pco_write', 'pco_write_failed', 'pco_write_unverified',
+    'person_data_auto_update', 'apply_proposed_match', 'unlink_tp_person',
+)
+
+
+def handle_load_audit_log():
+    """Recent activity from the monthly logs.
+
+    Writes to PCO are audited but were not readable anywhere -- the handler
+    was a stub. A tool that modifies an external system has to be able to
+    answer "what did it change, when, and who ran it" without a database
+    query."""
+    try:
+        months = 3
+        try:
+            months = max(1, min(12, int(safe_str(get_data('months', '3')))))
+        except Exception:
+            months = 3
+        limit = 200
+        try:
+            limit = max(1, min(1000, int(safe_str(get_data('limit', '200')))))
+        except Exception:
+            limit = 200
+        only = safe_str(get_data('filter', '')).strip().lower()
+
+        entries = []
+        for key in _log_keys_back(months):
+            data = load_json(key, {'entries': []})
+            if not isinstance(data, dict):
+                continue
+            for e in (data.get('entries') or []):
+                if not isinstance(e, dict):
+                    continue
+                act = safe_str(e.get('action', ''))
+                if only == 'writes' and act not in AUDIT_WRITE_ACTIONS:
+                    continue
+                if only == 'failures' and 'fail' not in act and 'unverified' not in act:
+                    continue
+                entries.append(e)
+
+        # Newest first. Timestamps are ISO, so a string sort is a time sort.
+        entries.sort(key=lambda x: safe_str(x.get('at', '')), reverse=True)
+        total = len(entries)
+        entries = entries[:limit]
+
+        rows = []
+        for e in entries:
+            rows.append({
+                'at': safe_str(e.get('at', '')),
+                'action': safe_str(e.get('action', '')),
+                'tpPeopleId': safe_str(e.get('tpPeopleId', '')),
+                'pcoPersonId': safe_str(e.get('pcoPersonId', '')),
+                'field': safe_str(e.get('field', '')),
+                'sent': safe_str(e.get('sent', ''))[:120],
+                'observed': safe_str(e.get('observed', ''))[:120],
+                'error': safe_str(e.get('error', ''))[:200],
+                'by': safe_str(e.get('by', '')),
+                'isWrite': safe_str(e.get('action', '')) in AUDIT_WRITE_ACTIONS,
+            })
+        print json.dumps({'success': True, 'entries': rows,
+                          'total': total, 'shown': len(rows), 'months': months})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': 'Load audit log failed: ' + safe_str(e)})
+
 
 def handle_test_connection():
     """Settings tab: verify the configured PAT can reach the PCO API."""
@@ -907,6 +3333,7 @@ def handle_load_settings():
         'hasCredentials': bool(s.get('pco_app_id') and s.get('pco_secret')),
         'appIdMasked': '',
         'lastSyncAt': s.get('lastSyncAt', ''),
+        'backgroundCheckValidityMonths': background_check_validity_months(),
     }
     if s.get('pco_app_id'):
         aid = str(s['pco_app_id'])
@@ -932,6 +3359,26 @@ def handle_save_settings():
             s['pco_secret'] = secret
         elif get_data('clear_credentials', '') == 'true':
             s.pop('pco_secret', None)
+        # Background check validity window, in months. Absent field leaves
+        # the stored value alone; an explicit empty string clears it back to
+        # "let PCO's own expiration policy decide".
+        bcv = get_data('bgcheck_validity_months', None)
+        if bcv is not None:
+            bcv = str(bcv).strip()
+            if bcv == '':
+                s.pop('backgroundCheckValidityMonths', None)
+            else:
+                try:
+                    n = int(bcv)
+                    if n > 0:
+                        s['backgroundCheckValidityMonths'] = n
+                    else:
+                        s.pop('backgroundCheckValidityMonths', None)
+                except Exception:
+                    print json.dumps({'success': False,
+                                      'message': 'Background check validity must be a '
+                                                 'whole number of months.'})
+                    return
         save_json(SETTINGS_KEY, s)
         print json.dumps({'success': True, 'message': 'Settings saved.'})
     except Exception as e:
@@ -1690,6 +4137,10 @@ def handle_load_person_sync_rules():
             'success': True,
             'rules': rules,
             'fields': PERSON_SYNC_FIELDS,
+            # One flag, one place. The UI greys out TP -> PCO from this
+            # rather than each caller guessing, so the day the writer lands
+            # the whole surface turns on together instead of drifting.
+            'writeEnabled': PCO_WRITE_ENABLED,
         })
     except Exception as e:
         print json.dumps({'success': False, 'message': 'Load person sync rules failed: ' + str(e)})
@@ -1747,12 +4198,10 @@ def _person_should_skip_forever(people_id, field):
     return False
 
 def _person_field_norm(field, value):
-    """Normalize a value for comparison. Email is case-insensitive +
-    trimmed; names are trimmed."""
-    s = safe_str(value).strip()
-    if field == 'email':
-        return s.lower()
-    return s
+    """Back-compat shim. Normalization now lives in the field registry so
+    there is exactly ONE comparison rule per field -- two rules that drift
+    apart is precisely what produces an endless rewrite."""
+    return person_field_norm(field, value)
 
 def _tp_person_field(person_obj, tp_field):
     """Read the TP value for a field via the Person object."""
@@ -1837,9 +4286,14 @@ def apply_person_sync_for_one(tp_people_id, pco_data, rules):
     for f in PERSON_SYNC_FIELDS:
         key = f['key']
         rule = (rules or {}).get(key) or {}
-        direction = str(rule.get('direction', 'none')).lower()
+        # person_field_direction enforces capability as well as the saved
+        # rule, so a field whose write path does not exist yet (or an older
+        # save naming a direction it cannot do) resolves to 'none' here
+        # rather than being half-attempted downstream.
+        direction = person_field_direction(rules, key)
         if direction != 'pco_to_tp':
-            # v1 only writes PCO -> TP. TP -> PCO is reserved for v1.1.
+            # This function is the PCO -> TP half. tp_to_pco is handled by
+            # the write path and must never be attempted from here.
             continue
         pco_val = _person_field_norm(key, pco_data.get(key, ''))
         if not pco_val:
@@ -2080,7 +4534,16 @@ def _pco_all_people_walk(include_inactive=False, page_cap=200):
             break
         out.extend(page)
         pages += 1
-        if next_offset is None or pages >= page_cap:
+        if next_offset is None:
+            break
+        if pages >= page_cap:
+            # Hitting the cap means we did NOT read everyone. Report it as an
+            # error so the removal guard treats the data as incomplete; it used
+            # to break silently, which is the same mass-removal bug by a
+            # different route.
+            errors.append('Stopped after %d pages (%d people). PCO has more '
+                          'records than the page cap allows, so this read is '
+                          'incomplete.' % (pages, len(out)))
             break
         offset = next_offset
     return out, errors
@@ -3569,6 +6032,10 @@ def _run_team_sync_server_side(pco_team_id):
     PCO, matches to TP, applies adds + mirror drops, returns a result
     dict the email builder can consume. Mirrors the same write logic
     used by handle_sync_team but skips JS-state assumptions."""
+    # Fresh retry budget per run. The scheduler processes several mappings
+    # in one execution, so without this a rate-limited first mapping would
+    # leave later ones with no retries at all.
+    reset_pco_retry_budget()
     out = {
         'success': False,
         'kind': 'team',
@@ -3647,6 +6114,10 @@ def _run_team_sync_server_side(pco_team_id):
         by_pco = _tp_match_by_pco_id(pco_ids)
         by_email = _tp_match_by_email(emails)
         matched_pids = []
+        pco_data_by_pid = {}
+        _person_rules = normalize_person_sync_rules(
+            load_json(PERSON_SYNC_RULES_KEY, {}))
+        _person_rules_active = person_sync_rules_active(_person_rules)
         matched_pid_to_positions = {}
         for p in (people or []):
             tp_id = 0
@@ -3664,6 +6135,17 @@ def _run_team_sync_server_side(pco_team_id):
                     })
                     continue
             if tp_id:
+                # Carry PCO's field values alongside the match so the
+                # scheduled path can apply person field rules too. The
+                # manual handlers get these from the client's preview
+                # payload; unattended runs have to build them here, and
+                # without this a scheduled sync silently skipped every
+                # field rule an admin had configured.
+                pco_data_by_pid[tp_id] = {
+                    'first_name': safe_str(p.get('first_name', '')),
+                    'last_name':  safe_str(p.get('last_name', '')),
+                    'email':      safe_str(p.get('email', '')),
+                }
                 matched_pids.append(tp_id)
                 pos_names = person_positions_display.get(p['pcoPersonId'], [])
                 if pos_names:
@@ -3708,6 +6190,18 @@ def _run_team_sync_server_side(pco_team_id):
                                 continue
                 else:
                     out['alreadyMember'] += 1
+                # Person field rules, same as the manual handlers. Without
+                # this a scheduled sync applied the roster but silently
+                # skipped every field rule the admin had configured -- the
+                # same mapping behaved differently by hand than on a timer.
+                if _person_rules_active and pid in pco_data_by_pid:
+                    try:
+                        _c = apply_person_sync_for_one(pid, pco_data_by_pid[pid],
+                                                       _person_rules)
+                        out['personAuto'] = out.get('personAuto', 0) + _c.get('auto', 0)
+                        out['personQueued'] = out.get('personQueued', 0) + _c.get('queued', 0)
+                    except Exception:
+                        pass
                 if info['positionsAsSubgroups']:
                     for pos_name in matched_pid_to_positions.get(pid, []):
                         try:
@@ -3718,9 +6212,19 @@ def _run_team_sync_server_side(pco_team_id):
             except:
                 pass
 
-        # Mirror drops (same logic as handle_sync_team).
+        # Mirror drops (same logic as handle_sync_team). Unattended path: a bad
+        # PCO read must not remove anyone. perr is the team-people fetch error
+        # that built pco_team_id_set.
         try:
             tp_members = _tp_org_members_with_pco_link(int(info['orgId']))
+            drops_ok, drops_reason = removal_safety(
+                [perr], len(pco_team_id_set), len(tp_members))
+            if not drops_ok:
+                out['rosterDropsSkipped'] = len([1 for _p, _x in tp_members.items()
+                                                 if _x and _x not in pco_team_id_set])
+                out['rosterDropsSkippedReason'] = drops_reason
+                out['warnings'].append(drops_reason)
+                tp_members = {}   # nothing to drop; subgroup mirror below still runs
             for tp_pid, pco_pid in tp_members.items():
                 if pco_pid and pco_pid not in pco_team_id_set:
                     try:
@@ -3779,6 +6283,10 @@ def _run_team_sync_server_side(pco_team_id):
 
 def _run_people_sync_server_side(pco_st_id):
     """v3.3: fully server-side Service Type / People Sync."""
+    # Fresh retry budget per run. The scheduler processes several mappings
+    # in one execution, so without this a rate-limited first mapping would
+    # leave later ones with no retries at all.
+    reset_pco_retry_budget()
     out = {
         'success': False, 'kind': 'people', 'key': pco_st_id, 'tpOrgId': 0, 'orgName': '', 'mappingLabel': '',
         'joined': 0, 'alreadyMember': 0, 'subgroupAdds': 0, 'subgroupFailures': 0,
@@ -3806,12 +6314,16 @@ def _run_people_sync_server_side(pco_st_id):
         if terr:
             out['warnings'].append('Teams fetch: ' + terr)
             return out
-        # Aggregate everyone across teams.
+        # Aggregate everyone across teams. Track fetch failures separately from
+        # general warnings: a team we could not read means pco_in_scope is
+        # missing its members, and every one of them would look droppable.
+        scope_errors = []
         person_data = {}  # pco_pid -> {name, email, teams:[name]}
         for t in teams:
             ppl, perr = _pco_team_people(t['teamId'])
             if perr:
                 out['warnings'].append('Team ' + t['teamName'] + ': ' + perr)
+                scope_errors.append('Team ' + safe_str(t.get('teamName', '?')) + ': ' + safe_str(perr))
                 continue
             for p in ppl:
                 pp = p.get('pcoPersonId')
@@ -3831,6 +6343,10 @@ def _run_people_sync_server_side(pco_st_id):
         emails_list = [d.get('email') for d in person_data.values() if d.get('email')]
         by_email = _tp_match_by_email(emails_list)
         matched_pids = []
+        pco_data_by_pid = {}
+        _person_rules = normalize_person_sync_rules(
+            load_json(PERSON_SYNC_RULES_KEY, {}))
+        _person_rules_active = person_sync_rules_active(_person_rules)
         matched_pid_to_teams = {}
         for pp, d in person_data.items():
             tp_id = 0
@@ -3844,6 +6360,17 @@ def _run_people_sync_server_side(pco_st_id):
                     out['ambiguous'].append({'pcoPersonId': pp, 'name': d.get('name', ''), 'email': d.get('email', '')})
                     continue
             if tp_id:
+                # Carry PCO's field values alongside the match so the
+                # scheduled path can apply person field rules too. The
+                # manual handlers get these from the client's preview
+                # payload; unattended runs have to build them here, and
+                # without this a scheduled sync silently skipped every
+                # field rule an admin had configured.
+                pco_data_by_pid[tp_id] = {
+                    'first_name': safe_str(p.get('first_name', '')),
+                    'last_name':  safe_str(p.get('last_name', '')),
+                    'email':      safe_str(p.get('email', '')),
+                }
                 matched_pids.append(tp_id)
                 if d.get('teams'):
                     matched_pid_to_teams[tp_id] = d['teams']
@@ -3879,6 +6406,18 @@ def _run_people_sync_server_side(pco_st_id):
                                 continue
                 else:
                     out['alreadyMember'] += 1
+                # Person field rules, same as the manual handlers. Without
+                # this a scheduled sync applied the roster but silently
+                # skipped every field rule the admin had configured -- the
+                # same mapping behaved differently by hand than on a timer.
+                if _person_rules_active and pid in pco_data_by_pid:
+                    try:
+                        _c = apply_person_sync_for_one(pid, pco_data_by_pid[pid],
+                                                       _person_rules)
+                        out['personAuto'] = out.get('personAuto', 0) + _c.get('auto', 0)
+                        out['personQueued'] = out.get('personQueued', 0) + _c.get('queued', 0)
+                    except Exception:
+                        pass
                 if info['teamsAsSubgroups']:
                     for team_name in matched_pid_to_teams.get(pid, []):
                         try:
@@ -3888,9 +6427,17 @@ def _run_people_sync_server_side(pco_st_id):
                             out['subgroupFailures'] += 1
             except:
                 pass
-        # Mirror drops.
+        # Mirror drops. Unattended path.
         try:
             tp_members = _tp_org_members_with_pco_link(int(info['orgId']))
+            drops_ok, drops_reason = removal_safety(
+                scope_errors, len(pco_in_scope), len(tp_members))
+            if not drops_ok:
+                out['rosterDropsSkipped'] = len([1 for _p, _x in tp_members.items()
+                                                 if _x and _x not in pco_in_scope])
+                out['rosterDropsSkippedReason'] = drops_reason
+                out['warnings'].append(drops_reason)
+                tp_members = {}   # subgroup mirror below still runs
             for tp_pid, pco_pid in tp_members.items():
                 if pco_pid and pco_pid not in pco_in_scope:
                     try:
@@ -3942,6 +6489,10 @@ def _run_people_sync_server_side(pco_st_id):
 
 def _run_all_people_sync_server_side():
     """v3.3: fully server-side All People Sync."""
+    # Fresh retry budget per run. The scheduler processes several mappings
+    # in one execution, so without this a rate-limited first mapping would
+    # leave later ones with no retries at all.
+    reset_pco_retry_budget()
     out = {
         'success': False, 'kind': 'all_people', 'key': '', 'tpOrgId': 0, 'orgName': '', 'mappingLabel': 'All People',
         'joined': 0, 'alreadyMember': 0, 'subgroupAdds': 0, 'subgroupFailures': 0,
@@ -3968,6 +6519,10 @@ def _run_all_people_sync_server_side():
         by_pco = _tp_match_by_pco_id(pco_ids)
         by_email = _tp_match_by_email(emails)
         matched_pids = []
+        pco_data_by_pid = {}
+        _person_rules = normalize_person_sync_rules(
+            load_json(PERSON_SYNC_RULES_KEY, {}))
+        _person_rules_active = person_sync_rules_active(_person_rules)
         for p in people:
             tp_id = 0
             if p['pcoPersonId'] and p['pcoPersonId'] in by_pco:
@@ -3980,6 +6535,17 @@ def _run_all_people_sync_server_side():
                     out['ambiguous'].append({'pcoPersonId': p.get('pcoPersonId', ''), 'name': (p.get('first_name', '') + ' ' + p.get('last_name', '')).strip(), 'email': p.get('email', '')})
                     continue
             if tp_id:
+                # Carry PCO's field values alongside the match so the
+                # scheduled path can apply person field rules too. The
+                # manual handlers get these from the client's preview
+                # payload; unattended runs have to build them here, and
+                # without this a scheduled sync silently skipped every
+                # field rule an admin had configured.
+                pco_data_by_pid[tp_id] = {
+                    'first_name': safe_str(p.get('first_name', '')),
+                    'last_name':  safe_str(p.get('last_name', '')),
+                    'email':      safe_str(p.get('email', '')),
+                }
                 matched_pids.append(tp_id)
             else:
                 if len(out['unmatched']) < 200:
@@ -4007,21 +6573,42 @@ def _run_all_people_sync_server_side():
                         except Exception as je:
                             if 'already' in str(je).lower():
                                 out['alreadyMember'] += 1
+                # Person field rules, same as the manual handlers. Without
+                # this a scheduled sync applied the roster but silently
+                # skipped every field rule the admin had configured -- the
+                # same mapping behaved differently by hand than on a timer.
+                if _person_rules_active and pid in pco_data_by_pid:
+                    try:
+                        _c = apply_person_sync_for_one(pid, pco_data_by_pid[pid],
+                                                       _person_rules)
+                        out['personAuto'] = out.get('personAuto', 0) + _c.get('auto', 0)
+                        out['personQueued'] = out.get('personQueued', 0) + _c.get('queued', 0)
+                    except Exception:
+                        pass
             except:
                 pass
-        # Mirror drops.
+        # Mirror drops. This path runs unattended on a schedule, so a bad PCO
+        # read here would remove people overnight with nobody watching.
         try:
             pco_in_scope = set([p['pcoPersonId'] for p in people if p.get('pcoPersonId')])
             tp_members = _tp_org_members_with_pco_link(int(tp_org_id))
-            for tp_pid, pco_pid in tp_members.items():
-                if pco_pid and pco_pid not in pco_in_scope:
-                    try:
-                        person = model.GetPerson(int(tp_pid))
-                        if person and person.PeopleId:
-                            model.RemoveFromOrg(person, int(tp_org_id))
-                            out['rosterDrops'] += 1
-                    except:
-                        out['rosterDropFailures'] += 1
+            drops_ok, drops_reason = removal_safety(
+                errors, len(pco_in_scope), len(tp_members))
+            if not drops_ok:
+                out['rosterDropsSkipped'] = len([1 for _p, _x in tp_members.items()
+                                                 if _x and _x not in pco_in_scope])
+                out['rosterDropsSkippedReason'] = drops_reason
+                out['warnings'].append(drops_reason)
+            else:
+                for tp_pid, pco_pid in tp_members.items():
+                    if pco_pid and pco_pid not in pco_in_scope:
+                        try:
+                            person = model.GetPerson(int(tp_pid))
+                            if person and person.PeopleId:
+                                model.RemoveFromOrg(person, int(tp_org_id))
+                                out['rosterDrops'] += 1
+                        except:
+                            out['rosterDropFailures'] += 1
         except:
             pass
         out['success'] = True
@@ -4048,6 +6635,10 @@ def _format_sync_email_html(result, sch, include_issues, link_back):
         ('Subgroup writes', result.get('subgroupAdds', 0)),
         ('Members removed (mirror)', result.get('rosterDrops', 0)),
         ('Stale subgroups removed', result.get('subgroupDrops', 0)),
+        # Field rules now run on scheduled syncs too, so their effect has to
+        # be visible in the one report an unattended run produces.
+        ('Person fields updated', result.get('personAuto', 0)),
+        ('Person fields queued for review', result.get('personQueued', 0)),
     ]
     counts_html = '<table style="border-collapse:collapse;font-size:13px;">'
     for label, n in rows:
@@ -4055,6 +6646,24 @@ def _format_sync_email_html(result, sch, include_issues, link_back):
         counts_html += '<tr><td style="padding:3px 10px 3px 0;color:#555;">' + label + '</td>'
         counts_html += '<td style="padding:3px 0;color:' + color + ';font-weight:600;">' + str(n) + '</td></tr>'
     counts_html += '</table>'
+
+    # A skipped removal is a safety event, not a footnote. Scheduled runs are
+    # unattended, so this has to be impossible to miss in the email rather than
+    # sitting at the bottom of a warnings list.
+    skipped_html = ''
+    _skipped_n = result.get('rosterDropsSkipped', 0)
+    _skipped_why = result.get('rosterDropsSkippedReason', '')
+    if _skipped_why:
+        skipped_html = (
+            '<div style="margin:14px 0;padding:11px 14px;background:#fff6e5;'
+            'border-left:4px solid #d98324;border-radius:0 3px 3px 0;font-size:13px;">'
+            '<strong>Removals were skipped this run.</strong><br>'
+            + safe_str(_skipped_why))
+        if _skipped_n:
+            skipped_html += ('<br><strong>' + str(_skipped_n) + '</strong> member'
+                             + ('' if _skipped_n == 1 else 's')
+                             + ' would have been removed. The roster was left unchanged.')
+        skipped_html += '</div>'
 
     issues_html = ''
     if include_issues:
@@ -4083,12 +6692,28 @@ def _format_sync_email_html(result, sch, include_issues, link_back):
                 issues_html += '<li>' + html_escape(a.get('name', '')) + ' &mdash; ' + html_escape(a.get('email', '')) + '</li>'
             issues_html += '</ul>'
 
+    # Deep link straight at the mapping this email is about. Both forms are
+    # emitted: the fragment drives the router, and ?tab= is the fallback for
+    # any mail rewriter that drops fragments (it also survives the
+    # /PyScript/ -> /PyScriptForm/ redirect, which cannot see a fragment).
+    _org_id = result.get('tpOrgId', 0)
+    if result.get('kind', '') != 'all_people' and _org_id:
+        _deep = link_back + '?tab=mappings#mappings/org/' + str(int(_org_id))
+    else:
+        _deep = link_back + '?tab=mappings#mappings'
+    _people_link = link_back + '?tab=people#people'
+
     return ('<div style="font-family:Segoe UI,Arial,sans-serif;color:#333;">'
             + '<h2 style="color:#1f4e79;margin-bottom:4px;">PCO Sync &mdash; ' + html_escape(title) + '</h2>'
             + '<p style="color:#666;font-size:13px;margin-top:0;">Scheduled run &middot; ' + _format_schedule_label(sch or {}) + '</p>'
             + counts_html
+            + skipped_html
             + issues_html
-            + '<p style="margin-top:18px;"><a href="' + link_back + '" style="color:#1f4e79;">Open PCO Sync &rarr;</a></p>'
+            + '<p style="margin-top:18px;">'
+            + '<a href="' + _deep + '" style="color:#1f4e79;font-weight:600;">Open this mapping &rarr;</a>'
+            + '<span style="color:#bbb;"> &middot; </span>'
+            + '<a href="' + _people_link + '" style="color:#1f4e79;">People Matching</a>'
+            + '</p>'
             + '<p style="color:#999;font-size:11px;margin-top:20px;">PCO Sync v' + APP_VERSION + ' &middot; Scheduled task</p>'
             + '</div>')
 
@@ -4339,6 +6964,10 @@ def handle_check_pco_team_positions():
 def handle_sync_team():
     """Apply a Team Sync write: JoinOrg + (optional) subgroup-per-position.
     Same active-member filter and Person Sync hook as sync_roster."""
+    # Fresh retry budget per run. The scheduler processes several mappings
+    # in one execution, so without this a rate-limited first mapping would
+    # leave later ones with no retries at all.
+    reset_pco_retry_budget()
     try:
         pco_team_id = safe_str(get_data('pco_team_id', '')).strip()
         tp_org_id = safe_int(get_data('tp_org_id', 0), 0)
@@ -4467,21 +7096,31 @@ def handle_sync_team():
         # always computed from the latest server-side data.
         roster_drops = 0
         roster_drop_failures = 0
+        roster_drops_skipped = 0
+        drops_reason = ''
         subgroup_drops = 0
         subgroup_drop_failures = 0
         try:
             pco_people, _perr = _pco_team_people(pco_team_id)
             pco_team_id_set = set([p['pcoPersonId'] for p in (pco_people or []) if p.get('pcoPersonId')])
             tp_members = _tp_org_members_with_pco_link(int(tp_org_id))
-            for tp_pid, pco_pid in tp_members.items():
-                if pco_pid and pco_pid not in pco_team_id_set:
-                    try:
-                        person = model.GetPerson(int(tp_pid))
-                        if person and person.PeopleId:
-                            model.RemoveFromOrg(person, int(tp_org_id))
-                            roster_drops += 1
-                    except Exception:
-                        roster_drop_failures += 1
+            # _perr used to be discarded here. A failed team read returns [],
+            # which made every linked member look "no longer in PCO".
+            drops_ok, drops_reason = removal_safety(
+                [_perr], len(pco_team_id_set), len(tp_members))
+            if not drops_ok:
+                roster_drops_skipped = len([1 for _p, _x in tp_members.items()
+                                            if _x and _x not in pco_team_id_set])
+            else:
+                for tp_pid, pco_pid in tp_members.items():
+                    if pco_pid and pco_pid not in pco_team_id_set:
+                        try:
+                            person = model.GetPerson(int(tp_pid))
+                            if person and person.PeopleId:
+                                model.RemoveFromOrg(person, int(tp_org_id))
+                                roster_drops += 1
+                        except Exception:
+                            roster_drop_failures += 1
         except Exception:
             pass
         # Subgroup mirror -- only when positionsAsSubgroups is on.
@@ -4576,9 +7215,20 @@ def handle_sync_team():
             msg += ' Updated ' + str(person_auto) + ' person field(s).'
         if person_queued:
             msg += ' Queued ' + str(person_queued) + ' person change(s) for review.'
+        # A skipped removal must be loud. Silence here reads as "sync clean"
+        # when it actually means "we could not trust the PCO read, so the
+        # roster was left alone".
+        if drops_reason:
+            msg += ' NOTE: ' + drops_reason
+            if roster_drops_skipped:
+                msg += (' (%d member%s would have been removed.)'
+                        % (roster_drops_skipped,
+                           '' if roster_drops_skipped == 1 else 's'))
         print json.dumps({
             'success': True,
             'message': msg,
+            'rosterDropsSkipped': roster_drops_skipped,
+            'rosterDropsSkippedReason': drops_reason,
             'joinedOrg': joined,
             'alreadyMember': already,
             'subgroupAdds': subgroup_adds,
@@ -4956,6 +7606,10 @@ def handle_load_people_sync_preview():
 
 def handle_sync_people():
     """Write People Sync: JoinOrg + (optional) team-as-subgroup writes."""
+    # Fresh retry budget per run. The scheduler processes several mappings
+    # in one execution, so without this a rate-limited first mapping would
+    # leave later ones with no retries at all.
+    reset_pco_retry_budget()
     try:
         pco_st_id = safe_str(get_data('pco_service_type_id', '')).strip()
         tp_org_id = safe_int(get_data('tp_org_id', 0), 0)
@@ -5072,16 +7726,25 @@ def handle_sync_people():
         # compute the in-scope set and current team membership.
         roster_drops = 0
         roster_drop_failures = 0
+        roster_drops_skipped = 0
+        drops_reason = ''
         subgroup_drops = 0
         subgroup_drop_failures = 0
         try:
             teams_now, _terr = _pco_teams_for_service_type(pco_st_id)
+            scope_errors = []
+            if _terr:
+                scope_errors.append('Team list: ' + safe_str(_terr))
             pco_in_scope = set()
             person_teams_now = {}  # pco_pid -> set(team_name_lower)
             pco_team_names_lower = set([t['teamName'].lower() for t in (teams_now or []) if t.get('teamName')])
             for t in (teams_now or []):
                 tname_l = (t['teamName'] or '').lower()
                 ppl, _perr = _pco_team_people(t['teamId'])
+                if _perr:
+                    # One failed team silently shrinks pco_in_scope, and every
+                    # member of that team then looks droppable.
+                    scope_errors.append('Team ' + safe_str(t.get('teamName', '?')) + ': ' + safe_str(_perr))
                 for p in (ppl or []):
                     pp = p.get('pcoPersonId')
                     if not pp:
@@ -5090,15 +7753,21 @@ def handle_sync_people():
                     if tname_l:
                         person_teams_now.setdefault(pp, set()).add(tname_l)
             tp_members_now = _tp_org_members_with_pco_link(int(tp_org_id))
-            for tp_pid, pco_pid in tp_members_now.items():
-                if pco_pid and pco_pid not in pco_in_scope:
-                    try:
-                        person = model.GetPerson(int(tp_pid))
-                        if person and person.PeopleId:
-                            model.RemoveFromOrg(person, int(tp_org_id))
-                            roster_drops += 1
-                    except Exception:
-                        roster_drop_failures += 1
+            drops_ok, drops_reason = removal_safety(
+                scope_errors, len(pco_in_scope), len(tp_members_now))
+            if not drops_ok:
+                roster_drops_skipped = len([1 for _p, _x in tp_members_now.items()
+                                            if _x and _x not in pco_in_scope])
+            else:
+                for tp_pid, pco_pid in tp_members_now.items():
+                    if pco_pid and pco_pid not in pco_in_scope:
+                        try:
+                            person = model.GetPerson(int(tp_pid))
+                            if person and person.PeopleId:
+                                model.RemoveFromOrg(person, int(tp_org_id))
+                                roster_drops += 1
+                        except Exception:
+                            roster_drop_failures += 1
             if info['teamsAsSubgroups']:
                 tp_subgroups_now = _tp_org_subgroups(int(tp_org_id))
                 pco_lower_to_display = {}
@@ -5158,9 +7827,20 @@ def handle_sync_people():
             msg += ' Updated ' + str(person_auto) + ' person field(s).'
         if person_queued:
             msg += ' Queued ' + str(person_queued) + ' person change(s) for review.'
+        # A skipped removal must be loud. Silence here reads as "sync clean"
+        # when it actually means "we could not trust the PCO read, so the
+        # roster was left alone".
+        if drops_reason:
+            msg += ' NOTE: ' + drops_reason
+            if roster_drops_skipped:
+                msg += (' (%d member%s would have been removed.)'
+                        % (roster_drops_skipped,
+                           '' if roster_drops_skipped == 1 else 's'))
         print json.dumps({
             'success': True,
             'message': msg,
+            'rosterDropsSkipped': roster_drops_skipped,
+            'rosterDropsSkippedReason': drops_reason,
             'joinedOrg': joined,
             'alreadyMember': already,
             'subgroupAdds': subgroup_adds,
@@ -5346,6 +8026,10 @@ def handle_sync_all_people():
     """Walk the PCO People directory, match each person against TP, and
     JoinOrg the matched ones into the designated involvement. Person Sync
     rules apply per the existing infrastructure."""
+    # Fresh retry budget per run. The scheduler processes several mappings
+    # in one execution, so without this a rate-limited first mapping would
+    # leave later ones with no retries at all.
+    reset_pco_retry_budget()
     try:
         info = _parse_all_people_mapping(load_json(ALL_PEOPLE_MAPPING_KEY, {}))
         if info['orgId'] <= 0:
@@ -5467,18 +8151,26 @@ def handle_sync_all_people():
         # handling here (All People has no subgroup concept).
         roster_drops = 0
         roster_drop_failures = 0
+        roster_drops_skipped = 0
+        drops_reason = ''
         try:
             pco_in_scope_set = set([p['pcoPersonId'] for p in people if p.get('pcoPersonId')])
             tp_members_now = _tp_org_members_with_pco_link(int(tp_org_id))
-            for tp_pid, pco_pid in tp_members_now.items():
-                if pco_pid and pco_pid not in pco_in_scope_set:
-                    try:
-                        person = model.GetPerson(int(tp_pid))
-                        if person and person.PeopleId:
-                            model.RemoveFromOrg(person, int(tp_org_id))
-                            roster_drops += 1
-                    except Exception:
-                        roster_drop_failures += 1
+            drops_ok, drops_reason = removal_safety(
+                errors, len(pco_in_scope_set), len(tp_members_now))
+            if not drops_ok:
+                roster_drops_skipped = len([1 for _p, _x in tp_members_now.items()
+                                            if _x and _x not in pco_in_scope_set])
+            else:
+                for tp_pid, pco_pid in tp_members_now.items():
+                    if pco_pid and pco_pid not in pco_in_scope_set:
+                        try:
+                            person = model.GetPerson(int(tp_pid))
+                            if person and person.PeopleId:
+                                model.RemoveFromOrg(person, int(tp_org_id))
+                                roster_drops += 1
+                        except Exception:
+                            roster_drop_failures += 1
         except Exception:
             pass
 
@@ -6708,7 +9400,15 @@ elif model.HttpMethod == 'post':
     # v3.0 storage migration -- one-shot, idempotent. Runs once per
     # POST entry so we don't slow GET pageloads.
     _v3_migrate_org_to_people_mappings()
-    if action == 'test_connection':
+    if action == 'preview_tp_to_pco':
+        handle_preview_tp_to_pco()
+    elif action == 'apply_tp_to_pco':
+        handle_apply_tp_to_pco()
+    elif action == 'run_diagnostics':
+        handle_run_diagnostics()
+    elif action == 'test_pco_write_probe':
+        handle_test_pco_write_probe()
+    elif action == 'test_connection':
         handle_test_connection()
     elif action == 'load_settings':
         handle_load_settings()
@@ -6828,10 +9528,8 @@ elif model.HttpMethod == 'post':
     elif action == 'skip_person_change':
         handle_skip_person_change()
     # Stubs for upcoming features.
-    elif action in (
-        'load_audit_log',
-    ):
-        handle_not_implemented(action)
+    elif action == 'load_audit_log':
+        handle_load_audit_log()
     else:
         print json.dumps({'success': False, 'message': 'Unknown action: ' + safe_str(action)})
 
@@ -6863,7 +9561,11 @@ else:
         _target = '/PyScriptForm/' + _name + _qs
         print '<!DOCTYPE html><html><head><title>Loading...</title>'
         print '<meta http-equiv="refresh" content="0;url=' + _target + '">'
-        print '<script>window.location.replace(' + json.dumps(_target) + ');</script>'
+        # Carry the fragment across. The browser never sends it, so it is
+        # only recoverable here on the client -- without this, a deep link to
+        # /PyScript/...#mappings would land back on the default tab.
+        print ('<script>window.location.replace(' + json.dumps(_target)
+               + ' + (window.location.hash || ""));</script>')
         print '</head><body style="font-family:Segoe UI,sans-serif;padding:30px;">'
         print 'Loading <a href="' + _target + '">PCO Sync</a>...'
         print '</body></html>'
@@ -6932,7 +9634,7 @@ else:
     body = """
     <div class="pco-root">
       <div class="pco-h1">PCO Sync <span class="pco-version">v__APP_VERSION__</span></div>
-      <div class="pco-sub">One-way sync from Planning Center Online into TouchPoint: people, rosters, teams, and per-plan attendance.</div>
+      <div class="pco-sub">Sync between Planning Center Online and TouchPoint: people, rosters, teams, per-plan attendance, and selected person fields back to PCO.</div>
 
       <div class="pco-tabs" id="pcoTabs">
         <button class="pco-tab active" data-tab="sync">Sync Dashboard</button>
@@ -7002,10 +9704,71 @@ else:
         }, 3500);
       }
 
+
+      // ---- Routing -----------------------------------------------
+      // The tab lives in the URL so a refresh stays put and so sync
+      // notifications can link straight at the thing they are about.
+      //   #mappings              a tab
+      //   #mappings/org/1300     a tab, scrolled to one mapping
+      //   ?tab=mappings          same, for links that cross the
+      //                          /PyScript/ -> /PyScriptForm/ redirect
+      // Parsed entirely client-side: no model.Data, so no risk of
+      // ASP.NET swallowing a reserved parameter name.
+      var PCO_TABS = {sync: 1, mappings: 1, people: 1, settings: 1};
+      var PCO_PENDING_FOCUS = '';
+
+      function pcoParseRoute() {
+        var raw = (window.location.hash || '').replace(/^#/, '');
+        if (!raw) {
+          var m = (window.location.search || '').match(/[?&]tab=([^&]+)/);
+          if (m) { try { raw = decodeURIComponent(m[1]); } catch (e) { raw = m[1]; } }
+        }
+        var parts = String(raw).split('/');
+        var tab = (parts[0] || '').toLowerCase();
+        // Back-compat with the tabs that were folded into People Matching.
+        if (tab === 'unmatched' || tab === 'reviews') tab = 'people';
+        if (!PCO_TABS[tab]) tab = 'sync';
+        var focus = '';
+        if (parts[1] === 'org' && parts[2]) focus = String(parts[2]).replace(/[^0-9]/g, '');
+        return {tab: tab, focusOrg: focus};
+      }
+
+      // Scroll to and flash a mapping row. The list loads async, so this is
+      // retried from pcoFlagOrgConflicts() (which runs after every loader)
+      // until the row actually exists; it clears itself once consumed.
+      function pcoApplyPendingFocus() {
+        if (!PCO_PENDING_FOCUS) return;
+        var sel = '.pco-people-map-row[data-tp-org-id="' + PCO_PENDING_FOCUS + '"],'
+                + '.pco-team-map-row[data-tp-org-id="' + PCO_PENDING_FOCUS + '"]';
+        var rows = document.querySelectorAll(sel);
+        if (!rows.length) return;
+        PCO_PENDING_FOCUS = '';
+        try { rows[0].scrollIntoView({behavior: 'smooth', block: 'center'}); }
+        catch (e) { rows[0].scrollIntoView(); }
+        for (var i = 0; i < rows.length; i++) {
+          // outline, not border/background -- the conflict styling owns those.
+          rows[i].style.outline = '3px solid #f0ad4e';
+          rows[i].style.outlineOffset = '2px';
+          (function(el){
+            setTimeout(function(){ el.style.outline = ''; el.style.outlineOffset = ''; }, 2600);
+          })(rows[i]);
+        }
+      }
+
       // ---- Tabs --------------------------------------------------
 
-      function selectTab(name) {
+      function selectTab(name, opts) {
+        opts = opts || {};
         state.tab = name;
+        // Reflect the tab in the URL. Skipped when we got here FROM the URL,
+        // which also stops a hashchange feedback loop.
+        if (!opts.fromRoute) {
+          try {
+            if (window.location.hash.replace(/^#/, '').split('/')[0] !== name) {
+              window.location.hash = name;
+            }
+          } catch (e) {}
+        }
         var tabs = document.querySelectorAll('.pco-tab');
         for (var i = 0; i < tabs.length; i++) {
           if (tabs[i].getAttribute('data-tab') === name) tabs[i].classList.add('active');
@@ -7063,6 +9826,22 @@ else:
           + '  <button class="pco-btn" id="pcoRulesSaveBtn">Save Rules</button>'
           + '  <span id="pcoRulesStatus" class="pco-muted" style="align-self:center;font-size:13px;"></span>'
           + '</div>'
+          // ----- Outbound preview / apply ----------------------------
+          + '<div style="margin-top:14px;padding:10px 12px;border:1px solid #e1e4e8;border-radius:4px;background:#fafbfc;">'
+          + '<div style="font-weight:700;color:#1f4e79;">TouchPoint &rarr; PCO</div>'
+          + '<div class="pco-help" style="margin-top:4px;">'
+          + 'Preview reads PCO and reports exactly what an apply would write. It changes nothing. '
+          + 'The preview and the real run share one code path, so what you see here is what runs. '
+          + 'Only matched people are considered, blank TouchPoint values are never pushed (a blank means '
+          + 'missing data, not &quot;erase it&quot;), and every write is read back to confirm it landed.'
+          + '</div>'
+          + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">'
+          + '<button class="pco-btn pco-secondary" id="pcoOutPreviewBtn" style="font-size:13px;padding:5px 12px;">Preview changes</button>'
+          + '<button class="pco-btn" id="pcoOutApplyBtn" style="font-size:13px;padding:5px 12px;display:none;">Apply to PCO</button>'
+          + '<span class="pco-muted" id="pcoOutStatus" style="font-size:12px;"></span>'
+          + '</div>'
+          + '<div id="pcoOutResults" style="margin-top:10px;"></div>'
+          + '</div>'
           + '</div>'
           // v3.3.1: Scheduler install/uninstall (auto-managed
           // ScheduledTasks block, matches ProspectBuilder pattern).
@@ -7079,6 +9858,95 @@ else:
           + '<button class="pco-btn" id="pcoSchedTestBtn" style="font-size:12px;padding:4px 10px;" disabled>Run scheduler now (test)</button>'
           + '<span class="pco-muted" id="pcoSchedTestResult" style="margin-left:10px;font-size:12px;"></span>'
           + '</div>'
+          + '</div>'
+          // ----- Background checks -----------------------------------
+          + '<div class="pco-card" style="margin-top:14px;">'
+          + '<h3>Background Checks</h3>'
+          + '<div class="pco-help">'
+          + 'Checks are read from <code>dbo.BackgroundChecks</code>, using its <code>ApprovalStatus</code> '
+          + '&mdash; the generic layer &mdash; so this works whichever provider you use. TouchPoint has no '
+          + 'expiration field, so how long a check stays valid is church policy and has to be set here.'
+          + '</div>'
+          + '<div class="pco-form-row" style="margin-top:8px;">'
+          + '  <div style="flex:0 0 260px;">'
+          + '    <label class="pco-label">Valid for (months)</label>'
+          + '    <input class="pco-input" id="pcoBgcMonths" type="text" inputmode="numeric" placeholder="leave blank to use PCO&#39;s policy">'
+          + '  </div>'
+          + '  <div style="flex:0 0 auto;align-self:flex-end;">'
+          + '    <button class="pco-btn" id="pcoBgcSaveBtn" style="font-size:13px;padding:7px 14px;">Save</button>'
+          + '    <span class="pco-muted" id="pcoBgcStatus" style="margin-left:8px;font-size:12px;"></span>'
+          + '  </div>'
+          + '</div>'
+          + '<div class="pco-help">'
+          + 'Counted in whole months from the check\'s processed date, so &quot;24&quot; means the same day two '
+          + 'years on. <strong>Leave it blank</strong> and the expiration is left unset, which lets PCO apply '
+          + 'the expiration policy already configured on your PCO organization &mdash; usually the right '
+          + 'answer, since setting a number here silently overrides it.'
+          + '</div>'
+          + '</div>'
+          // ----- Activity log ----------------------------------------
+          // Writes were being recorded and never shown. A tool that
+          // changes an external system has to be able to answer "what did
+          // it change, when, and who ran it".
+          + '<div class="pco-card" style="margin-top:14px;">'
+          + '<h3>Activity Log</h3>'
+          + '<div class="pco-help">'
+          + 'What this tool has actually done, newest first, from the last few months of logs. '
+          + '<strong>Changes only</strong> hides routine sync records and leaves the entries that '
+          + 'altered data &mdash; writes to PCO, person links made or removed, auto-applied field updates.'
+          + '</div>'
+          + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">'
+          + '<button class="pco-btn pco-secondary" id="pcoAuditLoadBtn" style="font-size:13px;padding:5px 12px;">Load activity</button>'
+          + '<select id="pcoAuditFilter" style="padding:4px 6px;font-size:13px;">'
+          + '  <option value="writes">Changes only</option>'
+          + '  <option value="failures">Failures only</option>'
+          + '  <option value="">Everything</option>'
+          + '</select>'
+          + '<span class="pco-muted" id="pcoAuditStatus" style="font-size:12px;"></span>'
+          + '</div>'
+          + '<div id="pcoAuditResults" style="margin-top:10px;"></div>'
+          + '</div>'
+          // ----- Diagnostics (v1.0.4) --------------------------------
+          // This runs at sites we cannot log into, so support has to be
+          // answerable from a block of text the admin can paste to us.
+          + '<div class="pco-card" style="margin-top:14px;">'
+          + '<h3>Diagnostics</h3>'
+          + '<div class="pco-help">'
+          + 'Read-only health check: credentials, what the PCO token can actually reach, '
+          + 'how many people are linked, whether every mapped involvement still exists, and '
+          + 'whether two mappings are fighting over one involvement. Nothing here changes data. '
+          + 'Use <strong>Copy for support</strong> to paste the results into an email.'
+          + '</div>'
+          + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">'
+          + '<button class="pco-btn" id="pcoDiagRunBtn" style="font-size:13px;padding:5px 12px;">Run diagnostics</button>'
+          + '<button class="pco-btn pco-secondary" id="pcoDiagCopyBtn" style="font-size:13px;padding:5px 12px;display:none;">Copy for support</button>'
+          + '<span class="pco-muted" id="pcoDiagStatus" style="font-size:12px;"></span>'
+          + '</div>'
+          + '<div id="pcoDiagResults" style="margin-top:10px;"></div>'
+          + '<textarea id="pcoDiagText" style="display:none;position:absolute;left:-9999px;"></textarea>'
+          // ----- PCO write probe: separate, because it writes ---------
+          + '<div style="margin-top:16px;padding:10px 12px;border:1px solid #f0ad4e;border-radius:4px;background:#fffaf0;">'
+          + '<div style="font-weight:700;color:#8a6d3b;">PCO write capability probe <span class="pco-muted" style="font-weight:400;font-size:12px;">(new installs)</span></div>'
+          + '<div class="pco-help" style="margin-top:4px;">'
+          + '<strong>Skip this if TouchPoint &rarr; PCO writes are already working for you.</strong> '
+          + 'A successful apply proves the same thing and proves it better.'
+          + '</div>'
+          + '<div class="pco-help" style="margin-top:4px;">'
+          + 'It exists for a first-time setup. TouchPoint cannot send PATCH at all (its REST helpers hardcode '
+          + 'GET/POST/DELETE) and PCO needs PATCH to change an existing record, so outbound sync depends on '
+          + 'PCO honoring a <code>X-HTTP-Method-Override: PATCH</code> header. That behavior is <em>undocumented</em> '
+          + '&mdash; it works against our account, but a new church has no way to know it works against theirs '
+          + 'without either this or configuring field rules and writing to real people to find out. '
+          + '<strong>This one does write.</strong> It reads the person first and writes back the exact first '
+          + 'name it just read, so it is a no-op by construction, then re-reads to prove nothing moved.'
+          + '</div>'
+          + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">'
+          + '<label style="font-size:13px;font-weight:600;">PCO Person ID:</label>'
+          + '<input type="text" class="pco-input" id="pcoProbePersonId" placeholder="e.g. 12345678" style="width:160px;">'
+          + '<button class="pco-btn pco-secondary" id="pcoProbeRunBtn" style="font-size:13px;padding:5px 12px;">Run write probe</button>'
+          + '</div>'
+          + '<div id="pcoProbeResult" style="margin-top:8px;font-size:13px;"></div>'
+          + '</div>'
           + '</div>';
 
         $('pcoSaveBtn').onclick = function(){
@@ -7091,6 +9959,25 @@ else:
             $('pcoAppId').value = '';
             $('pcoSecret').value = '';
             loadAndRenderSettingsStatus();
+          });
+        };
+
+        $('pcoBgcSaveBtn').onclick = function(){
+          var st = $('pcoBgcStatus');
+          var raw = ($('pcoBgcMonths').value || '').trim();
+          if (raw !== '' && !/^\d+$/.test(raw)) {
+            st.textContent = 'Whole months only.'; st.style.color = '#a00'; return;
+          }
+          st.textContent = 'Saving...'; st.style.color = '';
+          ajax('save_settings', {bgcheck_validity_months: raw}, function(err, d){
+            if (err || !d || !d.success) {
+              st.textContent = 'Save failed: ' + ((d && d.message) || err);
+              st.style.color = '#a00';
+              return;
+            }
+            st.textContent = raw === '' ? 'Cleared -- PCO decides.' : 'Saved.';
+            st.style.color = '#1f6b3a';
+            setTimeout(function(){ st.textContent = ''; }, 2000);
           });
         };
 
@@ -7232,6 +10119,355 @@ else:
         var schedBtn = $('pcoSchedTestBtn');
         if (schedBtn) schedBtn.onclick = function(){ runSchedulerTest(false); };
 
+        // ---- Activity log wiring ---------------------------------
+        $('pcoAuditLoadBtn').onclick = function(){
+          var btn = this, st = $('pcoAuditStatus'), host = $('pcoAuditResults');
+          btn.disabled = true; st.textContent = 'Loading...';
+          ajax('load_audit_log', {filter: $('pcoAuditFilter').value, months: '3'}, function(err, d){
+            btn.disabled = false; st.textContent = '';
+            if (err || !d || !d.success) {
+              host.innerHTML = '<span class="pco-pill pco-err">Error</span> '
+                             + escHtml((d && d.message) || err);
+              return;
+            }
+            var rows = d.entries || [];
+            if (!rows.length) {
+              host.innerHTML = '<div class="pco-muted">Nothing recorded for that filter '
+                             + 'in the last ' + escHtml(d.months) + ' months.</div>';
+              return;
+            }
+            var html = '<div class="pco-muted" style="margin-bottom:6px;">Showing '
+                     + rows.length + ' of ' + d.total + '</div>'
+                     + '<div style="max-height:320px;overflow:auto;">'
+                     + '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+                     + '<thead><tr style="background:#f0f3f6;text-align:left;">'
+                     + '<th style="padding:4px 8px;">When</th><th style="padding:4px 8px;">What</th>'
+                     + '<th style="padding:4px 8px;">Person</th><th style="padding:4px 8px;">Detail</th>'
+                     + '<th style="padding:4px 8px;">By</th></tr></thead><tbody>';
+            for (var i = 0; i < rows.length; i++) {
+              var e = rows[i];
+              var bad = e.action.indexOf('fail') !== -1 || e.action.indexOf('unverified') !== -1;
+              var detail = '';
+              if (e.field) detail += escHtml(e.field);
+              if (e.sent) detail += ' &rarr; "' + escHtml(e.sent) + '"';
+              if (e.observed && e.observed !== e.sent) {
+                detail += ' <span style="color:#8a6d3b;">(PCO kept "' + escHtml(e.observed) + '")</span>';
+              }
+              if (e.error) detail += '<div style="color:#c0392b;">' + escHtml(e.error) + '</div>';
+              html += '<tr style="border-top:1px solid #eef0f2;'
+                    + (bad ? 'background:#fdf3f2;' : '') + '">'
+                    + '<td style="padding:4px 8px;white-space:nowrap;" class="pco-muted">'
+                    + escHtml((e.at || '').replace('T', ' ').substring(0, 16)) + '</td>'
+                    + '<td style="padding:4px 8px;' + (bad ? 'color:#c0392b;font-weight:600;' : '') + '">'
+                    + escHtml(e.action) + '</td>'
+                    + '<td style="padding:4px 8px;" class="pco-muted">'
+                    + (e.tpPeopleId ? 'TP #' + escHtml(e.tpPeopleId) : '')
+                    + (e.pcoPersonId ? ' / PCO #' + escHtml(e.pcoPersonId) : '') + '</td>'
+                    + '<td style="padding:4px 8px;">' + detail + '</td>'
+                    + '<td style="padding:4px 8px;" class="pco-muted">' + escHtml(e.by || '') + '</td>'
+                    + '</tr>';
+            }
+            html += '</tbody></table></div>';
+            host.innerHTML = html;
+          });
+        };
+
+        // ---- Diagnostics wiring ----------------------------------
+        var DIAG_COLORS = {ok: '#1f6b3a', warn: '#8a6d3b', fail: '#c0392b', info: '#555'};
+        var DIAG_BG     = {ok: '#f2f9f4', warn: '#fffaf0', fail: '#fdf3f2', info: '#f7f8f9'};
+
+        $('pcoDiagRunBtn').onclick = function(){
+          var btn = this, res = $('pcoDiagResults'), st = $('pcoDiagStatus');
+          btn.disabled = true;
+          st.textContent = 'Running...';
+          res.innerHTML = '';
+          $('pcoDiagCopyBtn').style.display = 'none';
+          ajax('run_diagnostics', {}, function(err, d){
+            btn.disabled = false;
+            st.textContent = '';
+            if (err || !d || !d.success) {
+              res.innerHTML = '<span class="pco-pill pco-err">Error</span> '
+                            + escHtml((d && d.message) || err);
+              return;
+            }
+            var rows = d.checks || [];
+            var nFail = 0, nWarn = 0, html = '';
+            for (var i = 0; i < rows.length; i++) {
+              var c = rows[i];
+              if (c.status === 'fail') nFail++;
+              if (c.status === 'warn') nWarn++;
+              html += '<div style="display:flex;gap:10px;padding:6px 10px;border-radius:4px;'
+                    + 'margin-bottom:4px;background:' + (DIAG_BG[c.status] || '#f7f8f9') + ';">'
+                    + '<span style="flex:0 0 52px;font-size:11px;font-weight:700;text-transform:uppercase;'
+                    + 'color:' + (DIAG_COLORS[c.status] || '#555') + ';">' + escHtml(c.status) + '</span>'
+                    + '<span style="flex:0 0 190px;font-weight:600;font-size:13px;">' + escHtml(c.name) + '</span>'
+                    + '<span style="flex:1 1 auto;font-size:13px;color:#444;">' + escHtml(c.detail) + '</span>'
+                    + '</div>';
+            }
+            var head = nFail ? ('<div style="font-weight:700;color:#c0392b;margin-bottom:6px;">'
+                                + nFail + ' problem(s) found.</div>')
+                     : nWarn ? ('<div style="font-weight:700;color:#8a6d3b;margin-bottom:6px;">'
+                                + nWarn + ' thing(s) worth a look.</div>')
+                     : '<div style="font-weight:700;color:#1f6b3a;margin-bottom:6px;">All checks passed.</div>';
+            res.innerHTML = head + html;
+            $('pcoDiagText').value = d.text || '';
+            $('pcoDiagCopyBtn').style.display = '';
+          });
+        };
+
+        $('pcoDiagCopyBtn').onclick = function(){
+          var ta = $('pcoDiagText');
+          ta.style.display = '';
+          ta.select();
+          var ok = false;
+          try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+          ta.style.display = 'none';
+          toast(ok ? 'Diagnostics copied to clipboard.'
+                   : 'Could not copy automatically -- select the text manually.',
+                ok ? 'ok' : 'err');
+        };
+
+        $('pcoProbeRunBtn').onclick = function(){
+          var pid = ($('pcoProbePersonId').value || '').trim();
+          var out = $('pcoProbeResult');
+          if (!pid) { out.innerHTML = '<span style="color:#a00;">Enter a PCO Person ID first.</span>'; return; }
+          if (!confirm('This sends one write request to PCO for person ' + pid
+                       + '.\nIt writes back the same first name it reads, so nothing should change.\n\nContinue?')) return;
+          var btn = this;
+          btn.disabled = true;
+          out.innerHTML = '<span class="pco-muted">Probing...</span>';
+          ajax('test_pco_write_probe', {pco_person_id: pid}, function(err, d){
+            btn.disabled = false;
+            if (err || !d || !d.success) {
+              out.innerHTML = '<span class="pco-pill pco-err">Error</span> '
+                            + escHtml((d && d.message) || err);
+              return;
+            }
+            var color = d.overrideHonored ? '#1f6b3a' : '#8a6d3b';
+            var html = '<div style="padding:8px 10px;border-radius:4px;background:'
+                     + (d.overrideHonored ? '#f2f9f4' : '#fffaf0') + ';">'
+                     + '<div style="font-weight:700;color:' + color + ';">'
+                     + (d.overrideHonored ? 'Override accepted' : 'Override not usable') + '</div>'
+                     + '<div style="margin-top:4px;">' + escHtml(d.verdict) + '</div>'
+                     + '<div class="pco-muted" style="margin-top:6px;font-size:12px;">'
+                     + 'Person: ' + escHtml(d.personName)
+                     + ' &middot; first_name before: "' + escHtml(d.firstNameBefore) + '"'
+                     + ', after: "' + escHtml(d.firstNameAfter) + '" &middot; '
+                     + (d.unchanged ? 'unchanged, as intended.'
+                                    : '<strong style="color:#c0392b;">CHANGED -- check this person in PCO.</strong>')
+                     + '</div>';
+            if (d.rawSnippet) {
+              html += '<div class="pco-muted" style="margin-top:6px;font-size:11px;font-family:monospace;'
+                    + 'white-space:pre-wrap;word-break:break-all;">' + escHtml(d.rawSnippet) + '</div>';
+            }
+            html += '</div>';
+            out.innerHTML = html;
+          });
+        };
+
+        // ---- TP -> PCO preview / apply ---------------------------
+        function renderOutbound(d, applied) {
+          var t = d.totals || {};
+          var host = $('pcoOutResults');
+          if (!d.people || !d.people.length) {
+            var c0 = d.capabilities || {};
+            var w0 = (c0.backgroundChecks === false)
+                   ? '<div style="margin-bottom:8px;padding:8px 10px;border-left:3px solid #c0392b;'
+                     + 'background:#fdf3f2;border-radius:4px;font-size:12px;">'
+                     + '<strong style="color:#c0392b;">Background checks skipped.</strong> '
+                     + escHtml(c0.backgroundChecksReason || '') + '</div>'
+                   : '';
+            host.innerHTML = w0 + '<div class="pco-muted">' + escHtml(d.message
+                             || 'Nothing to write. PCO already matches TouchPoint for every field you have '
+                              + 'set to TouchPoint -> PCO.') + '</div>';
+            $('pcoOutApplyBtn').style.display = 'none';
+            return;
+          }
+          var caps = d.capabilities || {};
+          var capWarn = '';
+          if (d.note) {
+            capWarn += '<div style="margin-bottom:8px;padding:8px 10px;border-left:3px solid #8a6d3b;'
+                     + 'background:#fffaf0;border-radius:4px;font-size:12px;">'
+                     + '<strong style="color:#8a6d3b;">Incomplete run.</strong> '
+                     + escHtml(d.note) + '</div>';
+          }
+          if (caps.backgroundChecks === false) {
+            capWarn = '<div style="margin-bottom:8px;padding:8px 10px;border-left:3px solid #c0392b;'
+                    + 'background:#fdf3f2;border-radius:4px;font-size:12px;">'
+                    + '<strong style="color:#c0392b;">Background checks skipped this run.</strong> '
+                    + escHtml(caps.backgroundChecksReason || '') + '</div>';
+          }
+          var head = applied
+            ? ('<div style="font-weight:700;color:#1f6b3a;margin-bottom:6px;">Wrote '
+               + t.written + ' change(s) across ' + t.people + ' people.'
+               + (t.failed ? ' <span style="color:#c0392b;">' + t.failed + ' failed.</span>' : '')
+               + (t.stuck ? ' <span style="color:#c0392b;">' + t.stuck + ' now stuck.</span>' : '')
+               + '</div>')
+            : ('<div style="font-weight:700;color:#8a6d3b;margin-bottom:6px;">'
+               + t.wouldWrite + ' change(s) across ' + t.people + ' people would be written. '
+               + 'Nothing has changed yet.</div>');
+          var html = head + '<div style="max-height:340px;overflow:auto;">'
+                   + '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+                   + '<thead><tr style="background:#f0f3f6;text-align:left;">'
+                   + (applied ? '' : '<th style="padding:4px 8px;width:26px;">'
+                        + '<input type="checkbox" id="pcoOutAll" title="Select all"></th>')
+                   + '<th style="padding:4px 8px;">Person</th><th style="padding:4px 8px;">Field</th>'
+                   + '<th style="padding:4px 8px;">TouchPoint</th>'
+                   // "PCO now" is only true in a preview. After an apply it is
+                   // the value captured while planning, i.e. before the write,
+                   // so calling it "now" reads as though the write did not land.
+                   + '<th style="padding:4px 8px;">' + (applied ? 'PCO before' : 'PCO now') + '</th>'
+                   + (applied ? '<th style="padding:4px 8px;">PCO after</th>' : '')
+                   + '<th style="padding:4px 8px;">' + (applied ? 'Result' : 'Action') + '</th>'
+                   + (applied ? '' : '<th style="padding:4px 8px;">Fix</th>')
+                   + '</tr></thead><tbody>';
+          for (var i = 0; i < d.people.length; i++) {
+            var p = d.people[i];
+            for (var j = 0; j < p.items.length; j++) {
+              var it = p.items[j];
+              var bad = (it.result === 'failed' || it.result === 'unverified'
+                         || it.result === 'written_mismatch');
+              var warn = !!it.warn && !bad;
+              // Flagged rows start UNTICKED. A row the preview is unsure
+              // about should take a deliberate click to include, not a
+              // deliberate click to exclude.
+              var selKey = p.tpPeopleId + '|' + it.field;
+              html += '<tr style="border-top:1px solid #eef0f2;'
+                    + (bad ? 'background:#fdf3f2;' : (warn ? 'background:#fffaf0;' : '')) + '">'
+                    + (applied ? '' : '<td style="padding:4px 8px;">'
+                        + '<input type="checkbox" class="pco-out-pick" value="' + escAttr(selKey) + '"'
+                        + (warn ? '' : ' checked') + '></td>')
+                    + '<td style="padding:4px 8px;">' + (j === 0 ? escHtml(p.name) : '') + '</td>'
+                    + '<td style="padding:4px 8px;">' + escHtml(it.label) + '</td>'
+                    + '<td style="padding:4px 8px;">' + escHtml(it.tpValue)
+                    + (it.detail ? '<div class="pco-muted" style="font-size:11px;">'
+                                   + escHtml(it.detail) + '</div>' : '') + '</td>'
+                    + '<td style="padding:4px 8px;" class="pco-muted">' + escHtml(it.pcoValue || '(none)')
+                    + (warn ? '<div style="color:#8a6d3b;font-size:11px;">Verify this match</div>' : '')
+                    + '</td>'
+                    // The verified post-write value: what we read BACK from
+                    // PCO, not what we hoped we sent. That is the whole point
+                    // of verify-after-write, so it belongs on screen.
+                    + (applied
+                        ? '<td style="padding:4px 8px;font-weight:600;'
+                          + (it.result === 'written_mismatch' ? 'color:#c0392b;' : 'color:#1f6b3a;')
+                          + '">' + escHtml(it.observed || (it.result === 'written' ? it.tpValue : '')
+                                           || '(not read)') + '</td>'
+                        : '')
+                    + '<td style="padding:4px 8px;' + (bad ? 'color:#c0392b;font-weight:600;' : '') + '">'
+                    + escHtml(applied ? (it.result || '') : (it.action || ''))
+                    + (it.error ? '<div class="pco-muted" style="color:#c0392b;">' + escHtml(it.error) + '</div>' : '')
+                    + '</td>'
+                    // Corrective actions. A flagged row usually needs the LINK
+                    // fixed, not the value written, so the fix lives next to
+                    // the finding instead of on another tab.
+                    + (applied ? '' : '<td style="padding:4px 8px;white-space:nowrap;">'
+                        + '<a href="/Person2/' + escAttr(p.tpPeopleId) + '" target="_blank"'
+                        + ' style="font-size:11px;">Open</a>'
+                        + (warn ? ' &middot; <a href="#" class="pco-out-unlink"'
+                                  + ' data-tp-id="' + escAttr(p.tpPeopleId) + '"'
+                                  + ' data-name="' + escAttr(p.name) + '"'
+                                  + ' style="font-size:11px;color:#a00;">Unlink</a>' : '')
+                        + '</td>')
+                    + '</tr>';
+            }
+          }
+          html += '</tbody></table></div>';
+          if (d.errors && d.errors.length) {
+            var n = d.errorCount || d.errors.length;
+            html += '<div style="margin-top:8px;color:#c0392b;font-size:12px;">'
+                  + escHtml(n + ' error(s)'
+                            + (n > d.errors.length ? ' (first ' + d.errors.length + ' shown)' : '')
+                            + ': ' + d.errors.slice(0, 3).join(' | ')) + '</div>';
+          }
+          host.innerHTML = capWarn + html;
+          var applyBtn = $('pcoOutApplyBtn');
+          applyBtn.style.display = (!applied && t.wouldWrite) ? '' : 'none';
+
+          function refreshPick() {
+            var picks = host.querySelectorAll('.pco-out-pick:checked');
+            applyBtn.dataset.count = String(picks.length);
+            applyBtn.textContent = picks.length
+              ? 'Apply ' + picks.length + ' to PCO' : 'Apply to PCO';
+            applyBtn.disabled = !picks.length;
+          }
+          var picks = host.querySelectorAll('.pco-out-pick');
+          for (var q = 0; q < picks.length; q++) picks[q].onchange = refreshPick;
+          var all = $('pcoOutAll');
+          if (all) {
+            all.onclick = function(){
+              var boxes = host.querySelectorAll('.pco-out-pick');
+              for (var z = 0; z < boxes.length; z++) boxes[z].checked = this.checked;
+              refreshPick();
+            };
+          }
+          var unlinks = host.querySelectorAll('.pco-out-unlink');
+          for (var u = 0; u < unlinks.length; u++) {
+            unlinks[u].onclick = function(ev){
+              ev.preventDefault();
+              var tpId = this.dataset.tpId, nm = this.dataset.name;
+              if (!confirm('Remove the PCO link from ' + nm + '?\n\n'
+                  + 'Their TouchPoint record is untouched -- only the PCO_PersonId is '
+                  + 'cleared, so they can be re-matched on the People Matching tab.')) return;
+              var a = this;
+              ajax('unlink_tp_person', {tp_people_id: tpId}, function(err, d){
+                if (err || !d || !d.success) {
+                  toast('Unlink failed: ' + ((d && d.message) || err), 'err'); return;
+                }
+                toast('Unlinked ' + nm + '. Re-match them on People Matching.', 'ok');
+                var row = a.closest('tr');
+                if (row) {
+                  var cb = row.querySelector('.pco-out-pick');
+                  if (cb) { cb.checked = false; cb.disabled = true; }
+                  row.style.opacity = '0.5';
+                  a.outerHTML = '<span class="pco-muted" style="font-size:11px;">unlinked</span>';
+                  refreshPick();
+                }
+              });
+            };
+          }
+          if (!applied) refreshPick();
+        }
+
+        $('pcoOutPreviewBtn').onclick = function(){
+          var btn = this, st = $('pcoOutStatus');
+          btn.disabled = true; st.textContent = 'Reading PCO...';
+          $('pcoOutResults').innerHTML = '';
+          ajax('preview_tp_to_pco', {}, function(err, d){
+            btn.disabled = false; st.textContent = '';
+            if (err || !d || !d.success) {
+              $('pcoOutResults').innerHTML = '<span class="pco-pill pco-err">Error</span> '
+                                           + escHtml((d && d.message) || err);
+              return;
+            }
+            renderOutbound(d, false);
+          });
+        };
+
+        $('pcoOutApplyBtn').onclick = function(){
+          var host0 = $('pcoOutResults');
+          var picked = [];
+          var boxes = host0.querySelectorAll('.pco-out-pick:checked');
+          for (var b0 = 0; b0 < boxes.length; b0++) picked.push(boxes[b0].value);
+          if (!picked.length) { toast('Nothing selected.', 'err'); return; }
+          if (!confirm('This writes to PCO for real.\n\n' + picked.length
+                       + ' selected change(s) will be sent, each read back afterwards to '
+                       + 'confirm.\n\nContinue?')) return;
+          var btn = this, st = $('pcoOutStatus');
+          btn.disabled = true; st.textContent = 'Writing to PCO...';
+          ajax('apply_tp_to_pco', {confirm: 'WRITE',
+                                   selected_json: JSON.stringify(picked)}, function(err, d){
+            btn.disabled = false; st.textContent = '';
+            if (err || !d || !d.success) {
+              $('pcoOutResults').innerHTML = '<span class="pco-pill pco-err">Error</span> '
+                                           + escHtml((d && d.message) || err);
+              return;
+            }
+            renderOutbound(d, true);
+            toast('Wrote ' + (d.totals && d.totals.written || 0) + ' change(s) to PCO.', 'ok');
+          });
+        };
+
         $('pcoRulesSaveBtn').onclick = function(){
           var rulesObj = {};
           var grid = $('pcoPersonRulesGrid');
@@ -7278,15 +10514,37 @@ else:
           for (var i = 0; i < fields.length; i++) {
             var f = fields[i];
             var r = rules[f.key] || {direction: 'none', mode: 'review'};
+            // Options come from what each field can ACTUALLY do. Address and
+            // Background Check are outbound-only; the scalar fields are not
+            // outbound until the writer ships. Offering a direction that
+            // silently resolves to 'none' server-side is worse than showing
+            // it greyed with a reason.
+            var canIn  = f.pcoToTp !== false;
+            var canOut = f.tpToPco !== false && !!d.writeEnabled;
+            var outLabel = (f.tpToPco === false)
+                  ? 'TP &rarr; PCO (not available for this field)'
+                  : (d.writeEnabled ? 'TP &rarr; PCO (push to PCO)'
+                                    : 'TP &rarr; PCO (writer not built yet)');
             var optDir = ''
               + '<option value="none"' + (r.direction === 'none' ? ' selected' : '') + '>No sync (TP is source of truth)</option>'
-              + '<option value="pco_to_tp"' + (r.direction === 'pco_to_tp' ? ' selected' : '') + '>PCO &rarr; TP (pull from PCO)</option>'
-              + '<option value="tp_to_pco" disabled' + (r.direction === 'tp_to_pco' ? ' selected' : '') + '>TP &rarr; PCO (coming in v1.1)</option>';
+              + '<option value="pco_to_tp"' + (canIn ? '' : ' disabled')
+              + (r.direction === 'pco_to_tp' ? ' selected' : '') + '>'
+              + (canIn ? 'PCO &rarr; TP (pull from PCO)'
+                       : 'PCO &rarr; TP (not available for this field)') + '</option>'
+              + '<option value="tp_to_pco"' + (canOut ? '' : ' disabled')
+              + (r.direction === 'tp_to_pco' ? ' selected' : '') + '>' + outLabel + '</option>';
             var optMode = ''
               + '<option value="review"' + (r.mode === 'review' ? ' selected' : '') + '>Review first</option>'
               + '<option value="auto"' + (r.mode === 'auto' ? ' selected' : '') + '>Auto-apply</option>';
+            var why = f.unavailableReason
+                  ? '<div class="pco-muted" style="font-weight:400;font-size:11px;margin-top:2px;">'
+                    + escHtml(f.unavailableReason) + '</div>'
+                  : '';
+            var kindPill = (f.kind === 'record')
+                  ? ' <span class="pco-pill" style="background:#eef0f2;color:#666;font-size:10px;font-weight:600;">record</span>'
+                  : '';
             html += '<tr class="pco-rule-row" data-field="' + escAttr(f.key) + '" style="border-top:1px solid #e1e4e8;">'
-              + '<td style="padding:6px 8px;font-weight:600;">' + escHtml(f.label) + '</td>'
+              + '<td style="padding:6px 8px;font-weight:600;vertical-align:top;">' + escHtml(f.label) + kindPill + why + '</td>'
               + '<td style="padding:6px 8px;"><select class="pco-rule-direction" style="padding:4px 6px;">' + optDir + '</select></td>'
               + '<td style="padding:6px 8px;"><select class="pco-rule-mode" style="padding:4px 6px;">' + optMode + '</select></td>'
               + '</tr>';
@@ -7305,6 +10563,11 @@ else:
           } else {
             $('pcoSettingsStatus').innerHTML = '<span class="pco-pill pco-warn">Not configured</span>'
               + ' <span class="pco-muted">Enter credentials below.</span>';
+          }
+          var bgc = $('pcoBgcMonths');
+          if (bgc) {
+            var m = d.backgroundCheckValidityMonths;
+            bgc.value = (m && parseInt(m, 10) > 0) ? String(m) : '';
           }
         });
       }
@@ -8535,14 +11798,141 @@ else:
         });
       }
 
+
+      // ---- one-involvement-per-mapping conflict detection ----------------
+      // Every sync path removes TP members who carry a PCO link but are not
+      // in THAT mapping's PCO scope. The server reads the involvement's whole
+      // roster (_tp_org_members_with_pco_link), not just the people this
+      // mapping put there -- so two mappings aimed at one involvement each
+      // remove the other's members on every run and fight indefinitely.
+      // Nothing downstream catches it: both PCO reads succeed, so the removal
+      // guard correctly sees complete data and allows the drops.
+      var PCO_ORG_USE = {allpeople: {}, servicetype: {}, team: {}};
+
+      function pcoRegisterOrgUse(kind, entries) {
+        var m = {};
+        for (var i = 0; i < entries.length; i++) {
+          var orgId = String(entries[i].orgId || '');
+          if (!orgId || orgId === '0') continue;
+          if (!m[orgId]) m[orgId] = [];
+          m[orgId].push(entries[i].label);
+        }
+        PCO_ORG_USE[kind] = m;
+        pcoFlagOrgConflicts();
+      }
+
+      function pcoFlagOrgConflicts() {
+        var host = $('pcoMappingConflicts');
+        if (!host) return;
+        var kinds = ['allpeople', 'servicetype', 'team'];
+        var byOrg = {};
+        for (var k = 0; k < kinds.length; k++) {
+          var m = PCO_ORG_USE[kinds[k]] || {};
+          for (var orgId in m) {
+            if (!m.hasOwnProperty(orgId)) continue;
+            if (!byOrg[orgId]) byOrg[orgId] = [];
+            for (var j = 0; j < m[orgId].length; j++) byOrg[orgId].push(m[orgId][j]);
+          }
+        }
+        // Clear previous marks before re-marking; loaders fire independently.
+        var marked = document.querySelectorAll('[data-pco-conflict="1"]');
+        for (var z = 0; z < marked.length; z++) {
+          marked[z].removeAttribute('data-pco-conflict');
+          marked[z].style.borderColor = '#e1e4e8';
+          marked[z].style.background = '#fafbfc';
+        }
+        var bad = [];
+        for (var oid in byOrg) {
+          if (byOrg.hasOwnProperty(oid) && byOrg[oid].length > 1) bad.push(oid);
+        }
+        pcoApplyPendingFocus();
+        if (!bad.length) { host.innerHTML = ''; return; }
+        var items = '';
+        for (var b = 0; b < bad.length; b++) {
+          var users = byOrg[bad[b]];
+          items += '<li style="margin-top:4px;">Involvement <strong>#' + escHtml(bad[b])
+                 + '</strong> is the target of ' + users.length + ' mappings: '
+                 + escHtml(users.join('  |  ')) + '</li>';
+          var sel = '.pco-people-map-row[data-tp-org-id="' + bad[b] + '"],'
+                  + '.pco-team-map-row[data-tp-org-id="' + bad[b] + '"]';
+          var rows = document.querySelectorAll(sel);
+          for (var rr = 0; rr < rows.length; rr++) {
+            rows[rr].setAttribute('data-pco-conflict', '1');
+            rows[rr].style.borderColor = '#c0392b';
+            rows[rr].style.background = '#fdf3f2';
+          }
+        }
+        host.innerHTML = ''
+          + '<div style="margin-bottom:12px;padding:10px 12px;background:#fdf3f2;'
+          + 'border-left:3px solid #c0392b;border-radius:4px;font-size:13px;">'
+          + '<strong style="color:#c0392b;">Conflicting mappings: give each mapping its own involvement.</strong>'
+          + '<ul style="margin:6px 0 6px 18px;padding:0;">' + items + '</ul>'
+          + 'Each sync removes anyone in the involvement who is PCO-linked but not in '
+          + 'its own PCO scope. Pointed at the same involvement, these mappings will each '
+          + 'remove the other&#39;s people every time they run, and the rosters will never settle. '
+          + 'Point each one at a different involvement, or remove all but one.'
+          + '</div>';
+      }
+
       function renderMappingsTab() {
         $('pcoContent').innerHTML = ''
           // Direction indicator banner -- v2.6+ makes the one-way nature
           // unmistakable. Every mapping pushes PCO state into TouchPoint;
           // TP changes never flow back to PCO (that's v3.x territory).
           + '<div style="margin-bottom:12px;padding:8px 12px;background:#0f7c840d;border-left:3px solid #0f7c84;border-radius:4px;font-size:13px;">'
-          + '<strong>One-way sync:</strong> PCO &rarr; TouchPoint only. PCO is the source of truth; TouchPoint follows. '
-          + 'Changes you make in TouchPoint will NOT flow back to PCO. <span class="pco-muted">(two-way sync is on the roadmap)</span>'
+          + '<strong>Direction:</strong> everything on this tab is <strong>PCO &rarr; TouchPoint</strong>. '
+          + 'Rosters, teams and attendance flow one way: PCO is the source of truth and TouchPoint follows. '
+          + 'Sending data the other way is configured separately, per field, under '
+          + '<strong>Settings &rarr; person data sync</strong>, and every field there starts switched off.'
+          + '</div>'
+          // Conflict banner. Populated by pcoFlagOrgConflicts() once the
+          // three loaders below report which involvement each mapping targets.
+          + '<div id="pcoMappingConflicts"></div>'
+          // ----- Which mapping type? ------------------------------------
+          // Three sections that each explain themselves in isolation left a
+          // newcomer to hold all three in their head to compare. This answers
+          // the actual first question: which one do I want?
+          + '<div class="pco-card" style="margin-bottom:14px;">'
+          + '<h3 style="margin-top:0;">Which mapping should I use?</h3>'
+          + '<div style="overflow-x:auto;">'
+          + '<table style="width:100%;border-collapse:collapse;font-size:13px;min-width:620px;">'
+          + '<thead><tr style="text-align:left;border-bottom:2px solid #e1e4e8;">'
+          + '<th style="padding:6px 8px;">Pick this</th>'
+          + '<th style="padding:6px 8px;">when you want</th>'
+          + '<th style="padding:6px 8px;">PCO side</th>'
+          + '<th style="padding:6px 8px;">Subgroups</th>'
+          + '<th style="padding:6px 8px;">Attendance</th>'
+          + '</tr></thead><tbody>'
+          + '<tr style="border-bottom:1px solid #eef0f2;">'
+          + '<td style="padding:6px 8px;"><span class="pco-pill" style="background:#1f4e79;color:#fff;font-size:11px;">All People</span></td>'
+          + '<td style="padding:6px 8px;">one involvement mirroring your whole PCO directory</td>'
+          + '<td style="padding:6px 8px;">the People app</td>'
+          + '<td style="padding:6px 8px;" class="pco-muted">no</td>'
+          + '<td style="padding:6px 8px;" class="pco-muted">no</td>'
+          + '</tr>'
+          + '<tr style="border-bottom:1px solid #eef0f2;">'
+          + '<td style="padding:6px 8px;"><span class="pco-pill" style="background:#1f4e79;color:#fff;font-size:11px;">Service Type Sync</span></td>'
+          + '<td style="padding:6px 8px;"><strong>everyone who serves</strong> in a service type, across all its teams, in one involvement</td>'
+          + '<td style="padding:6px 8px;">a Service Type</td>'
+          + '<td style="padding:6px 8px;">optional, one per <strong>team</strong></td>'
+          + '<td style="padding:6px 8px;">optional, per plan</td>'
+          + '</tr>'
+          + '<tr>'
+          + '<td style="padding:6px 8px;"><span class="pco-pill" style="background:#1f6b3a;color:#fff;font-size:11px;">Team Sync</span></td>'
+          + '<td style="padding:6px 8px;"><strong>one team</strong> kept in lockstep with its own involvement</td>'
+          + '<td style="padding:6px 8px;">a single Team</td>'
+          + '<td style="padding:6px 8px;">optional, one per <strong>position</strong></td>'
+          + '<td style="padding:6px 8px;">optional, per plan</td>'
+          + '</tr>'
+          + '</tbody></table>'
+          + '</div>'
+          + '<div class="pco-help" style="margin-top:10px;">'
+          + '<strong>Give every mapping its own involvement.</strong> A sync removes anyone in its '
+          + 'involvement who is PCO-linked but no longer in its own PCO scope, so two mappings sharing '
+          + 'one involvement will each keep removing the other&#39;s people. '
+          + 'Service Type Sync already covers every team beneath it &mdash; reach for Team Sync when a '
+          + 'single team needs its own involvement, not to subdivide one you already sync.'
+          + '</div>'
           + '</div>'
           // ----- All People Mapping (v2.2) -- singleton, broadest scope -----
           + '<div class="pco-card">'
@@ -8721,6 +12111,7 @@ else:
               + '</div>'
               + '<div id="pcoAllPeopleConfig" style="display:none;margin-top:10px;padding:10px;border:1px solid #e1e4e8;border-radius:6px;background:#fff;"></div>';
             $('pcoAllPeopleConfigBtn').onclick = openAllPeopleConfig;
+            pcoRegisterOrgUse('allpeople', []);
             return;
           }
           var orgCtx = '';
@@ -8741,6 +12132,7 @@ else:
             + '</div>'
             + '</div>'
             + '<div id="pcoAllPeopleConfig" style="display:none;margin-top:10px;padding:10px;border:1px solid #e1e4e8;border-radius:6px;background:#fff;"></div>';
+          pcoRegisterOrgUse('allpeople', [{orgId: m.orgId, label: 'All People'}]);
           $('pcoAllPeoplePreviewBtn').onclick = openAllPeoplePreview;
           $('pcoAllPeopleReconfigBtn').onclick = openAllPeopleConfig;
           $('pcoAllPeopleDelBtn').onclick = function(){
@@ -8933,7 +12325,7 @@ else:
       function loadPeopleMappings() {
         var host = $('pcoPeopleMappingsList');
         host.className = 'pco-empty';
-        host.innerHTML = 'Loading people mappings...';
+        host.innerHTML = 'Loading service type mappings...';
         ajax('list_people_mappings', {}, function(err, d){
           if (err || !d || !d.success) {
             host.innerHTML = '<span class="pco-pill pco-err">Error</span> ' + ((d && d.message) || err);
@@ -8941,11 +12333,12 @@ else:
           }
           var rows = d.mappings || [];
           if (!rows.length) {
-            host.innerHTML = '<div>No people mappings yet. Click <strong>+ Add People Mapping</strong> to map a PCO Service Type to a TouchPoint umbrella involvement.</div>';
+            host.innerHTML = '<div>No service type mappings yet. Click <strong>+ Add Service Type Mapping</strong> to map a PCO Service Type to a TouchPoint involvement.</div>';
+            pcoRegisterOrgUse('servicetype', []);
             return;
           }
           host.className = '';
-          var html = '<div class="pco-muted" style="margin-bottom:8px;">' + rows.length + ' people mapping(s)</div>'
+          var html = '<div class="pco-muted" style="margin-bottom:8px;">' + rows.length + ' service type mapping(s)</div>'
                    + '<div style="display:flex;flex-direction:column;gap:8px;">';
           var schedInstalled = !!d.schedulerInstalled;
           for (var i = 0; i < rows.length; i++) {
@@ -8954,6 +12347,10 @@ else:
           html += '</div>';
           host.innerHTML = html;
           wireSchedulePanels(host);
+          pcoRegisterOrgUse('servicetype', rows.map(function(r){
+            return {orgId: r.tpOrgId,
+                    label: 'Service Type: ' + (r.pcoServiceTypeName || r.pcoServiceTypeId)};
+          }));
           if (!host.__pcoPeopleWired) {
             host.__pcoPeopleWired = true;
             host.addEventListener('click', function(ev){
@@ -9011,7 +12408,7 @@ else:
         var subgChk = r.teamsAsSubgroups ? ' checked' : '';
         var attChk  = r.perPlanAttendance ? ' checked' : '';
         return ''
-          + '<div class="pco-people-map-row" style="border:1px solid #e1e4e8;border-radius:6px;padding:10px 12px;background:#fafbfc;">'
+          + '<div class="pco-people-map-row" data-tp-org-id="' + r.tpOrgId + '" style="border:1px solid #e1e4e8;border-radius:6px;padding:10px 12px;background:#fafbfc;">'
           + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">'
           + '<div style="flex:1 1 320px;min-width:0;">'
           + '<div style="font-weight:700;color:#1f4e79;">' + escHtml(r.pcoServiceTypeName || ('Service Type ' + r.pcoServiceTypeId)) + '</div>'
@@ -9173,6 +12570,7 @@ else:
           var rows = d.mappings || [];
           if (!rows.length) {
             host.innerHTML = '<div>No team mappings yet. Click <strong>+ Add Team Mapping</strong> to wire a PCO Team to a TouchPoint involvement.</div>';
+            pcoRegisterOrgUse('team', []);
             return;
           }
           host.className = '';
@@ -9185,6 +12583,11 @@ else:
           html += '</div>';
           host.innerHTML = html;
           wireSchedulePanels(host);
+          pcoRegisterOrgUse('team', rows.map(function(r){
+            return {orgId: r.tpOrgId,
+                    label: 'Team: ' + (r.pcoTeamName || r.pcoTeamId)
+                           + (r.pcoServiceTypeName ? ' (' + r.pcoServiceTypeName + ')' : '')};
+          }));
           // Wire row buttons via delegation. Guard against re-attach.
           if (!host.__pcoTeamWired) {
             host.__pcoTeamWired = true;
@@ -9517,7 +12920,7 @@ else:
         var subgChk = r.positionsAsSubgroups ? ' checked' : '';
         var attChk  = r.perPlanAttendance ? ' checked' : '';
         return ''
-          + '<div class="pco-team-map-row" style="border:1px solid #e1e4e8;border-radius:6px;padding:10px 12px;background:#fafbfc;">'
+          + '<div class="pco-team-map-row" data-tp-org-id="' + r.tpOrgId + '" style="border:1px solid #e1e4e8;border-radius:6px;padding:10px 12px;background:#fafbfc;">'
           + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">'
           + '<div style="flex:1 1 320px;min-width:0;">'
           + '<div style="font-weight:700;color:#1f4e79;">' + escHtml(r.pcoTeamName || ('Team ' + r.pcoTeamId))
@@ -10535,6 +13938,22 @@ else:
               + '</div>';
           }
         }
+        // Manual search. The proposer offers its best guesses, but a
+        // wrong-but-plausible candidate is worse than none -- twins, a
+        // parent and child sharing a name, a remarried surname. Without a
+        // way to go find the right person, the only options were accept a
+        // bad match or Skip Forever, and Skip Forever is not "not this
+        // one", it is "never show me this person again".
+        candBlock += '<div class="pco-manual-wrap" data-pco-id="' + escAttr(r.pcoPersonId) + '"'
+          + ' style="display:none;margin-top:6px;padding:6px;border:1px dashed #b8c4d0;border-radius:3px;background:#fff;">'
+          + '<div style="display:flex;gap:4px;">'
+          + '<input type="text" class="pco-manual-term pco-input" placeholder="Name or email..."'
+          + ' style="font-size:12px;padding:3px 6px;flex:1 1 auto;">'
+          + '<button class="pco-btn pco-secondary pco-manual-go" style="font-size:11px;padding:3px 10px;">Search</button>'
+          + '</div>'
+          + '<div class="pco-manual-results" style="margin-top:4px;"></div>'
+          + '</div>';
+
         // Selectable checkbox is only meaningful when there's at least
         // one candidate; bulk Apply targets the top candidate.
         var checkbox = cands.length
@@ -10548,6 +13967,8 @@ else:
           + '<td style="padding:6px 8px;"><span class="pco-pill" style="background:' + tierColor + ';color:#fff;font-size:11px;">' + escHtml((r.tier === 'none' ? 'No match' : r.tier)) + '</span></td>'
           + '<td style="padding:6px 8px;">' + candBlock + '</td>'
           + '<td style="padding:6px 8px;">'
+          +   '<button class="pco-btn pco-secondary pco-manual-toggle" data-pco-id="' + escAttr(r.pcoPersonId) + '" style="font-size:11px;padding:3px 10px;margin-bottom:4px;">Search TP</button>'
+          +   '<br>'
           +   '<button class="pco-btn pco-secondary pco-proposed-skip" data-pco-id="' + escAttr(r.pcoPersonId) + '" style="font-size:11px;padding:3px 10px;color:#a00;border-color:#a00;">Skip Forever</button>'
           + '</td>'
           + '</tr>';
@@ -10659,6 +14080,126 @@ else:
             });
           };
         }
+        // ---- Manual TP search per row --------------------------------
+        function _manualLink(pcoId, tpId, tpName, btn) {
+          if (!confirm('Link PCO person to ' + tpName + ' (TP #' + tpId + ')?')) return;
+          btn.disabled = true; btn.textContent = 'Linking...';
+          ajax('apply_proposed_match', {pco_person_id: pcoId, tp_people_id: tpId}, function(err, d){
+            if (err || !d || !d.success) {
+              toast('Link failed: ' + ((d && d.message) || err), 'err');
+              btn.disabled = false; btn.textContent = 'Link';
+              return;
+            }
+            toast('Linked to ' + tpName + '.', 'ok');
+            var row = document.querySelector('.pco-proposed-row[data-pco-id="' + pcoId + '"]');
+            var tier = row ? row.dataset.tier : 'all';
+            _removeProposedRowAndDecrement(pcoId, tier);
+          });
+        }
+
+        function _runManualSearch(wrap, pcoId) {
+          var term = (wrap.querySelector('.pco-manual-term').value || '').trim();
+          var out = wrap.querySelector('.pco-manual-results');
+          if (term.length < 2) {
+            out.innerHTML = '<div class="pco-muted" style="font-size:11px;">Type at least 2 characters.</div>';
+            return;
+          }
+          out.innerHTML = '<div class="pco-muted" style="font-size:11px;">Searching...</div>';
+          ajax('search_tp_people', {search_term: term}, function(err, d){
+            if (err || !d || !d.success) {
+              out.innerHTML = '<div style="font-size:11px;color:#c00;">' + escHtml((d && d.message) || err) + '</div>';
+              return;
+            }
+            var ppl = d.people || [];
+            if (!ppl.length) {
+              out.innerHTML = '<div class="pco-muted" style="font-size:11px;">No TouchPoint match. '
+                            + 'Try a surname on its own, or an email.</div>';
+              return;
+            }
+            var h = '';
+            for (var i = 0; i < ppl.length; i++) {
+              var p = ppl[i];
+              // Age and gender are the whole point of a manual search: the
+              // cases that defeat the proposer are twins, a parent and child
+              // sharing a name, a remarried surname. A bare name list would
+              // just move the guess, not resolve it.
+              var bits = [];
+              if (p.age !== null && p.age !== undefined && p.age !== '') bits.push('age ' + p.age);
+              if (p.gender) bits.push(escHtml(p.gender));
+              if (p.email) bits.push(escHtml(p.email));
+              // Already linked to a DIFFERENT PCO person: linking here would
+              // silently move their PCO_PersonId and orphan the old link.
+              var taken = p.pcoPersonId && String(p.pcoPersonId) !== String(pcoId);
+              h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;'
+                 + 'padding:3px 4px;border-top:1px solid #eef0f2;'
+                 + (taken ? 'background:#fffaf0;' : '') + '">'
+                 + '<div style="font-size:11px;">'
+                 + '<strong>' + escHtml(p.name || '') + '</strong> '
+                 + '<span class="pco-muted">TP #' + escHtml(p.peopleId || '') + '</span>'
+                 + (bits.length ? '<div class="pco-muted">' + bits.join(' &middot; ') + '</div>' : '')
+                 + (taken ? '<div style="color:#8a6d3b;">Already linked to PCO #'
+                            + escHtml(p.pcoPersonId) + ' &mdash; linking here replaces that.</div>' : '')
+                 + '</div>'
+                 + '<button class="pco-btn' + (taken ? ' pco-secondary' : '') + ' pco-manual-link"'
+                 + ' data-pco-id="' + escAttr(pcoId) + '"'
+                 + ' data-tp-id="' + escAttr(p.peopleId || '') + '"'
+                 + ' data-tp-name="' + escAttr(p.name || '') + '"'
+                 + ' data-taken="' + (taken ? escAttr(p.pcoPersonId) : '') + '"'
+                 + ' style="font-size:11px;padding:2px 8px;">Link</button>'
+                 + '</div>';
+            }
+            out.innerHTML = h;
+            var links = out.querySelectorAll('.pco-manual-link');
+            for (var j = 0; j < links.length; j++) {
+              links[j].onclick = function(){
+                var already = this.dataset.taken;
+                if (already && !confirm('That TouchPoint person is already linked to PCO #'
+                        + already + '.\nLinking them here REPLACES that link.\n\nContinue?')) return;
+                _manualLink(this.dataset.pcoId, parseInt(this.dataset.tpId, 10) || 0,
+                            this.dataset.tpName, this);
+              };
+            }
+          });
+        }
+
+        var toggles = host.querySelectorAll('.pco-manual-toggle');
+        for (var m = 0; m < toggles.length; m++) {
+          toggles[m].onclick = function(){
+            var pcoId = this.dataset.pcoId;
+            var wrap = host.querySelector('.pco-manual-wrap[data-pco-id="' + pcoId + '"]');
+            if (!wrap) return;
+            var open = wrap.style.display !== 'none';
+            wrap.style.display = open ? 'none' : '';
+            this.textContent = open ? 'Search TP' : 'Hide search';
+            if (!open) {
+              var inp = wrap.querySelector('.pco-manual-term');
+              // Seed with the PCO name so the common case is one click.
+              var row = _proposedCache && _proposedCache.rows
+                ? _proposedCache.rows.filter(function(x){ return x.pcoPersonId === pcoId; })[0] : null;
+              if (row && !inp.value) inp.value = row.pcoName || '';
+              inp.focus();
+              inp.select();
+            }
+          };
+        }
+        var gos = host.querySelectorAll('.pco-manual-go');
+        for (var g = 0; g < gos.length; g++) {
+          gos[g].onclick = function(){
+            var wrap = this.closest('.pco-manual-wrap');
+            if (wrap) _runManualSearch(wrap, wrap.dataset.pcoId);
+          };
+        }
+        var terms = host.querySelectorAll('.pco-manual-term');
+        for (var t2 = 0; t2 < terms.length; t2++) {
+          terms[t2].onkeypress = function(ev){
+            if (ev.keyCode === 13) {
+              ev.preventDefault();
+              var wrap = this.closest('.pco-manual-wrap');
+              if (wrap) _runManualSearch(wrap, wrap.dataset.pcoId);
+            }
+          };
+        }
+
         // Bulk select.
         var selAll = $('pcoProposedSelectAll');
         var checks = host.querySelectorAll('.pco-proposed-check');
@@ -10993,12 +14534,22 @@ else:
             selectTab(ev.target.getAttribute('data-tab'));
           });
         }
+        // Back/forward and hand-edited URLs.
+        window.addEventListener('hashchange', function(){
+          var r = pcoParseRoute();
+          PCO_PENDING_FOCUS = r.focusOrg;
+          if (r.tab !== state.tab) selectTab(r.tab, {fromRoute: true});
+          else pcoApplyPendingFocus();
+        });
       }
 
       bind();
-      // Land on Sync Dashboard by default; if PAT isn't configured the
-      // Settings tab is the obvious next click. (Was 'settings' in v1.0.0.)
-      selectTab('sync');
+      // Open whatever the URL asks for; Sync Dashboard when it asks for
+      // nothing. (v1.0.0 landed on Settings; v1.0.4 made this routable so a
+      // refresh holds its place and notifications can link to a tab.)
+      var _pcoRoute = pcoParseRoute();
+      PCO_PENDING_FOCUS = _pcoRoute.focusOrg;
+      selectTab(_pcoRoute.tab, {fromRoute: true});
     })();
     </script>
     """
