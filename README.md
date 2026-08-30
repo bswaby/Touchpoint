@@ -8,10 +8,10 @@
 
 58 free, open-source tools for TouchPoint®, built at a real church and used at 50+ others.
 
-[**Browse all 58 tools →**](https://bswaby.github.io/Touchpoint/tools.html)
+[**Browse all 58 tools →**](https://bswaby.github.io/Touchpoint/Tools.html)
 
 [![Website](https://img.shields.io/badge/Website-tpxisoftware.com-1e40af?style=flat-square)](https://tpxisoftware.com)
-[![Tools](https://img.shields.io/badge/Tools-58-22c55e?style=flat-square)](https://bswaby.github.io/Touchpoint/tools.html)
+[![Tools](https://img.shields.io/badge/Tools-58-22c55e?style=flat-square)](https://bswaby.github.io/Touchpoint/Tools.html)
 [![Churches](https://img.shields.io/badge/Churches-50%2B-a855f7?style=flat-square)](https://github.com/bswaby/Touchpoint)
 [![Stars](https://img.shields.io/github/stars/bswaby/Touchpoint?style=flat-square&color=f0a500)](https://github.com/bswaby/Touchpoint/stargazers)
 
