@@ -175,8 +175,9 @@ For a searchable version with a longer write-up on each one, see the
 Every tool here is free, with no account and no licence. If they've saved your team hours, there are
 three ways to put something back.
 
-**[DisplayCache™](https://displaycache.com)** — church digital signage that pulls live TouchPoint®
-data onto your screens. Runs on Apple TV, Fire Stick or Raspberry Pi. $10/device/month.
+**[DisplayCache™](https://displaycache.com)** — digital signage, presentation and room signage for
+churches. Integrates with eSpace, TouchPoint®, Planning Center, OneDrive and Google Drive, and runs on
+Apple TV, Fire Stick or Raspberry Pi. $10/device/month.
 
 **[TPxi Go™](https://tpxigo.com)** — your directory, caller ID, and call and email logging, in
 Outlook and on your phone. PAT-based auth, so your data stays in TouchPoint®.
