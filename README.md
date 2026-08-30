@@ -57,7 +57,7 @@ the tool's README will say so.
 
 &#9733; marks the tools churches install first. Every tool's own folder has a fuller README.
 For a searchable version with a longer write-up on each one, see the
-**[tool browser](https://bswaby.github.io/Touchpoint/tools.html)**.
+**[tool browser](https://bswaby.github.io/Touchpoint/Tools.html)**.
 
 ### People & Attendance
 
