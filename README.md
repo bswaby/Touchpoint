@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/ben-swaby.jpg" alt="Ben Swaby" width="120">
+<img src="https://fbchville.com/wp-content/uploads/2022/08/BenSwaby.jpg" alt="Ben Swaby" width="120">
 
 ### TPxi Software™ — TouchPoint® Integrated Tools
 
