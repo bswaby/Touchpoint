@@ -1,7 +1,16 @@
 ### 🔄 [PCO Sync (Planning Center Online ↔ TouchPoint)](https://github.com/bswaby/Touchpoint/tree/main/TPxi/PCO%20Sync)
 Sync between Planning Center Online and TouchPoint: people, rosters, teams, per-plan attendance, and selected person fields back to PCO. Worship admins schedule and take attendance in PCO Services; TouchPoint is the authoritative people database. This bridges the two so staff never have to double-enter. Pull a service plan, match its attendees to TP people once (the link is saved as an Extra Value), and write attendance, roster, and subgroup memberships into the corresponding TP involvement in one click. Or schedule it to run automatically and email you the summary.
 
-Rosters, teams, and attendance flow **PCO → TouchPoint**. Individual person fields can optionally flow **TouchPoint → PCO**, per field, off by default.
+**Who owns what.** Neither system is authoritative for everything, so it is worth being precise about which owns which:
+
+| Data | Owner | Direction |
+|------|-------|-----------|
+| Involvement membership (rosters, teams, subgroups) | PCO | PCO → TouchPoint, mirrored (adds and removes) |
+| Per-plan attendance | PCO | PCO → TouchPoint |
+| Whether a person exists at all | TouchPoint | PCO never creates a TouchPoint person. An unmatched PCO record is reported, not added |
+| Person field values (name, email, phone, address, background check) | You choose, per field | Off by default. Either direction, never both for the same field |
+
+The short version: **PCO owns the roster, TouchPoint owns the people, and you decide field by field who owns each value.**
 
 - ⚙️ **Implementation Level:** Easy to Moderate
 - 🧩 **Installation:** Single script. Paste into Special Content > Python, navigate to `/PyScriptForm/TPxi_PCOSync`, paste your PCO Personal Access Token, and start mapping.
@@ -12,7 +21,7 @@ Rosters, teams, and attendance flow **PCO → TouchPoint**. Individual person fi
   - **All People Sync** is a singleton mapping. Walk the entire PCO People directory and reflect every matched record into one TP "PCO Directory" involvement
   - **Service Type Sync** maps one PCO Service Type (e.g., "11:00 Worship Center") to one umbrella TP involvement. Optional layers: teams-as-subgroups, per-plan attendance writes
   - **Team Sync** maps one PCO Team (e.g., "Band" under Wilson Hall Service) to one TP involvement. Optional layers: positions-as-subgroups, per-plan attendance
-- **PCO is Source of Truth (mirror behavior):** roster sync adds AND removes. TP members whose `PCO_PersonId` is no longer in scope get removed from the involvement on the next sync. Subgroup memberships matching a current PCO position/team but no longer held also get dropped. Manually-added members (no PCO link) and unrelated subgroups are left alone, so your hand-curated data stays untouched
+- **PCO owns the roster (mirror behavior):** roster sync adds AND removes. TP members whose `PCO_PersonId` is no longer in scope get removed from the involvement on the next sync. Subgroup memberships matching a current PCO position/team but no longer held also get dropped. Manually-added members (no PCO link) and unrelated subgroups are left alone, so your hand-curated data stays untouched
 - **Removals refuse to run on bad data.** If the PCO read was incomplete, or PCO returned nobody while TouchPoint has linked members, nothing is removed and the reason is reported in the UI and in the scheduled-run email. A rate-limited or failed read can never be mistaken for "PCO has nobody"
 - **Conflicting mappings are flagged.** Two mappings pointing at the same TP involvement will each remove the other's people on every run. The Mappings tab detects this and names the offenders
 - **Person Matching at Scale:**
@@ -100,7 +109,7 @@ You can use any combination. The Band team can have a dedicated Team mapping AND
 
 <summary><strong>How Mirror Removal Works</strong></summary>
 
-**PCO is the source of truth for who is in the involvement.** On every sync:
+**PCO owns involvement membership.** This is about who is on the roster, not about the people themselves: TouchPoint still owns whether a person exists, and person field values follow whatever direction you set per field. On every sync:
 
 - **Adds:** every PCO person matched to a TP person gets `JoinOrg`'d if not already on the roster. New position/team assignments get `AddSubGroup`'d
 - **Removes:** every TP member whose `PCO_PersonId` extra value is no longer in PCO's scope (no longer on the team, service type, or directory) gets `RemoveFromOrg`'d. Every TP subgroup membership whose name matches a current PCO position/team but the person no longer holds gets `RemoveSubGroup`'d
@@ -113,7 +122,9 @@ The preview modal shows a red **Mirror removal** banner with counts before you h
 
 Configured under **Settings → person data sync**. Every field starts at "No sync" and TouchPoint stays authoritative until you choose otherwise.
 
-Direction is one way per field, never both. PCO only exposes record-level timestamps, so after a PCO edit there is no reliable way to tell which field changed, which makes "whichever side changed most recently wins" impossible to do correctly. One direction per field means a value flows one way and stops.
+Direction is one way per field, never both. That is a constraint rather than a simplification: PCO only exposes record-level timestamps, so after a PCO edit there is no reliable way to tell which field changed, which makes "whichever side changed most recently wins" impossible to implement correctly. One direction per field means a value flows one way and stops, and nothing can ping-pong.
+
+This is also why the roster being mirrored from PCO and a field being pushed to PCO are not in conflict. They are different data with different owners.
 
 The workflow is always the same:
 
