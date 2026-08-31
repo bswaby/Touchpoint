@@ -150,7 +150,48 @@
 #                            whole field is skipped rather than written
 #                            blind.
 #
+#                        Create a TouchPoint person from a PCO record
+#                          - Per row and opt-in, offered only where the
+#                            proposer found NO candidate. If there is a
+#                            candidate the right move is to link it, not
+#                            to create a second copy.
+#                          - TouchPoint's own matcher runs first. If it
+#                            finds someone our proposer missed, the panel
+#                            refuses to create and offers Link instead.
+#                          - Refuses a record with no first AND last
+#                            name, or one with no email, phone or
+#                            birthdate at all: nothing to tell them
+#                            apart by later and nothing to reach them by.
+#                          - Preview shows exactly which fields would be
+#                            set and names what PCO cannot supply
+#                            (campus, member status, entry point,
+#                            family), which stay at TouchPoint defaults
+#                            rather than being guessed.
+#                          - Uses FindAddPerson with first+last matching
+#                            required, then links PCO_PersonId so the
+#                            record is not offered for creation again.
+#
 #                        Fixes and smaller changes
+#                          - PCO -> TouchPoint field writes never worked.
+#                            model.UpdatePerson takes (peopleId, dict) and
+#                            this called it with three arguments, so
+#                            auto-apply raised and the except quietly
+#                            queued the change for review instead. Every
+#                            field behaved as review-mode regardless of
+#                            the setting, and applying a reviewed change
+#                            failed outright.
+#                          - Service Type preview showed "(position) M"
+#                            on every row instead of team names. Two
+#                            field names are in circulation for the same
+#                            thing ('teamPosition' from the plan
+#                            preview, 'position' from the roster and
+#                            service-type previews); the sync writer
+#                            read both, the badge renderer read only
+#                            one. It also printed the raw internal
+#                            status code 'M' (team member, no plan-day
+#                            RSVP) next to each name. The badge now
+#                            reads both names and shows a status only
+#                            when there is a real RSVP.
 #                          - Scheduled syncs now apply person field rules.
 #                            They never had, so the same mapping behaved
 #                            differently by hand than on a timer, with no
@@ -170,6 +211,8 @@
 #                        Known gaps
 #                          - Update check is unwired, so a later fix does
 #                            not reach an installed copy on its own.
+#                          - PCO credentials live in Special Content, so
+#                            anyone who can edit scripts can read them.
 #                          - Background check sync is built and tested but
 #                            unproven against live PCO, pending that
 #                            permission grant.
@@ -3308,6 +3351,226 @@ def handle_load_audit_log():
         print json.dumps({'success': False, 'message': 'Load audit log failed: ' + safe_str(e)})
 
 
+# ---------------------------------------------------------------------
+# Create a TouchPoint person from a PCO record
+# ---------------------------------------------------------------------
+# Deliberately per-row and opt-in. Everywhere else in this script, PCO
+# never creates a TouchPoint person -- an unmatched PCO record is
+# REPORTED, not added, which is what stops a PCO data-entry mistake from
+# becoming a TouchPoint record. This is the one sanctioned exception, and
+# it is a button someone presses on one person at a time.
+#
+# Two guards, because creating people is how a database gets polluted:
+#   1. TouchPoint's OWN matcher runs first (model.FindPersonId). Our
+#      proposer may have found no candidate while TouchPoint's matcher
+#      does -- different algorithms, different signals. If TP finds
+#      somebody we refuse to create and offer to link instead.
+#   2. Creation goes through FindAddPerson with requireFirstLastMatch,
+#      which is find-or-create rather than blind insert.
+#
+# What PCO cannot give us: campus, member status, entry point, family
+# placement. Those are left at TouchPoint's defaults and the preview says
+# so, rather than being guessed at.
+
+
+def _pco_person_for_create(pco_person_id):
+    """Everything PCO knows that we can use to create a person.
+    Returns (dict, error)."""
+    pid = safe_str(pco_person_id).strip()
+    if not pid:
+        return None, 'No PCO person id.'
+    data, err = pco_get('/people/v2/people/' + pid)
+    if err:
+        return None, err
+    try:
+        attrs = (data.get('data') or {}).get('attributes') or {}
+    except Exception:
+        attrs = {}
+    if not attrs:
+        return None, 'PCO returned no person record for id ' + pid
+
+    out = {
+        'pcoPersonId': pid,
+        'first_name': safe_str(attrs.get('first_name', '')).strip(),
+        'last_name':  safe_str(attrs.get('last_name', '')).strip(),
+        'birthdate':  _norm_date(attrs.get('birthdate', '') or ''),
+        'gender':     safe_str(attrs.get('gender', '')).strip(),
+        'child':      bool(attrs.get('child', False)),
+        'status':     safe_str(attrs.get('status', '')).strip(),
+        'email': '', 'phone': '',
+    }
+    # Email and phone are child resources, not attributes.
+    kids, kerr = pco_person_children(pid, 'emails')
+    if not kerr:
+        for c in kids:
+            if c.get('primary') is True:
+                out['email'] = safe_str(c.get('address', '')).strip()
+                break
+        if not out['email'] and kids:
+            out['email'] = safe_str(kids[0].get('address', '')).strip()
+    kids, kerr = pco_person_children(pid, 'phone_numbers')
+    if not kerr:
+        for c in kids:
+            if safe_str(c.get('location', '')).strip().lower() == 'mobile':
+                out['phone'] = _norm_phone(c.get('number', ''))
+                break
+        if not out['phone'] and kids:
+            out['phone'] = _norm_phone(kids[0].get('number', ''))
+    return out, None
+
+
+def _create_blockers(p):
+    """Reasons we should not create this person. Empty list means go."""
+    blockers = []
+    if not p.get('first_name') or not p.get('last_name'):
+        blockers.append('PCO has no first and last name for this record. '
+                        'A person needs both.')
+    if not p.get('email') and not p.get('phone') and not p.get('birthdate'):
+        blockers.append('PCO has no email, phone or birthdate. There is not enough '
+                        'here to tell this person apart from anyone else later, and '
+                        'nothing to reach them by.')
+    return blockers
+
+
+def handle_preview_create_from_pco():
+    """What creating this PCO person in TouchPoint would do. Writes nothing."""
+    try:
+        pco_id = safe_str(get_data('pco_person_id', '')).strip()
+        p, err = _pco_person_for_create(pco_id)
+        if err:
+            print json.dumps({'success': False, 'message': err})
+            return
+
+        # TouchPoint's own matcher gets a say before we create anything.
+        existing_id, existing_name = 0, ''
+        try:
+            found = model.FindPersonId(p['first_name'], p['last_name'],
+                                       p['birthdate'] or None,
+                                       p['email'] or None, p['phone'] or None)
+            existing_id = int(found or 0)
+        except Exception:
+            existing_id = 0
+        if existing_id:
+            try:
+                ep = model.GetPerson(existing_id)
+                existing_name = safe_str(getattr(ep, 'Name2', '')
+                                         or getattr(ep, 'Name', ''))
+            except Exception:
+                existing_name = ''
+
+        print json.dumps({
+            'success': True,
+            'pco': p,
+            'blockers': _create_blockers(p),
+            'existingId': existing_id,
+            'existingName': existing_name,
+            'wouldCreate': {
+                'FirstName': p['first_name'],
+                'LastName': p['last_name'],
+                'EmailAddress': p['email'],
+                'CellPhone': p['phone'],
+                'Birthdate': p['birthdate'],
+                'Gender': p['gender'],
+            },
+            'notSet': ['Campus', 'Member status', 'Entry point', 'Family'],
+        })
+    except Exception as e:
+        print json.dumps({'success': False,
+                          'message': 'Create preview failed: ' + safe_str(e)})
+
+
+def handle_create_person_from_pco():
+    """Create one TouchPoint person from one PCO record, then link them."""
+    try:
+        if safe_str(get_data('confirm', '')) != 'CREATE':
+            print json.dumps({'success': False,
+                              'message': 'Missing confirmation. Run the preview first.'})
+            return
+        pco_id = safe_str(get_data('pco_person_id', '')).strip()
+        p, err = _pco_person_for_create(pco_id)
+        if err:
+            print json.dumps({'success': False, 'message': err})
+            return
+
+        blockers = _create_blockers(p)
+        if blockers:
+            print json.dumps({'success': False, 'message': ' '.join(blockers)})
+            return
+
+        # Refuse if TouchPoint already knows them. Linking an existing person
+        # is always better than creating a second copy of them.
+        try:
+            found = int(model.FindPersonId(p['first_name'], p['last_name'],
+                                           p['birthdate'] or None,
+                                           p['email'] or None,
+                                           p['phone'] or None) or 0)
+        except Exception:
+            found = 0
+        if found:
+            print json.dumps({
+                'success': False, 'existingId': found,
+                'message': 'TouchPoint already has a match for this person '
+                           '(#%d). Link them instead of creating a duplicate.' % found})
+            return
+
+        # requireFirstLastMatch: only reuse an existing record when the name
+        # actually agrees. Without it a shared email could attach this PCO
+        # person to a spouse or a parent.
+        try:
+            person = model.FindAddPerson(p['first_name'], p['last_name'],
+                                         p['birthdate'] or None,
+                                         p['email'] or None,
+                                         p['phone'] or None, True)
+            new_id = int(getattr(person, 'PeopleId', 0) or 0)
+        except Exception as ce:
+            print json.dumps({'success': False,
+                              'message': 'Create failed: ' + safe_str(ce)})
+            return
+        if not new_id:
+            print json.dumps({'success': False,
+                              'message': 'TouchPoint did not return a person id.'})
+            return
+
+        # Gender is not part of the create call, so it goes on afterwards.
+        warnings = []
+        if p['gender']:
+            try:
+                model.UpdatePerson(new_id,
+                                   {'GenderId': person_value_pco_to_tp('gender',
+                                                                       p['gender'])})
+            except Exception as ge:
+                warnings.append('Created, but gender did not save: ' + safe_str(ge))
+
+        # Link them, or the next sync proposes creating them all over again.
+        linked = True
+        try:
+            model.AddExtraValueText(new_id, PCO_PERSON_ID_FIELD, p['pcoPersonId'])
+        except Exception as le:
+            linked = False
+            warnings.append('Created, but the PCO link did not save (' + safe_str(le)
+                            + '). Link them by hand or this record will be offered '
+                              'for creation again.')
+
+        name = ''
+        try:
+            np = model.GetPerson(new_id)
+            name = safe_str(getattr(np, 'Name2', '') or getattr(np, 'Name', ''))
+        except Exception:
+            name = (p['first_name'] + ' ' + p['last_name']).strip()
+
+        append_audit({
+            'action': 'create_person_from_pco',
+            'tpPeopleId': new_id, 'pcoPersonId': p['pcoPersonId'],
+            'sent': name, 'linked': linked,
+            'by': safe_str(model.UserName) if hasattr(model, 'UserName') else '',
+        })
+        print json.dumps({'success': True, 'tpPeopleId': new_id, 'name': name,
+                          'linked': linked, 'warnings': warnings})
+    except Exception as e:
+        print json.dumps({'success': False,
+                          'message': 'Create failed: ' + safe_str(e)})
+
+
 def handle_test_connection():
     """Settings tab: verify the configured PAT can reach the PCO API."""
     try:
@@ -4311,7 +4574,14 @@ def apply_person_sync_for_one(tp_people_id, pco_data, rules):
         mode = str(rule.get('mode', 'review')).lower()
         if mode == 'auto':
             try:
-                model.UpdatePerson(int(tp_people_id), f['tpField'], pco_data.get(key, ''))
+                # UpdatePerson takes (peopleId, dict) -- there is no
+                # (peopleId, field, value) overload, whatever the older
+                # CLAUDE.md notes said. The 3-arg form raised, the except
+                # below quietly queued the change for review, and so
+                # auto-apply silently behaved as review-mode for every
+                # field, forever, with nothing in the UI to show for it.
+                model.UpdatePerson(int(tp_people_id),
+                                   {f['tpField']: pco_data.get(key, '')})
                 counts['auto'] += 1
                 append_audit({
                     'action': 'person_data_auto_update',
@@ -4392,7 +4662,11 @@ def handle_apply_person_change():
             print json.dumps({'success': False, 'message': 'Unknown field on entry: ' + str(entry.get('field'))})
             return
         try:
-            model.UpdatePerson(int(entry['tpPeopleId']), tp_field, entry.get('pcoValue', ''))
+            # Same signature fix as the auto-apply path. This one failed
+            # visibly rather than silently: applying a reviewed change
+            # returned "UpdatePerson failed" every time.
+            model.UpdatePerson(int(entry['tpPeopleId']),
+                               {tp_field: entry.get('pcoValue', '')})
         except Exception as ue:
             print json.dumps({'success': False, 'message': 'UpdatePerson failed: ' + str(ue)})
             return
@@ -9400,7 +9674,11 @@ elif model.HttpMethod == 'post':
     # v3.0 storage migration -- one-shot, idempotent. Runs once per
     # POST entry so we don't slow GET pageloads.
     _v3_migrate_org_to_people_mappings()
-    if action == 'preview_tp_to_pco':
+    if action == 'preview_create_from_pco':
+        handle_preview_create_from_pco()
+    elif action == 'create_person_from_pco':
+        handle_create_person_from_pco()
+    elif action == 'preview_tp_to_pco':
         handle_preview_tp_to_pco()
     elif action == 'apply_tp_to_pco':
         handle_apply_tp_to_pco()
@@ -9577,6 +9855,8 @@ else:
     .pco-h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px 0; color: #1f4e79; }
     .pco-sub { font-size: 13px; color: #666; margin-bottom: 16px; }
     .pco-version { font-size: 12px; color: #888; font-weight: 400; margin-left: 8px; }
+
+    .pco-pill-plain { background: #eef0f2; color: #555; }
 
     .pco-tabs { display: flex; gap: 4px; border-bottom: 2px solid #e1e4e8; margin-bottom: 16px; flex-wrap: wrap; }
     .pco-tab { padding: 10px 16px; cursor: pointer; border: none; background: transparent; font-size: 14px; font-weight: 600; color: #555; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
@@ -11438,14 +11718,23 @@ else:
         var positions = a.positions || [];
         for (var pi = 0; pi < positions.length; pi++) {
           var pos = positions[pi];
+          // Two field names are in circulation: the plan preview emits
+          // 'teamPosition', the roster and service-type previews emit
+          // 'position'. The sync writer already reads both; this badge did
+          // not, so every service-type row rendered the fallback text
+          // instead of the team name.
+          var label = pos.teamPosition || pos.position || '';
+          if (!label) continue;   // nothing to show beats showing "(position)"
+
+          // 'M' means "team member", an internal marker for rows that have
+          // no plan-day RSVP at all. C/U/D are real RSVPs. Anything else is
+          // a code we do not recognize, and printing a raw letter next to
+          // someone's name explains nothing.
           var pillKind = 'pco-warn';
-          if (pos.status === 'C') pillKind = 'pco-ok';
-          else if (pos.status === 'D') pillKind = 'pco-err';
-          var label = pos.teamPosition || '(position)';
-          if (pos.status === 'C') label += ' \xb7 Confirmed';
-          else if (pos.status === 'U') label += ' \xb7 Unconfirmed';
-          else if (pos.status === 'D') label += ' \xb7 Declined';
-          else if (pos.status) label += ' \xb7 ' + pos.status;
+          if (pos.status === 'C') { pillKind = 'pco-ok'; label += ' \xb7 Confirmed'; }
+          else if (pos.status === 'U') { label += ' \xb7 Unconfirmed'; }
+          else if (pos.status === 'D') { pillKind = 'pco-err'; label += ' \xb7 Declined'; }
+          else { pillKind = 'pco-pill-plain'; }   // team membership, no RSVP
           posBadges += ' <span class="pco-pill ' + pillKind + '" style="font-size:11px;">' + escHtml(label) + '</span>';
         }
         // Per-row "will sync" badge. Depends on both the mode and whether
@@ -13922,6 +14211,10 @@ else:
         var cands = r.candidates || [];
         var candBlock = '';
         if (!cands.length) {
+          // Only offered when nothing matched. If there IS a candidate, the
+          // right answer is to link it or search manually -- creating a
+          // second copy of somebody already in TouchPoint is the failure
+          // this whole tab exists to prevent.
           candBlock = '<span class="pco-muted">No TP candidates found.</span>';
         } else {
           for (var i = 0; i < Math.min(cands.length, 3); i++) {
@@ -13938,6 +14231,12 @@ else:
               + '</div>';
           }
         }
+        // Create panel lives here on every row because the candidates cell
+        // has the width for it. The button that opens it sits with the other
+        // per-row actions.
+        candBlock += '<div class="pco-create-panel" data-pco-id="'
+          + escAttr(r.pcoPersonId) + '" style="display:none;margin-top:6px;"></div>';
+
         // Manual search. The proposer offers its best guesses, but a
         // wrong-but-plausible candidate is worse than none -- twins, a
         // parent and child sharing a name, a remarried surname. Without a
@@ -13968,6 +14267,15 @@ else:
           + '<td style="padding:6px 8px;">' + candBlock + '</td>'
           + '<td style="padding:6px 8px;">'
           +   '<button class="pco-btn pco-secondary pco-manual-toggle" data-pco-id="' + escAttr(r.pcoPersonId) + '" style="font-size:11px;padding:3px 10px;margin-bottom:4px;">Search TP</button>'
+          +   '<br>'
+          // Available on every row, not just no-candidate ones: a weak
+          // candidate that is obviously the wrong person leaves you needing
+          // to create just the same. What keeps this safe is TouchPoint's
+          // own matcher refusing to create when it finds somebody, which
+          // runs whatever our proposer turned up.
+          +   '<button class="pco-btn pco-secondary pco-create-btn" data-pco-id="' + escAttr(r.pcoPersonId) + '"'
+          +   ' data-name="' + escAttr(r.pcoName) + '"'
+          +   ' style="font-size:11px;padding:3px 10px;margin-bottom:4px;">Create in TP</button>'
           +   '<br>'
           +   '<button class="pco-btn pco-secondary pco-proposed-skip" data-pco-id="' + escAttr(r.pcoPersonId) + '" style="font-size:11px;padding:3px 10px;color:#a00;border-color:#a00;">Skip Forever</button>'
           + '</td>'
@@ -14160,6 +14468,95 @@ else:
               };
             }
           });
+        }
+
+        // ---- Create a TouchPoint person from a PCO record ------------
+        var creates = host.querySelectorAll('.pco-create-btn');
+        for (var cb = 0; cb < creates.length; cb++) {
+          creates[cb].onclick = function(){
+            var pcoId = this.dataset.pcoId, nm = this.dataset.name, btn = this;
+            var panel = host.querySelector('.pco-create-panel[data-pco-id="' + pcoId + '"]');
+            if (!panel) return;
+            panel.style.display = '';
+            panel.innerHTML = '<span class="pco-muted" style="font-size:11px;">Reading PCO...</span>';
+            btn.disabled = true;
+            try { panel.scrollIntoView({block: 'nearest'}); } catch (e) {}
+            ajax('preview_create_from_pco', {pco_person_id: pcoId}, function(err, d){
+              btn.disabled = false;
+              if (err || !d || !d.success) {
+                panel.innerHTML = '<span style="font-size:11px;color:#c00;">'
+                                + escHtml((d && d.message) || err) + '</span>';
+                return;
+              }
+              // TouchPoint's own matcher disagreeing with ours is the single
+              // most important thing on this panel, so it replaces the
+              // create option rather than sitting beside it.
+              if (d.existingId) {
+                panel.innerHTML =
+                    '<div style="padding:6px;border-radius:3px;background:#fffaf0;font-size:11px;">'
+                  + '<strong style="color:#8a6d3b;">TouchPoint already has a match.</strong> '
+                  + escHtml(d.existingName || ('TP #' + d.existingId))
+                  + ' &middot; <a href="/Person2/' + escAttr(d.existingId) + '" target="_blank">Open</a>'
+                  + '<div style="margin-top:4px;">Our proposer found no candidate but '
+                  + 'TouchPoint&#39;s matcher did. Link them instead of creating a duplicate.</div>'
+                  + '<button class="pco-btn pco-manual-link" data-pco-id="' + escAttr(pcoId) + '"'
+                  + ' data-tp-id="' + escAttr(d.existingId) + '"'
+                  + ' data-tp-name="' + escAttr(d.existingName || ('TP #' + d.existingId)) + '"'
+                  + ' data-taken="" style="font-size:11px;padding:2px 8px;margin-top:4px;">Link instead</button>'
+                  + '</div>';
+                var lk = panel.querySelector('.pco-manual-link');
+                if (lk) lk.onclick = function(){
+                  _manualLink(this.dataset.pcoId, parseInt(this.dataset.tpId, 10) || 0,
+                              this.dataset.tpName, this);
+                };
+                return;
+              }
+              if (d.blockers && d.blockers.length) {
+                panel.innerHTML = '<div style="padding:6px;border-radius:3px;background:#fdf3f2;'
+                                + 'font-size:11px;color:#c0392b;">' + escHtml(d.blockers.join(' ')) + '</div>';
+                return;
+              }
+              var w = d.wouldCreate || {};
+              var rowsHtml = '';
+              var order = ['FirstName','LastName','EmailAddress','CellPhone','Birthdate','Gender'];
+              for (var k = 0; k < order.length; k++) {
+                if (w[order[k]]) {
+                  rowsHtml += '<div><span class="pco-muted">' + escHtml(order[k]) + ':</span> '
+                            + escHtml(w[order[k]]) + '</div>';
+                }
+              }
+              panel.innerHTML =
+                  '<div style="padding:6px;border:1px solid #e1e4e8;border-radius:3px;background:#fff;font-size:11px;">'
+                + '<strong>Would create in TouchPoint:</strong>'
+                + '<div style="margin-top:3px;">' + rowsHtml + '</div>'
+                + '<div class="pco-muted" style="margin-top:4px;">PCO cannot supply '
+                + escHtml((d.notSet || []).join(', ').toLowerCase())
+                + ', so those stay at TouchPoint defaults. The new person is linked to PCO automatically.</div>'
+                + '<button class="pco-btn pco-create-go" data-pco-id="' + escAttr(pcoId) + '"'
+                + ' data-name="' + escAttr(nm) + '"'
+                + ' style="font-size:11px;padding:2px 8px;margin-top:5px;">Create and link</button>'
+                + '</div>';
+              panel.querySelector('.pco-create-go').onclick = function(){
+                if (!confirm('Create a NEW TouchPoint person for ' + nm + '?\n\n'
+                    + 'Only do this if they genuinely are not in TouchPoint yet.')) return;
+                var g = this; g.disabled = true; g.textContent = 'Creating...';
+                ajax('create_person_from_pco', {pco_person_id: pcoId, confirm: 'CREATE'},
+                  function(err2, d2){
+                    if (err2 || !d2 || !d2.success) {
+                      g.disabled = false; g.textContent = 'Create and link';
+                      panel.innerHTML = '<div style="padding:6px;border-radius:3px;background:#fdf3f2;'
+                        + 'font-size:11px;color:#c0392b;">' + escHtml((d2 && d2.message) || err2) + '</div>';
+                      return;
+                    }
+                    toast('Created ' + d2.name + ' and linked to PCO.', 'ok');
+                    if (d2.warnings && d2.warnings.length) {
+                      toast(d2.warnings.join(' '), 'err');
+                    }
+                    _removeProposedRowAndDecrement(pcoId, 'none');
+                  });
+              };
+            });
+          };
         }
 
         var toggles = host.querySelectorAll('.pco-manual-toggle');
