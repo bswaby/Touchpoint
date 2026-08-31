@@ -1,32 +1,46 @@
-### 🔄 [PCO Sync (Planning Center Online → TouchPoint)](https://github.com/bswaby/Touchpoint/tree/main/TPxi/PCO%20Sync)
-One-way sync from Planning Center Online into TouchPoint: people, rosters, teams, and per-plan attendance. Worship admins schedule and take attendance in PCO Services; TouchPoint is the authoritative people database. This bridges the two so staff never have to double-enter.  Pull a service plan, match its attendees to TP people once (the link is saved as an Extra Value), and write attendance, roster, and subgroup memberships back into the corresponding TP involvement in one click. Or schedule it to run automatically and email you the summary.
+### 🔄 [PCO Sync (Planning Center Online ↔ TouchPoint)](https://github.com/bswaby/Touchpoint/tree/main/TPxi/PCO%20Sync)
+Sync between Planning Center Online and TouchPoint: people, rosters, teams, per-plan attendance, and selected person fields back to PCO. Worship admins schedule and take attendance in PCO Services; TouchPoint is the authoritative people database. This bridges the two so staff never have to double-enter. Pull a service plan, match its attendees to TP people once (the link is saved as an Extra Value), and write attendance, roster, and subgroup memberships into the corresponding TP involvement in one click. Or schedule it to run automatically and email you the summary.
 
-- ⚙️ **Implementation Level:** Easy–Moderate
+Rosters, teams, and attendance flow **PCO → TouchPoint**. Individual person fields can optionally flow **TouchPoint → PCO**, per field, off by default.
+
+- ⚙️ **Implementation Level:** Easy to Moderate
 - 🧩 **Installation:** Single script. Paste into Special Content > Python, navigate to `/PyScriptForm/TPxi_PCOSync`, paste your PCO Personal Access Token, and start mapping.
 
 <summary><strong>Features</strong></summary>
 
-- **Three Sync Modes** — pick what fits each PCO concept:
-  - **All People Sync** — singleton mapping. Walk the entire PCO People directory and reflect every matched record into one TP "PCO Directory" involvement
-  - **Service Type Sync** — one PCO Service Type (e.g., "11:00 Worship Center") → one umbrella TP involvement. Optional layers: teams-as-subgroups, per-plan attendance writes
-  - **Team Sync** — one PCO Team (e.g., "Band" under Wilson Hall Service) → one TP involvement. Optional layers: positions-as-subgroups, per-plan attendance
-- **PCO is Source of Truth (mirror behavior):** roster sync adds AND removes. TP members whose `PCO_PersonId` is no longer in scope get removed from the involvement on the next sync. Subgroup memberships matching a current PCO position/team but no longer held also get dropped. Manually-added members (no PCO link) and unrelated subgroups are left alone.  Your hand-curated data stays untouched
+- **Three Sync Modes** for the PCO → TouchPoint direction:
+  - **All People Sync** is a singleton mapping. Walk the entire PCO People directory and reflect every matched record into one TP "PCO Directory" involvement
+  - **Service Type Sync** maps one PCO Service Type (e.g., "11:00 Worship Center") to one umbrella TP involvement. Optional layers: teams-as-subgroups, per-plan attendance writes
+  - **Team Sync** maps one PCO Team (e.g., "Band" under Wilson Hall Service) to one TP involvement. Optional layers: positions-as-subgroups, per-plan attendance
+- **PCO is Source of Truth (mirror behavior):** roster sync adds AND removes. TP members whose `PCO_PersonId` is no longer in scope get removed from the involvement on the next sync. Subgroup memberships matching a current PCO position/team but no longer held also get dropped. Manually-added members (no PCO link) and unrelated subgroups are left alone, so your hand-curated data stays untouched
+- **Removals refuse to run on bad data.** If the PCO read was incomplete, or PCO returned nobody while TouchPoint has linked members, nothing is removed and the reason is reported in the UI and in the scheduled-run email. A rate-limited or failed read can never be mistaken for "PCO has nobody"
+- **Conflicting mappings are flagged.** Two mappings pointing at the same TP involvement will each remove the other's people on every run. The Mappings tab detects this and names the offenders
 - **Person Matching at Scale:**
-  - **Proposed Matches** — scores TP candidates for every unmatched PCO record using name + email + birthdate signals. Tiered Strong / Medium / Weak. Per-row Apply or Skip Forever, bulk Apply for high-confidence tier, scoped (from a preview) or full-directory walk. Client-side cached so tier and search changes don't re-walk PCO
-  - **Verify Person Link** — search a TP person, see their stored PCO link side-by-side with PCO's record (with red cells where the data disagrees and a one-line verdict). Unlink or Replace with another PCO person, all from one panel
-- **Preview Before Sync:** every sync opens a preview modal showing match counts, sync-mode banner, mirror-removal banner (with red "will be removed" pill listing how many TP members + stale subgroups will drop), and per-attendee rows. Manual search-and-link for anything unmatched
+  - **Proposed Matches** scores TP candidates for every unmatched PCO record using name, email, and birthdate signals, sorted into Strong / Medium / Weak tiers. Per-row Apply or Skip Forever, bulk Apply for the high-confidence tier, scoped (from a preview) or full-directory walk. Client-side cached so tier and search changes don't re-walk PCO
+  - **Manual TouchPoint search** on any proposed row for when the suggestion is wrong. Shows age and gender to separate twins, parent and child sharing a name, or a remarried surname, and warns if the person you picked is already linked to someone else in PCO
+  - **Verify Person Link** lets you search a TP person and see their stored PCO link side-by-side with PCO's record, with red cells where the data disagrees and a one-line verdict. Unlink or Replace with another PCO person, all from one panel
+- **Person Field Sync (per field, both directions, opt-in):** choose a direction and behavior for each field. Available fields: first name (goes by), last name, email, cell phone, home phone, birthdate, gender, household address, and background check. Everything defaults to off and TouchPoint stays authoritative until you opt in
+  - **PCO → TouchPoint** runs as part of any mapping sync, manual or scheduled. Auto-apply or queue for review, with side-by-side diffs in the review queue
+  - **TouchPoint → PCO** is manual and deliberate: Preview, tick the rows you want, Apply. Nothing writes on a schedule
+- **Preview Before Any Write:** the outbound preview reads PCO and reports exactly what an apply would write, changes nothing, and shares one code path with the real run, so what you see is what runs. Rows where the two names are unrelated are flagged as a probable bad link, with Open and Unlink right on the row
+- **Every Write Is Verified:** after each write the value is read back from PCO and compared. A field whose value keeps coming back different is marked stuck and stops being retried, so a formatting mismatch can never turn into an endless rewrite
+- **Blanks Are Never Pushed:** an empty TouchPoint value means missing data, not an instruction to erase what PCO has
+- **Background Check Sync (TouchPoint → PCO):** publishes the latest genuine outcome from `dbo.BackgroundChecks`, skipping abandoned submissions. Sends status, completion date, expiration, and the provider's report link. Reads the provider-agnostic `ApprovalStatus`, so it works whoever your provider is. Validity window is a setting in months; leave it blank to let PCO's own expiration policy decide
+- **Preview Before Sync:** every roster sync opens a preview modal showing match counts, sync-mode banner, mirror-removal banner (with a red "will be removed" pill listing how many TP members and stale subgroups will drop), and per-attendee rows. Manual search-and-link for anything unmatched
 - **Confirm Spells Out Every Action:** the Sync Now dialog lists adds, drops, subgroup writes, subgroup drops, and attendance writes by name before any DB write. No surprises
 - **Scheduled Sync (with Email Summary):**
-  - One-click install adds a managed block to TouchPoint's `ScheduledTasks` special content (matches ProspectBuilder's pattern). Per-mapping schedule editor is gated on global install — both client- and server-side
-  - Per-mapping: Daily or Weekly, day-of-week + hour, notify a TouchPoint user (typeahead picker by name / username / email), include-issues toggle
-  - Scheduler runner walks all mappings every invocation, fires anything whose day/hour match now and hasn't run this hour. Each fire syncs fully server-side and emails the configured user: summary counts (joined, already, subgroup writes, members removed, stale subgroups removed), optional issues list (unmatched, ambiguous matches, PCO API warnings), and a link back to PCO Sync
-- **Person Data Sync (per-field, opt-in):** for each TP field (FirstName, LastName, EmailAddress, CellPhone, etc.) pick the direction (PCO → TP) and behavior (off, auto-apply, or queue-for-review). Defaults off. TouchPoint stays authoritative until you opt in. Queued changes appear in a review queue with side-by-side diff
-- **Verify-After-Write:** every settings save, mapping save, and scheduler install reads back from storage and confirms the change persisted. Silent permission failures surface immediately with a clear error message
+  - One-click install adds a managed block to TouchPoint's `ScheduledTasks` special content (matches ProspectBuilder's pattern). The per-mapping schedule editor is gated on global install, both client- and server-side
+  - Per-mapping: Daily or Weekly, day-of-week and hour, notify a TouchPoint user (typeahead picker by name / username / email), include-issues toggle
+  - The runner walks all mappings every invocation and fires anything whose day and hour match now and hasn't run this hour. Each fire syncs fully server-side and emails the configured user: summary counts (joined, already member, subgroup writes, members removed, stale subgroups removed, person fields updated), optional issues list (unmatched, ambiguous matches, PCO API warnings), and a link that opens straight to the mapping it is about
+- **Diagnostics (Settings tab):** a read-only health check covering credentials, what your PCO token can actually reach, how many people are linked, mapped involvements that no longer exist, conflicting mappings, scheduler state, and storage. **Copy for support** produces a pasteable summary. A 403 is reported as the permission it is, not as an outage
+- **Activity Log (Settings tab):** what the tool has changed, when, and who ran it. Filter to changes only, failures only, or everything. A write whose read-back disagreed shows both values so churn is visible in history
+- **Verify-After-Write everywhere else too:** every settings save, mapping save, and scheduler install reads back from storage and confirms the change persisted. Silent permission failures surface immediately with a clear error message
 - **Diagnostics On Every Mapping:**
-  - Team Mappings have a "Check PCO positions" button that walks PCO and reports exactly what's there. `5 position(s) [Lead Vocal, Backup, ...], 12 assignment(s) across 8 people. Subgroups will sync.` Or the matching red state when positions exist but nobody's assigned in PCO
+  - Team Mappings have a "Check PCO positions" button that walks PCO and reports exactly what's there: `5 position(s) [Lead Vocal, Backup, ...], 12 assignment(s) across 8 people. Subgroups will sync.` Or the matching red state when positions exist but nobody's assigned in PCO
   - Dashboard health panel surfaces broken mappings (deleted PCO resource, archived TP org) before staff hit Sync
-  - Audit log in `PCOSync_Log_YYYYMM` captures per-sync counters (joined, dropped, subgroup adds/drops, failures, scheduler runs, mapping edits, link write/unlink, email send/fail)
-- **Last-Sync + Next-Run Pills:** dashboard cards show `Synced 3h ago` (green) and, when scheduled, `Next: Sun 6:00 AM` (blue) so you always know the state at a glance
+  - Audit log in `PCOSync_Log_YYYYMM` captures per-sync counters (joined, dropped, subgroup adds/drops, failures, scheduler runs, mapping edits, link write/unlink, email send/fail, and every PCO write)
+- **Addressable Tabs:** a refresh stays on the tab you were using, and links can point straight at a tab or a specific mapping
+- **Last-Sync and Next-Run Pills:** dashboard cards show `Synced 3h ago` (green) and, when scheduled, `Next: Sun 6:00 AM` (blue) so you always know the state at a glance
 
 <hr>
 
@@ -37,25 +51,25 @@ One-way sync from Planning Center Online into TouchPoint: people, rosters, teams
 </p>
 
 <summary><strong>Settings & PCO Connection</strong></summary>
-<p>Paste your PCO App ID + Secret (Personal Access Token), Test Connection, then enable per-field Person Data Sync rules and install the global Scheduled Sync block. Verify-after-write on every save catches silent permission failures.</p>
+<p>Paste your PCO App ID and Secret (Personal Access Token), Test Connection, then set per-field sync rules, configure background check validity, install the global Scheduled Sync block, and run Diagnostics. Verify-after-write on every save catches silent permission failures.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/PCO%20Sync/PCO-Settings.png" width="700">
 </p>
 
-<summary><strong>Sync Mappings — One Place, Three Types</strong></summary>
-<p>All People (singleton), Service Type Mappings (one PCO Service Type → one umbrella TP involvement, optional team subgroups + per-plan attendance), and Team Mappings (one PCO Team → one TP involvement, optional position subgroups + per-plan attendance). Per-row toggles, schedule editor, and inline diagnostics ("Check PCO positions") on every row.</p>
+<summary><strong>Sync Mappings, One Place for Three Types</strong></summary>
+<p>All People (singleton), Service Type Mappings (one PCO Service Type to one umbrella TP involvement, optional team subgroups and per-plan attendance), and Team Mappings (one PCO Team to one TP involvement, optional position subgroups and per-plan attendance). A "Which mapping should I use?" comparison sits above them, and per-row toggles, schedule editor, and inline diagnostics ("Check PCO positions") sit on every row.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/PCO%20Sync/PCO-SyncMapping.png" width="700">
 </p>
 
 <summary><strong>People Matching</strong></summary>
-<p><strong>Proposed Matches</strong> scores TP candidates for every unmatched PCO record (name + email + birthdate signals) with Strong / Medium / Weak tiers and bulk Apply for high-confidence hits. <strong>Verify Person Link</strong> lets staff inspect any existing TP↔PCO link side-by-side with a one-line verdict — Unlink or Replace from one panel. Pending Data Reviews collects field-diff changes flagged by your Person Data Sync rules.</p>
+<p><strong>Proposed Matches</strong> scores TP candidates for every unmatched PCO record (name, email, and birthdate signals) with Strong / Medium / Weak tiers and bulk Apply for high-confidence hits, plus a manual TouchPoint search on any row when the suggestion is wrong. <strong>Verify Person Link</strong> lets staff inspect any existing TP↔PCO link side-by-side with a one-line verdict, then Unlink or Replace from one panel. Pending Data Reviews collects field-diff changes flagged by your person field rules.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/PCO%20Sync/PCO-PeopleMatching.png" width="700">
 </p>
 
 <summary><strong>Scheduled-Sync Email</strong></summary>
-<p>Every scheduled run emails the configured TouchPoint user a clean summary: joined, already member, subgroup writes, members removed (mirror), stale subgroups removed. Optionally includes the issues list.  Unmatched PCO records, ambiguous email matches, PCO API warnings, plus a deep link back to PCO Sync to act on them.</p>
+<p>Every scheduled run emails the configured TouchPoint user a clean summary: joined, already member, subgroup writes, members removed (mirror), stale subgroups removed, person fields updated. Optionally includes the issues list covering unmatched PCO records, ambiguous email matches, and PCO API warnings, plus a link that opens straight to the mapping the email is about. If a removal was skipped for safety, the email says so prominently.</p>
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/PCO%20Sync/PCO-Email.png" width="700">
 </p>
@@ -67,9 +81,10 @@ One-way sync from Planning Center Online into TouchPoint: people, rosters, teams
 3. Paste the script and Save
 4. Navigate to `/PyScriptForm/TPxi_PCOSync`
 5. Open the **Settings** tab, paste your PCO **App ID + Secret** (generate one in PCO under *My Account → Applications → Personal Access Tokens*), Save, then click **Test Connection**
-6. (Optional) Open **Settings → Scheduled Sync** and click **Install** to auto-add the runner to `ScheduledTasks`
-7. Switch to **Sync Mappings**, click **+ Add** under any of the three sections (All People / Service Type / Team), pick the PCO resource and the TP involvement, save
-8. Hit **Preview & Sync** on the Dashboard card to do your first run
+6. Run **Settings → Diagnostics** once. It confirms what your token can reach before you rely on it
+7. (Optional) Open **Settings → Scheduled Sync** and click **Install** to auto-add the runner to `ScheduledTasks`
+8. Switch to **Sync Mappings**, click **+ Add** under any of the three sections (All People / Service Type / Team), pick the PCO resource and the TP involvement, save
+9. Hit **Preview & Sync** on the Dashboard card to do your first run
 
 <summary><strong>Sync Mode Cheat Sheet</strong></summary>
 
@@ -81,37 +96,62 @@ One-way sync from Planning Center Online into TouchPoint: people, rosters, teams
 
 You can use any combination. The Band team can have a dedicated Team mapping AND be reflected as a subgroup under the Service Type umbrella.
 
+**Give every mapping its own involvement.** A sync removes anyone in its involvement who is PCO-linked but no longer in its own PCO scope, so two mappings sharing one involvement will each keep removing the other's people. The Mappings tab flags this if it happens.
+
 <summary><strong>How Mirror Removal Works</strong></summary>
 
 **PCO is the source of truth for who is in the involvement.** On every sync:
 
 - **Adds:** every PCO person matched to a TP person gets `JoinOrg`'d if not already on the roster. New position/team assignments get `AddSubGroup`'d
-- **Removes:** every TP member whose `PCO_PersonId` extra value is no longer in PCO's scope (no longer on the team / service type / directory) gets `RemoveFromOrg`'d. Every TP subgroup membership whose name matches a current PCO position/team but the person no longer holds gets `RemoveSubGroup`'d
-- **Untouched:** TP members without a `PCO_PersonId` (manually added) stay. Subgroups whose name doesn't match any current PCO position/team stay (e.g., a manually-added "Pyrotechnics" subgroup is never touched)
+- **Removes:** every TP member whose `PCO_PersonId` extra value is no longer in PCO's scope (no longer on the team, service type, or directory) gets `RemoveFromOrg`'d. Every TP subgroup membership whose name matches a current PCO position/team but the person no longer holds gets `RemoveSubGroup`'d
+- **Untouched:** TP members without a `PCO_PersonId` (manually added) stay. Subgroups whose name doesn't match any current PCO position/team stay, so a manually-added "Pyrotechnics" subgroup is never touched
+- **Refused:** if the PCO read was incomplete or returned nobody while TouchPoint has linked members, no removals run at all and the reason is reported. Additions still proceed. A skipped removal is a row that stays for another day; a wrong removal is someone quietly dropped off a serving team
 
-The preview modal shows a red **Mirror removal** banner with counts before you hit Sync, and the confirm dialog spells out every drop by category. Once TouchPoint-side write-back is implemented in a future version, this strict-mirror default will become a per-mapping toggle.
+The preview modal shows a red **Mirror removal** banner with counts before you hit Sync, and the confirm dialog spells out every drop by category.
+
+<summary><strong>TouchPoint → PCO Field Sync</strong></summary>
+
+Configured under **Settings → person data sync**. Every field starts at "No sync" and TouchPoint stays authoritative until you choose otherwise.
+
+Direction is one way per field, never both. PCO only exposes record-level timestamps, so after a PCO edit there is no reliable way to tell which field changed, which makes "whichever side changed most recently wins" impossible to do correctly. One direction per field means a value flows one way and stops.
+
+The workflow is always the same:
+
+1. Set a field to **TouchPoint → PCO**
+2. Click **Preview changes**. This reads PCO and reports exactly what an apply would write. It changes nothing
+3. Review the table: person, field, TouchPoint value, PCO value, and the action. Rows where the two names are unrelated are flagged **Verify this match**, since that usually means the link is wrong rather than the name
+4. Tick the rows you want. Flagged rows start unticked
+5. **Apply**. Each write is read back from PCO and confirmed
+
+Start with one low-stakes field, look at the preview, and expand from there. On a first run the preview is often more valuable as a matching audit than as a field sync: unrelated names, dead PCO links, and duplicate TouchPoint people all surface in one table.
 
 <summary><strong>Tips</strong></summary>
 
-- **Match the long-tail with Proposed Matches first.** Open it from any preview to scope to that preview's unmatched (faster). For ongoing maintenance, the unscoped walk processes the whole PCO directory in one shot. Bulk Apply the Strong tier — those are confident matches
-- **Use Verify Person Link when something looks off.** "Why is Alice's email wrong?" → search Alice → see her PCO record side-by-side → if red cells confirm it's the wrong PCO person, Unlink or Replace. Faster than digging through PCO and TP separately
-- **Schedule different mappings at different times.** Worship teams sync Sunday at 5 AM (catches Saturday rehearsal changes). All People can run nightly. Each mapping has its own day/time, so you don't have to compromise on one schedule
-- **Check PCO Positions diagnostic** is the fastest way to tell apart "subgroups aren't syncing because of a bug" vs "PCO has no positions assigned." Run it before opening a support thread. Most "missing subgroup" reports are PCO setup gaps
-- **Person Data Sync defaults off for a reason.** TouchPoint stays authoritative on person fields unless you opt in. When you do, prefer queue-for-review over auto-apply for the first few weeks so you can spot any PCO-side dirty data before it lands in TP
-- **Email backlinks open the right tab.** The scheduled-sync email's "Open PCO Sync" link drops you on the Dashboard. Click any failed mapping's card to see why
+- **Match the long-tail with Proposed Matches first.** Open it from any preview to scope to that preview's unmatched (faster). For ongoing maintenance, the unscoped walk processes the whole PCO directory in one shot. Bulk Apply the Strong tier, those are confident matches
+- **Use Verify Person Link when something looks off.** "Why is Alice's email wrong?" leads to: search Alice, see her PCO record side-by-side, and if red cells confirm it's the wrong PCO person, Unlink or Replace. Faster than digging through PCO and TP separately
+- **Schedule different mappings at different times.** Worship teams sync Sunday at 5 AM to catch Saturday rehearsal changes. All People can run nightly. Each mapping has its own day and time, so you don't have to compromise on one schedule
+- **Check PCO Positions diagnostic** is the fastest way to tell apart "subgroups aren't syncing because of a bug" from "PCO has no positions assigned." Run it before opening a support thread. Most "missing subgroup" reports are PCO setup gaps
+- **Person field sync defaults off for a reason.** TouchPoint stays authoritative unless you opt in. When you do, prefer queue-for-review over auto-apply for the first few weeks so you can spot PCO-side dirty data before it lands in TP
+- **Names are the riskiest field to sync.** TouchPoint keeps a legal first name and a goes-by name; PCO keeps one. The sync uses the goes-by name, but preview it before applying: a name that isn't a variant of the other is usually a bad link, not a nickname
+- **Background checks need a PCO permission.** A Personal Access Token inherits the permissions of the PCO user who created it, so background check access has to be granted to that user (PCO: Overview → Background checks → Settings → Background check administrators). Until then the field is skipped entirely rather than written blind
+- **Email backlinks open the right place.** The scheduled-sync email links straight to the mapping it is about, and to People Matching for unmatched records
 
 <summary><strong>Storage & Schema</strong></summary>
 
 | Storage | Purpose |
 |---------|---------|
-| `PCOSync_Settings` | PCO App ID, Secret, last-sync timestamps |
-| `PCOSync_AllPeopleMapping` | Singleton All People mapping + schedule |
+| `PCOSync_Settings` | PCO App ID, Secret, API version overrides, background check validity, last-sync timestamps |
+| `PCOSync_AllPeopleMapping` | Singleton All People mapping and schedule |
 | `PCOSync_PeopleMappings` | Service Type mappings keyed by PCO Service Type ID |
 | `PCOSync_TeamMappings` | Team mappings keyed by PCO Team ID |
-| `PCOSync_PersonRules` | Per-field Person Data Sync rules |
+| `PCOSync_OrgMappings` | Legacy service-type-to-involvement map |
+| `PCOSync_AllPeopleSkip` | PCO Person IDs marked as having no TouchPoint equivalent |
+| `PCOSync_PersonSyncRules` | Per-field direction and behavior |
+| `PCOSync_PendingPersonChanges` | Field changes queued for review |
+| `PCOSync_WriteChurn` | Fields whose writes keep coming back different, so they stop being retried |
 | `PCOSync_Log_YYYYMM` | Monthly audit log of every write, scheduled run, and email outcome |
 | `ScheduledTasks` | Managed block (between markers) that calls back into the script for scheduled runs |
 | `PCO_PersonId` (Person Extra Value) | The canonical TP ↔ PCO link, per person |
 
 ---
-*Written by [Ben Swaby](https://github.com/bswaby). These tools are free because they should be. If they've saved you time, consider [DisplayCache](https://displaycache.com) — church digital signage that integrates with TouchPoint — or [TPxi Go](https://tpxigo.com) — your church contacts in Outlook and on your phone.*
+*Written by [Ben Swaby](https://github.com/bswaby). These tools are free because they should be. If they've saved you time, consider [DisplayCache](https://displaycache.com), church digital signage that integrates with TouchPoint, or [TPxi Go](https://tpxigo.com), your church contacts in Outlook and on your phone.*
