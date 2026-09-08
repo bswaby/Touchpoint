@@ -36,6 +36,7 @@
 import datetime
 import json
 import re
+import time
 import traceback
 
 # ---------------------------------------------------------------------------
@@ -75,6 +76,10 @@ DC_CATALOG_WORKER = ("https://touchpoint-scripts.bswaby.workers.dev"
 # allow; personal ones belong to one person and are never listed for others.
 CONTENT_SHARED = "TPxi_Dashboards_Shared"
 CONTENT_USER_PREFIX = "TPxi_Dashboards_User_"
+# Before current_user_id was fixed, every user resolved to 0 and so shared one
+# storage row. That row is quarantined: never read as anybody's dashboards,
+# and only reachable through the admin adoption step below.
+LEGACY_UID = 0
 
 GRIDSTACK_CSS = "https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack.min.css"
 # The base stylesheet only lays out a 12-column grid. Calling column(6) puts a
@@ -131,7 +136,7 @@ model.Header = "Dashboards"
 # What this deployed copy is, and the key it is published under. The update
 # check itself lives in TPxi_Lib_Update so there is one implementation rather
 # than a copy per script.
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.2"
 DC_SCRIPT_ID = "TPxi_Dashboards"
 # Two hosts on purpose. The browser checks the version against the public
 # domain; the SERVER fetches the code from the workers.dev mirror, because
@@ -287,8 +292,26 @@ def save_content_json(name, obj):
 
 
 def current_user_id():
+    """The signed-in person, or 0 when that cannot be established.
+
+    model.UserPeopleId is a PROPERTY returning int?, not a method. Reading it
+    is correct; calling it raises. Callers must treat 0 as "no identity" and
+    refuse personal storage, because 0 is also the row every user wrote to
+    while this was broken.
+    """
+    uid = None
     try:
-        return int(model.UserPeopleId())
+        uid = model.UserPeopleId
+    except Exception:
+        uid = None
+    # Defensive only: works either way if a future build changes the shape.
+    if callable(uid):
+        try:
+            uid = uid()
+        except Exception:
+            uid = None
+    try:
+        return int(uid or 0)
     except Exception:
         return 0
 
@@ -431,7 +454,7 @@ def all_dashboard_owners():
     for r in rows:
         name = str(getattr(r, "Name", "") or "")
         tail = name.replace(CONTENT_USER_PREFIX, "")
-        if not tail.isdigit():
+        if not tail.isdigit() or int(tail) == LEGACY_UID:
             continue
         out.append({"uid": int(tail),
                     "owner": str(getattr(r, "OwnerName", "") or "") or ("PeopleId " + tail),
@@ -625,11 +648,207 @@ def load_shared():
 
 
 def load_personal(uid):
+    # uid 0 is both "we could not tell who you are" and the legacy row that
+    # every user shared before current_user_id was fixed. Serving it would
+    # hand one person's dashboards to the next, so it is never served here.
+    # legacy_personal() is the one deliberate reader, for admin migration.
+    if not uid:
+        return {"dashboards": []}
     d = load_content_json(CONTENT_USER_PREFIX + str(uid), {"dashboards": []})
     if not isinstance(d, dict):
         d = {"dashboards": []}
     d.setdefault("dashboards", [])
     return d
+
+
+def legacy_personal():
+    """The quarantined row, read only so an admin can adopt or discard it."""
+    d = load_content_json(CONTENT_USER_PREFIX + str(LEGACY_UID),
+                          {"dashboards": []})
+    if not isinstance(d, dict):
+        d = {"dashboards": []}
+    d.setdefault("dashboards", [])
+    return d
+
+
+def legacy_hints(dash):
+    """Who probably built this one.
+
+    Nothing was recorded, so this infers. A tile scoped to a Search Builder
+    search names that search, and dbo.Query knows who owns it. That is a
+    strong hint and nothing more, so it is shown as evidence for a person to
+    judge rather than used to assign anything automatically.
+    """
+    names = set()
+    for tab in (dash.get("tabs") or []):
+        for t in (tab.get("tiles") or []):
+            qn = str(t.get("query", "") or "").strip()
+            if qn:
+                names.add(qn)
+    if not names:
+        return []
+    safe = [x.replace("'", "''") for x in list(names)[:25]]
+    try:
+        rows = q.QuerySql("""
+            SELECT DISTINCT qq.name AS SearchName,
+                   ISNULL(p.Name2, qq.owner) AS OwnerName,
+                   ISNULL(u.PeopleId, 0) AS OwnerUid
+            FROM dbo.Query qq WITH (NOLOCK)
+            LEFT JOIN dbo.Users u WITH (NOLOCK) ON u.Username = qq.owner
+            LEFT JOIN dbo.People p WITH (NOLOCK) ON p.PeopleId = u.PeopleId
+            WHERE qq.name IN ('%s')
+        """ % "','".join(safe)) or []
+    except Exception:
+        return []
+    out = []
+    for r in rows:
+        out.append({"search": str(getattr(r, "SearchName", "") or ""),
+                    "owner": str(getattr(r, "OwnerName", "") or ""),
+                    "uid": int(getattr(r, "OwnerUid", 0) or 0)})
+    return out
+
+
+def legacy_rows():
+    """The quarantined dashboards, one row each, with what is known about them."""
+    out = []
+    for i, d in enumerate(legacy_personal().get("dashboards", [])):
+        tiles = 0
+        for tab in (d.get("tabs") or []):
+            tiles += len(tab.get("tiles") or [])
+        out.append({"idx": i,
+                    "id": str(d.get("id", "") or ""),
+                    "name": str(d.get("name", "") or "(untitled)"),
+                    "tabs": len(d.get("tabs") or []),
+                    "tiles": tiles,
+                    "hints": legacy_hints(d)})
+    return out
+
+
+def adopt_many(idxs, to_uid):
+    """Give one or more quarantined dashboards to one person.
+
+    Matched on position rather than id because ids were handed out inside the
+    old shared row and are not unique across it. Positions shift as entries
+    leave, so the whole batch is taken in one pass instead of one at a time.
+    """
+    if not can_manage_users():
+        return False, "You do not have permission to do that."
+    if not to_uid:
+        return False, "Choose who these belong to."
+    store = legacy_personal()
+    items = store.get("dashboards", [])
+    want = sorted(set(i for i in idxs if 0 <= i < len(items)))
+    if not want:
+        return False, "Those are no longer there. Reload the list."
+    mine = load_personal(to_uid)
+    lst = mine.get("dashboards", [])
+    taken = set(str(x.get("id")) for x in lst)
+    for i in want:
+        d = dict(items[i])
+        d["owner"] = to_uid
+        d["scope"] = "personal"
+        if str(d.get("id")) in taken:
+            d["id"] = next_id(lst, scope_prefix("personal"))
+        taken.add(str(d.get("id")))
+        lst.append(d)
+    mine["dashboards"] = lst
+    save_content_json(CONTENT_USER_PREFIX + str(to_uid), mine)
+    # Removed only after the destination write has gone through, so a failure
+    # leaves the quarantined copies in place rather than losing them.
+    store["dashboards"] = [d for i, d in enumerate(items) if i not in set(want)]
+    save_content_json(CONTENT_USER_PREFIX + str(LEGACY_UID), store)
+    who = people_names([to_uid]).get(to_uid, "them")
+    return True, "Moved %d to %s." % (len(want), who)
+
+
+def reassign_dashboards(refs, to_uid):
+    """Hand dashboards that already have an owner to somebody else.
+
+    refs are "uid:scope:id". A personal dashboard physically moves between
+    storage rows; a shared one stays shared and only its owner stamp changes,
+    since sharing is what makes it visible, not ownership.
+    """
+    if not can_manage_users():
+        return False, "You do not have permission to do that."
+    if not to_uid:
+        return False, "Choose who these should belong to."
+    dest = load_personal(to_uid)
+    dest_lst = dest.get("dashboards", [])
+    taken = set(str(x.get("id")) for x in dest_lst)
+    # Source uid -> its list as it stands MID-BATCH. Re-reading storage per ref
+    # would undo an earlier removal from the same owner, moving a dashboard
+    # while also leaving it behind.
+    working = {}
+    moved = 0
+    shared_touched = False
+    shared = None
+    for ref in refs:
+        bits = str(ref).split(":")
+        if len(bits) != 3:
+            continue
+        src_s, scope, did = bits[0], bits[1], bits[2]
+        if scope == "shared":
+            if shared is None:
+                shared = load_shared()
+            for d in shared.get("dashboards", []):
+                if str(d.get("id")) == did:
+                    d["owner"] = to_uid
+                    moved += 1
+                    shared_touched = True
+            continue
+        if not src_s.isdigit():
+            continue
+        src = int(src_s)
+        if src == to_uid:
+            continue                      # already theirs
+        if src not in working:
+            working[src] = load_personal(src).get("dashboards", [])
+        keep, took = [], None
+        for d in working[src]:
+            if took is None and str(d.get("id")) == did:
+                took = d
+            else:
+                keep.append(d)
+        if took is None:
+            continue
+        took = dict(took)
+        took["owner"] = to_uid
+        took["scope"] = "personal"
+        if str(took.get("id")) in taken:
+            took["id"] = next_id(dest_lst, scope_prefix("personal"))
+        taken.add(str(took.get("id")))
+        dest_lst.append(took)
+        working[src] = keep
+        moved += 1
+    if not moved:
+        return False, "Nothing moved. Reload the list and try again."
+    if dest_lst:
+        dest["dashboards"] = dest_lst
+        save_content_json(CONTENT_USER_PREFIX + str(to_uid), dest)
+    # Sources are emptied only after the destination is written, so an
+    # interruption duplicates rather than loses.
+    for src in working:
+        st = load_personal(src)
+        st["dashboards"] = working[src]
+        save_content_json(CONTENT_USER_PREFIX + str(src), st)
+    if shared_touched and shared is not None:
+        save_content_json(CONTENT_SHARED, shared)
+    who = people_names([to_uid]).get(to_uid, "them")
+    return True, "Moved %d dashboard(s) to %s." % (moved, who)
+
+
+def drop_one(idx):
+    if not can_manage_users():
+        return False, "You do not have permission to do that."
+    store = legacy_personal()
+    items = store.get("dashboards", [])
+    if idx < 0 or idx >= len(items):
+        return False, "That one is no longer there. Reload the list."
+    nm = str(items[idx].get("name", "") or "(untitled)")
+    del items[idx]
+    store["dashboards"] = items
+    save_content_json(CONTENT_USER_PREFIX + str(LEGACY_UID), store)
+    return True, "Deleted %s." % nm
 
 
 def user_can_see(dash):
@@ -704,6 +923,9 @@ def store_dashboard(uid, dash):
         store = load_shared()
         key = CONTENT_SHARED
     else:
+        if not uid:
+            return False, ("Could not tell who you are signed in as, so there "
+                           "is nowhere private to save this. Sign in again.")
         store = load_personal(uid)
         key = CONTENT_USER_PREFIX + str(uid)
         dash["owner"] = uid
@@ -745,6 +967,8 @@ def delete_dashboard(uid, did, scope):
             return False, "You do not have permission to delete shared dashboards."
         store, key = load_shared(), CONTENT_SHARED
     else:
+        if not uid:
+            return False, "Could not tell who you are signed in as."
         store, key = load_personal(uid), CONTENT_USER_PREFIX + str(uid)
     before = len(store.get("dashboards", []))
     store["dashboards"] = [d for d in store.get("dashboards", [])
@@ -3310,19 +3534,53 @@ def handle_ajax(action, uid):
         term = get_param("search_term", "").strip()
         if len(term) < 2:
             return safe_json({"success": True, "people": []})
-        # Only staff can be assigned a task, which is what having a user record
-        # means here.
         like = term.replace("'", "''").replace("%", "").replace("_", "")
+        # Matched against every way a person might be typed, not just Name2
+        # ("Last, First"), so "Ben Swaby" works as well as "Swaby, Ben".
+        # Username and email come back too: when one person has several
+        # accounts, age cannot tell them apart but the login can.
+        pid_term = like if like.isdigit() else "-1"
+        # Shape matters more than the conditions here. Putting the username
+        # test in a correlated EXISTS inside the OR made SQL Server walk 11k
+        # Users rows for each of 55k People: 46 seconds. Collapsing Users to
+        # one row per person FIRST, joining to it, and building the username
+        # list only for the 25 rows that survive runs the same search in 79ms.
         rows = q.QuerySql("""
-            SELECT DISTINCT TOP 15 p.PeopleId, p.Name2
-            FROM People p WITH (NOLOCK)
-            JOIN Users u WITH (NOLOCK) ON u.PeopleId = p.PeopleId
-            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
-              AND p.Name2 LIKE '%%%s%%'
-            ORDER BY p.Name2
-        """ % like)
+            WITH lg AS (
+                SELECT u.PeopleId,
+                       MAX(CASE WHEN u.Username LIKE '%%%s%%' THEN 1 ELSE 0 END)
+                           AS UserHit
+                FROM dbo.Users u WITH (NOLOCK)
+                GROUP BY u.PeopleId
+            ), hits AS (
+                SELECT TOP 25 p.PeopleId, p.Name2,
+                       ISNULL(p.Age, -1) AS Age,
+                       ISNULL(p.EmailAddress, '') AS Em
+                FROM dbo.People p WITH (NOLOCK)
+                JOIN lg ON lg.PeopleId = p.PeopleId
+                WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0
+                  AND (lg.UserHit = 1
+                       OR p.PeopleId = %s
+                       OR p.Name2 LIKE '%%%s%%'
+                       OR (ISNULL(p.PreferredName, p.FirstName) + ' '
+                           + p.LastName) LIKE '%%%s%%'
+                       OR (p.FirstName + ' ' + p.LastName) LIKE '%%%s%%'
+                       OR ISNULL(p.EmailAddress, '') LIKE '%%%s%%')
+                ORDER BY p.Name2
+            )
+            SELECT h.PeopleId, h.Name2, h.Age, h.Em,
+                   ISNULL(STUFF((SELECT ', ' + u2.Username
+                                 FROM dbo.Users u2 WITH (NOLOCK)
+                                 WHERE u2.PeopleId = h.PeopleId
+                                 FOR XML PATH('')), 1, 2, ''), '') AS Unames
+            FROM hits h
+            ORDER BY h.Name2
+        """ % (like, pid_term, like, like, like, like))
         return safe_json({"success": True,
-                          "people": [{"id": r.PeopleId, "name": r.Name2}
+                          "people": [{"id": r.PeopleId, "name": r.Name2,
+                                      "age": int(r.Age),
+                                      "email": str(r.Em or ""),
+                                      "user": str(r.Unames or "")}
                                      for r in rows]})
 
     if action in ("bulk_tag", "bulk_task"):
@@ -3338,7 +3596,7 @@ def handle_ajax(action, uid):
             return safe_json({"success": False,
                               "error": "That is %d people. Select 500 or fewer."
                                        % len(pids)})
-        me = model.UserPeopleId
+        me = current_user_id()
 
         if action == "bulk_tag":
             name = get_param("tag_name", "").strip()
@@ -3626,7 +3884,41 @@ def handle_ajax(action, uid):
         rows.sort(key=lambda x: ((x.get("owner") or "").lower(),
                                  (x.get("name") or "").lower()))
         return safe_json({"success": True, "rows": rows,
-                          "can_delete_shared": can_edit_shared()})
+                          "can_delete_shared": can_edit_shared(),
+                          "legacy": legacy_rows()})
+
+    if action == "legacy_assign":
+        idxs = []
+        for x in get_param("idxs", get_param("idx", "")).split(","):
+            x = x.strip()
+            if x.lstrip("-").isdigit():
+                idxs.append(int(x))
+        try:
+            to_uid = int(get_param("to_uid", "0") or 0)
+        except Exception:
+            to_uid = 0
+        ok, msg = adopt_many(idxs, to_uid)
+        return safe_json({"success": ok, "message": msg if ok else "",
+                          "error": "" if ok else msg})
+
+    if action == "reassign":
+        refs = [x.strip() for x in get_param("refs", "").split(",") if x.strip()]
+        try:
+            to_uid = int(get_param("to_uid", "0") or 0)
+        except Exception:
+            to_uid = 0
+        ok, msg = reassign_dashboards(refs, to_uid)
+        return safe_json({"success": ok, "message": msg if ok else "",
+                          "error": "" if ok else msg})
+
+    if action == "legacy_drop":
+        try:
+            idx = int(get_param("idx", "-1"))
+        except Exception:
+            idx = -1
+        ok, msg = drop_one(idx)
+        return safe_json({"success": ok, "message": msg if ok else "",
+                          "error": "" if ok else msg})
 
     if action == "apply_update":
         if not can_apply_update():
@@ -3932,25 +4224,43 @@ else:
     if not update_js:
         update_js = inline_update_js()
 
+    _t = {}
+
+    def timed(label, fn):
+        """Run fn, remember how long it took. Cheap enough to leave on."""
+        t0 = time.time()
+        try:
+            return fn()
+        finally:
+            _t[label] = int((time.time() - t0) * 1000)
+
     boot = {
         "reports_script": _rs,
         "reports_ok": (1 if _rs else 0),
-        "can_share": can_edit_shared(),
-        "can_manage": can_manage_users(),
-        "searches": list_saved_searches(),
-        "programs": list_programs(),
+        "can_share": timed("can_share", can_edit_shared),
+        "can_manage": timed("can_manage", can_manage_users),
+        "searches": timed("searches", list_saved_searches),
+        "programs": timed("programs", list_programs),
         "user_id": _uid,
+        # Surfaced at boot rather than only inside Settings: someone whose
+        # dashboards just vanished needs to be told where they went on the
+        # screen they are already looking at.
+        "legacy_count": timed(
+            "legacy", lambda: len(legacy_personal().get("dashboards", []))),
         # For the links tile, which gates a shortcut on roles the way the
         # QuickLinks widget does. Display only: nothing behind a link is
         # protected by hiding it, and TouchPoint checks the target itself.
-        "roles": my_roles(),
+        "roles": timed("roles", my_roles),
         # Which reports the catalog can serve, so a tile saved before the
         # catalog existed still runs from it. The source used to be decided
         # once at install time and frozen into the tile, which left older
         # boards pointing at Enterprise Reporting for reports it never had.
-        "catalog_ids": [str(r.get("id", "")) for r in
-                        load_report_catalog().get("reports", [])],
+        "catalog_ids": timed(
+            "catalog", lambda: [str(r.get("id", "")) for r in
+                                load_report_catalog().get("reports", [])]),
     }
+    _t["total_ms"] = sum(v for k, v in _t.items() if k != "total_ms")
+    boot["timing"] = _t
 
     page = []
     page.append('<link rel="stylesheet" href="' + GRIDSTACK_CSS + '" />')
@@ -4162,6 +4472,8 @@ else:
 <div id="dbTabs" class="db-tabs" style="display:none;"></div>
 <div id="dbNarrowNote" class="db-narrow">Narrow screen: tiles are stacked to fit.
 Open this on a wider screen to rearrange them.</div>
+<div id="dbLegacyNote" style="display:none;border:1px solid #f0ad4e;
+background:#fcf8e3;padding:8px 12px;border-radius:4px;margin-bottom:10px;"></div>
 <div id="dbEditTools" style="display:none;margin-bottom:10px;">
   <button class="btn btn-xs btn-default" onclick="dbAddTile()">+ Add tile</button>
   <button class="btn btn-xs btn-default" onclick="dbAddTab()">+ Add tab</button>
@@ -4226,9 +4538,13 @@ function applyColumns(){
   var c = responsiveColumns();
   if (c === GRID_COLS) return;
   GRID_COLS = c;
-  // moveScale keeps relative widths sensible when squeezing 12 into 6.
-  try { GRID.column(c, "moveScale"); } catch (e) {
-    try { GRID.column(c); } catch (e2) { }
+  // Narrow layouts are read-only, so packing beats preserving position:
+  // moveScale keeps each tile's column, which leaves stair-step holes down
+  // the page. compact keeps the authored ORDER and closes the gaps.
+  var modes = ["compact", "list", "moveScale"];
+  for (var m = 0; m < modes.length; m++){
+    try { GRID.column(c, modes[m]); break; }
+    catch (e) { if (m === modes.length - 1){ try { GRID.column(c); } catch (e2) { } } }
   }
   narrowGuard();
 }
@@ -4371,6 +4687,35 @@ function cacheReport(){
   return out;
 }
 
+// What the page load actually spent its time on, and the slowest calls since.
+// Reported rather than guessed at, because the person who sees it slow is not
+// the person who can read the code.
+function dbSpeedHtml(){
+  var t = (DB_BOOT && DB_BOOT.timing) || {};
+  var keys = [];
+  for (var k in t){ if (k !== "total_ms") keys.push(k); }
+  keys.sort(function(a, b){ return (t[b] || 0) - (t[a] || 0); });
+  var h = "<h4 style='margin:14px 0 4px;'>Speed</h4>"
+        + "<div>Page load spent <b>" + (t.total_ms || 0)
+        + " ms</b> on the server:</div><ul style='margin:4px 0 8px 18px;'>";
+  for (var i = 0; i < keys.length; i++){
+    h += "<li>" + esc(keys[i]) + ": " + t[keys[i]] + " ms</li>";
+  }
+  h += "</ul>";
+  var slow = CALL_LOG.slice(0).sort(function(a, b){ return b.ms - a.ms; }).slice(0, 8);
+  if (slow.length){
+    h += "<div>Slowest calls since this page opened:</div>"
+      + "<table class='db-t' style='margin-top:4px;'><thead><tr><th>Action</th>"
+      + "<th>ms</th><th>KB back</th></tr></thead><tbody>";
+    for (var j = 0; j < slow.length; j++){
+      h += "<tr><td>" + esc(slow[j].action) + "</td><td>" + slow[j].ms
+        + "</td><td>" + Math.round(slow[j].bytes / 1024) + "</td></tr>";
+    }
+    h += "</tbody></table>";
+  }
+  return h;
+}
+
 function dbCacheDiag(){
   var box = $id("stCacheDiag");
   if (!box) return;
@@ -4405,7 +4750,7 @@ function dbCacheDiag(){
       + (rows[j].bytes ? Math.round(rows[j].bytes / 1024) : "") + "</td></tr>";
   }
   h += "</tbody></table>";
-  box.innerHTML = h;
+  box.innerHTML = h + dbSpeedHtml();
 }
 
 // localStorage, not sessionStorage: session storage is per TAB, so opening a
@@ -4422,6 +4767,29 @@ function cacheStore(){
     // Private mode or a blocked origin: fall back rather than lose caching.
     try { return window.sessionStorage; } catch (e2) { return null; }
   }
+}
+
+// Cache entries are namespaced by user id. While current_user_id was broken
+// every user was 0, so those entries are unreachable now that ids are real,
+// and they would just sit there taking up the storage budget until eviction
+// pushed out entries that are still good. Cleared once, on the first load
+// after the fix.
+function cachePurgeLegacy(){
+  var st = cacheStore();
+  if (!st) return 0;
+  try {
+    if (st.getItem("tpxidb:purged0") === "1") return 0;
+  } catch (e) { return 0; }
+  var dead = [];
+  try {
+    for (var i = 0; i < st.length; i++){
+      var k = st.key(i);
+      if (k && k.indexOf("tpxidb:0:") === 0) dead.push(k);
+    }
+    for (var j = 0; j < dead.length; j++){ st.removeItem(dead[j]); }
+    st.setItem("tpxidb:purged0", "1");
+  } catch (e) { }
+  return dead.length;
 }
 
 function cacheKey(t){
@@ -4705,16 +5073,26 @@ window.applyAppUpdate = function(){
   });
 };
 
+var CALL_LOG = [];      // {action, ms, bytes} for the slowest recent calls
+
+function logCall(action, ms, bytes){
+  CALL_LOG.push({action: action || "(none)", ms: ms, bytes: bytes});
+  if (CALL_LOG.length > 60) CALL_LOG.shift();
+}
+
 function post(params, cb){
   var body = "ajax=true";
   for (var k in params){
     body += "&" + k + "=" + encodeURIComponent(params[k]);
   }
+  var t0 = new Date().getTime();
   var xhr = new XMLHttpRequest();
   xhr.open("POST", window.location.pathname, true);
   xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
   xhr.onreadystatechange = function(){
     if (xhr.readyState !== 4) return;
+    logCall(params.action, new Date().getTime() - t0,
+            (xhr.responseText || "").length);
     var r = null;
     try { r = JSON.parse(xhr.responseText); }
     catch (e) {
@@ -5572,24 +5950,204 @@ function adminLoad(){
     }
     ADMIN_ROWS = r.rows || [];
     ADMIN_CAN_DEL_SHARED = !!r.can_delete_shared;
+    LEGACY = r.legacy || [];
+    var pre = legacyPanelHtml();
     if (!ADMIN_ROWS.length){
-      box.innerHTML = "<span class='db-muted'>No dashboards yet.</span>";
+      box.innerHTML = pre
+        + "<span class='db-muted'>No dashboards yet.</span>";
       return;
     }
-    box.innerHTML =
-      "<input id='adminFind' placeholder='Filter by person or dashboard name...' "
+    box.innerHTML = pre
+      + "<input id='adminFind' placeholder='Filter by person or dashboard name...' "
       + "style='width:100%;padding:6px 10px;margin-bottom:8px;' "
       + "oninput='adminRender()'>"
+      // Reassigning is the same job as claiming an orphan, so it uses the same
+      // picker and the same tick-and-go shape rather than a second idiom.
+      + "<div style='margin-bottom:8px;padding:8px;background:#f6f8fa;"
+      + "border-radius:3px;display:flex;gap:8px;align-items:flex-start;'>"
+      + "<div style='flex:1;'>"
+      + pickerHtml("rabulk", "Move the ticked ones to...") + "</div>"
+      + "<button class='btn btn-primary btn-sm' onclick='adminReassign()'>"
+      + "Move ticked</button></div>"
       + "<div id='adminRows' style='max-height:340px;overflow:auto;'></div>";
     adminRender();
   });
+}
+
+var LEGACY = [];      // dashboards saved before per-user storage worked
+
+// ---------------------------------------------------------------------------
+// PERSON PICKER
+// One picker serves both tables. Name alone is not enough: someone with two
+// records has the same name on both, so age, login and email are shown, which
+// is what actually tells them apart.
+// ---------------------------------------------------------------------------
+var PICK = {};        // picker id -> {id: PeopleId, name: string}
+var PICK_T = {};      // picker id -> pending search timer
+
+function pickerHtml(pid, placeholder){
+  return "<input id='pk_" + pid + "' placeholder='" + esc(placeholder || "Type a name...")
+    + "' style='width:100%;padding:4px 6px;' autocomplete='off' "
+    + "data-pk='" + esc(pid) + "' oninput='pkFind(this)'>"
+    + "<div id='pkh_" + pid + "' style='font-size:12px;'></div>";
+}
+
+function pkFind(el){
+  var pid = el.getAttribute("data-pk");
+  if (PICK_T[pid]) clearTimeout(PICK_T[pid]);
+  PICK[pid] = null;              // typing again clears any earlier choice
+  PICK_T[pid] = setTimeout(function(){
+    var v = (el.value || "").trim();
+    var hits = $id("pkh_" + pid);
+    if (!hits) return;
+    if (v.length < 2){ hits.innerHTML = ""; return; }
+    hits.innerHTML = "<span class='db-muted'>Looking...</span>";
+    post({action: "search_assignee", search_term: v}, function(r){
+      var ppl = (r && r.people) || [];
+      if (!ppl.length){
+        hits.innerHTML = "<span class='db-muted'>Nobody with a login matches "
+                       + "that.</span>";
+        return;
+      }
+      var h = "";
+      for (var i = 0; i < ppl.length; i++){
+        var pp = ppl[i];
+        // Everything that separates one account from another sits on the row,
+        // because two records for the same person share a name AND an age.
+        var extra = [];
+        if (pp.age >= 0) extra.push("age " + pp.age);
+        if (pp.user) extra.push(esc(pp.user));
+        if (pp.email) extra.push(esc(pp.email));
+        extra.push("id " + pp.id);
+        h += "<div style='padding:2px 0;'><a href='#' data-pk='" + esc(pid)
+          + "' data-pid='" + pp.id + "' data-nm='" + esc(pp.name)
+          + "' onclick='pkChoose(this);return false;'>" + esc(pp.name)
+          + "</a> <span class='db-muted'>" + extra.join(" &middot; ")
+          + "</span></div>";
+      }
+      hits.innerHTML = h;
+    });
+  }, 250);
+}
+
+function pkChoose(el){
+  var pid = el.getAttribute("data-pk");
+  var who = parseInt(el.getAttribute("data-pid"), 10);
+  var nm = el.getAttribute("data-nm") || "";
+  PICK[pid] = {id: who, name: nm};
+  var box = $id("pk_" + pid);
+  if (box) box.value = nm;
+  var hits = $id("pkh_" + pid);
+  if (hits) hits.innerHTML = "Will go to <b>" + esc(nm) + "</b> (id " + who + ")";
+}
+
+function pkGet(pid){
+  return (PICK[pid] && PICK[pid].id) || 0;
+}
+
+// ---------------------------------------------------------------------------
+// CLAIMING THE QUARANTINED SET
+// ---------------------------------------------------------------------------
+
+function legacyPanelHtml(){
+  if (!LEGACY.length) return "";
+  var h = "<div style='border:1px solid #f0ad4e;background:#fcf8e3;padding:10px 12px;"
+        + "border-radius:4px;margin-bottom:12px;'>"
+        + "<b>" + LEGACY.length + " dashboard(s) are waiting to be claimed.</b>"
+        + "<div style='margin-top:6px;'>An earlier version could not tell users "
+        + "apart, so every personal dashboard was written to one shared place "
+        + "and everyone could see everyone else's. They are now hidden from "
+        + "everybody until someone says who each one belongs to. Nothing was "
+        + "deleted.</div>"
+        + "<div style='margin:10px 0;padding:8px;background:#fff;border-radius:3px;'>"
+        + "<div style='display:flex;gap:8px;align-items:flex-start;'>"
+        + "<div style='flex:1;'>" + pickerHtml("lgbulk", "Give the ticked ones to...")
+        + "</div>"
+        + "<button class='btn btn-primary btn-sm' onclick='lgAssignChecked()'>"
+        + "Assign ticked</button>"
+        + "<button class='btn btn-default btn-sm' onclick='lgDropChecked()'>"
+        + "Delete ticked</button></div></div>"
+        + "<table class='db-t' style='background:#fff;'>"
+        + "<thead><tr>"
+        + "<th style='width:24px;'><input type='checkbox' onclick='lgAll(this)'></th>"
+        + "<th>Dashboard</th><th>Size</th><th>Probably built by</th>"
+        + "</tr></thead><tbody>";
+  for (var i = 0; i < LEGACY.length; i++){
+    var d = LEGACY[i];
+    // The hint comes from the Search Builder searches its tiles use, since
+    // dbo.Query records who owns a search. It is evidence, not proof.
+    var who = "", first = null;
+    var seen = {};
+    for (var j = 0; j < (d.hints || []).length; j++){
+      var hn = d.hints[j];
+      if (!hn.owner || seen[hn.owner]) continue;
+      seen[hn.owner] = 1;
+      who += (who ? ", " : "") + esc(hn.owner);
+      if (!first && hn.uid) first = hn;
+    }
+    if (!who) who = "<span class='db-muted'>no clue in the data</span>";
+    h += "<tr><td><input type='checkbox' class='lgck' value='" + d.idx + "'></td>"
+      + "<td>" + esc(d.name) + "</td>"
+      + "<td class='db-muted'>" + d.tabs + " tab(s), " + d.tiles + " tile(s)</td>"
+      + "<td>" + who
+      + (first ? (" <a href='#' data-pk='lgbulk' data-pid='" + first.uid
+                  + "' data-nm='" + esc(first.owner)
+                  + "' onclick='pkChoose(this);return false;'>use</a>") : "")
+      + "</td></tr>";
+  }
+  return h + "</tbody></table></div>";
+}
+
+function lgAll(box){
+  var cks = document.querySelectorAll(".lgck");
+  for (var i = 0; i < cks.length; i++){ cks[i].checked = box.checked; }
+}
+
+function lgChecked(){
+  var out = [], cks = document.querySelectorAll(".lgck");
+  for (var i = 0; i < cks.length; i++){
+    if (cks[i].checked) out.push(cks[i].value);
+  }
+  return out;
+}
+
+function lgAssignChecked(){
+  var picked = lgChecked();
+  if (!picked.length){ alert("Tick the ones to move first."); return; }
+  var to = pkGet("lgbulk");
+  if (!to){ alert("Choose who they belong to first."); return; }
+  post({action: "legacy_assign", idxs: picked.join(","), to_uid: to}, function(r){
+    if (!r || !r.success){ alert((r && r.error) || "Failed"); return; }
+    DASH_LIST = null;
+    PICK = {};
+    adminLoad();
+  });
+}
+
+// Deleted highest index first, since removing one shifts the ones after it.
+function lgDropChecked(){
+  var picked = lgChecked();
+  if (!picked.length){ alert("Tick the ones to delete first."); return; }
+  if (!confirm("Permanently delete " + picked.length + " dashboard(s)?")) return;
+  picked.sort(function(a, b){ return Number(b) - Number(a); });
+  var i = 0;
+  function nextOne(){
+    if (i >= picked.length){ PICK = {}; adminLoad(); return; }
+    post({action: "legacy_drop", idx: picked[i++]}, function(r){
+      if (!r || !r.success){ alert((r && r.error) || "Failed"); adminLoad(); return; }
+      nextOne();
+    });
+  }
+  nextOne();
 }
 
 function adminRender(){
   var box = $id("adminRows");
   if (!box) return;
   var v = (($id("adminFind") || {}).value || "").toLowerCase();
-  var h = "<table class='db-t'><thead><tr><th>Person</th><th>Dashboard</th>"
+  var h = "<table class='db-t'><thead><tr>"
+        + "<th style='width:24px;'><input type='checkbox' onclick='adminAll(this)'></th>"
+        + "<th>Person</th><th>Dashboard</th>"
         + "<th>Where</th><th>Tabs</th><th>Tiles</th><th></th></tr></thead><tbody>";
   var shown = 0, lastOwner = "";
   for (var i = 0; i < ADMIN_ROWS.length; i++){
@@ -5598,13 +6156,16 @@ function adminRender(){
     if (v && hay.indexOf(v) < 0) continue;
     shown++;
     var isShared = d.scope === "shared";
-    // Repeating the name only when it changes keeps a long list scannable,
-    // but the filter can hide the first row of a group, so it is tracked
-    // against what is actually DRAWN rather than the index.
-    var who = (d.owner === lastOwner) ? "" : esc(d.owner || "");
+    // Dimmed rather than blanked on a repeat: the grouping still reads, and
+    // the row you tick always says whose it is. Tracked against what is
+    // actually DRAWN, since the filter can hide the first row of a group.
+    var repeat = (d.owner === lastOwner);
+    var who = esc(d.owner || "");
     lastOwner = d.owner;
-    h += "<tr><td>" + who + (who && d.mine
-           ? " <span class='db-muted'>(you)</span>" : "")
+    h += "<tr><td><input type='checkbox' class='rack' value='"
+      + esc(d.uid + ":" + d.scope + ":" + d.id) + "'></td>"
+      + "<td" + (repeat ? " style='color:#8a97a5;'" : "") + ">" + who
+      + (who && d.mine ? " <span class='db-muted'>(you)</span>" : "")
       + "</td><td>" + esc(d.name || "(unnamed)") + "</td><td>"
       + (isShared
          ? "<span style='font-size:11px;padding:1px 7px;border-radius:9px;"
@@ -5624,8 +6185,38 @@ function adminRender(){
       + "</td></tr>";
   }
   h += "</tbody></table>";
-  if (!shown){ h = "<span class='db-muted'>Nothing matches that.</span>"; }
+  if (!shown){ h += "<span class='db-muted'>Nothing matches that.</span>"; }
   box.innerHTML = h;
+}
+
+function adminAll(box){
+  var cks = document.querySelectorAll(".rack");
+  for (var i = 0; i < cks.length; i++){ cks[i].checked = box.checked; }
+}
+
+function adminReassign(){
+  var refs = [], cks = document.querySelectorAll(".rack");
+  for (var i = 0; i < cks.length; i++){
+    if (cks[i].checked) refs.push(cks[i].value);
+  }
+  if (!refs.length){ alert("Tick the dashboards to move first."); return; }
+  var to = pkGet("rabulk");
+  if (!to){ alert("Choose who they should belong to first."); return; }
+  var anyShared = false;
+  for (var j = 0; j < refs.length; j++){
+    if (refs[j].split(":")[1] === "shared") anyShared = true;
+  }
+  var note = anyShared
+    ? " A shared one stays shared; only who owns it changes."
+    : "";
+  if (!confirm("Move " + refs.length + " dashboard(s) to "
+               + PICK["rabulk"].name + "?" + note)) return;
+  post({action: "reassign", refs: refs.join(","), to_uid: to}, function(r){
+    if (!r || !r.success){ alert((r && r.error) || "Failed"); return; }
+    DASH_LIST = null;
+    PICK = {};
+    adminLoad();
+  });
 }
 
 function adminOpen(btn){
@@ -5870,6 +6461,9 @@ function dbSettings(){
     h += "</div>";
 
     dbModal("Settings", h);
+    // Orphaned dashboards are the reason someone is most likely here, so the
+    // list opens itself rather than hiding behind another button.
+    if (DB_BOOT.can_manage && (DB_BOOT.legacy_count || 0) > 0) adminLoad();
   });
 }
 
@@ -9744,7 +10338,25 @@ function dbCloseModal(){
   EXP_IDX = -1;
 }
 
+// Somebody whose dashboards just disappeared should be told where they went
+// on the screen they are already on, not have to find Settings.
+function legacyNote(){
+  var c = (DB_BOOT && DB_BOOT.legacy_count) || 0;
+  var el = $id("dbLegacyNote");
+  if (!el || !c) return;
+  el.innerHTML = "<b>" + c + " dashboard(s) are waiting to be claimed.</b> "
+    + "An earlier version could not tell users apart, so personal dashboards "
+    + "were all saved to one place. They are hidden until someone says who "
+    + "each belongs to. Nothing was deleted. "
+    + (DB_BOOT.can_manage
+       ? "<a href='#' onclick='dbSettings();return false;'>Sort them out</a>"
+       : "If one of them is yours, an administrator can hand it back.");
+  el.style.display = "block";
+}
+
 (function(){
+  cachePurgeLegacy();
+  legacyNote();
   var st = readUrlState();
   if (st.id){
     dbOpen(st.id, st.scope, st.tab);
