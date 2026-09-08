@@ -143,7 +143,7 @@ For a searchable version with a longer write-up on each one, see the
 | [SQL Query Explorer](TPxi/SQL%20Query%20Explorer) | Run SQL against your database directly |
 | [Email Technical Diagnostics](TPxi/Email%20Technical%20Diagnostics) | What sent, what bounced, and why |
 | [Account Security Monitor](TPxi/Account%20Security%20Monitor) | Login, role and access analytics |
-| &#9733; [Dashboards](TPxi/Dashboards) | Create custom and template dashboards |
+| [Dashboards](TPxi/Dashboards) `new` | Create custom and template dashboards |
 | [Person-Audit Detail](TPxi/Person%20Attendance%20Audit) | Everywhere a person has served and attended |
 | [CSV Phone Matcher](TPxi/CSV%20Phone%20Matcher.) | Match a CSV of phone numbers to people records |
 | [Link Generator](TPxi/Link%20Generator) | Pre-authenticated links, no login wall |
