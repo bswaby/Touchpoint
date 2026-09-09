@@ -5,7 +5,7 @@
 ### can see each dashboard.
 ###
 #--------------------------------------------------------------------
-# TPxi Operations Checklists v1.2.4
+# TPxi Operations Checklists v1.1.4
 # Group-based recurring operations management
 #
 # Written By: Ben Swaby
@@ -136,7 +136,7 @@ model.Header = "Dashboards"
 # What this deployed copy is, and the key it is published under. The update
 # check itself lives in TPxi_Lib_Update so there is one implementation rather
 # than a copy per script.
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.1.4"
 DC_SCRIPT_ID = "TPxi_Dashboards"
 # Two hosts on purpose. The browser checks the version against the public
 # domain; the SERVER fetches the code from the workers.dev mirror, because
@@ -368,7 +368,11 @@ def inline_update_js():
   }
   try {
     var xhr = new XMLHttpRequest();
-    xhr.open("GET", URL, true);
+    // On the query string rather than a header: a custom header would turn
+    // this into a preflighted request for no gain. The value is the site the
+    // page is already served from, which the browser sends as Origin anyway.
+    var u = URL + "?s=" + encodeURIComponent(SID) + "&v=" + encodeURIComponent(MINE);
+    xhr.open("GET", u, true);
     xhr.timeout = 5000;
     xhr.onreadystatechange = function(){
       if (xhr.readyState !== 4 || xhr.status !== 200) return;
@@ -385,6 +389,35 @@ def inline_update_js():
             .replace("TPXI_VER", APP_VERSION)
             .replace("TPXI_URL", "https://scripts.displaycache.com"
                                  "/api/touchpoint/script-versions"))
+
+
+def dc_headers(extra=None):
+    """Headers for a call out to the catalog.
+
+    Server-side calls carry no identity of their own, so without this the
+    catalog cannot tell one church from another or say who is running an old
+    version. Same convention TPxi Go already uses: the host, the script, the
+    version. No person, no PeopleId, nothing about the database.
+
+    Set the admin setting TPxiSendHost to 0 to send nothing but Accept.
+    """
+    h = {"Accept": "application/json"}
+    try:
+        if str(model.Setting("TPxiSendHost", "1")).strip() in ("0", "false", "False"):
+            return h
+    except Exception:
+        pass
+    try:
+        host = str(model.CmsHost or "").strip()
+    except Exception:
+        host = ""
+    if host:
+        h["X-CmsHost"] = host
+    h["X-TPxi-Script"] = DC_SCRIPT_ID
+    h["X-TPxi-Version"] = APP_VERSION
+    if extra:
+        h.update(extra)
+    return h
 
 
 def my_roles():
@@ -1950,7 +1983,7 @@ def fetch_ops_catalog():
     """(items, error). Automatic checks only, since a manual one has no SQL."""
     if _OPS_CACHE[0] is not None:
         return _OPS_CACHE[0], ""
-    hdrs = {"Accept": "application/json"}
+    hdrs = dc_headers()
     last = ""
     for url in (DC_OPS_WORKER, DC_OPS_PUBLIC):
         try:
@@ -2054,9 +2087,11 @@ def fetch_published_catalog():
         if data is not None:
             return (data if isinstance(data, dict)
                     else {"reports": data or [], "dashboards": []}, "")
-    ua = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-          "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
-    hdrs = {"User-Agent": ua, "Accept": "application/json"}
+    # No User-Agent here on purpose. model.RestGet is RestSharp, which sets its
+    # own and discards the one passed in: the wire shows RestSharp/106.15.0.0
+    # whatever this says. Other headers DO come through (RestGet calls
+    # AddHeader for each), which is why dc_headers works at all.
+    hdrs = dc_headers()
     last = "no attempt made"
     for url in (DC_CATALOG_WORKER, DC_CATALOG_PUBLIC):
         try:
@@ -3927,7 +3962,7 @@ def handle_ajax(action, uid):
                                        "or Developer role."})
         url = DC_API_WORKER + "/scripts/" + DC_SCRIPT_ID
         try:
-            code = model.RestGet(url, {})
+            code = model.RestGet(url, dc_headers())
         except Exception as fe:
             return safe_json({"success": False,
                               "error": "Could not reach the update server: "
@@ -4326,6 +4361,16 @@ else:
                 text-transform:uppercase;color:#5b6875;}
   table.db-t td{padding:3px 6px;border-bottom:1px solid #f2f5f8;}
   .grid-stack-item-content{overflow:visible;}
+  /* Tile bodies hold HTML written by other people: TouchPoint widgets, links
+     tiles, church-authored dashboard widgets. An anchor or image is natively
+     draggable, so if the pointer crosses one during a resize the browser
+     starts its own drag, swallows the mouseup, and GridStack never gets the
+     stop event. The tile then stays stuck to the cursor. */
+  .db-tile-bd a, .db-tile-bd img{-webkit-user-drag:none;user-drag:none;}
+  /* Belt and braces, and browser-agnostic: while the grid is being dragged or
+     resized, nothing inside a tile can receive pointer events at all, so no
+     content can start a competing gesture. */
+  body.db-grabbing .db-tile-bd{pointer-events:none;user-select:none;}
   /* Sized by its own content, so it can report a SMALLER height than the tile
      it sits in. Measuring .db-tile-bd instead reports the tile's own height
      back to us and the tile can only ever grow. */
@@ -4519,6 +4564,28 @@ var DASH = null;          // dashboard being viewed
 var TAB = 0;              // active tab index
 var EDIT = false;
 var GRID = null;
+
+// Marks the page as mid-gesture so tile content cannot start a competing one.
+// The listeners below are the safety net: if a stop event never arrives -- the
+// exact failure this guards against -- the class would otherwise stay on and
+// the whole dashboard would stop responding to clicks.
+var GRABBING = false;
+
+function gridGrabbing(on){
+  GRABBING = !!on;
+  try {
+    if (on) document.body.classList.add("db-grabbing");
+    else document.body.classList.remove("db-grabbing");
+  } catch (e) { }
+}
+
+(function(){
+  var clear = function(){ gridGrabbing(false); };
+  document.addEventListener("mouseup", clear, true);
+  document.addEventListener("pointerup", clear, true);
+  document.addEventListener("dragend", clear, true);
+  window.addEventListener("blur", clear);
+})();
 var CHARTS = {};          // tileKey -> Chart instance
 var OBSERVERS = [];       // MutationObservers watching tiles that can grow
 var AUTHORED_H = {};      // tile index -> the height the USER chose
@@ -7293,14 +7360,25 @@ function renderGridInner(){
     }, host);
     GRID_COLS = 12;
     applyColumns();
+    GRID.on("resizestart", function(){ gridGrabbing(true); });
+    GRID.on("dragstart", function(){ gridGrabbing(true); });
     GRID.on("resizestop", function(ev, el){
+      gridGrabbing(false);
       var idx = parseInt(el.getAttribute("data-idx"), 10);
       if (!isNaN(idx) && el.gridstackNode){
+        // Recorded BEFORE fit runs again, so auto-grow treats the height the
+        // user just chose as the floor rather than undoing it.
         AUTHORED_H[idx] = el.gridstackNode.h;
+        setTimeout(function(){ autoGrowTile(idx); }, 60);
       }
       if (EDIT) markDirty();
+      harvestLayout();
     });
-    GRID.on("dragstop", function(){ if (EDIT) markDirty(); });
+    GRID.on("dragstop", function(){
+      gridGrabbing(false);
+      if (EDIT) markDirty();
+      harvestLayout();
+    });
   }
 
   // Tiles load one at a time. Firing a dozen report queries at once is how a
@@ -8133,6 +8211,13 @@ function fitOn(t){
 
 function autoGrowTile(idx){
   if (!GRID) return;
+  // Never while the user is dragging or resizing. This calls GRID.update on
+  // the very element GridStack is mid-gesture on, which fights the mouse and
+  // rewrites the node under the drag. Content taller than the tile makes it
+  // fight every frame, so the tile appears glued to the resize handle. A
+  // widget whose content happens to match its tile never triggers it, which
+  // is why this only showed up with one church's widget.
+  if (GRABBING) return;
   if (!fitOn(tiles()[idx])) return;
   var el = document.querySelector('.grid-stack-item[data-idx="' + idx + '"]');
   var body = $id("tb" + idx);
