@@ -5,7 +5,7 @@
 ### can see each dashboard.
 ###
 #--------------------------------------------------------------------
-# TPxi Operations Checklists v1.1.4
+# TPxi Operations Checklists v1.1.5
 # Group-based recurring operations management
 #
 # Written By: Ben Swaby
@@ -136,7 +136,7 @@ model.Header = "Dashboards"
 # What this deployed copy is, and the key it is published under. The update
 # check itself lives in TPxi_Lib_Update so there is one implementation rather
 # than a copy per script.
-APP_VERSION = "1.1.4"
+APP_VERSION = "1.1.5"
 DC_SCRIPT_ID = "TPxi_Dashboards"
 # Two hosts on purpose. The browser checks the version against the public
 # domain; the SERVER fetches the code from the workers.dev mirror, because
@@ -2139,7 +2139,7 @@ def date_range_sql(val):
     if val in rolling:
         return "DATEADD(day, -%d, GETDATE())" % rolling[val], None
     months = {"last_3_months": 3, "last_6_months": 6, "last_12_months": 12,
-              "last_24_months": 24, "last_36_months": 36}
+              "last_24_months": 24, "last_36_months": 36, "last_48_months": 48}
     if val in months:
         return "DATEADD(month, -%d, GETDATE())" % months[val], None
 
@@ -4483,6 +4483,9 @@ else:
     <option value="last_90_days">Last 90 days</option>
     <option value="last_6_months">Last 6 months</option>
     <option value="last_12_months">Last 12 months</option>
+    <option value="last_24_months">Last 2 years</option>
+    <option value="last_36_months">Last 3 years</option>
+    <option value="last_48_months">Last 4 years</option>
     <option value="ytd">Year to date</option>
     <option value="fiscal_ytd">Fiscal year to date</option>
     <option value="last_calendar_year">Last calendar year</option>
@@ -7627,11 +7630,24 @@ function sortRows(rows, col, dir){
 
 // Raises this table's own row cap. Kept per tile rather than global so one
 // long list does not slow every other tile on the board.
+// The key arrives as text from the attribute, but TABLE_STATE is keyed by
+// number for tiles. Coerced back so both forms find their state.
+function catShowMoreEl(el){
+  var k = el.getAttribute("data-key");
+  catShowMore(/^[0-9]+$/.test(k) ? parseInt(k, 10) : k);
+}
+
 function catShowMore(i){
   var st = TABLE_STATE[i];
   if (!st) return;
   st.limit = (st.limit || 200) + 500;
   drawCatalogTable(i);
+}
+
+function catalogSortEl(el){
+  var k = el.getAttribute("data-key");
+  catalogSort(/^[0-9]+$/.test(k) ? parseInt(k, 10) : k,
+              parseInt(el.getAttribute("data-col"), 10));
 }
 
 function catalogSort(i, colIdx){
@@ -7684,10 +7700,13 @@ function drawCatalogTable(i){
     if (st.sort && st.sort.col === shown[c]){
       arrow = st.sort.dir > 0 ? " \u25b2" : " \u25bc";
     }
-    // The column index, not its name: a name would need nested quotes
-    // inside the attribute, and those do not survive the Python string.
-    h += "<th style='cursor:pointer;white-space:nowrap;' onclick='catalogSort("
-      + i + "," + c + ")'>" + esc(shown[c]) + arrow + "</th>";
+    // Column INDEX not name, and the table key as an attribute rather than
+    // inlined: the key is a number for a tile but the string "exp" in the
+    // expanded view, and inlining that produced catalogSort(exp,0), a bare
+    // identifier that threw on every click.
+    h += "<th style='cursor:pointer;white-space:nowrap;' data-key='" + esc(i)
+      + "' data-col='" + c + "' onclick='catalogSortEl(this)'>"
+      + esc(shown[c]) + arrow + "</th>";
   }
   h += "</tr></thead><tbody>";
 
@@ -7725,8 +7744,8 @@ function drawCatalogTable(i){
       + ". Sorting and <b>select all</b> cover everything loaded"
       + (pid ? "; individual ticks apply to the rows shown" : "") + ".";
     if (rows.length > cap){
-      h += " <button class='btn btn-xs btn-default' onclick='catShowMore("
-        + (typeof i === "number" ? i : ("'" + i + "'")) + ")'>Show more</button>";
+      h += " <button class='btn btn-xs btn-default' data-key='" + esc(i)
+        + "' onclick='catShowMoreEl(this)'>Show more</button>";
     }
     h += "</div>";
   }
@@ -9955,6 +9974,9 @@ var DATE_PRESETS = [["", "-- report default --"],
                     ["last_3_months", "last 3 months"],
                     ["last_6_months", "last 6 months"],
                     ["last_12_months", "last 12 months"],
+                    ["last_24_months", "last 2 years"],
+                    ["last_36_months", "last 3 years"],
+                    ["last_48_months", "last 4 years"],
                     ["last_24_months", "last 2 years"],
                     ["last_36_months", "last 3 years"],
                     ["ytd", "calendar year to date"],
