@@ -5,7 +5,7 @@
 ### can see each dashboard.
 ###
 #--------------------------------------------------------------------
-# TPxi Operations Checklists v1.1.5
+# TPxi Operations Checklists v1.1.12
 # Group-based recurring operations management
 #
 # Written By: Ben Swaby
@@ -136,7 +136,7 @@ model.Header = "Dashboards"
 # What this deployed copy is, and the key it is published under. The update
 # check itself lives in TPxi_Lib_Update so there is one implementation rather
 # than a copy per script.
-APP_VERSION = "1.1.5"
+APP_VERSION = "1.1.12"
 DC_SCRIPT_ID = "TPxi_Dashboards"
 # Two hosts on purpose. The browser checks the version against the public
 # domain; the SERVER fetches the code from the workers.dev mirror, because
@@ -2420,6 +2420,271 @@ def list_programs():
     return out
 
 
+# ---------------------------------------------------------------------------
+# DEMOGRAPHIC ENRICHMENT
+# A report opts in by putting {demographics_select} / {demographics_join} in
+# its SQL with 'p' as the People alias. Ported from Enterprise Reporting
+# rather than reinvented: the two have to agree on the column names, or the
+# same report shows different columns depending on which script ran it.
+# ---------------------------------------------------------------------------
+DEMOGRAPHIC_FIELDS = [
+    ("Age", ", p.Age", None),
+    ("Gender", ", ISNULL(g_dm.Description, '') AS Gender",
+     "LEFT JOIN lookup.Gender g_dm ON g_dm.Id = p.GenderId"),
+    ("Campus", ", ISNULL(c_dm.Description, '') AS Campus",
+     "LEFT JOIN lookup.Campus c_dm ON c_dm.Id = p.CampusId"),
+    ("MemberStatus", ", ISNULL(ms_dm.Description, '') AS MemberStatus",
+     "LEFT JOIN lookup.MemberStatus ms_dm ON ms_dm.Id = p.MemberStatusId"),
+    ("FamilyPosition", ", ISNULL(fp_dm.Description, '') AS FamilyPosition",
+     "LEFT JOIN lookup.FamilyPosition fp_dm ON fp_dm.Id = p.PositionInFamilyId"),
+    ("MaritalStatus", ", ISNULL(ma_dm.Description, '') AS MaritalStatus",
+     "LEFT JOIN lookup.MaritalStatus ma_dm ON ma_dm.Id = p.MaritalStatusId"),
+    ("Email", ", ISNULL(p.EmailAddress, '') AS Email", None),
+    ("CellPhone", ", ISNULL(p.CellPhone, '') AS CellPhone", None),
+    ("HomePhone", ", ISNULL(p.HomePhone, '') AS HomePhone", None),
+    ("JoinDate", ", p.JoinDate", None),
+    ("FamilyId", ", p.FamilyId", None),
+    # Address lives on the FAMILY, not the person. All four share one join,
+    # which the resolver de-duplicates.
+    ("Address", ", ISNULL(f_dm.AddressLineOne, '') AS Address",
+     "LEFT JOIN dbo.Families f_dm ON f_dm.FamilyId = p.FamilyId"),
+    ("City", ", ISNULL(f_dm.CityName, '') AS City",
+     "LEFT JOIN dbo.Families f_dm ON f_dm.FamilyId = p.FamilyId"),
+    ("State", ", ISNULL(f_dm.StateCode, '') AS State",
+     "LEFT JOIN dbo.Families f_dm ON f_dm.FamilyId = p.FamilyId"),
+    ("Zip", ", ISNULL(f_dm.ZipCode, '') AS Zip",
+     "LEFT JOIN dbo.Families f_dm ON f_dm.FamilyId = p.FamilyId"),
+    ("BirthDate", ", p.BDate AS BirthDate", None),
+    ("Origin", ", ISNULL(o_dm.Description, '') AS Origin",
+     "LEFT JOIN lookup.Origin o_dm ON o_dm.Id = p.OriginId"),
+]
+
+# Where the People column name IS the alias: 'p.Age' in a SELECT is already a
+# column called Age, so injecting 'AS Age' beside it is a duplicate.
+_DEMO_BARE = {"Age": "Age", "CellPhone": "CellPhone", "HomePhone": "HomePhone",
+              "JoinDate": "JoinDate", "FamilyId": "FamilyId"}
+
+_DEMO_CONDITIONAL = {"Campus": "SELECT COUNT(*) AS n FROM lookup.Campus WHERE Id > 0"}
+_demo_cache = {}
+
+
+def demographic_is_useful(name):
+    """Skip a column this install cannot populate, such as Campus with no
+    campuses defined. An inconclusive probe keeps the column: dropping data
+    on a failed check is the worse outcome."""
+    probe = _DEMO_CONDITIONAL.get(name)
+    if not probe:
+        return True
+    if name in _demo_cache:
+        return _demo_cache[name]
+    ok = True
+    try:
+        for r in q.QuerySql(probe):
+            ok = int(r.n or 0) > 0
+            break
+    except Exception:
+        ok = True
+    _demo_cache[name] = ok
+    return ok
+
+
+def resolve_demographics(sql):
+    """(select_fragment, join_fragment, added_names) for a report SQL.
+
+    Any column the report already selects is skipped, or SQL Server refuses
+    the whole query for a duplicate column name.
+    """
+    sel, joins, added = [], [], set()
+    for name, frag, jn in DEMOGRAPHIC_FIELDS:
+        if re.search(r"\bAS\s+" + re.escape(name) + r"\b", sql, re.IGNORECASE):
+            continue
+        bare = _DEMO_BARE.get(name)
+        if bare and re.search(r"\bp\." + re.escape(bare) + r"\b(?!\s+AS\b)",
+                              sql, re.IGNORECASE):
+            continue
+        if not demographic_is_useful(name):
+            continue
+        sel.append(frag)
+        if jn and jn not in joins:
+            joins.append(jn)
+        added.add(name)
+    return ("\n            ".join(sel), "\n            ".join(joins), added)
+
+
+def demographics_groupby(added):
+    """The same expressions without their aliases, for reports that group
+    inside a CTE and must repeat every non-aggregate expression."""
+    if not added:
+        return ""
+    parts = []
+    for name, frag, _ in DEMOGRAPHIC_FIELDS:
+        if name not in added:
+            continue
+        expr = frag.lstrip(", ").strip()
+        expr = re.sub(r"\s+AS\s+\w+\s*$", "", expr, flags=re.IGNORECASE)
+        parts.append(expr)
+    return (", " + ", ".join(parts)) if parts else ""
+
+
+def demographics_passthrough(added):
+    """Bare names for an outer SELECT. A CTE-shaped report has 'p' only inside
+    the CTE, so the columns are selected there and carried out by name."""
+    if not added:
+        return ""
+    names = [name for name, _, _ in DEMOGRAPHIC_FIELDS if name in added]
+    return ", " + ", ".join(names)
+
+
+# ---------------------------------------------------------------------------
+# EXTRA COLUMNS
+# Any report that returns a PeopleId can have person columns added to it after
+# the fact. Enriching afterwards rather than injecting into the report SQL
+# means this works on every report, including ones whose authors never thought
+# about it, and leaves the expensive query untouched.
+# ---------------------------------------------------------------------------
+# Medical and emergency details are real health information about children.
+# ReportWriter shows them on a printed roster, which is a narrow audience; a
+# dashboard tile can be shared with a whole staff, so they are gated. Override
+# per church with the medical_roles setting.
+MEDICAL_ROLES_DEFAULT = ["Admin", "Developer", "Checkin"]
+
+# (key, label, select expression, join or None)
+ENRICH_GROUPS = [
+    ("Person", [
+        ("FirstName", "First Name", "ISNULL(p.FirstName,'')", None),
+        ("LastName", "Last Name", "ISNULL(p.LastName,'')", None),
+        ("NickName", "Nickname", "ISNULL(p.NickName,'')", None),
+        ("Email", "Email", "ISNULL(p.EmailAddress,'')", None),
+        ("CellPhone", "Cell Phone", "ISNULL(p.CellPhone,'')", None),
+        ("HomePhone", "Home Phone", "ISNULL(p.HomePhone,'')", None),
+        ("Age", "Age", "p.Age", None),
+        ("BirthDate", "Date of Birth", "p.BDate", None),
+        ("Gender", "Gender", "ISNULL(gx.Description,'')",
+         "LEFT JOIN lookup.Gender gx ON gx.Id = p.GenderId"),
+        ("MaritalStatus", "Marital Status", "ISNULL(mx.Description,'')",
+         "LEFT JOIN lookup.MaritalStatus mx ON mx.Id = p.MaritalStatusId"),
+        ("MemberStatus", "Membership Status", "ISNULL(sx.Description,'')",
+         "LEFT JOIN lookup.MemberStatus sx ON sx.Id = p.MemberStatusId"),
+        ("Campus", "Campus", "ISNULL(cx.Description,'')",
+         "LEFT JOIN lookup.Campus cx ON cx.Id = p.CampusId"),
+        ("FamilyPosition", "Family Position", "ISNULL(fx.Description,'')",
+         "LEFT JOIN lookup.FamilyPosition fx ON fx.Id = p.PositionInFamilyId"),
+        ("JoinDate", "Join Date", "p.JoinDate", None),
+    ]),
+    ("Address", [
+        ("Address", "Street", "ISNULL(fam.AddressLineOne,'')",
+         "LEFT JOIN dbo.Families fam ON fam.FamilyId = p.FamilyId"),
+        ("City", "City", "ISNULL(fam.CityName,'')",
+         "LEFT JOIN dbo.Families fam ON fam.FamilyId = p.FamilyId"),
+        ("State", "State", "ISNULL(fam.StateCode,'')",
+         "LEFT JOIN dbo.Families fam ON fam.FamilyId = p.FamilyId"),
+        ("Zip", "Zip", "ISNULL(fam.ZipCode,'')",
+         "LEFT JOIN dbo.Families fam ON fam.FamilyId = p.FamilyId"),
+    ]),
+    ("Medical and emergency", [
+        ("EmContact", "Emergency Contact", "ISNULL(rr.emcontact,'')",
+         "LEFT JOIN dbo.RecReg rr ON rr.PeopleId = p.PeopleId"),
+        ("EmPhone", "Emergency Phone", "ISNULL(rr.emphone,'')",
+         "LEFT JOIN dbo.RecReg rr ON rr.PeopleId = p.PeopleId"),
+        ("Doctor", "Doctor", "ISNULL(rr.doctor,'')",
+         "LEFT JOIN dbo.RecReg rr ON rr.PeopleId = p.PeopleId"),
+        ("DoctorPhone", "Doctor Phone", "ISNULL(rr.docphone,'')",
+         "LEFT JOIN dbo.RecReg rr ON rr.PeopleId = p.PeopleId"),
+        ("Allergies", "Allergies / medical note",
+         "CASE WHEN rr.MedAllergy = 1 THEN ISNULL(rr.MedicalDescription,'Yes') ELSE '' END",
+         "LEFT JOIN dbo.RecReg rr ON rr.PeopleId = p.PeopleId"),
+        ("CustodyIssue", "Custody Issue",
+         "CASE WHEN p.CustodyIssue = 1 THEN 'Yes' ELSE '' END", None),
+    ]),
+]
+
+MEDICAL_GROUP = "Medical and emergency"
+
+
+def medical_roles():
+    st = load_settings()
+    raw = st.get("medical_roles", "")
+    names = [x.strip() for x in str(raw or "").split(",") if x.strip()]
+    return names or MEDICAL_ROLES_DEFAULT
+
+
+def can_see_medical():
+    for r in medical_roles():
+        try:
+            if model.UserIsInRole(r):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def enrich_catalog():
+    """Groups this user may choose from. The medical group is omitted
+    entirely rather than shown disabled: a list of field names is itself a
+    hint about what is on file."""
+    med_ok = can_see_medical()
+    out = []
+    for gname, fields in ENRICH_GROUPS:
+        if gname == MEDICAL_GROUP and not med_ok:
+            continue
+        out.append({"group": gname,
+                    "fields": [{"key": k, "label": lb} for k, lb, _, _ in fields]})
+    return out
+
+
+def _enrich_lookup(key):
+    for gname, fields in ENRICH_GROUPS:
+        for k, lb, expr, jn in fields:
+            if k == key:
+                return gname, lb, expr, jn
+    return None, None, None, None
+
+
+def enrich_people(people_ids, keys):
+    """{peopleid: {column: value}} for the requested fields.
+
+    Re-checks the medical gate here rather than trusting the client: the
+    picker not offering a field is a UI courtesy, not a permission.
+    """
+    ids = []
+    for x in people_ids:
+        try:
+            ids.append(int(x))
+        except Exception:
+            pass
+    ids = list(set(ids))[:2000]
+    if not ids or not keys:
+        return {}
+    med_ok = can_see_medical()
+    sel, joins, cols = [], [], []
+    for key in keys:
+        gname, label, expr, jn = _enrich_lookup(key)
+        if not expr:
+            continue
+        if gname == MEDICAL_GROUP and not med_ok:
+            continue
+        sel.append("%s AS [%s]" % (expr, key))
+        if jn and jn not in joins:
+            joins.append(jn)
+        cols.append(key)
+    if not cols:
+        return {}
+    sql = ("SELECT p.PeopleId, " + ", ".join(sel) +
+           " FROM dbo.People p WITH (NOLOCK) " + " ".join(joins) +
+           " WHERE p.PeopleId IN (" + ",".join(str(i) for i in ids) + ")")
+    out = {}
+    try:
+        for r in q.QuerySql(sql):
+            row = {}
+            for c in cols:
+                v = getattr(r, c, "")
+                row[c] = "" if v is None else v
+            out[str(r.PeopleId)] = row
+    except Exception:
+        return {}
+    return out
+
+
 def report_date_param(rep):
     """The name of the report's date-range parameter, if it has one."""
     for prm in (rep.get("parameters") or []):
@@ -2519,10 +2784,16 @@ def run_catalog_report(rid, values, people_ids=None, serving=None,
     sql = sql.replace("{bg_check_days}",
                       str(int(st.get("bg_check_days", 730) or 730)))
 
-    # Optional demographic columns. Empty is the "none added" case upstream, so
-    # the report runs with its own columns only.
-    for d in ("select", "join", "groupby", "passthrough"):
-        sql = sql.replace("{demographics_%s}" % d, "")
+    # Optional demographic columns. These used to be blanked, which silently
+    # cost six catalog reports the extra columns they had opted into: the
+    # report ran, looked fine, and was just missing Age, Campus and the rest.
+    if "{demographics_" in sql:
+        sel, jn, added = resolve_demographics(sql)
+        sql = sql.replace("{demographics_select}", sel)
+        sql = sql.replace("{demographics_join}", jn)
+        sql = sql.replace("{demographics_groupby}", demographics_groupby(added))
+        sql = sql.replace("{demographics_passthrough}",
+                          demographics_passthrough(added))
 
     # {cy}..{cy9}: this calendar year and the nine before it. Upstream bakes
     # these in when it loads its definitions, so they survive into the exported
@@ -4077,6 +4348,14 @@ def handle_ajax(action, uid):
             return safe_json({"success": False, "error": str(e)})
         return safe_json({"success": True, "types": out})
 
+    if action == "enrich_catalog":
+        return safe_json({"success": True, "groups": enrich_catalog()})
+
+    if action == "enrich_rows":
+        ids = [x for x in get_param("people_ids", "").split(",") if x.strip()]
+        keys = [x.strip() for x in get_param("keys", "").split(",") if x.strip()]
+        return safe_json({"success": True, "data": enrich_people(ids, keys)})
+
     if action == "list_roles":
         roles = []
         try:
@@ -5493,7 +5772,7 @@ function personHref(id, payload){
   return "/Person2/" + encodeURIComponent(id) + (tab ? ("#" + tab) : "");
 }
 
-function peopleActionBar(){
+function peopleActionBar(key){
   return "<div class='db-actbar'>"
     + "<span class='pkCountLbl db-muted'>None selected</span>"
     + "<span style='flex:1;'></span>"
@@ -7078,8 +7357,9 @@ function catPlaceGo(el){
     var wait = setInterval(function(){
       tries++;
       var ready = false;
-      for (var i = 0; i < (REPORTS || []).length; i++){
-        if (REPORTS[i].id === rid) ready = true;
+      var dr = allPickerReports();
+      for (var i = 0; i < dr.length; i++){
+        if (dr[i].id === rid) ready = true;
       }
       if (ready){
         clearInterval(wait);
@@ -7632,6 +7912,68 @@ function sortRows(rows, col, dir){
 // long list does not slow every other tile on the board.
 // The key arrives as text from the attribute, but TABLE_STATE is keyed by
 // number for tiles. Coerced back so both forms find their state.
+// ---------------------------------------------------------------------------
+// EXTRA COLUMNS
+// Person fields added to any table that has a people column. The values are
+// fetched for the rows already loaded and merged in, so the report SQL is
+// untouched and this works on reports whose authors never planned for it.
+// ---------------------------------------------------------------------------
+var ENRICH_CAT = null;
+
+
+
+
+function applySavedColumns(i){
+  var st = TABLE_STATE[i];
+  if (!st || !st.tile) return;
+  var saved = st.tile.extra_cols || [];
+  if (!saved.length) return;
+  st.extra = saved;
+  enrichTable(i);
+}
+
+function enrichTable(i){
+  var st = TABLE_STATE[i];
+  if (!st) return;
+  var pid = peopleCol(st.cols);
+  if (!pid) return;
+  // Drop any previously added columns first, so unticking removes them.
+  var base = [];
+  for (var c = 0; c < st.cols.length; c++){
+    if (!st.added || st.added.indexOf(st.cols[c]) < 0) base.push(st.cols[c]);
+  }
+  st.cols = base;
+  st.added = [];
+  var keys = st.extra || [];
+  if (!keys.length){ drawCatalogTable(i); return; }
+
+  var ids = [];
+  for (var r = 0; r < st.rows.length; r++){
+    var v = st.rows[r][pid];
+    if (v !== undefined && v !== null) ids.push(String(v));
+  }
+  if (!ids.length){ drawCatalogTable(i); return; }
+  post({action: "enrich_rows", people_ids: ids.join(","),
+        keys: keys.join(",")}, function(res){
+    var data = (res && res.data) || {};
+    // Server side decides what may be returned, so the columns drawn are the
+    // ones it actually sent rather than the ones that were asked for.
+    var got = [];
+    for (var rr = 0; rr < st.rows.length; rr++){
+      var rec = data[String(st.rows[rr][pid])] || {};
+      for (var kk in rec){
+        st.rows[rr][kk] = rec[kk];
+        if (got.indexOf(kk) < 0) got.push(kk);
+      }
+    }
+    for (var gg = 0; gg < got.length; gg++){
+      if (st.cols.indexOf(got[gg]) < 0) st.cols.push(got[gg]);
+    }
+    st.added = got;
+    drawCatalogTable(i);
+  });
+}
+
 function catShowMoreEl(el){
   var k = el.getAttribute("data-key");
   catShowMore(/^[0-9]+$/.test(k) ? parseInt(k, 10) : k);
@@ -7687,7 +8029,7 @@ function drawCatalogTable(i){
   var h = "";
   if (pid){
     h += "<div class='db-people' data-sel='"
-      + esc(String(i)) + "'>" + peopleActionBar();
+      + esc(String(i)) + "'>" + peopleActionBar(i);
   }
   h += "<div class='db-tw'><table class='db-t'><thead><tr>";
   if (pid){
@@ -7836,6 +8178,7 @@ function renderCatalogResult(t, box, i, r){
   TABLE_STATE[i] = {cols: cols, rows: rows, sort: (TABLE_STATE[i] || {}).sort,
                     box: box, tile: t};
   drawCatalogTable(i);
+  applySavedColumns(i);
   if (fitOn(t)){
     watchTile(i);
     setTimeout(function(){ autoGrowTile(i); }, 200);
@@ -9688,6 +10031,11 @@ function allPickerReports(){
               columns: c.columns || [],
               chart_cfg: c.display || {},
               settings: c.settings || [],
+              // Dropped here previously, so every catalog report reported
+              // "This report has no filters" no matter how many it declared.
+              // The server sends them; this rebuild simply forgot to carry
+              // them across.
+              params: c.params || [],
               uses_serving: (c.tokens || []).join(",").indexOf("_types") >= 0,
               installed: !!c.installed,
               source: "catalog"});
@@ -9926,7 +10274,15 @@ function drawCatalogFilters(){
   if (!host) return;
   var ps = CFG.params || [];
   if (!ps.length){
-    host.innerHTML = "<span class='db-muted'>This report has no filters.</span>";
+    host.innerHTML = CFG.matched
+      ? "<span class='db-muted'>This report has no filters.</span>"
+      : ("<span class='db-err'>Could not read this report's definition, so "
+         + "its filters and columns are unavailable. Reload the page and try "
+         + "again. (id: " + esc(CFG.rid)
+         + ", catalog: " + ((CATALOG && CATALOG.reports)
+                            ? CATALOG.reports.length : "not loaded")
+         + ", reporting script: " + (REPORTS || []).length
+         + ", merged: " + allPickerReports().length + ")</span>");
     return;
   }
   var cur = CFG.filters || {};
@@ -10072,7 +10428,14 @@ function dbEditTile(i){
   dbPickOpen(t.report_id, t.title || t.report_id, t);
 }
 
-function dbPickOpen(rid, name, existing){
+function dbPickOpen(rid, name, existing, retried){
+  if (!CATALOG && !retried){
+    post({action: "catalog_browse"}, function(cb){
+      CATALOG = (cb && cb.success) ? cb : {reports: [], dashboards: []};
+      dbPickOpen(rid, name, existing, true);
+    });
+    return;
+  }
   // The list page already asked how to show it. Rebuilding the select without
   // reading that threw the answer away and silently reverted to table.
   var picked = existing ? (existing.display || "")
@@ -10084,19 +10447,30 @@ function dbPickOpen(rid, name, existing){
          filters: (existing && existing.filters) || {},
          agg: (existing && existing.agg) || null,
          query: (existing && existing.query) || "",
-         serving: (existing && existing.serving_types) || ""};
-  for (var i = 0; i < (REPORTS || []).length; i++){
-    if (REPORTS[i].id === rid){
-      CFG.scopeable = !!REPORTS[i].scopeable;
-      CFG.usesServing = !!REPORTS[i].uses_serving;
-      CFG.source = REPORTS[i].source || "reports";
-      CFG.installed = (REPORTS[i].installed !== false);
-      CFG.types = REPORTS[i].display_types || ["table"];
-      CFG.columns = REPORTS[i].columns || [];
-      CFG.chartCfg = REPORTS[i].chart_cfg || {};
-      CFG.params = REPORTS[i].params || [];
-      CFG.settings = REPORTS[i].settings || [];
-      if (!CFG.disp){ CFG.disp = REPORTS[i].default_display || "table"; }
+         serving: (existing && existing.serving_types) || "",
+         // Carried in so reopening a tile shows the columns already on it
+         // ticked, rather than an empty picker that then clears them.
+         extra_cols: (existing && existing.extra_cols) || []};
+  // Rebuilt here rather than trusting the global, so a late-arriving
+  // Enterprise Reporting response cannot empty it between the list being
+  // drawn and an entry being clicked.
+  var defs = allPickerReports();
+  for (var i = 0; i < defs.length; i++){
+    if (defs[i].id === rid){
+      // Recorded so the panels below can tell "this report declares nothing"
+      // apart from "the definition was never found", which look identical on
+      // screen and have completely different causes.
+      CFG.matched = true;
+      CFG.scopeable = !!defs[i].scopeable;
+      CFG.usesServing = !!defs[i].uses_serving;
+      CFG.source = defs[i].source || "reports";
+      CFG.installed = (defs[i].installed !== false);
+      CFG.types = defs[i].display_types || ["table"];
+      CFG.columns = defs[i].columns || [];
+      CFG.chartCfg = defs[i].chart_cfg || {};
+      CFG.params = defs[i].params || [];
+      CFG.settings = defs[i].settings || [];
+      if (!CFG.disp){ CFG.disp = defs[i].default_display || "table"; }
     }
   }
   var h = "<div style='display:flex;gap:8px;align-items:center;"
@@ -10139,6 +10513,7 @@ function dbPickOpen(rid, name, existing){
      + "applied every time it loads.</div>"
      + "<div id='cfgFilters' style='margin-top:6px;'>"
      + "<span class='db-muted'>Loading filters...</span></div></div>";
+  h += "<div id='cfgColsWrap' style='margin-top:12px;'></div>";
   h += "<div style='margin-top:14px;'>"
      + "<button class='btn btn-sm btn-primary' onclick='dbPickAdd()'>"
      + (existing ? "Save tile" : "Add tile") + "</button>"
@@ -10146,6 +10521,7 @@ function dbPickOpen(rid, name, existing){
   dbModal("Add: " + name, h);
 
   if (CFG.usesServing) loadTileServing();
+  loadTileColumns();
 
   if (CFG.source === "catalog"){
     // Its parameters travel with the definition; there is no remote panel.
@@ -10310,6 +10686,74 @@ function harvestFilters(root){
   return out;
 }
 
+// Extra person columns for this tile. Offered here rather than on the
+// rendered table: it is tile configuration, stored and reapplied like the
+// filters, so it belongs with them.
+function loadTileColumns(){
+  var host = $id("cfgColsWrap");
+  if (!host) return;
+  var cols = CFG.columns || [];
+  if (!peopleCol(cols)){
+    // Silent when the report genuinely has no person column. Explicit when
+    // the definition never loaded, because then the absence is a fault.
+    host.innerHTML = CFG.matched ? "" :
+      ("<div class='db-err'>Extra columns unavailable: this report's "
+       + "definition was not loaded.</div>");
+    return;
+  }
+  host.innerHTML = "<label>Extra columns</label>"
+    + "<div class='db-muted'>Person details added to each row. The report "
+    + "itself is unchanged; these are looked up for the rows it returns.</div>"
+    + "<div id='cfgCols' style='margin-top:6px;'>"
+    + "<span class='db-muted'>Loading fields...</span></div>";
+  if (ENRICH_CAT){ drawTileColumns(); return; }
+  post({action: "enrich_catalog"}, function(r){
+    ENRICH_CAT = (r && r.groups) || [];
+    drawTileColumns();
+  });
+}
+
+function drawTileColumns(){
+  var box = $id("cfgCols");
+  if (!box) return;
+  var chosen = {};
+  var cur = CFG.extra_cols || [];
+  for (var c = 0; c < cur.length; c++){ chosen[cur[c]] = 1; }
+  // Already in the report: offering to add Email to a report that selects it
+  // produces two Email columns and a duplicate-looking table.
+  var have = {};
+  for (var h2 = 0; h2 < (CFG.columns || []).length; h2++){
+    have[String(CFG.columns[h2]).toLowerCase()] = 1;
+  }
+  var out = "";
+  for (var g = 0; g < ENRICH_CAT.length; g++){
+    var grp = ENRICH_CAT[g], any = "";
+    for (var f = 0; f < grp.fields.length; f++){
+      var fd = grp.fields[f];
+      if (have[fd.key.toLowerCase()]) continue;
+      any += "<label style='display:inline-block;width:32%;font-weight:400;"
+        + "font-size:12px;'><input type='checkbox' class='cfgCol' value='"
+        + esc(fd.key) + "'" + (chosen[fd.key] ? " checked" : "") + "> "
+        + esc(fd.label) + "</label>";
+    }
+    if (any){
+      out += "<div style='margin-bottom:8px;'><div style='font-size:11px;"
+        + "font-weight:600;color:#5b6875;'>" + esc(grp.group) + "</div>"
+        + any + "</div>";
+    }
+  }
+  box.innerHTML = out || "<span class='db-muted'>This report already shows "
+    + "every field that could be added.</span>";
+}
+
+function harvestTileColumns(){
+  var out = [], boxes = document.querySelectorAll(".cfgCol");
+  for (var i = 0; i < boxes.length; i++){
+    if (boxes[i].checked) out.push(boxes[i].value);
+  }
+  return out;
+}
+
 function dbPickAdd(){
   if (CFG.source === "catalog" && !CFG.installed){
     var msgEl = $id("cfgMsg");
@@ -10345,9 +10789,12 @@ function dbPickAdd(){
     maxY = Math.max(maxY, (list[i].y || 0) + (list[i].h || 4));
   }
   var serving = CFG.usesServing ? pickedServing().join(",") : "";
-  var src = "reports";
-  for (var q4 = 0; q4 < (REPORTS || []).length; q4++){
-    if (REPORTS[q4].id === CFG.rid && REPORTS[q4].source){ src = REPORTS[q4].source; }
+  var src = CFG.source || "reports";
+  if (!CFG.matched){
+    var d4 = allPickerReports();
+    for (var q4 = 0; q4 < d4.length; q4++){
+      if (d4[q4].id === CFG.rid && d4[q4].source){ src = d4[q4].source; }
+    }
   }
   var agg = null;
   if (src === "catalog" && disp !== "table"){
@@ -10375,6 +10822,7 @@ function dbPickAdd(){
     t.filters = filters;
     t.serving_types = serving;
     t.agg = agg;
+    t.extra_cols = harvestTileColumns();
     EDIT_TILE = -1;
     dbCloseModal();
     markDirty();
@@ -10386,6 +10834,7 @@ function dbPickAdd(){
              title: title + (scope ? (" - " + scope) : ""),
              display: disp, query: scope, filters: filters,
              serving_types: serving, agg: agg,
+             extra_cols: harvestTileColumns(),
              x: 0, y: maxY, w: 4, h: 4,
              fit: (disp !== "chart" && disp !== "table")});
   dbCloseModal();
@@ -10401,8 +10850,9 @@ function dbPick(rid, name){
   var scope = "";
   var scopeSel = $id("dbRepScope");
   if (scopeSel && scopeSel.value){
-    for (var s2 = 0; s2 < (REPORTS || []).length; s2++){
-      if (REPORTS[s2].id === rid && REPORTS[s2].scopeable){
+    var d5 = allPickerReports();
+    for (var s2 = 0; s2 < d5.length; s2++){
+      if (d5[s2].id === rid && d5[s2].scopeable){
         scope = scopeSel.value;
       }
     }
