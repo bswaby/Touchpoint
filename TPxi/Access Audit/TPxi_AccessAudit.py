@@ -1048,7 +1048,7 @@ def auth_token():
         pass
     uid = current_user_id()
     if not uid:
-        return "", ""
+        return "", "no signed in user"
     # The token has to belong to a login that holds Admin, because deleting
     # somebody else's token is gated on CanManageAllUserTokens, which is
     # Roles.Admin. A script only ever learns UserPeopleId, never which login is
@@ -1067,7 +1067,19 @@ def auth_token():
             % int(uid)):
         return (sval(r, "Token", "") or "",
                 "your own token #%s on %s" % (sval(r, "TokenId"), sval(r, "Username", "")))
-    return "", ""
+    # Nothing usable. Separate "you have none" from "you have some but not on a
+    # login that can do this", because the fix is different for each.
+    try:
+        r = q.QuerySql("""
+            SELECT COUNT(*) AS N FROM dbo.UserTokens t WITH (NOLOCK)
+            JOIN dbo.Users u WITH (NOLOCK) ON u.UserId = t.UserId
+            WHERE u.PeopleId = %d
+              AND (t.Expiration IS NULL OR t.Expiration > GETDATE())""" % int(uid))
+        if r and int(sval(r[0], "N", 0) or 0) > 0:
+            return "", "tokens but none on an Admin login"
+    except Exception:
+        pass
+    return "", "no token"
 
 
 def do_archive(pid, ids):
@@ -1117,16 +1129,36 @@ def do_delete(pid, ids):
     return {"ok": n > 0, "n": n, "done_ids": ids, "message": msg}
 
 
+def revoke_state():
+    """Whether revoking can work at all, worked out before anything is drawn.
+
+    Cheaper to tell somebody up front than to let them select fifteen tokens
+    and find out on the confirm."""
+    pat, how = auth_token()
+    if pat:
+        return {"ok": True, "how": how}
+    return {"ok": False, "how": how}
+
+
 def do_revoke_tokens(raw_ids):
     """Delete access tokens by TokenId.
 
     The delete endpoint identifies a token by its VALUE, not its id, and this
     report deliberately never puts a value in the page. That stays true: the
     browser sends ids, the value is read here, used once, and never returned.
-    An admin may delete anyone's token; CanManageAllUserTokens is Roles.Admin.
 
-    Needs TPxi_AccessAudit_PAT, because TouchPoint exposes no model API for
-    this and the only route is /v1/Account/DeleteUserAccessToken."""
+    The credential this call makes itself has to belong to a login holding
+    Admin. TouchPoint only lets you delete somebody else's token if
+    CanManageAllUserTokens passes for the user the TOKEN belongs to, not for
+    whoever is signed in to the page, and that check is Roles.Admin.
+
+    Success is confirmed against the database, not against the HTTP call.
+    model.RestPost ends with "return response.Content" and never raises, so a
+    401, a 403 or a 404 comes back looking exactly like a success. Counting
+    those as done would tell an admin a token was revoked while it was still
+    live, which is the worst thing this tool could do. So the rows are read
+    back from dbo.UserTokens afterwards and only the ones that really went are
+    reported gone."""
     ids = []
     for x in str(raw_ids or "").replace(" ", "").split(","):
         if x.isdigit():
@@ -1136,13 +1168,18 @@ def do_revoke_tokens(raw_ids):
 
     pat, how = auth_token()
     if not pat:
-        return {"ok": False, "message":
-                "Revoking needs a token on one of your logins that holds Admin, and none of "
-                "your logins has one. "
+        if how == "tokens but none on an Admin login":
+            why = ("You have access tokens, but none of them is on a login that holds "
+                   "Admin. Deleting somebody else's token is gated on the role of the "
+                   "login the token belongs to, not on who is signed in here. ")
+        else:
+            why = ("None of your logins has an access token. ")
+        return {"ok": False, "message": why +
                 "TouchPoint exposes no model API for deleting a token, so this has to call "
                 "/v1/Account/DeleteUserAccessToken, and that call needs a credential of its "
-                "own regardless of who is signed in. Create one under Account, Manage "
-                "Tokens, or set TPxi_AccessAudit_PAT in Admin, Settings."}
+                "own whoever is signed in. Create one under Account, Manage Tokens on a "
+                "login with Admin, or set TPxi_AccessAudit_PAT in Admin, Settings."}
+
     host = ""
     try:
         host = model.CmsHost.replace("https://", "").replace("http://", "").strip("/")
@@ -1151,41 +1188,72 @@ def do_revoke_tokens(raw_ids):
     headers = {"Authorization": "PAT " + pat, "CmsHost": host,
                "Content-Type": "text/plain"}
 
-    vals = {}
+    idlist = ",".join(str(i) for i in ids)
+    vals, before = {}, set()
     for r in q.QuerySql("""
             SELECT t.TokenId, t.Token FROM dbo.UserTokens t WITH (NOLOCK)
-            WHERE t.TokenId IN (%s)""" % ",".join(str(i) for i in ids)):
-        vals[sval(r, "TokenId")] = sval(r, "Token", "")
+            WHERE t.TokenId IN (%s)""" % idlist):
+        tid = sval(r, "TokenId")
+        vals[tid] = sval(r, "Token", "")
+        before.add(tid)
 
-    done, failed, lastmsg, gone = 0, 0, "", []
+    skipped_self, tried, replies = [], [], []
     for tid in ids:
         v = vals.get(tid)
         if not v:
-            failed += 1
-            lastmsg = "token %s no longer exists" % tid
-            gone.append(tid)          # not there either way, so drop it from the page
-            continue
+            continue                      # already gone, handled in the readback
         if v == pat:
-            failed += 1
-            lastmsg = ("token %s is the one this tool authenticates with, so it was left "
-                       "alone. Revoke that one from Manage Tokens." % tid)
+            skipped_self.append(tid)      # never cut the branch we are sitting on
             continue
+        tried.append(tid)
         try:
-            model.RestPost("https://api.tpsdb.com/api/v1/Account/DeleteUserAccessToken",
-                           headers, v)
-            done += 1
-            gone.append(tid)
+            body = model.RestPost(
+                "https://api.tpsdb.com/api/v1/Account/DeleteUserAccessToken", headers, v)
+            # 204 means an empty body. Anything else is the endpoint talking back.
+            if body and str(body).strip():
+                replies.append(str(body).strip()[:160])
         except Exception as e:
-            failed += 1
-            lastmsg = str(e)[:150]
-            if failed > 5 and done == 0:
-                return {"ok": False, "n": 0,
-                        "message": "stopped after %d failures with none revoked. %s"
-                                   % (failed, lastmsg)}
-    msg = "revoked %d token%s using %s" % (done, "" if done == 1 else "s", how)
+            replies.append(str(e)[:160])
+
+    # the only answer that counts
+    still = set()
+    try:
+        for r in q.QuerySql("""
+                SELECT t.TokenId FROM dbo.UserTokens t WITH (NOLOCK)
+                WHERE t.TokenId IN (%s)""" % idlist):
+            still.add(sval(r, "TokenId"))
+    except Exception:
+        return {"ok": False, "message":
+                "The calls were made but the check afterwards failed, so this cannot say "
+                "which tokens actually went. Reload the page and look at the list."}
+
+    gone = [t for t in ids if t not in still]
+    failed = [t for t in tried if t in still]
+
+    bits = []
+    if gone:
+        bits.append("revoked %d token%s using %s"
+                    % (len(gone), "" if len(gone) == 1 else "s", how))
     if failed:
-        msg += ", %d not done: %s" % (failed, lastmsg)
-    return {"ok": done > 0, "n": done, "gone": gone, "message": msg}
+        bits.append("%d did NOT go and is still live" % len(failed)
+                    if len(failed) == 1 else
+                    "%d did NOT go and are still live" % len(failed))
+        if replies:
+            bits.append("the server said: " + replies[0])
+        else:
+            bits.append("the server accepted the call and changed nothing, which usually "
+                        "means the token it authenticated with is not allowed to delete "
+                        "other people's tokens")
+    if skipped_self:
+        bits.append("token %s is the one this tool authenticated with, so it was left "
+                    "alone. Revoke that one from Manage Tokens"
+                    % ", ".join(str(t) for t in skipped_self))
+    if not bits:
+        bits.append("nothing to do, those tokens were already gone")
+
+    return {"ok": len(gone) > 0, "n": len(gone), "gone": gone,
+            "message": ". ".join(bits) + "."}
+
 
 
 def login_count(pid):
@@ -1590,17 +1658,22 @@ def render():
             entry["nchg"] = nchanged
             entry["pos"] = spos.get(name)
         entry["norder"] = len(sorder)
-        areas = {}
-        # what TouchPoint's own code checks, from the embedded map
+        # Kept apart rather than merged. They answer different questions and are
+        # worth different amounts of attention: TouchPoint's half is a fixed
+        # list that only changes on a release, this church's half is live and
+        # can run to hundreds of rows. Edit gates 213 content records here.
+        tp = {}
         if rmap and name in rmap:
             for a, v in rmap[name].items():
-                areas[a] = list(v)
-        # what this church has wired up, computed live
+                tp[a] = list(v)
+        mine = {}
         for a, v in dbuse.get(name, {}).items():
-            areas.setdefault(a, [])
-            areas[a].extend(v)
-        if areas:
-            entry["areas"] = areas
+            mine.setdefault(a, [])
+            mine[a].extend(v)
+        if tp:
+            entry["tp"] = tp
+        if mine:
+            entry["mine"] = mine
         roles.append(entry)
 
     actions = build_actions(idx, orgs, toks)
@@ -1608,6 +1681,7 @@ def render():
     data = {"people": people, "roles": roles, "tokens": toks,
             "actions": actions,
             "hasmap": bool(rmap), "version": APP_VERSION,
+            "revoke": revoke_state(),
             "me": current_user_id() or 0}
 
     model.Header = "Access Audit"
@@ -1945,6 +2019,31 @@ function drawRoles(){
       +(r.dormant?'<span class="tag">'+r.dormant+' dormant</span>':'')
       +'<span class="ct">'+r.held+'</span></div>'}).join('');
 }
+/* One area, with a lid on it. Some of these are genuinely long: the Edit role
+   gates 213 special content records here, which is a page and a half of
+   scrolling past names like "2026 1st RM 211" before you reach anything else.
+   So anything over ten rows is collapsed and the rest is behind a button. */
+var AREA_CAP = 10;
+function areaSec(name, rows){
+  var over = rows.length > AREA_CAP;
+  var row = function(g){
+    return '<div class="li"><span class="w">'+esc(g[0])+'</span><span>'
+      +esc(g[2]||g[1])+'</span></div>';
+  };
+  var inner = '<div class="in">' + rows.slice(0, AREA_CAP).map(row).join('');
+  if(over){
+    inner += '<div class="amore" style="display:none">'
+      + rows.slice(AREA_CAP).map(row).join('') + '</div>'
+      + '<div style="padding:6px 0"><button class="btn amt">Show all '
+      + rows.length + '</button></div>';
+  }
+  inner += '</div>';
+  // open the short ones, keep the long ones shut so the page stays readable
+  return '<details class="sec"'+(rows.length && !over ? ' open' : '')
+    +'><summary><span class="t">'+esc(name)+'</span>'
+    +'<span class="pill">'+rows.length+'</span></summary>'+inner+'</details>';
+}
+
 /* ---- TouchPoint's own screen settings for a role ----
    The wording, the grouping and the on/off labels are all TouchPoint's, read
    out of RoleSettingDefaults.xml. The values are live from CustomAccessRoles.xml.
@@ -1966,7 +2065,7 @@ function screenSettings(r){
     +(r.nchg
       ? '<b>'+r.nchg+' of '+r.sets.length+' changed from TouchPoint&rsquo;s default.</b> '
         +'Those are highlighted below.'
-      : 'All '+r.sets.length+' are on TouchPoint&rsquo;s defaults. Nobody has customised '
+      : 'All '+r.sets.length+' are on TouchPoint&rsquo;s defaults. Nobody has customized '
         +'what this role can see.')
     +' These control what appears on screen, tabs, buttons, toolbars, rather than what '
     +'the role unlocks, and they are edited in Admin, Roles.</div>';
@@ -2010,12 +2109,20 @@ function drawRole(name){
     +(r.custom?'. Created in this database rather than shipped by TouchPoint, by '
                +'whoever set it up. TouchPoint&rsquo;s own code never checks a custom '
                +'role, so anything it unlocks was wired up here.':'')+'</div>';
-  if(r.areas){
-    h+='<h4 style="margin:12px 0 6px">What it unlocks</h4>';
-    for(var a in r.areas){
-      h+=sec(esc(a),r.areas[a].length,'<div class="in">'+r.areas[a].map(function(g){
-        return '<div class="li"><span class="w">'+esc(g[0])+'</span><span>'
-          +esc(g[2]||g[1])+'</span></div>'}).join('')+'</div>');
+  if(r.tp||r.mine){
+    if(r.tp){
+      h+='<h4 style="margin:12px 0 6px">What it unlocks in TouchPoint</h4>'
+        +'<div class="muted" style="font-size:12px;margin:-4px 0 8px">Screens, buttons '
+        +'and endpoints in TouchPoint&rsquo;s own code. This list only changes when '
+        +'TouchPoint ships a release.</div>';
+      for(var a in r.tp) h+=areaSec(a, r.tp[a]);
+    }
+    if(r.mine){
+      h+='<h4 style="margin:18px 0 6px">What it gates in your database</h4>'
+        +'<div class="muted" style="font-size:12px;margin:-4px 0 8px">Things somebody '
+        +'here pointed at this role: involvements, special content, reports and scripts. '
+        +'Read live, so it is right as of now.</div>';
+      for(var b in r.mine) h+=areaSec(b, r.mine[b]);
     }
   } else if(!AA.hasmap){
     h+='<div class="warn">The built in role map failed to parse, so nothing can be shown '
@@ -2108,9 +2215,29 @@ function drawTokens(){
   var qv=($('tq').value||'').toLowerCase();
   var noexp=0,far=0,i,t;
   for(i=0;i<AA.tokens.length;i++){ t=AA.tokens[i]; if(!t.exp) noexp++; }
+  var rv=AA.revoke||{}, rvnote;
+  if(rv.ok){
+    rvnote='<br>Revoking is <b>on</b>, using '+esc(rv.how)+'. It takes effect immediately '
+      +'and cannot be undone, so anything still using a token stops working the moment it '
+      +'goes.';
+  } else if(rv.how==='tokens but none on an Admin login'){
+    rvnote='<br><b>Revoking is off.</b> You own access tokens, but none of them is on a '
+      +'login that holds Admin. TouchPoint decides who may delete somebody else&rsquo;s '
+      +'token from the role on the login the token belongs to, not from who is signed in '
+      +'here. Create one under Account, Manage Tokens while signed in to an Admin login, '
+      +'or set <span class="mono">TPxi_AccessAudit_PAT</span> in Admin, Settings.';
+  } else if(rv.how==='no signed in user'){
+    rvnote='<br><b>Revoking is off</b> because this page could not tell who is signed in.';
+  } else {
+    rvnote='<br><b>Revoking is off.</b> It needs an access token of its own, because '
+      +'TouchPoint has no scripting call for deleting one. Create one under Account, '
+      +'Manage Tokens on a login that holds Admin, or set '
+      +'<span class="mono">TPxi_AccessAudit_PAT</span> in Admin, Settings. Everything else '
+      +'on this tab works without it.';
+  }
   $('tsum').innerHTML='<b>'+AA.tokens.length+' live tokens.</b> '+noexp+' never expire. '
     +'TouchPoint records no last used date on a token, so what is shown per login is '
-    +'whether it has called the API in the last year.';
+    +'whether it has called the API in the last year.'+rvnote;
   var by={};
   AA.tokens.forEach(function(t){
     if(qv && (t.who+' '+t.user).toLowerCase().indexOf(qv)<0) return;
@@ -2128,7 +2255,9 @@ function drawTokens(){
       +'<div class="in">'+(ne?'<div class="warn">'+ne+' of these never expire</div>':'')
       +'<div class="tfil"><button class="btn tksel">Select all</button> '
       +'<button class="btn tkclr">Select none</button> '
-      +'<button class="btn rvgo" disabled>Revoke selected</button>'
+      +'<button class="btn rvgo" disabled'
+      +((AA.revoke&&AA.revoke.ok)?'':' title="Revoking is off, see the note at the top"')
+      +'>Revoke selected</button>'
       +'<span class="rvmsg muted" style="margin-left:8px"></span></div>'
       +'<div class="scroll"><table><thead><tr><th style="width:26px"></th><th>Token</th>'
       +'<th>Created</th><th>Expires</th></tr></thead><tbody>'+ts.map(function(x){
@@ -2206,7 +2335,11 @@ function rvBox(d){ return [].slice.call(d.querySelectorAll('.rvc')); }
 function rvRefresh(d){
   var n=rvBox(d).filter(function(c){return c.checked}).length;
   var b=d.querySelector('.rvgo');
-  b.disabled=!n; b.textContent = n ? 'Revoke '+n : 'Revoke selected';
+  // stays dead when there is no credential to revoke with, whatever is ticked
+  var can=!!(AA.revoke&&AA.revoke.ok);
+  b.disabled = !n || !can;
+  b.textContent = (n && can) ? 'Revoke '+n
+                : n ? 'Revoking is off' : 'Revoke selected';
 }
 $('tlist').addEventListener('change',function(e){
   if(e.target && e.target.classList.contains('rvc')) rvRefresh(e.target.closest('details'));
@@ -2242,6 +2375,16 @@ $('tlist').addEventListener('click',function(e){
       }
     });
   }
+});
+$('rdet').addEventListener('click', function(e){
+  var b=e.target;
+  if(!b || !b.classList || !b.classList.contains('amt')) return;
+  var wrap=b.closest('.in');
+  var box=wrap && wrap.querySelector('.amore');
+  if(!box) return;
+  var shown = box.style.display !== 'none';
+  box.style.display = shown ? 'none' : '';
+  b.textContent = shown ? ('Show all ' + (box.children.length + AREA_CAP)) : 'Show fewer';
 });
 document.querySelectorAll('.rf').forEach(function(b){
   b.onclick=function(){
