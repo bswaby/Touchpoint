@@ -87,7 +87,3 @@ a real person. Check before you act on either.
 ---
 
 Free, like the rest of them. Questions or problems, open an issue.
-
-<sub>Developer notes: `_rolemap/` holds the scanner that builds the role map
-from TouchPoint's source. It is not uploaded and not needed on the server. Its
-output is gitignored because this repo is public.</sub>
