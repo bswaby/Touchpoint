@@ -64,7 +64,7 @@ import datetime
 import re
 import traceback
 
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 ROLE_MAP_CONTENT = "TPxi_AccessAudit_RoleMap"
 
 # --- Auto update, see TPxi/AutoUpdate/README.md ----------------------------
@@ -93,7 +93,7 @@ MAX_ROWS = 400          # per list, keeps the page honest on a big church
 
 # ---------------------------------------------------------------------------
 # json, written by hand. IronPython's json.dumps dies on the non-ASCII that
-# arrives constantly in names and involvement titles, see CLAUDE.md.
+# arrives constantly in names and involvement titles
 # ---------------------------------------------------------------------------
 def _esc(s):
     if not isinstance(s, (str, unicode)):
