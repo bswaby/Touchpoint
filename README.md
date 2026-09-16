@@ -139,6 +139,7 @@ For a searchable version with a longer write-up on each one, see the
 | Tool | What it does |
 |---|---|
 | &#9733; [Menu Editor](TPxi/Menu%20Editor) `new` | Put any script on any menu, with role permissions |
+| [Access Audit](TPxi/Access%20Audit) `new` | Understand and manage roles/acces |
 | [API Explorer](TPxi/API%20Explorer) | Try TouchPoint® API calls live |
 | [SQL Query Explorer](TPxi/SQL%20Query%20Explorer) | Run SQL against your database directly |
 | [Email Technical Diagnostics](TPxi/Email%20Technical%20Diagnostics) | What sent, what bounced, and why |
