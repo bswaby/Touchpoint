@@ -64,7 +64,7 @@ import datetime
 import re
 import traceback
 
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 ROLE_MAP_CONTENT = "TPxi_AccessAudit_RoleMap"
 
 # --- Auto update, see TPxi/AutoUpdate/README.md ----------------------------
@@ -666,6 +666,7 @@ def open_task_rows(pid, cap=200):
             SELECT TOP {0} tn.TaskNoteId, tn.StatusId, tn.DueDate, tn.CreatedDate,
                    tn.OwnerId, tn.AssigneeId, tn.AboutPersonId,
                    ab.Name2 AS AboutName,
+                   ow.Name2 AS OwnerName, asg.Name2 AS AssigneeName,
                    LEFT(ISNULL(tn.Instructions,''), 170) AS Instr,
                    o.OrganizationName AS OrgName,
                    STUFF((SELECT ', ' + k.Description
@@ -675,6 +676,8 @@ def open_task_rows(pid, cap=200):
                           FOR XML PATH('')), 1, 2, '') AS Keywords
             FROM dbo.TaskNote tn WITH (NOLOCK)
             LEFT JOIN dbo.People ab WITH (NOLOCK) ON ab.PeopleId = tn.AboutPersonId
+            LEFT JOIN dbo.People ow WITH (NOLOCK) ON ow.PeopleId = tn.OwnerId
+            LEFT JOIN dbo.People asg WITH (NOLOCK) ON asg.PeopleId = tn.AssigneeId
             LEFT JOIN dbo.Organizations o WITH (NOLOCK) ON o.OrganizationId = tn.OrgId
             WHERE {1} AND (tn.OwnerId = {2} OR tn.AssigneeId = {2})
             ORDER BY ISNULL(tn.DueDate, tn.CreatedDate)""".format(cap, OPEN_TASK, pid)
@@ -694,6 +697,13 @@ def open_task_rows(pid, cap=200):
                     "made": datestr(sval(r, "CreatedDate")),
                     "what": (sval(r, "Instr", "") or "").strip(),
                     "org": sval(r, "OrgName", "") or "",
+                    "owner": sval(r, "OwnerName", "") or "",
+                    "assignee": sval(r, "AssigneeName", "") or "",
+                    # the case that caused the confusion: they own it, somebody
+                    # else is doing it. Reassigning moves the doer, not the owner.
+                    "elsewhere": bool(sval(r, "OwnerId") == pid
+                                      and sval(r, "AssigneeId")
+                                      and sval(r, "AssigneeId") != pid),
                     "kw": sval(r, "Keywords", "") or ""})
     return out
 
@@ -1160,6 +1170,78 @@ def chosen_ids(pid, raw):
     return out
 
 
+# ---------------------------------------------------------------------------
+# What this tool did, and who told it to.
+#
+# TouchPoint logs some of this already and not the rest. DropOrgMember and
+# RemoveRole both call db.LogActivity, and deleting a token is logged by the
+# API service. The five task actions log NOTHING: MassAssign, MassArchive,
+# MassDelete and TaskNoteComplete all write to the database and leave no trace,
+# and delete is permanent. That is the gap this fills.
+#
+# Even where TouchPoint does log, it records the method rather than the intent:
+# ActivityLog says "PythonModel.DropOrgMember(123,819)", not "Ben was clearing
+# out a departing member". Recording who was working on whom, and what they
+# meant by it, is what makes a log worth reading a year later.
+#
+# Kept newest first and trimmed, because Log2Content appends forever by
+# reading the whole body and writing it back, which gets slower the longer it
+# runs and never stops growing.
+# ---------------------------------------------------------------------------
+ACTION_LOG_CONTENT = "TPxi_AccessAudit_Log"
+ACTION_LOG_KEEP = 400
+
+
+def log_action(what, target, result):
+    """Record one action. Never raises: a logging failure must not lose the
+    result of the thing that was actually done."""
+    try:
+        import datetime as _dt
+        who, pid = "unknown", current_user_id()
+        if pid:
+            try:
+                for r in q.QuerySql("""
+                        SELECT TOP 1 ISNULL(p.Name2,'') AS Nm FROM dbo.People p WITH (NOLOCK)
+                        WHERE p.PeopleId = %d""" % int(pid)):
+                    who = sval(r, "Nm", "") or ("PeopleId %d" % pid)
+            except Exception:
+                who = "PeopleId %d" % pid
+        line = "%s\t%s (%s)\t%s\t%s\t%s" % (
+            _dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            who, pid or "?", what, target, (result or "").replace("\n", " ")[:300])
+
+        old = ""
+        try:
+            old = model.TextContent(ACTION_LOG_CONTENT) or ""
+        except Exception:
+            old = ""
+        lines = [x for x in old.split("\n") if x.strip()][:ACTION_LOG_KEEP - 1]
+        model.WriteContentText(ACTION_LOG_CONTENT, line + "\n" + "\n".join(lines), "")
+    except Exception:
+        pass
+
+
+def action_log_rows():
+    """The log, parsed back for display. Bad lines are shown raw rather than
+    dropped, so a malformed entry cannot hide an action."""
+    out = []
+    try:
+        raw = model.TextContent(ACTION_LOG_CONTENT) or ""
+    except Exception:
+        return out
+    for ln in raw.split("\n"):
+        if not ln.strip():
+            continue
+        p = ln.split("\t")
+        if len(p) >= 5:
+            out.append({"when": p[0], "who": p[1], "what": p[2],
+                        "target": p[3], "result": p[4]})
+        else:
+            out.append({"when": "", "who": "", "what": "", "target": "",
+                        "result": ln})
+    return out
+
+
 def do_reassign(pid, to_pid, ids):
     """model.TaskNoteMassAssign sets AssigneeId and emails per task through
     EmailTaskNoteInfo, which is why the confirm step states the email count."""
@@ -1455,6 +1537,31 @@ def login_count(pid):
         return int(sval(r[0], "N", 0) or 0) if r else 0
     except Exception:
         return 0
+
+
+def owner_change_blocked():
+    """Why a script cannot move a task note's owner, stated once.
+
+    This was built and then taken out, so the reason is recorded rather than
+    rediscovered. Everything lined up except the last piece:
+
+      model.TaskNoteMassAssign  sets AssigneeId only, never OwnerId.
+      EditTaskNote              sets OwnerId, but it is the web UI's own model.
+      MergePeopleTasksNotes     sets OwnerId, but only when merging two people.
+      PUT /v1/TaskNotes/{id}    sets OwnerId, is PAT enabled on Roles.Access,
+                                and its DTO carries ownerId. This is the one.
+
+    And then: PythonModel exposes RestGet, RestPost, RestPostJson, RestPostXml
+    and RestDelete. There is no RestPut. That route is PUT only, there is no
+    POST equivalent and the Functions host honours no method override header,
+    so a script cannot reach it at all.
+
+    One method on PythonModel would unlock it, and the whole v1 PUT surface
+    with it."""
+    return ("A script cannot change a task note's owner. TouchPoint's scripting API "
+            "only reassigns the assignee, and the endpoint that does set an owner, "
+            "PUT /v1/TaskNotes/{id}, cannot be called because model has no RestPut. "
+            "Owners have to be changed on the task itself in TouchPoint.")
 
 
 def do_remove_role(pid, rolenames):
@@ -1813,8 +1920,15 @@ def handle_ajax():
                             "people": involvement_members(getattr(model.Data, "aa_oid", 0))}))
 
         elif a == "dropmembers":
-            emit(safe_json(do_drop_members(getattr(model.Data, "aa_oid", 0),
-                                           getattr(model.Data, "aa_ids", ""))))
+            oid = getattr(model.Data, "aa_oid", 0)
+            raw = getattr(model.Data, "aa_ids", "")
+            res = do_drop_members(oid, raw)
+            log_action("drop involvement members", "involvement %s, %d selected"
+                       % (oid, len(str(raw or "").split(","))), res.get("message", ""))
+            emit(safe_json(res))
+
+        elif a == "log":
+            emit(safe_json({"ok": True, "log": action_log_rows()}))
 
         elif a == "recent":
             pid = int(getattr(model.Data, "aa_pid", 0) or 0)
@@ -1838,12 +1952,18 @@ def handle_ajax():
             elif pid == to:
                 emit(safe_json({"ok": False, "message": "those are the same person"}))
             else:
-                emit(safe_json(do_reassign(pid, to, ids)))
+                res = do_reassign(pid, to, ids)
+                log_action("reassign task notes", "from %d to %d, %d task notes"
+                           % (pid, to, len(ids)), res.get("message", ""))
+                emit(safe_json(res))
 
         elif a == "complete":
             pid = int(getattr(model.Data, "aa_pid", 0) or 0)
             ids = chosen_ids(pid, getattr(model.Data, "aa_ids", ""))
-            emit(safe_json(do_complete(pid, ids)))
+            res = do_complete(pid, ids)
+            log_action("complete task notes", "person %d, %d task notes" % (pid, len(ids)),
+                       res.get("message", ""))
+            emit(safe_json(res))
 
         elif a == "apply_update":
             emit(safe_json(do_apply_update()))
@@ -1851,16 +1971,27 @@ def handle_ajax():
         elif a in ("archive", "delete"):
             pid = int(getattr(model.Data, "aa_pid", 0) or 0)
             ids = chosen_ids(pid, getattr(model.Data, "aa_ids", ""))
-            emit(safe_json(do_archive(pid, ids) if a == "archive" else do_delete(pid, ids)))
+            res = do_archive(pid, ids) if a == "archive" else do_delete(pid, ids)
+            log_action("%s task notes" % a, "person %d, %d task notes" % (pid, len(ids)),
+                       res.get("message", ""))
+            emit(safe_json(res))
 
         elif a == "revoketokens":
-            emit(safe_json(do_revoke_tokens(getattr(model.Data, "aa_ids", ""))))
+            raw = getattr(model.Data, "aa_ids", "")
+            res = do_revoke_tokens(raw)
+            log_action("revoke access tokens", "token ids %s" % str(raw or "")[:80],
+                       res.get("message", ""))
+            emit(safe_json(res))
 
         elif a == "removerole":
             pid = int(getattr(model.Data, "aa_pid", 0) or 0)
             rn = str(getattr(model.Data, "aa_role", "") or "")
-            emit(safe_json(do_remove_role(pid, rn) if (pid and rn)
-                            else {"ok": False, "message": "need a person and a role"}))
+            res = (do_remove_role(pid, rn) if (pid and rn)
+                   else {"ok": False, "message": "need a person and a role"})
+            if pid and rn:
+                log_action("remove role", "%s from person %d" % (rn, pid),
+                           res.get("message", ""))
+            emit(safe_json(res))
         else:
             emit(safe_json({"ok": False, "message": "unknown action " + a}))
     except Exception:
@@ -2183,6 +2314,7 @@ def render():
             "sscandue": script_scan_needed(),
             "sscansize": script_scan_total(),
             "invs": involvement_rows(),
+            "log": action_log_rows(),
             "me": current_user_id() or 0}
 
     model.Header = "Access Audit"
@@ -2225,7 +2357,9 @@ def render():
         +   'is objective, a record says deceased or archived or a login has not called the '
         +   'API in a year. The second needs your judgement. The last group is listed so '
         +   'nobody tidies it away.</div>'
-        +   '<div id="alist"></div></div>'
+        +   '<div id="alist"></div>'
+        +   '<h4 style="margin:18px 0 6px">What has been done from here</h4>'
+        +   '<div id="alog"></div></div>'
         + '<div class="pane" id="pane-inv">'
         +   '<div class="warn" id="isum"></div>'
         +   '<div class="tfil">'
@@ -2430,14 +2564,21 @@ function drawPerson(p){
       +'<button class="btn" id="tknone">Select none</button>'
       +'<span id="tkn" class="muted" style="margin-left:10px"></span></div>'
       +'<div class="scroll" style="margin:8px 0"><table><thead><tr><th style="width:26px"></th>'
-      +'<th>About</th><th>What</th><th>Keyword</th><th>Due</th><th>State</th></tr></thead>'
+      +'<th>About</th><th>Their role</th><th>Doing it</th><th>What</th>'
+      +'<th>Keyword</th><th>Due</th><th>State</th></tr></thead>'
       +'<tbody id="tkbody">'
       +tl.map(function(t){
-        var hay=((t.about||'')+' '+(t.what||'')+' '+(t.kw||'')+' '+(t.org||'')).toLowerCase();
+        var hay=((t.about||'')+' '+(t.what||'')+' '+(t.kw||'')+' '+(t.org||'')
+                 +' '+(t.assignee||'')+' '+(t.role||'')).toLowerCase();
         return '<tr data-hay="'+esc(hay)+'">'
           +'<td><input type="checkbox" class="tkc" value="'+t.id+'"></td>'
           +'<td>'+(t.aboutid?'<a href="/Person2/'+t.aboutid+'" target="_blank">'
                   +esc(t.about||('PeopleId '+t.aboutid))+'</a>':esc(t.about))+'</td>'
+          +'<td>'+esc(t.role||'')+'</td>'
+          +'<td>'+(t.elsewhere
+                   ? '<span class="tag d" title="somebody else is doing this one">'
+                     +esc(t.assignee)+'</span>'
+                   : '<span class="muted">them</span>')+'</td>'
           +'<td>'+esc(t.what||'')+(t.org?' <span class="tag">'+esc(t.org)+'</span>':'')+'</td>'
           +'<td class="mono">'+esc(t.kw||'')+'</td>'
           +'<td class="mono">'+esc(t.due||t.made||'')+'</td>'
@@ -2454,9 +2595,9 @@ function drawPerson(p){
       +'</div>'
       +'<div class="danger" id="aa_warn" style="margin:6px 0 4px;display:none"></div>'
       +'<div class="li"><span class="w">move to</span><span>'
-      +'<input type="text" id="aa_to" placeholder="PeopleId of the person taking them over" '
+      +'<input type="text" id="aa_to" placeholder="PeopleId of the new assignee" '
       +'style="width:320px;margin:0 6px 0 0">'
-      +'<button class="btn go" id="aa_go" disabled>Reassign selected</button> '
+      +'<button class="btn go" id="aa_go" disabled>Change who is doing it</button> '
       +'<button class="btn" id="aa_done" disabled>Mark selected complete</button> '
       +'<button class="btn" id="aa_arch" disabled>Archive selected</button> '
       +'<button class="btn danger-btn" id="aa_del" disabled>Delete selected</button>'
@@ -2479,6 +2620,9 @@ function drawPerson(p){
 
   if(tot && tl.length){
     var boxes=function(){ return [].slice.call(document.querySelectorAll('#tkbody .tkc')); };
+    // checkbox value -> the task, so the warning can count how many of the
+    // selected ones are owned here but being done by somebody else
+    var byId={}; tl.forEach(function(t){ byId[String(t.id)]=t; });
     var picked=function(){ return boxes().filter(function(c){
         return c.checked && c.closest('tr').style.display!=='none'; }); };
     function refresh(){
@@ -2486,16 +2630,32 @@ function drawPerson(p){
       $('tkn').textContent = n ? n+' selected' : 'nothing selected';
       $('aa_go').disabled = !n; $('aa_done').disabled = !n;
       $('aa_arch').disabled = !n; $('aa_del').disabled = !n;
-      $('aa_go').textContent = n ? 'Reassign '+n : 'Reassign selected';
+      $('aa_go').textContent = n ? 'Reassign '+n+' to a new assignee'
+                                 : 'Change who is doing it';
       $('aa_done').textContent = n ? 'Mark '+n+' complete' : 'Mark selected complete';
       $('aa_arch').textContent = n ? 'Archive '+n : 'Archive selected';
       $('aa_del').textContent = n ? 'Delete '+n : 'Delete selected';
       var w=$('aa_warn');
-      if(n){ w.style.display='block';
-        w.innerHTML='Reassigning and completing each send one email per task note, so either '
-          +'would send <b>'+n+' email'+(n===1?'':'s')+'</b>, and there is no way to suppress '
-          +'them. <b>Archive</b> sends none and can be undone. <b>Delete</b> sends none and '
-          +'cannot.';
+      if(n){
+        // The thing staff got wrong: they reassigned a batch expecting the
+        // tasks to leave this person, and the tasks stayed, because
+        // TaskNoteMassAssign sets AssigneeId and never touches OwnerId.
+        var els = boxes().filter(function(c){ return c.checked; })
+                    .map(function(c){ return byId[c.value]; })
+                    .filter(function(t){ return t && t.elsewhere; }).length;
+        w.style.display='block';
+        w.innerHTML =
+          (els ? '<b>'+els+' of these are owned by this person but already being done by '
+                 +'somebody else.</b> Reassigning those takes them away from whoever has '
+                 +'them now and gives them to the person you name. It does <b>not</b> take '
+                 +'them off this person, because they stay the owner. To move ownership, '
+                 +'open the task in TouchPoint and change the Owner field. No script can do '
+                 +'it: the only endpoint that sets an owner is a PUT, and TouchPoint gives '
+                 +'scripts no way to send one.<br>'
+               : '')
+          + 'Reassigning and completing each send one email per task note, so either would '
+          + 'send <b>'+n+' email'+(n===1?'':'s')+'</b>, and there is no way to suppress them. '
+          + '<b>Archive</b> sends none and can be undone. <b>Delete</b> sends none and cannot.';
       } else { w.style.display='none'; }
     }
     $('tkbody').addEventListener('change',refresh);
@@ -2515,9 +2675,14 @@ function drawPerson(p){
       var to=($('aa_to').value||'').replace(/\D/g,'');
       var plural=(ids.length===1?'':'s');
       if(kind==='reassign'){
-        if(!to){ $('aa_msg').textContent='Enter the PeopleId to move them to.'; return; }
+        if(!to){ $('aa_msg').textContent='Enter the PeopleId of the new assignee.'; return; }
+        var els=ids.filter(function(i){ return byId[i] && byId[i].elsewhere; }).length;
         if(!confirm('Reassign '+ids.length+' task note'+plural+' to PeopleId '+to+'?'
-            +'\n\nThis sends '+ids.length+' notification email'+plural+'.')) return;
+            +'\n\nThis changes who is DOING them. It does not change who owns them, '
+            +'so they will still appear under this person.'
+            +(els ? '\n\n'+els+' of these are currently being done by somebody else. '
+                    +'Those will be taken away from that person.' : '')
+            +'\n\nSends '+ids.length+' notification email'+plural+'.')) return;
       } else if(kind==='complete'){
         if(!confirm('Mark '+ids.length+' task note'+plural+' complete?'
             +'\n\nThe existing note on each is left alone, but this sends '+ids.length
@@ -2535,6 +2700,7 @@ function drawPerson(p){
       ['aa_go','aa_done','aa_arch','aa_del'].forEach(function(b){ $(b).disabled=true; });
       $('aa_msg').textContent='working...';
       post({aa_action:kind, aa_pid:p.pid, aa_to:to, aa_ids:ids.join(',')}, function(r){
+        loadLog();
         $('aa_msg').textContent=r.message||(r.ok?'done':'failed');
         if(r.ok){ post({aa_action:'person',aa_pid:p.pid}, function(x){
             if(x.ok) drawPerson(x.person); }); }
@@ -2565,6 +2731,7 @@ function drawPerson(p){
           +p.name+'?\n\n'+names.join(', '))) return;
       $('rrgo').disabled=true; $('rrmsg').textContent='working...';
       post({aa_action:'removerole', aa_pid:p.pid, aa_role:names.join(',')}, function(r){
+        loadLog();
         $('rrmsg').textContent=r.message||(r.ok?'done':'failed');
         if(r.ok) post({aa_action:'person',aa_pid:p.pid},function(x){
           if(x.ok) drawPerson(x.person); });
@@ -2883,6 +3050,7 @@ function drawRole(name){
       (function step(){
         if(i>=pids.length){
           $('hmsg').textContent='removed from '+done+(failed?(', '+failed+' failed'):'');
+          loadLog();                 // once at the end, not once per person
           drawRole(name); return;
         }
         post({aa_action:'removerole', aa_pid:pids[i], aa_role:name}, function(r){
@@ -2893,6 +3061,51 @@ function drawRole(name){
     };
     hrefresh();
   });
+}
+
+/* What has been done from here.
+   TouchPoint logs DropOrgMember and RemoveRole to ActivityLog on its own, and
+   the API service logs a token delete. The five task actions log nothing at
+   all, and one of them deletes permanently, so this is the only record those
+   ever get. Newest first, trimmed to 400 lines. */
+/* Fetched rather than read off AA.
+   AA.log is baked into the page at render time, so after taking an action the
+   tab still showed whatever was true when the page loaded: you had to refresh
+   the browser to see what you had just done. A log you cannot trust to be
+   current is worse than no log. It is now reloaded whenever the tab is opened
+   and after every action. */
+function loadLog(){
+  post({aa_action:'log'}, function(r){
+    if(r && r.ok){ AA.log = r.log || []; }
+    drawLog();
+  });
+}
+function drawLog(){
+  var rows = AA.log || [];
+  if(!rows.length){
+    $('alog').innerHTML = '<div class="muted" style="font-size:12px">Nothing has been '
+      + 'changed from this page yet. Anything that is will be listed here, and the '
+      + 'involvement and role changes also appear in TouchPoint&rsquo;s own activity log.'
+      + '</div>';
+    return;
+  }
+  $('alog').innerHTML =
+    '<div class="muted" style="font-size:12px;margin-bottom:6px">Newest first, last '
+    + rows.length + '. Kept in Special Content as '
+    + '<span class="mono">TPxi_AccessAudit_Log</span>.</div>'
+    + '<div class="scroll"><table><thead><tr><th>When</th><th>Who</th><th>Did what</th>'
+    + '<th>To</th><th>Result</th></tr></thead><tbody>'
+    + rows.map(function(r){
+        if(!r.what) return '<tr><td colspan="5" class="muted mono">'+esc(r.result)+'</td></tr>';
+        var bad = /did NOT|failed|still live|0 of/.test(r.result||'');
+        return '<tr><td class="mono">'+esc(r.when)+'</td>'
+          + '<td>'+esc(r.who)+'</td>'
+          + '<td><span class="tag'+(/delete|revoke/.test(r.what)?' d':'')+'">'
+            +esc(r.what)+'</span></td>'
+          + '<td class="muted">'+esc(r.target)+'</td>'
+          + '<td'+(bad?' class="bad"':' class="muted"')+'>'+esc(r.result)+'</td></tr>';
+      }).join('')
+    + '</tbody></table></div>';
 }
 
 /* ---- involvements ----
@@ -3071,6 +3284,7 @@ function drawInvDetail(oid){
       $('imgo').disabled = true;
       $('immsg').textContent = 'working...';
       post({aa_action:'dropmembers', aa_oid:oid, aa_ids:ids.join(',')}, function(rr){
+        loadLog();
         $('immsg').textContent = rr.message || (rr.ok ? 'done' : 'failed');
         if(rr.ok) setTimeout(function(){ drawInvDetail(oid); }, 900);
         else refresh();
@@ -3147,6 +3361,9 @@ function showTab(which){
     x.classList.toggle('on', x.dataset.tab===which); });
   document.querySelectorAll('#aa .pane').forEach(function(x){x.classList.remove('on')});
   var el=$('pane-'+which); if(el) el.classList.add('on');
+  // the log is the one pane whose content can change while you sit on the
+  // page, so it is re-read on every visit rather than trusted from load time
+  if(which === 'todo' && typeof loadLog === 'function') loadLog();
   // keep it in the url so a refresh, or coming back from a link, lands where
   // you were rather than resetting to the first tab
   try{ history.replaceState(null,'','#'+which); }catch(e){ }
@@ -3229,6 +3446,7 @@ $('tlist').addEventListener('click',function(e){
         +'Anything still using them stops working immediately. This cannot be undone.')) return;
     t.disabled=true; d.querySelector('.rvmsg').textContent='working...';
     post({aa_action:'revoketokens', aa_ids:ids.join(',')}, function(r){
+      loadLog();
       var msg=r.message||(r.ok?'done':'failed');
       if(r.gone && r.gone.length){
         // drop them from the data and redraw, rather than reloading the page,
@@ -3392,6 +3610,7 @@ function renderUpdateBanner(){
 })();
 
 ssRender();
+drawLog();
 (function(){
   var seen = {}, opts = ['<option value="0">Every program</option>'];
   (AA.invs||[]).forEach(function(r){ if(r.prog) seen[r.prog] = (seen[r.prog]||0) + 1; });
