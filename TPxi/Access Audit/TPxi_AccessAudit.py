@@ -64,7 +64,7 @@ import datetime
 import re
 import traceback
 
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 ROLE_MAP_CONTENT = "TPxi_AccessAudit_RoleMap"
 
 # --- Auto update, see TPxi/AutoUpdate/README.md ----------------------------
@@ -1493,6 +1493,247 @@ def do_remove_role(pid, rolenames):
 
 
 # ===========================================================================
+# Involvements. What is still active, and what looks finished.
+#
+# The tool can empty an involvement but it cannot close one. There is no model
+# method that touches OrganizationStatusId, /api/v1 has nothing for it, and
+# model.ExecuteSql throws outside debug. The only code that sets it lives on
+# /APIOrg/UpdateOrganization, which is Basic auth plus the Developer role and
+# writes eleven fields when you want one. So the last step is a link to the
+# involvement, where a human does it in TouchPoint's own screen.
+#
+# That split is deliberate rather than a limitation to apologise for: dropping
+# members is reversible and closing is the decision, so the decision stays with
+# a person.
+# ===========================================================================
+
+def involvement_rows(progid=0):
+    """Every active involvement with the facts you need to judge it.
+
+    Reads LastMeetingDate and FirstMeetingDate straight off Organizations
+    rather than aggregating Meetings, because TouchPoint already maintains
+    them. Member counts and last attendance do need a roll up, done set based
+    in one pass: a correlated subquery per involvement is what made an earlier
+    version of this report time out.
+
+    Program comes through the primary division, which is how TouchPoint files
+    an involvement. An involvement can sit in several divisions through
+    DivOrgs; only the primary one is shown, and that is the one on the record."""
+    out = []
+    where = "o.OrganizationStatusId = 30"
+    try:
+        pid = int(progid or 0)
+    except Exception:
+        pid = 0
+    if pid:
+        where += " AND d.ProgId = %d" % pid
+    try:
+        rows = q.QuerySql("""
+            WITH mem AS (
+                SELECT m.OrganizationId,
+                       COUNT(*) AS Mem,
+                       MAX(m.LastAttended) AS LastAtt,
+                       SUM(CASE WHEN m.MemberTypeId IN (140,310,320) THEN 1 ELSE 0 END) AS Ldr
+                FROM dbo.OrganizationMembers m WITH (NOLOCK)
+                GROUP BY m.OrganizationId
+            ), vol AS (
+                -- Volunteer scheduler signups. A scheduler driven involvement
+                -- can be busy with people claiming slots and show nothing on
+                -- meetings, attendance or enrolment, so without this it reads
+                -- as abandoned.
+                --
+                -- The scheduler is nine tables. It does not need all nine: both
+                -- volunteer tables carry their parent team id on the row, which
+                -- skips the sub group tables entirely, and TimeSlots is where
+                -- OrganizationId lives. Three joins each.
+                --
+                -- Two tables because there are two ways to volunteer: on a
+                -- standing team, and for one specific meeting.
+                SELECT x.OrganizationId,
+                       MAX(x.DateVolunteered) AS LastVol,
+                       COUNT(*) AS Vols
+                FROM (
+                    SELECT ts.OrganizationId, v.DateVolunteered
+                    FROM dbo.TimeSlotTeamSubGroupVolunteers v WITH (NOLOCK)
+                    JOIN dbo.TimeSlotTeams tt WITH (NOLOCK)
+                         ON tt.TimeSlotTeamId = v.TimeSlotTeamId
+                    JOIN dbo.TimeSlots ts WITH (NOLOCK)
+                         ON ts.TimeSlotId = tt.TimeSlotId
+                    UNION ALL
+                    SELECT ts.OrganizationId, v.DateVolunteered
+                    FROM dbo.TimeSlotMeetingTeamSubGroupVolunteers v WITH (NOLOCK)
+                    JOIN dbo.TimeSlotMeetingTeams mt WITH (NOLOCK)
+                         ON mt.TimeSlotMeetingTeamId = v.TimeSlotMeetingTeamId
+                    JOIN dbo.TimeSlotMeetings tm WITH (NOLOCK)
+                         ON tm.TimeSlotMeetingId = mt.TimeSlotMeetingId
+                    JOIN dbo.TimeSlots ts WITH (NOLOCK)
+                         ON ts.TimeSlotId = tm.TimeSlotId
+                ) x
+                WHERE x.DateVolunteered IS NOT NULL
+                GROUP BY x.OrganizationId
+            ), churn AS (
+                -- People joining, leaving or changing member type. This is the
+                -- only signal that works on an involvement which never meets.
+                -- Without it a mailing list of 4,156 people looks exactly like
+                -- a class that finished in 2024; with it, one shows 1,828
+                -- changes and the other shows 7.
+                SELECT et.OrganizationId,
+                       MAX(et.TransactionDate) AS LastChurn,
+                       COUNT(*) AS Churn
+                FROM dbo.EnrollmentTransaction et WITH (NOLOCK)
+                WHERE et.TransactionDate >= DATEADD(year, -3, GETDATE())
+                GROUP BY et.OrganizationId
+            )
+            SELECT TOP 1200 o.OrganizationId AS Oid, o.OrganizationName AS Nm,
+                   ISNULL(p.Name, '') AS Prog, ISNULL(d.Name, '') AS Divi,
+                   ISNULL(mem.Mem, 0) AS Mem, ISNULL(mem.Ldr, 0) AS Ldr,
+                   mem.LastAtt, o.LastMeetingDate AS LastMtg,
+                   churn.LastChurn, ISNULL(churn.Churn, 0) AS Churn,
+                   vol.LastVol, ISNULL(vol.Vols, 0) AS Vols,
+                   o.CreatedDate AS Made,
+                   ISNULL(o.RegistrationTypeId, 0) AS RegT,
+                   ISNULL(o.LimitToRole, '') AS Role,
+                   ISNULL(ot.Description, '') AS OrgType
+            FROM dbo.Organizations o WITH (NOLOCK)
+            LEFT JOIN dbo.Division d WITH (NOLOCK) ON d.Id = o.DivisionId
+            LEFT JOIN dbo.Program p WITH (NOLOCK) ON p.Id = d.ProgId
+            LEFT JOIN lookup.OrganizationType ot WITH (NOLOCK) ON ot.Id = o.OrganizationTypeId
+            LEFT JOIN mem ON mem.OrganizationId = o.OrganizationId
+            LEFT JOIN churn ON churn.OrganizationId = o.OrganizationId
+            LEFT JOIN vol ON vol.OrganizationId = o.OrganizationId
+            WHERE %s
+            ORDER BY o.OrganizationName""" % where)
+        for r in rows:
+            la = datestr(sval(r, "LastAtt"))
+            lm = datestr(sval(r, "LastMtg"))
+            out.append({
+                "oid": sval(r, "Oid", 0), "name": sval(r, "Nm", "") or "",
+                "prog": sval(r, "Prog", "") or "", "div": sval(r, "Divi", "") or "",
+                "mem": sval(r, "Mem", 0) or 0, "ldr": sval(r, "Ldr", 0) or 0,
+                "lastatt": la, "lastmtg": lm,
+                "attdays": days_since(sval(r, "LastAtt")),
+                "mtgdays": days_since(sval(r, "LastMtg")),
+                "lastchurn": datestr(sval(r, "LastChurn")),
+                "churndays": days_since(sval(r, "LastChurn")),
+                "churn": sval(r, "Churn", 0) or 0,
+                "lastvol": datestr(sval(r, "LastVol")),
+                "voldays": days_since(sval(r, "LastVol")),
+                "vols": sval(r, "Vols", 0) or 0,
+                "made": datestr(sval(r, "Made")),
+                "reg": sval(r, "RegT", 0) or 0,
+                "role": sval(r, "Role", "") or "",
+                "otype": sval(r, "OrgType", "") or "",
+            })
+            # how long since ANYTHING happened. None means nothing ever did.
+            e = out[-1]
+            days = [d for d in (e["attdays"], e["mtgdays"], e["churndays"],
+                                e["voldays"]) if d is not None]
+            e["quiet"] = min(days) if days else None
+    except Exception:
+        pass
+    return out
+
+
+def involvement_programs():
+    out = []
+    try:
+        for r in q.QuerySql("""
+                SELECT p.Id, p.Name, COUNT(o.OrganizationId) AS N
+                FROM dbo.Program p WITH (NOLOCK)
+                LEFT JOIN dbo.Division d WITH (NOLOCK) ON d.ProgId = p.Id
+                LEFT JOIN dbo.Organizations o WITH (NOLOCK)
+                     ON o.DivisionId = d.Id AND o.OrganizationStatusId = 30
+                GROUP BY p.Id, p.Name
+                HAVING COUNT(o.OrganizationId) > 0
+                ORDER BY p.Name"""):
+            out.append({"id": sval(r, "Id", 0), "name": sval(r, "Name", "") or "",
+                        "n": sval(r, "N", 0) or 0})
+    except Exception:
+        pass
+    return out
+
+
+def involvement_members(oid):
+    """Who is in one involvement, so a drop can be chosen rather than bulk."""
+    out = []
+    try:
+        oid = int(oid)
+    except Exception:
+        return out
+    try:
+        for r in q.QuerySql("""
+                SELECT TOP 500 m.PeopleId AS Pid, ISNULL(pp.Name2, '') AS Nm,
+                       ISNULL(mt.Description, '') AS MT,
+                       m.EnrollmentDate AS Enr, m.LastAttended AS LastAtt,
+                       ISNULL(pp.IsDeceased, 0) AS Dead,
+                       ISNULL(pp.ArchivedFlag, 0) AS Arch
+                FROM dbo.OrganizationMembers m WITH (NOLOCK)
+                JOIN dbo.People pp WITH (NOLOCK) ON pp.PeopleId = m.PeopleId
+                LEFT JOIN lookup.MemberType mt WITH (NOLOCK) ON mt.Id = m.MemberTypeId
+                WHERE m.OrganizationId = %d
+                ORDER BY pp.Name2""" % oid):
+            out.append({"pid": sval(r, "Pid", 0), "name": sval(r, "Nm", "") or "",
+                        "mt": sval(r, "MT", "") or "",
+                        "enr": datestr(sval(r, "Enr")),
+                        "last": datestr(sval(r, "LastAtt")),
+                        "dead": bool(sval(r, "Dead", 0)),
+                        "arch": bool(sval(r, "Arch", 0))})
+    except Exception:
+        pass
+    return out
+
+
+def do_drop_members(oid, raw_pids):
+    """Drop the selected people from one involvement.
+
+    model.DropOrgMember uses .Single(), so it raises rather than shrugging if
+    the person is not a member or somehow has two rows. Each is therefore
+    dropped on its own and the failures are counted and reported, instead of
+    one bad row killing the rest of the batch.
+
+    The result is checked against the database afterwards for the same reason
+    the token revoke is: reporting a drop that did not happen is worse than
+    reporting a failure."""
+    try:
+        oid = int(oid)
+    except Exception:
+        return {"ok": False, "message": "no involvement"}
+    pids = []
+    for x in str(raw_pids or "").replace(" ", "").split(","):
+        if x.isdigit():
+            pids.append(int(x))
+    if not oid or not pids:
+        return {"ok": False, "message": "nothing selected"}
+
+    lastmsg = ""
+    for pid in pids:
+        try:
+            model.DropOrgMember(pid, oid)
+        except Exception as e:
+            lastmsg = str(e)[:160]
+
+    still = set()
+    try:
+        for r in q.QuerySql("""
+                SELECT m.PeopleId AS Pid FROM dbo.OrganizationMembers m WITH (NOLOCK)
+                WHERE m.OrganizationId = %d AND m.PeopleId IN (%s)"""
+                % (oid, ",".join(str(p) for p in pids))):
+            still.add(sval(r, "Pid", 0))
+    except Exception:
+        return {"ok": False, "message":
+                "The drops were attempted but the check afterwards failed, so this "
+                "cannot say who actually came off. Reopen the involvement to look."}
+
+    gone = [p for p in pids if p not in still]
+    msg = "dropped %d of %d" % (len(gone), len(pids))
+    if still:
+        msg += ", %d still on the roster" % len(still)
+        if lastmsg:
+            msg += " (" + lastmsg + ")"
+    return {"ok": len(gone) > 0, "n": len(gone), "gone": gone, "message": msg}
+
+
+# ===========================================================================
 # Page
 # ===========================================================================
 
@@ -1566,6 +1807,14 @@ def handle_ajax():
                                 "total": total, "roles": len(found),
                                 "carry": found,
                                 "message": serr if not saved else ""}))
+
+        elif a == "invmembers":
+            emit(safe_json({"ok": True,
+                            "people": involvement_members(getattr(model.Data, "aa_oid", 0))}))
+
+        elif a == "dropmembers":
+            emit(safe_json(do_drop_members(getattr(model.Data, "aa_oid", 0),
+                                           getattr(model.Data, "aa_ids", ""))))
 
         elif a == "recent":
             pid = int(getattr(model.Data, "aa_pid", 0) or 0)
@@ -1825,6 +2074,8 @@ CSS = """
 #aa .tag.mine{background:#e3f0ef;color:#0f6d72;border:1px solid #bcd7d5}
 #aa .btn.rf.on{background:#0f6d72;border-color:#0f6d72;color:#fff}
 #aa .tag.g{background:#e3f0ef;border-color:#9fc9c6;color:#0f6d72}
+#aa .irow{cursor:pointer}
+#aa .irow:hover{background:#f6f6f5}
 </style>
 """
 
@@ -1931,6 +2182,7 @@ def render():
                       if sscan else None),
             "sscandue": script_scan_needed(),
             "sscansize": script_scan_total(),
+            "invs": involvement_rows(),
             "me": current_user_id() or 0}
 
     model.Header = "Access Audit"
@@ -1946,6 +2198,7 @@ def render():
         + '<div class="tabs">'
         + '<button data-tab="role" class="on">By role</button>'
         + '<button data-tab="person">By person</button>'
+        + '<button data-tab="inv">Involvements</button>'
         + '<button data-tab="token">Tokens</button>'
         + '<button data-tab="todo">What to do</button></div>'
         + '<div class="pane" id="pane-person"><div class="row2">'
@@ -1973,6 +2226,29 @@ def render():
         +   'API in a year. The second needs your judgement. The last group is listed so '
         +   'nobody tidies it away.</div>'
         +   '<div id="alist"></div></div>'
+        + '<div class="pane" id="pane-inv">'
+        +   '<div class="warn" id="isum"></div>'
+        +   '<div class="tfil">'
+        +     '<select id="iprog" style="max-width:260px;margin-right:8px"></select>'
+        +     '<select id="imon" style="max-width:150px;margin-right:8px">'
+        +       '<option value="3">quiet 3+ months</option>'
+        +       '<option value="6">quiet 6+ months</option>'
+        +       '<option value="12" selected>quiet 12+ months</option>'
+        +       '<option value="18">quiet 18+ months</option>'
+        +       '<option value="24">quiet 2+ years</option>'
+        +       '<option value="36">quiet 3+ years</option></select>'
+        +     '<button class="btn ifil on" data-f="quiet">Quiet</button> '
+        +     '<button class="btn ifil" data-f="never">Nothing ever</button> '
+        +     '<button class="btn ifil" data-f="live">Active</button> '
+        +     '<button class="btn ifil" data-f="all">All</button>'
+        +     '<input type="search" id="iq" placeholder="Search a name" '
+        +       'style="max-width:240px;margin-left:10px">'
+        +   '</div>'
+        +   '<div class="row2" style="margin-top:10px">'
+        +     '<div style="flex:1"><div id="ilist"></div></div>'
+        +     '<div class="right" id="idet" style="max-width:520px">'
+        +       'Pick an involvement to see who is in it.</div>'
+        +   '</div></div>'
         + '<div class="pane" id="pane-token"><div id="tsum" class="warn"></div>'
         +   '<input type="search" id="tq" placeholder="Search an owner or a login">'
         +   '<div id="tlist"></div></div>'
@@ -2033,19 +2309,55 @@ function drawPeople(){
   }).join('') : '<div class="in muted">Nobody matches that.</div>';
 }
 
+/* Active first, inactive folded away.
+   Somebody can be on 140 notification lines and have 128 of them be inactive.
+   Mixed together the dozen that still send mail are impossible to pick out,
+   and those are the whole point when you are offboarding.
+
+   The inactive ones are kept rather than dropped: an inactive involvement
+   sends nothing today, but reactivating it puts that person's name straight
+   back on the To line, and by then nobody remembers to check. So they are one
+   click away, not gone. */
 function orgRows(list,label){
   if(!list||!list.length) return '';
-  return '<div class="in">'+list.map(function(o){
+  var row = function(o){
     return '<div class="li"><span class="w">'+label+'</span><span>'+esc(o.name)
       +(o.inactive?' <span class="tag">inactive</span>':'')
       +(o.state?' <span class="tag">'+esc(o.state)+'</span>':'')
       +' <a class="mono" href="/Org/'+o.oid+'#tab-Registrations-tab" target="_blank">open</a>'
-      +'</span></div>'}).join('')+'</div>';
+      +'</span></div>';
+  };
+  var live = list.filter(function(o){ return !o.inactive; });
+  var dead = list.filter(function(o){ return o.inactive; });
+  if(!dead.length) return '<div class="in">'+live.map(row).join('')+'</div>';
+
+  var h = '<div class="in">';
+  h += live.length
+     ? live.map(row).join('')
+     : '<div class="li muted"><span class="w"></span><span>None of these are on an '
+       + 'active involvement.</span></div>';
+  h += '<details class="sub-inactive" style="margin:6px 0 0">'
+    +  '<summary style="cursor:pointer;font-size:12px;color:#777;padding:4px 11px">'
+    +  dead.length + ' more on inactive involvements'
+    +  '<span class="muted"> &middot; nothing is sent from these unless somebody '
+    +  'makes them active again</span></summary>'
+    +  dead.map(row).join('')
+    +  '</details>';
+  return h + '</div>';
 }
-function sec(title,n,inner,hot){
+function sec(title,n,inner,hot,sub){
   return '<details class="sec"'+(n?' open':'')+'><summary><span class="t">'+title+'</span>'
+    +(sub?'<span class="muted" style="font-size:12px;margin-left:8px">'+sub+'</span>':'')
     +'<span class="pill'+(n&&hot?' hot':'')+'">'+n+'</span></summary>'
     +(n?inner:'<div class="in muted">Nothing.</div>')+'</details>';
+}
+// "140" on its own reads as 140 things to deal with. Saying how many are live
+// is the difference between a scary number and an accurate one.
+function orgSub(list){
+  if(!list || !list.length) return '';
+  var live = list.filter(function(o){ return !o.inactive; }).length;
+  if(live === list.length) return '';
+  return live + ' active';
 }
 
 function drawPerson(p){
@@ -2091,15 +2403,21 @@ function drawPerson(p){
           +'there is nothing useful to select here.</span></span></div>')
       +'</div>', p.loginlist&&p.loginlist.length>1);
 
-  h+=sec('Leads these involvements',(p.led||[]).length,orgRows(p.led,'owner'),true);
+  // hot only when something ACTIVE is attached: an inactive involvement is
+  // worth seeing but is not an offboarding blocker
+  var liveN = function(l){ return (l||[]).filter(function(o){ return !o.inactive; }).length; };
+  h+=sec('Leads these involvements',(p.led||[]).length,orgRows(p.led,'owner'),
+         liveN(p.led)>0, orgSub(p.led));
   h+=sec('Leader or assistant in',(p.leadmem||[]).length,
       '<div class="in">'+(p.leadmem||[]).map(function(o){
         return '<div class="li"><span class="w">'+esc(o.mt)+'</span><span>'+esc(o.name)
           +(o.inactive?' <span class="tag">inactive</span>':'')+'</span></div>'}).join('')+'</div>');
-  h+=sec('Registration notification, To line',(p.notify||[]).length,orgRows(p.notify,'notify'),
-      (p.notify||[]).length>5);
-  h+=sec('Registration confirmation, From line',(p.regfrom||[]).length,orgRows(p.regfrom,'from'),true);
-  h+=sec('Gift notification',(p.giftnotify||[]).length,orgRows(p.giftnotify,'gift'));
+  h+=sec('Registration notification, To line',(p.notify||[]).length,
+         orgRows(p.notify,'notify'), liveN(p.notify)>5, orgSub(p.notify));
+  h+=sec('Registration confirmation, From line',(p.regfrom||[]).length,
+         orgRows(p.regfrom,'from'), liveN(p.regfrom)>0, orgSub(p.regfrom));
+  h+=sec('Gift notification',(p.giftnotify||[]).length,orgRows(p.giftnotify,'gift'),
+         liveN(p.giftnotify)>0, orgSub(p.giftnotify));
 
   var tl=p.tasklist||[];
   var tasks='<div class="in"><div class="li"><span class="w">owns</span><span>'+(p.tasks_own||0)
@@ -2577,6 +2895,190 @@ function drawRole(name){
   });
 }
 
+/* ---- involvements ----
+   "Has it met lately" is the obvious test and it is a bad one. Plenty of live
+   involvements never meet: Pastor's Daily eConnect has 4,156 people and no
+   meeting ever recorded, and by that test it looked as finished as a class
+   that ended in 2024.
+
+   What separates them is churn, people joining, leaving or changing member
+   type. The mailing list shows 1,828 of those in three years; the finished
+   tour shows 7. So "quiet" here is the most recent of three things: the last
+   meeting, the last attendance, and the last enrolment change. Nothing in a
+   year means nothing at all happened. It is still not a verdict, and the page
+   says so. */
+var ifil = 'quiet', iprog = 0, isel = null;
+var imon = 12;                       // the quiet threshold, in months
+var isort = 'quiet', idir = -1;      // column, and 1 asc / -1 desc
+
+function iDays(){ return imon * 30.44; }   // mean month, so 12 lands on a year
+
+function iBucket(r){
+  if(r.quiet === null || r.quiet === undefined) return 'never';
+  return r.quiet > iDays() ? 'quiet' : 'live';
+}
+
+/* Sorting. Nulls always sink to the bottom whichever way the column is
+   pointing, because "never attended" is not a small number or a large one and
+   letting it sort as 0 would put the emptiest involvements at the top of an
+   ascending list and read as though they were the busiest. */
+var ICOLS = [
+  {k:'name',      t:'Involvement', s:'str'},
+  {k:'prog',      t:'Program',     s:'str'},
+  {k:'div',       t:'Division',    s:'str'},
+  {k:'mem',       t:'People',      s:'num', r:1},
+  {k:'quiet',     t:'Quiet for',   s:'num'},
+  {k:'lastchurn', t:'Last change', s:'str'},
+  {k:'churn',     t:'Churn',       s:'num', r:1}
+];
+function iCmp(a, b){
+  var col = ICOLS.filter(function(c){ return c.k === isort; })[0] || ICOLS[4];
+  var x = a[col.k], y = b[col.k];
+  var xn = (x === null || x === undefined || x === '');
+  var yn = (y === null || y === undefined || y === '');
+  if(xn && yn) return 0;
+  if(xn) return 1;                       // nulls last, always
+  if(yn) return -1;
+  if(col.s === 'num') return (x - y) * idir;
+  return String(x).toLowerCase() < String(y).toLowerCase() ? -idir : idir;
+}
+function iRows(){
+  var qv = (($('iq')||{}).value || '').toLowerCase();
+  return (AA.invs||[]).filter(function(r){
+    if(iprog && r.progid !== iprog && r.prog !== iprog) return false;
+    if(ifil !== 'all' && iBucket(r) !== ifil) return false;
+    if(qv && (r.name + ' ' + r.prog + ' ' + r.div).toLowerCase().indexOf(qv) < 0) return false;
+    return true;
+  });
+}
+function drawInvs(){
+  var all = AA.invs || [];
+  var n = {quiet:0, never:0, live:0};
+  all.forEach(function(r){ n[iBucket(r)]++; });
+  $('isum').innerHTML =
+    '<b>' + all.length + ' active involvements.</b> '
+    + n.quiet + ' have had nothing happen in over ' + imon + ' months, ' + n.never
+    + ' have nothing recorded at all, ' + n.live + ' saw something this year. '
+    + '<span class="muted">Something means a meeting, an attendance, somebody '
+    + 'joining, leaving or changing member type, or a volunteer claiming a slot. '
+    + 'A list that never meets is still busy if people keep moving through it.</span>'
+    + '<br>This tool can empty an involvement but not close one. TouchPoint has no '
+    + 'scripting call that sets an involvement inactive, so the last step is the '
+    + 'link on each one, which opens it in TouchPoint.';
+
+  var rows = iRows();
+  rows.sort(iCmp);
+  var shown = rows.slice(0, 400);
+  $('ilist').innerHTML =
+    '<div class="scroll"><table><thead><tr>'
+    + ICOLS.map(function(c){
+        var arrow = (isort === c.k) ? (idir === 1 ? ' &uarr;' : ' &darr;') : '';
+        return '<th class="isort" data-k="' + c.k + '" style="cursor:pointer'
+          + (c.r ? ';text-align:right' : '') + '"'
+          + (c.k === 'churn' ? ' title="joins, drops and member type changes in the '
+                               + 'last 3 years"' : '')
+          + '>' + c.t + arrow + '</th>';
+      }).join('')
+    + '</tr></thead><tbody>'
+    + shown.map(function(r){
+        return '<tr class="irow" data-oid="' + r.oid + '"'
+          + (isel === r.oid ? ' style="background:#e3f0ef"' : '') + '>'
+          + '<td>' + esc(r.name)
+          + (r.reg ? ' <span class="tag" title="has a registration">reg</span>' : '')
+          + (r.vols ? ' <span class="tag" title="' + r.vols + ' volunteer signups, '
+                      + 'last ' + esc(r.lastvol || '?') + '">scheduler</span>' : '')
+          + (r.role ? ' <span class="tag d" title="limited to role ' + esc(r.role)
+                      + '">' + esc(r.role) + '</span>' : '')
+          + '</td>'
+          + '<td class="muted">' + esc(r.prog) + '</td>'
+          + '<td class="muted">' + esc(r.div) + '</td>'
+          + '<td style="text-align:right">' + r.mem
+          + (r.ldr ? ' <span class="muted">(' + r.ldr + ' ldr)</span>' : '') + '</td>'
+          + '<td class="mono">' + (r.quiet === null || r.quiet === undefined
+              ? '<span class="bad">nothing ever</span>'
+              : (r.quiet > iDays() ? '<span class="bad">' : '<span>')
+                + Math.round(r.quiet / 30) + ' months</span>') + '</td>'
+          + '<td class="mono">' + (r.lastchurn ? esc(r.lastchurn)
+              : '<span class="muted">none</span>') + '</td>'
+          + '<td style="text-align:right" class="mono">' + (r.churn || 0) + '</td>'
+          + '</tr>';
+      }).join('')
+    + '</tbody></table></div>'
+    + (rows.length > shown.length
+       ? '<div class="muted" style="font-size:12px;padding:6px 0">Showing '
+         + shown.length + ' of ' + rows.length + '. Narrow it with the search or the '
+         + 'program filter to see the rest.</div>'
+       : '');
+}
+function drawInvDetail(oid){
+  isel = oid; drawInvs();
+  var r = (AA.invs||[]).filter(function(x){ return x.oid === oid; })[0];
+  if(!r) return;
+  $('idet').innerHTML = '<h2 style="font-size:16px">' + esc(r.name) + '</h2>'
+    + '<div class="sub">' + esc(r.prog) + (r.div ? ' &middot; ' + esc(r.div) : '')
+    + (r.otype ? ' &middot; ' + esc(r.otype) : '') + '</div>'
+    + '<div class="muted" style="font-size:12px;margin-bottom:8px">'
+    + 'created ' + esc(r.made || '?') + ' &middot; last met ' + esc(r.lastmtg || 'never')
+    + ' &middot; last attended ' + esc(r.lastatt || 'never')
+    + ' &middot; last roster change ' + esc(r.lastchurn || 'never')
+    + ' (' + (r.churn || 0) + ' in 3 years)'
+    + (r.vols ? ' &middot; last volunteer signup ' + esc(r.lastvol || 'never')
+                + ' (' + r.vols + ' total)' : '')
+    + '</div>'
+    + '<div id="iros" class="muted">loading the roster...</div>';
+  post({aa_action:'invmembers', aa_oid:oid}, function(res){
+    if(!res.ok){ $('iros').textContent = res.message || 'failed'; return; }
+    var p = res.people || [];
+    $('iros').innerHTML =
+      (p.length
+        ? '<div class="tfil"><button class="btn" id="imall">Select all</button> '
+          + '<button class="btn" id="imnone">Select none</button>'
+          + '<button class="btn danger-btn" id="imgo" disabled>Drop selected</button>'
+          + '<span id="immsg" class="muted" style="margin-left:8px"></span></div>'
+          + '<div class="scroll" style="margin:8px 0"><table><thead><tr>'
+          + '<th style="width:26px"></th><th>Person</th><th>Type</th>'
+          + '<th>Enrolled</th><th>Last attended</th></tr></thead><tbody>'
+          + p.map(function(u){
+              return '<tr><td><input type="checkbox" class="imc" value="' + u.pid + '"></td>'
+                + '<td><a href="/Person2/' + u.pid + '" target="_blank">' + esc(u.name) + '</a>'
+                + (u.dead ? ' <span class="tag d">deceased</span>' : '')
+                + (u.arch ? ' <span class="tag d">archived</span>' : '') + '</td>'
+                + '<td class="muted">' + esc(u.mt) + '</td>'
+                + '<td class="mono">' + esc(u.enr || '') + '</td>'
+                + '<td class="mono">' + esc(u.last || '') + '</td></tr>';
+            }).join('') + '</tbody></table></div>'
+        : '<div class="muted">Nobody is in this involvement.</div>')
+      + '<div class="li" style="margin-top:8px"><span class="w">then</span><span>'
+      + '<a class="btn" href="/Org/' + oid + '" target="_blank">Open in TouchPoint</a> '
+      + '<span class="muted" style="font-size:12px">Setting an involvement inactive '
+      + 'has to be done there. No scripting call exists for it.</span></span></div>';
+    if(!p.length) return;
+    var boxes = function(){ return [].slice.call(document.querySelectorAll('#iros .imc')); };
+    var refresh = function(){
+      var n = boxes().filter(function(c){ return c.checked; }).length;
+      $('imgo').disabled = !n;
+      $('imgo').textContent = n ? ('Drop ' + n) : 'Drop selected';
+    };
+    $('iros').addEventListener('change', function(e){
+      if(e.target && e.target.classList.contains('imc')) refresh(); });
+    $('imall').onclick = function(){ boxes().forEach(function(c){ c.checked = true; }); refresh(); };
+    $('imnone').onclick = function(){ boxes().forEach(function(c){ c.checked = false; }); refresh(); };
+    $('imgo').onclick = function(){
+      var ids = boxes().filter(function(c){ return c.checked; }).map(function(c){ return c.value; });
+      if(!ids.length) return;
+      if(!confirm('Drop ' + ids.length + ' from ' + r.name + '?\n\nThis removes them from '
+          + 'the involvement. It does not delete anybody, and they can be added back.')) return;
+      $('imgo').disabled = true;
+      $('immsg').textContent = 'working...';
+      post({aa_action:'dropmembers', aa_oid:oid, aa_ids:ids.join(',')}, function(rr){
+        $('immsg').textContent = rr.message || (rr.ok ? 'done' : 'failed');
+        if(rr.ok) setTimeout(function(){ drawInvDetail(oid); }, 900);
+        else refresh();
+      });
+    };
+  });
+}
+
 /* ---- tokens ---- */
 function drawTokens(){
   var qv=($('tq').value||'').toLowerCase();
@@ -2637,7 +3139,9 @@ function drawTokens(){
 
 /* ---- wiring ---- */
 function showTab(which){
-  var known={role:1,person:1,token:1,todo:1};
+  // every tab button's data-tab has to appear here or the click falls through
+  // to the default and lands on By role
+  var known={role:1,person:1,inv:1,token:1,todo:1};
   if(!known[which]) which='role';
   document.querySelectorAll('#aa .tabs button').forEach(function(x){
     x.classList.toggle('on', x.dataset.tab===which); });
@@ -2888,6 +3392,39 @@ function renderUpdateBanner(){
 })();
 
 ssRender();
+(function(){
+  var seen = {}, opts = ['<option value="0">Every program</option>'];
+  (AA.invs||[]).forEach(function(r){ if(r.prog) seen[r.prog] = (seen[r.prog]||0) + 1; });
+  Object.keys(seen).sort().forEach(function(k){
+    opts.push('<option value="' + esc(k) + '">' + esc(k) + ' (' + seen[k] + ')</option>'); });
+  $('iprog').innerHTML = opts.join('');
+  $('iprog').onchange = function(){ iprog = this.value === '0' ? 0 : this.value; drawInvs(); };
+  $('iq').oninput = drawInvs;
+  $('imon').onchange = function(){ imon = parseInt(this.value, 10) || 12; drawInvs(); };
+  $('ilist').addEventListener('click', function(e){
+    var th = e.target.closest ? e.target.closest('.isort') : null;
+    if(!th) return;
+    var k = th.dataset.k;
+    // same column flips direction; a new column starts on the reading that is
+    // useful first, biggest for numbers and A to Z for text
+    if(isort === k) idir = -idir;
+    else { isort = k; idir = (k === 'name' || k === 'prog' || k === 'div'
+                              || k === 'lastchurn') ? 1 : -1; }
+    drawInvs();
+  });
+  document.querySelectorAll('.ifil').forEach(function(b){
+    b.onclick = function(){
+      ifil = b.dataset.f;
+      document.querySelectorAll('.ifil').forEach(function(x){ x.classList.toggle('on', x === b); });
+      drawInvs();
+    };
+  });
+  $('ilist').addEventListener('click', function(e){
+    var tr = e.target.closest ? e.target.closest('.irow') : null;
+    if(tr) drawInvDetail(parseInt(tr.dataset.oid, 10));
+  });
+  drawInvs();
+})();
 $('pq').oninput=drawPeople; $('rq').oninput=drawRoles; $('tq').oninput=drawTokens;
 drawPeople(); drawRoles(); drawTokens(); drawTodo();
 })();
