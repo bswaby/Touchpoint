@@ -820,6 +820,194 @@ def setting_owner(order, values, roles, key):
     return None
 
 
+# ---------------------------------------------------------------------------
+# Which of your own scripts mention a role.
+#
+# This is the thing the "nothing found" message tells you to go and check by
+# hand, and it is the only place a custom role usually turns up: TouchPoint's
+# code never checks a custom role, so if IT-Team does anything, a script here
+# is doing it.
+#
+# Why it is cached rather than live. The work is O(roles x bytes). Doing it in
+# SQL costs a full pass over every content body PER ROLE: one role took 7
+# seconds against 64MB here. Pulling the bodies once and testing every role
+# against each in memory does the whole corpus in under 5. That is fast enough
+# to run, and far too slow to run on every page load, so it runs in batches on
+# demand and the answer is kept in Special Content.
+#
+# Batching is what makes it portable. A church with ten times this content
+# would take fifty seconds in one request and time out; in batches it just
+# takes more batches.
+# ---------------------------------------------------------------------------
+SCRIPT_SCAN_CONTENT = "TPxi_AccessAudit_ScriptScan"
+SCRIPT_SCAN_BATCH = 120
+SCRIPT_SCAN_CAP = 12          # per role, so one role cannot bloat the cache
+# CustomAccessRoles.xml is TouchPoint's own per-role settings file: it names
+# every role that exists, so scanning it hands all 87 a meaningless hit. The
+# cache record is skipped for the same reason once it has been written.
+SCRIPT_SCAN_SKIP = ("CustomAccessRoles.xml", SCRIPT_SCAN_CONTENT)
+
+
+def script_scan_cache():
+    """What the last scan found, or None if it has never been run."""
+    import json
+    try:
+        raw = model.TextContent(SCRIPT_SCAN_CONTENT)
+        if raw and raw.strip().startswith("{"):
+            d = json.loads(raw)
+            if isinstance(d.get("roles"), dict):
+                return d
+    except Exception:
+        pass
+    return None
+
+
+SCRIPT_SCAN_MAX_AGE_HOURS = 24
+
+
+def script_scan_age_hours():
+    """Hours since the cache was written, or None if there is no cache.
+
+    Kept on the server so that five admins opening the page at nine o'clock
+    cannot each start their own scan. The browser asks; the server decides."""
+    import datetime as _dt
+    c = script_scan_cache()
+    if not c or not c.get("when"):
+        return None
+    try:
+        w = _dt.datetime.strptime(str(c["when"])[:16], "%Y-%m-%d %H:%M")
+    except Exception:
+        return None
+    try:
+        d = _dt.datetime.now() - w
+        return (d.days * 86400 + d.seconds) / 3600.0
+    except Exception:
+        return None
+
+
+def script_scan_needed():
+    a = script_scan_age_hours()
+    return a is None or a >= SCRIPT_SCAN_MAX_AGE_HOURS
+
+
+def scan_base(nm):
+    """(base name, is this a backup copy).
+
+    Content is where people keep their working copies, so one script shows up
+    as a dozen records: TPxi_QuickLinksAdmin, TPxi_QuickLinksAdmin20260326,
+    QuickLinks_Bak_20260602_065420. Listing all of them buries the live script
+    and, worse, fills the per-role cap so a real script gets dropped.
+
+    Stripped repeatedly because the markers stack: a name can carry a Bak tag
+    and two dates. Only suffixes are touched; anything left of them is the
+    name somebody actually chose."""
+    out, backup, prev = nm, False, None
+    while prev != out:
+        prev = out
+        for rx in (r'[ _-]?\d{4}-\d{2}-\d{2}$',          # _2026-06-01
+                   r'[ _-]?\d{8}(_\d{6})?$',              # 20260326, _20260602_065420
+                   r'[ _-]?[Bb][Aa][Kk](up)?[ _-]?$',      # _Bak, -backup
+                   r'[ _-]?([Oo][Ll][Dd]|[Cc]opy)$'):      # _old, _Copy
+            n2 = re.sub(rx, "", out)
+            if n2 != out and n2:
+                out, backup = n2, True
+    # a Bak tag anywhere marks it, eg MenuEditor_Bak_ReportsMenuPeople.xml_...
+    if re.search(r'[ _-][Bb][Aa][Kk][ _-]', nm):
+        backup = True
+    return out, backup
+
+
+def scan_add(found, rn, nm, kind):
+    """Record a hit, folding backup copies into the live script.
+
+    Entry shape is [display name, kind, how many older copies]. The live copy
+    wins the display slot whenever one exists; where only backups survive, the
+    base name is shown so it still reads as a name rather than a timestamp."""
+    base, is_bak = scan_base(nm)
+    lst = found.setdefault(rn, [])
+    for e in lst:
+        if e[0] == base or (len(e) > 3 and e[3] == base):
+            if is_bak or e[0] != nm:
+                e[2] = e[2] + 1
+            if not is_bak:
+                e[0] = nm                      # a real copy outranks a backup
+            return
+    if len(lst) >= SCRIPT_SCAN_CAP:
+        return
+    lst.append([base if is_bak else nm, kind, 0, base])
+
+
+def script_scan_total():
+    """How many content records there are to scan, or -1 if that cannot be
+    determined.
+
+    It returns -1 rather than 0 on failure on purpose. A swallowed error that
+    comes back as 0 looked exactly like "nothing to scan": the batch loop saw
+    120 >= 0, decided it had finished after the first batch, and saved a
+    partial answer that read "120 of 0 content records". The count is only a
+    progress figure now, never the thing that decides when to stop."""
+    try:
+        for r in q.QuerySql("""
+                SELECT COUNT(*) AS N FROM dbo.Content c WITH (NOLOCK)
+                WHERE c.TypeID IN (1,5) AND c.Name NOT IN (%s)"""
+                % ",".join("'" + x.replace("'", "''") + "'" for x in SCRIPT_SCAN_SKIP)):
+            return int(sval(r, "N", 0) or 0)
+    except Exception:
+        pass
+    return -1
+
+
+def script_scan_batch(offset, carry):
+    """Scan one batch of content records for every role name.
+
+    A role is counted only where its name appears in quotes. Unquoted would
+    match prose: half these roles are ordinary words (Access, Edit, Delete,
+    Support, Finance, Beta) and would hit almost every script.
+
+    CustomAccessRoles.xml is excluded because it lists every role by
+    definition, so it would give all 87 a false hit."""
+    import json
+    offset = int(offset)
+    roles = [rn for rn in role_holders().keys() if len(rn) >= 4]
+    pats = [(rn, "'" + rn + "'", '"' + rn + '"') for rn in roles]
+    found = carry if isinstance(carry, dict) else {}
+    n = 0
+    try:
+        rows = q.QuerySql("""
+            SELECT c.Name, c.TypeID, c.Body FROM dbo.Content c WITH (NOLOCK)
+            WHERE c.TypeID IN (1,5) AND c.Name NOT IN (%s)
+            ORDER BY c.Id OFFSET %d ROWS FETCH NEXT %d ROWS ONLY"""
+            % (",".join("'" + x.replace("'", "''") + "'" for x in SCRIPT_SCAN_SKIP),
+               offset, SCRIPT_SCAN_BATCH))
+        for r in rows:
+            n += 1
+            body = sval(r, "Body", "") or ""
+            if not body:
+                continue
+            nm = sval(r, "Name", "") or ""
+            kind = "python" if sval(r, "TypeID", 0) == 5 else "text"
+            for rn, q1, q2 in pats:
+                if q1 in body or q2 in body:
+                    scan_add(found, rn, nm, kind)
+    except Exception as e:
+        return None, 0, str(e)[:200]
+    return found, n, ""
+
+
+def script_scan_save(found, scanned, total, secs=0):
+    import json
+    import datetime as _dt
+    payload = {"when": _dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
+               "scanned": int(scanned), "total": int(total),
+               "secs": int(secs or 0),
+               "cap": SCRIPT_SCAN_CAP, "roles": found}
+    try:
+        model.WriteContentText(SCRIPT_SCAN_CONTENT, safe_json(payload), "")
+        return True, ""
+    except Exception as e:
+        return False, str(e)[:200]
+
+
 def role_db_usage():
     """What a role gates in THIS church, as opposed to in TouchPoint's code.
 
@@ -1339,6 +1527,46 @@ def handle_ajax():
             row.update(po)
             emit(safe_json({"ok": True, "person": row}))
 
+        elif a == "scriptscan":
+            import json as _j
+            off = int(getattr(model.Data, "aa_off", 0) or 0)
+            carry = {}
+            raw = str(getattr(model.Data, "aa_carry", "") or "")
+            if raw.startswith("{"):
+                try:
+                    carry = _j.loads(raw)
+                except Exception:
+                    carry = {}
+            force = str(getattr(model.Data, "aa_force", "")) == "1"
+            if off == 0 and not force and not script_scan_needed():
+                # somebody else already scanned today
+                emit(safe_json({"ok": True, "done": True, "skipped": True,
+                                "off": 0, "total": 0, "roles": 0, "carry": {},
+                                "message": "already scanned within the last %d hours"
+                                           % SCRIPT_SCAN_MAX_AGE_HOURS}))
+                return True
+            found, n, err = script_scan_batch(off, carry)
+            if found is None:
+                emit(safe_json({"ok": False, "message": err}))
+            else:
+                total = script_scan_total()
+                # A batch shorter than the page size means the end of the
+                # table. That is decided by what came back, not by a count
+                # that might have failed.
+                done = n < SCRIPT_SCAN_BATCH
+                saved, serr = (True, "")
+                if done:
+                    secs = 0
+                    try:
+                        secs = int(float(getattr(model.Data, "aa_secs", 0) or 0))
+                    except Exception:
+                        secs = 0
+                    saved, serr = script_scan_save(found, off + n, total, secs)
+                emit(safe_json({"ok": True, "done": done, "off": off + n,
+                                "total": total, "roles": len(found),
+                                "carry": found,
+                                "message": serr if not saved else ""}))
+
         elif a == "recent":
             pid = int(getattr(model.Data, "aa_pid", 0) or 0)
             days = int(getattr(model.Data, "aa_days", 90) or 90)
@@ -1628,6 +1856,20 @@ def render():
         t["apicalls"] = u["n"]
 
     dbuse = role_db_usage()
+    # what the last script scan found, folded in as another church-side area.
+    # Items match what role_db_usage.add builds: [kind, detail, human]
+    sscan = script_scan_cache()
+    if sscan:
+        for rn, items in (sscan.get("roles") or {}).items():
+            bucket = dbuse.setdefault(rn, {}).setdefault("Your scripts", [])
+            for it in items:
+                nm = it[0] if it else ""
+                kind = it[1] if len(it) > 1 else "script"
+                extra = it[2] if len(it) > 2 else 0
+                label = nm
+                if extra:
+                    label += "  (+%d older cop%s)" % (extra, "y" if extra == 1 else "ies")
+                bucket.append(["named in " + kind, nm, label])
     sorder, svals = role_screen_settings()
     scat = setting_catalog()
     spos = {}
@@ -1682,6 +1924,13 @@ def render():
             "actions": actions,
             "hasmap": bool(rmap), "version": APP_VERSION,
             "revoke": revoke_state(),
+            "sscan": ({"when": sscan.get("when"), "scanned": sscan.get("scanned"),
+                       "total": sscan.get("total"), "secs": sscan.get("secs") or 0,
+                       "roles": len(sscan.get("roles") or {}),
+                       "due": script_scan_needed()}
+                      if sscan else None),
+            "sscandue": script_scan_needed(),
+            "sscansize": script_scan_total(),
             "me": current_user_id() or 0}
 
     model.Header = "Access Audit"
@@ -1706,7 +1955,9 @@ def render():
         +   '<div class="right" id="pdet">Pick a person. Everything they can reach is '
         +     'listed, which is what you work through when someone leaves.</div>'
         + '</div></div>'
-        + '<div class="pane on" id="pane-role"><div class="row2">'
+        + '<div class="pane on" id="pane-role">'
+        +   '<div id="ssbar" class="warn" style="display:none"></div>'
+        +   '<div class="row2">'
         +   '<div style="width:330px;flex:none">'
         +     '<input type="search" id="rq" placeholder="Search a role">'
         +     '<div class="tfil" style="margin:0 0 8px">'
@@ -2136,6 +2387,83 @@ function holdersBar(people){
     + '<div class="muted" style="font-size:12px;margin-bottom:10px">' + key + '</div>';
 }
 
+/* ---- scanning your own scripts for role names ----
+   TouchPoint's code never checks a custom role, so if one of yours does
+   anything at all, a script here is what does it. That is the single most
+   useful thing to know about a custom role and the tool could not see it
+   until now.
+
+   Runs in batches driven from here rather than in one request, because the
+   work scales with how much content a church has, and a big one would time
+   out on a single call. */
+/* The scan is manual on purpose.
+   It was briefly automatic, and that was wrong: 979 records took 4.6 seconds
+   on a local copy but 20 seconds against a real server, and that is a small
+   church's worth of content. Nobody should wait 20 seconds for a page because
+   a background job they did not ask for is walking every script they own.
+   So it says what it will cost and waits to be asked. The once-a-day guard
+   still lives on the server, so pressing it twice is cheap. */
+function ssRender(){
+  var b = $('ssbar'), st = AA.sscan;
+  if(!b) return;
+  var size = (AA.sscansize > 0) ? AA.sscansize : 0;
+  var cost = '';
+  if(st && st.secs > 0)      cost = 'took ' + st.secs + ' seconds last time';
+  else if(size)              cost = 'about ' + size + ' records to read';
+  var btn = '<button class="btn" id="ssgo" style="margin-left:6px">'
+          + (st && st.when ? 'Scan again' : 'Scan my scripts') + '</button>'
+          + (cost ? '<span class="muted" style="margin-left:8px;font-size:12px">'
+                    + esc(cost) + '</span>' : '')
+          + '<span id="ssmsg" class="muted" style="margin-left:8px"></span>';
+
+  if(st && st.when){
+    var scope = (st.total > 0 && st.total >= st.scanned)
+      ? (st.scanned + ' of ' + st.total + ' content records')
+      : (st.scanned + ' content records');
+    b.innerHTML = 'Your scripts were last scanned <b>' + esc(st.when) + '</b>: '
+      + scope + ', ' + st.roles + ' roles mentioned.'
+      + (st.due ? ' <b>That is over a day old.</b>' : '') + ' ' + btn;
+    b.className = st.due ? 'warn' : 'muted';
+    b.style.cssText = st.due ? '' : 'font-size:12px;padding:6px 0;margin-bottom:8px';
+  } else {
+    b.innerHTML = '<b>Your scripts have not been scanned.</b> TouchPoint&rsquo;s own '
+      + 'code never checks a custom role, so a script of yours is usually the only '
+      + 'thing that does, and this is the only way to find it. It reads your Python '
+      + 'and text content, changes nothing, and is worth doing once. ' + btn;
+    b.className = 'warn';
+    b.style.cssText = '';
+  }
+  b.style.display = 'block';
+  $('ssgo').onclick = function(){ ssRun(true); };
+}
+
+function ssRun(forced){
+  var btn = $('ssgo'), msg = $('ssmsg'), t0 = Date.now();
+  if(btn) btn.disabled = true;
+  function say(t){ if(msg) msg.textContent = t; }
+  function step(off, carry){
+    var pct = (AA.sscansize > 0)
+      ? (' (' + Math.min(99, Math.round(off * 100 / AA.sscansize)) + '%)') : '';
+    say('scanning ' + off + ' records' + pct + '...');
+    post({aa_action:'scriptscan', aa_off:off, aa_force:(forced ? '1' : '0'),
+          aa_secs:Math.round((Date.now() - t0) / 1000),
+          aa_carry:JSON.stringify(carry||{})},
+      function(r){
+        if(!r.ok){
+          if(msg) msg.innerHTML = '<span class="bad">' + esc(r.message||'failed') + '</span>';
+          if(btn) btn.disabled = false;
+          return;
+        }
+        if(r.skipped){ say(r.message || ''); if(btn) btn.disabled = false; return; }
+        if(!r.done){ step(r.off, r.carry); return; }
+        say('done in ' + Math.round((Date.now() - t0) / 1000) + 's, ' + r.roles
+            + ' roles found across ' + r.off + ' records. Reloading.');
+        setTimeout(function(){ window.location.reload(); }, 800);
+      });
+  }
+  step(0, {});
+}
+
 function drawRole(name){
   var r=null,i;
   for(i=0;i<AA.roles.length;i++){ if(AA.roles[i].n===name){ r=AA.roles[i]; break; } }
@@ -2559,6 +2887,7 @@ function renderUpdateBanner(){
   }catch(e){}
 })();
 
+ssRender();
 $('pq').oninput=drawPeople; $('rq').oninput=drawRoles; $('tq').oninput=drawTokens;
 drawPeople(); drawRoles(); drawTokens(); drawTodo();
 })();
