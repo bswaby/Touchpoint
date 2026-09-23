@@ -21,14 +21,9 @@ WHY THE SECOND TAB EXISTS
 -------------------------
 dbo.FortisTransactionLog is an ERROR-ONLY log: every row is a request the
 gateway rejected. That is the right tool for "this person's card declined",
-and completely blind to the more expensive failure -- a payment method that
+and completely blind to the more expensive failure.  A payment method that
 stops being submitted at all. Nothing is attempted, so nothing errors, so an
 error log shows a reassuring zero.
-
-This was written after ACH submissions stopped for eight days without a
-single logged error. Donors thought they had given; the money never moved;
-the denial page showed nothing wrong because nothing had gone wrong -- it
-had just stopped happening. The health tab makes silence visible.
 
 READING THE DENIAL DATA
 -----------------------
@@ -40,7 +35,7 @@ difference matters when you send examples to your processor:
     carry the masked account number, so the LAST 4 IS AVAILABLE.
 
   * Contact-sync errors come from /v1/contacts. That request carries only
-    name and address -- no card at all -- so there is NO last 4 to report.
+    name and address --> no card at all <-- so there is NO last 4 to report.
     The card never entered the picture; the contact record was rejected
     before any transaction existed.
 
