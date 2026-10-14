@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SendGrid DNS Checker</title>
+<style>
+:root{
+  --bg:#f5f6f8;--card:#ffffff;--text:#1b1f24;--muted:#5d6672;--border:#dde1e6;
+  --accent:#2457d6;--accent-text:#ffffff;--code:#eef0f3;
+  --pass:#1a7f37;--passbg:#e7f5ea;--warn:#8a5d00;--warnbg:#fff4d6;
+  --fail:#c42b2b;--failbg:#fdecea;--info:#3451c7;--infobg:#eef2ff;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#0f1216;--card:#171b21;--text:#e6e9ee;--muted:#9aa3ae;--border:#2a3038;
+    --accent:#6c9bff;--accent-text:#0f1216;--code:#22272f;
+    --pass:#4cc26a;--passbg:#13261a;--warn:#e3b341;--warnbg:#2a2312;
+    --fail:#ff6b6b;--failbg:#2c1616;--info:#8aa4ff;--infobg:#161d33;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:820px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:1.6rem;margin:0 0 4px}
+h2{font-size:1.15rem;margin:32px 0 12px}
+p.sub{color:var(--muted);margin:0 0 24px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
+label{display:block;font-weight:600;margin:0 0 4px}
+.hint{color:var(--muted);font-size:.87rem;font-weight:400}
+input{width:100%;padding:10px 12px;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:8px}
+input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+.field{margin-top:16px}
+.row .field{margin-top:0}
+@media (max-width:600px){.row{grid-template-columns:1fr}}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+button{font:inherit;font-weight:600;padding:10px 18px;border-radius:8px;border:1px solid var(--accent);cursor:pointer}
+button.primary{background:var(--accent);color:var(--accent-text)}
+button.secondary{background:transparent;color:var(--accent)}
+button:disabled{opacity:.55;cursor:default}
+#summary{margin-top:24px;padding:14px 16px;border-radius:10px;font-weight:600;display:none}
+#results{margin-top:12px;display:grid;gap:10px}
+.item{display:grid;grid-template-columns:64px 1fr;gap:12px;background:var(--card);border:1px solid var(--border);border-left-width:5px;border-radius:10px;padding:14px}
+.badge{font-size:.72rem;font-weight:700;letter-spacing:.04em;text-align:center;border-radius:6px;padding:3px 0;height:fit-content}
+.s-pass{border-left-color:var(--pass)} .s-pass .badge{background:var(--passbg);color:var(--pass)}
+.s-warn{border-left-color:var(--warn)} .s-warn .badge{background:var(--warnbg);color:var(--warn)}
+.s-fail{border-left-color:var(--fail)} .s-fail .badge{background:var(--failbg);color:var(--fail)}
+.s-info{border-left-color:var(--info)} .s-info .badge{background:var(--infobg);color:var(--info)}
+.label{font-weight:600}
+.detail{color:var(--muted);font-size:.93rem;word-break:break-word}
+.fix{margin-top:6px;font-size:.93rem}
+.fix b{color:var(--text)}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.88em;background:var(--code);padding:1px 5px;border-radius:4px;word-break:break-all}
+table{width:100%;border-collapse:collapse;font-size:.93rem}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
+ol{padding-left:20px} li{margin:6px 0}
+.muted{color:var(--muted);font-size:.87rem}
+.err{color:var(--fail);margin-top:12px;font-weight:600}
+</style>
+</head>
+<body>
+<main>
+  <h1>SendGrid DNS Checker</h1>
+  <p class="sub">Checks your church domain's SendGrid records and tells you exactly what to fix. Runs in your browser using public DNS from Google and Cloudflare. Nothing is stored.</p>
+
+  <div class="card">
+    <div class="field" style="margin-top:0">
+      <label for="domain">Your domain <span class="hint">like yourchurch.org</span></label>
+      <input id="domain" placeholder="yourchurch.org" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="em">Link record host <span class="hint">first CNAME from SendGrid, like em1234</span></label>
+        <input id="em" placeholder="em1234" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="sel">DKIM selectors <span class="hint">usually leave as is</span></label>
+        <input id="sel" value="s1, s2" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="go">Check my domain</button>
+      <button class="secondary" id="copy" disabled>Copy results</button>
+      <button class="secondary" id="share" disabled>Copy share link</button>
+    </div>
+    <div id="error" class="err"></div>
+  </div>
+
+  <div id="summary"></div>
+  <div id="results"></div>
+
+  <h2>How to add the records</h2>
+  <div class="card">
+    <ol>
+      <li>Log in where your domain's DNS is managed. Usually where you bought the domain (GoDaddy, Namecheap, Squarespace) or Cloudflare. Look for <b>DNS</b> or <b>Manage DNS</b>.</li>
+      <li>Add each record from your SendGrid screen using <b>only the first part</b> of the name. Your DNS host adds your domain for you.
+        <table style="margin-top:10px">
+          <tr><th>Type</th><th>Host / Name</th><th>Value</th></tr>
+          <tr><td>CNAME</td><td><code>em1234</code></td><td>value from SendGrid</td></tr>
+          <tr><td>CNAME</td><td><code>s1._domainkey</code></td><td>value from SendGrid</td></tr>
+          <tr><td>CNAME</td><td><code>s2._domainkey</code></td><td>value from SendGrid</td></tr>
+          <tr><td>TXT</td><td><code>_dmarc</code></td><td><code>v=DMARC1; p=none;</code></td></tr>
+        </table>
+      </li>
+      <li>Never type your full domain in the Host field, and never use <code>@</code> for these records.</li>
+      <li>If a <code>_dmarc</code> TXT record already exists, keep it and skip that row. Two DMARC records break DMARC.</li>
+      <li>On Cloudflare, set each CNAME to <b>DNS only</b> (gray cloud), not Proxied.</li>
+      <li>Wait 30 to 60 minutes, then run this checker and click Verify in SendGrid.</li>
+    </ol>
+  </div>
+</main>
+
+<script>
+(function(){
+  var $ = function(s){return document.querySelector(s)};
+  var esc = function(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})};
+  var code = function(s){return '<code>'+esc(s)+'</code>'};
+
+  var PROVIDERS = [
+    [/domaincontrol\.com$/,'GoDaddy'],[/registrar-servers\.com$/,'Namecheap'],
+    [/cloudflare\.com$/,'Cloudflare'],[/wixdns\.net$/,'Wix'],
+    [/azure-dns\./,'Microsoft Azure DNS'],[/awsdns/,'Amazon Route 53'],
+    [/worldnic\.com$/,'Network Solutions'],[/googledomains\.com$/,'Google Domains / Squarespace'],
+    [/squarespacedns\.com$/,'Squarespace'],[/bluehost\.com$/,'Bluehost'],
+    [/hostgator\.com$/,'HostGator'],[/name-services\.com$/,'Enom'],
+    [/dnsmadeeasy\.com$/,'DNS Made Easy'],[/nsone\.net$/,'NS1'],
+    [/digitalocean\.com$/,'DigitalOcean'],[/hover\.com$/,'Hover'],
+    [/ui-dns\.|ionos\./,'IONOS'],[/siteground\.net$/,'SiteGround'],[/dreamhost\.com$/,'DreamHost']
+  ];
+
+  var cache = {};
+  function clean(s){return String(s||'').trim().replace(/\.$/,'').toLowerCase()}
+  function txtData(d){
+    d = String(d); var parts = []; var re = /"((?:[^"\\]|\\.)*)"/g; var m;
+    while((m = re.exec(d))) parts.push(m[1].replace(/\\(.)/g,'$1'));
+    return parts.length ? parts.join('') : d;
+  }
+  function dns(name, type){
+    var key = name+'|'+type;
+    if(!cache[key]) cache[key] = doDns(name, type);
+    return cache[key];
+  }
+  async function doDns(name, type){
+    var n = encodeURIComponent(name), lastErr;
+    var urls = [
+      ['https://dns.google/resolve?name='+n+'&type='+type, {}],
+      ['https://cloudflare-dns.com/dns-query?name='+n+'&type='+type, {headers:{accept:'application/dns-json'}}]
+    ];
+    for(var i=0;i<urls.length;i++){
+      try{
+        var r = await fetch(urls[i][0], urls[i][1]);
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        var j = await r.json();
+        var answers = (j.Answer||[]).map(function(a){
+          return {name:clean(a.name), type:a.type, data: a.type===16 ? txtData(a.data) : clean(a.data)};
+        });
+        return {status:j.Status, answers:answers};
+      }catch(e){lastErr = e}
+    }
+    throw lastErr || new Error('DNS lookup failed');
+  }
+  var of = function(r,t){return r.answers.filter(function(a){return a.type===t})};
+
+  function normDomain(v){
+    v = v.trim().toLowerCase();
+    if(v.indexOf('@')>=0) v = v.split('@').pop();
+    v = v.replace(/^[a-z]+:\/\//,'').split(/[\/?#\s]/)[0].replace(/\.$/,'');
+    return v.replace(/^www\./,'');
+  }
+  function normHost(v, domain){
+    v = v.trim().toLowerCase().replace(/\.$/,'');
+    while(domain && v.length>domain.length && v.slice(-(domain.length+1))==='.'+domain) v = v.slice(0,-(domain.length+1));
+    return v;
+  }
+
+  async function checkCname(label, host, domain, expected, isCF, kind){
+    var fq = host+'.'+domain;
+    var r = await dns(fq,'CNAME');
+    var c = of(r,5)[0];
+    if(c){
+      var t = c.data;
+      if(!/\.sendgrid\.net$/.test(t))
+        return {s:'fail', label:label, detail:code(fq)+' points to '+code(t), fix:'This should point to the SendGrid value shown in your SendGrid setup screen. Edit the record value.'};
+      if(expected && t!==expected)
+        return {s:'warn', label:label, detail:code(fq)+' points to '+code(t), fix:'Expected '+code(expected)+' based on your link record. Make sure all records came from the same SendGrid setup screen.', target:t};
+      if(kind==='dkim' && !/^[a-z0-9]+\.domainkey\.u\d+\.wl\d+\.sendgrid\.net$/.test(t))
+        return {s:'warn', label:label, detail:code(fq)+' points to '+code(t), fix:'This is a SendGrid address but not the usual DKIM format. Double check it against SendGrid.', target:t};
+      return {s:'pass', label:label, detail:code(fq)+' points to '+code(t), target:t};
+    }
+    var res = await Promise.all([dns(fq+'.'+domain,'CNAME'), dns(fq,'A'), dns(fq,'TXT')]);
+    if(of(res[0],5).length)
+      return {s:'fail', label:label, detail:'Found at '+code(fq+'.'+domain)+'. Your DNS host added your domain a second time.', fix:'<b>Fix:</b> edit the Host / Name field so it is only '+code(host)+'.'};
+    if(of(res[1],1).length){
+      if(isCF) return {s:'fail', label:label, detail:code(fq)+' is returning IP addresses instead of a CNAME. It is set to Proxied in Cloudflare.', fix:'<b>Fix:</b> in Cloudflare DNS, click the orange cloud on this record so it turns gray (DNS only).'};
+      return {s:'fail', label:label, detail:code(fq)+' has an A record instead of a CNAME.', fix:'<b>Fix:</b> delete the A record and add a CNAME with Host '+code(host)+'.'};
+    }
+    if(of(res[2],16).length)
+      return {s:'fail', label:label, detail:code(fq)+' was added as a TXT record.', fix:'<b>Fix:</b> delete it and add it again with type <b>CNAME</b>.'};
+    return {s:'fail', label:label, detail:'No record found at '+code(fq)+'.', fix:'<b>Fix:</b> add a CNAME with Host '+code(host)+' and the value from SendGrid. If you just added it, wait 30 to 60 minutes and check again.'};
+  }
+
+  function parseTags(rec){
+    var tags = {};
+    rec.split(';').forEach(function(p){
+      var i = p.indexOf('='); if(i<0) return;
+      tags[p.slice(0,i).trim().toLowerCase()] = p.slice(i+1).trim();
+    });
+    return tags;
+  }
+
+  async function checkDmarc(domain){
+    var out = [];
+    var res = await Promise.all([dns('_dmarc.'+domain,'TXT'), dns(domain,'TXT')]);
+    var isD = function(a){return /^v\s*=\s*dmarc1/i.test(a.data.trim())};
+    var recs = of(res[0],16).filter(isD);
+    var rootTxt = of(res[1],16);
+    var rootD = rootTxt.filter(isD);
+    var label = 'DMARC record (_dmarc)';
+    if(recs.length===0){
+      var dbl = await dns('_dmarc.'+domain+'.'+domain,'TXT');
+      if(of(dbl,16).filter(isD).length)
+        out.push({s:'fail', label:label, detail:'Found at '+code('_dmarc.'+domain+'.'+domain)+'. Your DNS host added your domain a second time.', fix:'<b>Fix:</b> edit the Host / Name field so it is only '+code('_dmarc')+'.'});
+      else if(rootD.length)
+        out.push({s:'fail', label:label, detail:'A DMARC record exists at the root of your domain (@), but email providers only look at '+code('_dmarc.'+domain)+'. Right now you effectively have no DMARC.', fix:'<b>Fix:</b> add a TXT record with Host '+code('_dmarc')+'. Be careful copying the old policy: if it says '+code('p=quarantine')+' or '+code('p=reject')+', start with '+code('p=none')+' first so legitimate mail is not blocked.'});
+      else
+        out.push({s:'fail', label:label, detail:'No DMARC record found.', fix:'<b>Fix:</b> add a TXT record with Host '+code('_dmarc')+' and value '+code('v=DMARC1; p=none;')});
+    } else if(recs.length>1){
+      out.push({s:'fail', label:label, detail:'Found '+recs.length+' DMARC records. When there is more than one, email providers ignore all of them.', fix:'<b>Fix:</b> keep one and delete the rest.<br>'+recs.map(function(r){return code(r.data)}).join('<br>')});
+    } else {
+      var rec = recs[0].data, tags = parseTags(rec), p = (tags.p||'').toLowerCase();
+      if(!p) out.push({s:'fail', label:label, detail:code(rec), fix:'This record is missing the required '+code('p=')+' tag. Use '+code('v=DMARC1; p=none;')+' to start.'});
+      else if(['none','quarantine','reject'].indexOf(p)<0) out.push({s:'fail', label:label, detail:code(rec), fix:'The policy '+code('p='+p)+' is not valid. It must be none, quarantine, or reject.'});
+      else {
+        var note = p==='none' ? 'Policy is monitoring only (p=none). That is fine for SendGrid.' : 'Policy is '+p+'.';
+        if(!tags.rua) note += ' No reporting address (rua) is set, which is optional.';
+        out.push({s:'pass', label:label, detail:code(rec)+'<br>'+esc(note)});
+      }
+      if(rootD.length)
+        out.push({s:'warn', label:'Extra DMARC record at root (@)', detail:'There is also a DMARC record at the root of your domain. It is ignored by email providers.', fix:'Harmless, but you can delete it to avoid confusion: '+code(rootD[0].data)});
+    }
+    var spf = rootTxt.filter(function(a){return /^v=spf1/i.test(a.data.trim())});
+    if(spf.length>1)
+      out.push({s:'fail', label:'SPF record (root)', detail:'Found '+spf.length+' SPF records. Only one is allowed, so SPF fails for all of your email, not just SendGrid.', fix:'<b>Fix:</b> combine them into a single '+code('v=spf1')+' record.<br>'+spf.map(function(r){return code(r.data)}).join('<br>')});
+    else if(spf.length===1)
+      out.push({s:'info', label:'SPF record (root)', detail:code(spf[0].data)+'<br>SendGrid does not need changes here. Your link record handles SPF for SendGrid mail.'});
+    return out;
+  }
+
+  var lastResults = [], lastDomain = '';
+
+  function render(items){
+    var counts = {pass:0,warn:0,fail:0,info:0};
+    items.forEach(function(i){counts[i.s]++});
+    var sum = $('#summary');
+    sum.style.display = 'block';
+    if(counts.fail){
+      sum.style.background='var(--failbg)'; sum.style.color='var(--fail)';
+      sum.textContent = counts.fail+' problem'+(counts.fail>1?'s':'')+' found. Follow the fixes below, wait 30 to 60 minutes, then check again.';
+    } else if(counts.warn){
+      sum.style.background='var(--warnbg)'; sum.style.color='var(--warn)';
+      sum.textContent = 'Records look mostly right. Review the notes below.';
+    } else {
+      sum.style.background='var(--passbg)'; sum.style.color='var(--pass)';
+      sum.textContent = 'All set. Click Verify in SendGrid.';
+    }
+    $('#results').innerHTML = items.map(function(i){
+      return '<div class="item s-'+i.s+'"><div class="badge">'+i.s.toUpperCase()+'</div><div>'+
+        '<div class="label">'+esc(i.label)+'</div><div class="detail">'+i.detail+'</div>'+
+        (i.fix?'<div class="fix">'+i.fix+'</div>':'')+'</div></div>';
+    }).join('');
+  }
+
+  async function run(){
+    $('#error').textContent='';
+    var domain = normDomain($('#domain').value);
+    $('#domain').value = domain;
+    var em = normHost($('#em').value, domain);
+    $('#em').value = em;
+    var sels = $('#sel').value.split(/[\s,]+/).map(function(s){return normHost(s,domain).replace(/\._domainkey$/,'')}).filter(Boolean);
+    if(!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(domain)){
+      $('#error').textContent='Enter a domain like yourchurch.org'; return;
+    }
+    cache = {};
+    var btn = $('#go'); btn.disabled = true; btn.textContent = 'Checking...';
+    $('#summary').style.display='none'; $('#results').innerHTML='';
+    try{
+      var items = [];
+      var ns = await dns(domain,'NS');
+      var nsHosts = of(ns,2).map(function(a){return a.data});
+      var provider = null;
+      nsHosts.forEach(function(h){PROVIDERS.forEach(function(p){if(!provider && p[0].test(h)) provider = p[1]})});
+      var isCF = provider==='Cloudflare';
+      items.push({s:'info', label:'DNS host', detail: provider ? esc(provider)+' manages your DNS. Make your changes there.' : (nsHosts.length ? 'Name servers: '+nsHosts.map(code).join(', ') : 'Could not detect who manages your DNS.')});
+
+      var base = null;
+      if(em){
+        var r = await checkCname('Link record ('+em+')', em, domain, null, isCF, 'em');
+        items.push(r);
+        if(r.target) base = r.target;
+      } else {
+        items.push({s:'info', label:'Link record', detail:'Not checked. Enter the first CNAME host from SendGrid (like em1234) to include it.'});
+      }
+      var dk = await Promise.all(sels.map(function(sel){
+        var expected = base ? sel+'.domainkey.'+base : null;
+        return checkCname('DKIM record ('+sel+'._domainkey)', sel+'._domainkey', domain, expected, isCF, 'dkim');
+      }));
+      items = items.concat(dk);
+      items = items.concat(await checkDmarc(domain));
+
+      lastResults = items; lastDomain = domain;
+      render(items);
+      $('#copy').disabled = false; $('#share').disabled = false;
+      try{
+        var u = new URL(location.href);
+        u.searchParams.set('domain', domain);
+        if(em) u.searchParams.set('em', em); else u.searchParams.delete('em');
+        history.replaceState(null,'',u);
+      }catch(e){}
+    }catch(e){
+      $('#error').textContent = 'Lookup failed: '+e.message+'. Check your connection and try again.';
+    }finally{
+      btn.disabled = false; btn.textContent = 'Check my domain';
+    }
+  }
+
+  function plain(html){var d=document.createElement('div');d.innerHTML=html.replace(/<br>/g,'\n');return d.textContent}
+  function flash(btn, msg){var t=btn.textContent;btn.textContent=msg;setTimeout(function(){btn.textContent=t},1500)}
+
+  $('#go').addEventListener('click', run);
+  ['#domain','#em','#sel'].forEach(function(s){$(s).addEventListener('keydown',function(e){if(e.key==='Enter') run()})});
+  $('#copy').addEventListener('click', function(){
+    var txt = 'SendGrid DNS check for '+lastDomain+'\n\n'+lastResults.map(function(i){
+      return '['+i.s.toUpperCase()+'] '+i.label+'\n'+plain(i.detail)+(i.fix?'\n'+plain(i.fix):'');
+    }).join('\n\n');
+    navigator.clipboard.writeText(txt).then(function(){flash($('#copy'),'Copied')});
+  });
+  $('#share').addEventListener('click', function(){
+    navigator.clipboard.writeText(location.href).then(function(){flash($('#share'),'Copied')});
+  });
+
+  var qp = new URLSearchParams(location.search);
+  if(qp.get('domain')){
+    $('#domain').value = qp.get('domain');
+    if(qp.get('em')) $('#em').value = qp.get('em');
+    if(qp.get('sel')) $('#sel').value = qp.get('sel');
+    run();
+  }
+})();
+</script>
+</body>
+</html>
