@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>
+<title>Volunteer Readiness Mockup</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a TouchPoint-style admin page. Top bar, requirement switcher, three tabs, one 1100px column. */
+:root {
+  --bg: #f4f6f9; --panel: #ffffff; --fg: #1d2733; --muted: #5d6b7a; --line: #dbe1e8;
+  --accent: #2463b0; --accent-soft: #e5eefa;
+  --good: #1f7a4d; --good-soft: #e3f3ea; --warn: #9a6200; --warn-soft: #fbf0d9;
+  --bad: #b3322b; --bad-soft: #fae6e4; --none: #66717d; --none-soft: #eceff2;
+  --font-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12171d; --panel: #1a2129; --fg: #e4e9ef; --muted: #9aa7b4; --line: #2e3843;
+  --accent: #6aa5ec; --accent-soft: #1d2e44;
+  --good: #5cc48f; --good-soft: #17352a; --warn: #e2b357; --warn-soft: #3a2f17;
+  --bad: #ef7f77; --bad-soft: #3d1f1d; --none: #a3adb8; --none-soft: #262e37; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12171d; --panel: #1a2129; --fg: #e4e9ef; --muted: #9aa7b4; --line: #2e3843;
+  --accent: #6aa5ec; --accent-soft: #1d2e44;
+  --good: #5cc48f; --good-soft: #17352a; --warn: #e2b357; --warn-soft: #3a2f17;
+  --bad: #ef7f77; --bad-soft: #3d1f1d; --none: #a3adb8; --none-soft: #262e37; color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1100px; margin: 0 auto; padding-block: 20px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 16px; }
+.banner { font-size: 13px; color: var(--muted); border: 1px dashed var(--line); border-radius: 6px; padding: 8px 12px; }
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+h1 { font-size: 24px; margin: 0; text-wrap: balance; }
+h2 { font-size: 17px; margin: 0; }
+h3 { font-size: 15px; margin: 0; }
+.sub { color: var(--muted); font-size: 14px; }
+.as { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--panel); }
+.seg button { border: 0; background: none; color: var(--fg); font: inherit; font-size: 14px; padding: 6px 12px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.reqbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.reqbar .lbl { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-right: 4px; }
+.chip { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 999px; padding: 4px 12px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.chip.soon { color: var(--muted); cursor: default; border-style: dashed; }
+.chip small { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+nav.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+nav.tabs button { border: 0; background: none; font: inherit; font-weight: 600; color: var(--muted); padding: 10px 14px; border-bottom: 3px solid transparent; cursor: pointer; white-space: nowrap; }
+nav.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.field { display: grid; grid-template-columns: 1fr 140px; align-items: center; gap: 8px 12px; }
+.field label { font-weight: 600; font-size: 14px; }
+.field .hint { grid-column: 1 / -1; color: var(--muted); font-size: 13px; margin-top: -4px; }
+input, select { font: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg); width: 100%; box-sizing: border-box; }
+input:disabled, select:disabled { opacity: .55; cursor: not-allowed; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.check input { width: auto; }
+.lock { font-size: 13px; color: var(--warn); background: var(--warn-soft); border-radius: 6px; padding: 6px 10px; }
+.btn { font: inherit; font-size: 14px; font-weight: 600; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.btn.ghost { background: none; color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.filters > div { display: flex; flex-direction: column; gap: 4px; min-width: 170px; flex: 1 1 170px; }
+.filters label { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.tile { text-align: left; font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 8px; padding: 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.tile[aria-pressed="true"] { background: var(--cs); }
+.tile .n { font-family: var(--font-data); font-size: 26px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .l { font-size: 14px; color: var(--muted); }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td.num, .mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 13px; }
+tr.row { cursor: pointer; }
+tr.row:hover td { background: var(--accent-soft); }
+.pager { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--muted); }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; color: var(--c); background: var(--cs); }
+.s-done { --c: var(--good); --cs: var(--good-soft); }
+.s-soon { --c: var(--warn); --cs: var(--warn-soft); }
+.s-pend { --c: var(--warn); --cs: var(--warn-soft); }
+.s-exp { --c: var(--bad); --cs: var(--bad-soft); }
+.s-low { --c: var(--bad); --cs: var(--bad-soft); }
+.s-none { --c: var(--none); --cs: var(--none-soft); }
+.s-nr { --c: var(--none); --cs: var(--none-soft); }
+.sb { font-size: 13px; color: var(--muted); background: var(--bg); border-radius: 6px; padding: 8px 10px; }
+.sb code { font-family: var(--font-data); font-size: 12.5px; color: var(--fg); }
+.req { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--line); align-items: start; }
+.req:first-child { border-top: 0; padding-top: 0; }
+.req .t { font-weight: 600; }
+.req .d { color: var(--muted); font-size: 14px; grid-column: 1 / 2; }
+.req.later { opacity: .5; }
+.req.later .pill { --c: var(--none); --cs: var(--none-soft); }
+.hist { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+.search { position: relative; }
+.results { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 6px; margin-top: 6px; overflow: hidden; }
+.results button { font: inherit; text-align: left; background: var(--panel); color: var(--fg); border: 0; border-top: 1px solid var(--line); padding: 8px 10px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+.results button:first-child { border-top: 0; }
+.results button:hover { background: var(--accent-soft); }
+.results .meta { color: var(--muted); font-size: 13px; }
+.rs { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.rs.off { opacity: .55; }
+.rs-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; }
+.sentence { font-size: 14px; line-height: 1.7; }
+.tok { display: inline-block; background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 0 6px; font-weight: 600; }
+.picks { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.picks fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.picks legend { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 0 4px; }
+.toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 6px; font-size: 14px; }
+.row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+@media (max-width: 520px) { .field { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: no-preference) { .tile, .chip, nav.tabs button { transition: background .15s, border-color .15s; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="banner">Mockup with 16 example people. Nothing here is connected to TouchPoint. Change a rule or a "who needs it" rule set in Settings and the other tabs update.</div>
+
+  <header>
+    <div>
+      <h1>Volunteer Readiness</h1>
+      <div class="sub">Example data as of Oct 20, 2026</div>
+    </div>
+    <div class="as">Viewing as
+      <div class="seg" role="group" aria-label="Access level">
+        <button id="lv-view" data-level="view" aria-pressed="false">View</button>
+        <button id="lv-manage" data-level="manage" aria-pressed="false">Manage</button>
+        <button id="lv-admin" data-level="admin" aria-pressed="true">Admin</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="reqbar" role="group" aria-label="Requirement">
+    <span class="lbl">Requirement</span>
+    <button class="chip" id="rq-training" aria-pressed="true">Training</button>
+    <button class="chip soon" id="rq-bg" aria-disabled="true">Background check <small>Roadmap</small></button>
+    <button class="chip soon" id="rq-policy" aria-disabled="true">Policy sign-off <small>Roadmap</small></button>
+    <button class="chip soon" id="rq-cert" aria-disabled="true">Certifications <small>Roadmap</small></button>
+  </div>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="tab-dash" data-tab="dash" aria-selected="true">Dashboard</button>
+    <button role="tab" id="tab-person" data-tab="person" aria-selected="false">Person</button>
+    <button role="tab" id="tab-settings" data-tab="settings" aria-selected="false">Settings</button>
+  </nav>
+
+  <!-- DASHBOARD -->
+  <section id="view-dash">
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <div class="panel">
+        <div class="filters">
+          <div><label for="f-prog">Program</label><select id="f-prog"></select></div>
+          <div><label for="f-div">Division</label><select id="f-div"></select></div>
+          <div><label for="f-show">Show</label><select id="f-show"><option value="attn">Needs attention</option><option value="all">Everyone who needs it</option></select></div>
+        </div>
+      </div>
+      <div class="tiles" id="tiles"></div>
+      <div class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+          <h2 id="list-title"></h2>
+          <button class="btn ghost" id="run-now">Run update now</button>
+        </div>
+        <div class="sb" id="sb-hint"></div>
+        <div class="scroll"><table>
+          <thead><tr><th>Name</th><th>Program / Division</th><th>Role</th><th>Score</th><th>Completed</th><th>Counts until</th><th>Status</th><th id="act-h">Action</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table></div>
+        <div class="pager"><span id="pager-l"></span><span>Loads 50 at a time</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PERSON -->
+  <section id="view-person" hidden>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <div class="panel search">
+        <label for="p-q" style="font-weight:600;font-size:14px">Find a person</label>
+        <input id="p-q" type="search" placeholder="Name, email or People ID" autocomplete="off">
+        <div class="sub" style="font-size:13px">Searches every record in TouchPoint and shows the top 20 matches. You can also open someone from the worklist, the Blue Toolbar, or a link on their record.</div>
+        <div class="results" id="p-results" hidden></div>
+      </div>
+      <div class="grid2">
+        <div class="panel">
+          <div><h2 id="p-name"></h2><div class="sub" id="p-min"></div></div>
+          <div id="p-reqs"></div>
+        </div>
+        <div class="panel">
+          <h3>Why it is required</h3>
+          <div class="sub" id="p-why"></div>
+          <h3>Training history</h3>
+          <ul class="hist" id="p-hist"></ul>
+          <div class="row-actions" id="p-actions"></div>
+          <div class="sb">The status is also on the person's record as the extra value <code>Training Status</code>, with <code>Training Completed</code> (date) and <code>Training Score</code>.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="view-settings" hidden>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <div class="lock" id="lock-note" hidden></div>
+      <div class="panel">
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
+          <div><h2>Who needs it</h2><div class="sub">Rule sets use the same builder as the Compliance Dashboard. Someone matching any enabled rule set needs the training. If they match more than one, the shortest renewal applies.</div></div>
+          <button class="btn ghost admin-btn" id="rs-add">Add rule set</button>
+        </div>
+        <div id="rulesets" style="display:flex;flex-direction:column;gap:12px"></div>
+      </div>
+      <div class="grid2">
+        <div class="panel">
+          <h2>Rules</h2>
+          <div class="field"><label for="s-pass">Passing score (%)</label><input id="s-pass" type="number" min="0" max="100" value="80" class="rule">
+            <div class="hint">Scores at or above this count as passed.</div></div>
+          <div class="field"><label for="s-months">Counts for (months)</label><input id="s-months" type="number" min="1" max="120" value="24" class="rule">
+            <div class="hint">The default. A rule set can set a shorter renewal.</div></div>
+          <div class="field"><label for="s-warn">Warn before expiring (days)</label><input id="s-warn" type="number" min="0" max="365" value="60" class="rule"></div>
+          <div class="field"><label for="s-pend">Flag Pending after (days)</label><input id="s-pend" type="number" min="1" max="90" value="14" class="rule">
+            <div class="hint">Requested in MinistrySafe but no score back yet.</div></div>
+          <div>
+            <div style="font-weight:600;font-size:14px;margin-bottom:6px">Courses that count</div>
+            <label class="check"><input type="checkbox" id="c1" class="rule" checked> Abuse Awareness Training</label>
+            <label class="check"><input type="checkbox" id="c2" class="rule" checked> Abuse Awareness Refresher</label>
+            <label class="check"><input type="checkbox" id="c3" class="rule"> Skills Training (Supervisors)</label>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Status names</h2>
+          <div class="field"><label for="n-done">Passed and current</label><input id="n-done" value="Completed" class="rule"></div>
+          <div class="field"><label for="n-soon">Expiring soon</label><input id="n-soon" value="Expiring soon" class="rule"></div>
+          <div class="field"><label for="n-exp">Too old</label><input id="n-exp" value="Expired" class="rule"></div>
+          <div class="field"><label for="n-low">Under passing score</label><input id="n-low" value="Below passing score" class="rule"></div>
+          <div class="field"><label for="n-pend">Waiting on a score</label><input id="n-pend" value="Pending" class="rule"></div>
+          <div class="field"><label for="n-none">Needs it, never taken</label><input id="n-none" value="Not started" class="rule"></div>
+        </div>
+        <div class="panel">
+          <h2>Access and schedule</h2>
+          <div class="field"><label for="r-view">View: see statuses and reports</label><select id="r-view" class="admin"><option>Training-View</option><option>Staff</option><option>Access</option></select></div>
+          <div class="field"><label for="r-manage">Manage: approve, override, schedule</label><select id="r-manage" class="admin"><option>Training-Manage</option><option>Staff</option></select></div>
+          <div class="field"><label for="r-admin">Admin: rules, rule sets, access</label><select id="r-admin" class="admin"><option>Training-Admin</option><option>Admin</option></select></div>
+          <label class="check"><input type="checkbox" id="s-15" class="sched" checked> Check for new scores every 15 minutes</label>
+          <label class="check"><input type="checkbox" id="s-am" class="sched" checked> Recheck everyone in the morning batch</label>
+          <div class="sub" style="font-size:13px">The morning recheck only writes to people whose status changed.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function () {
+  var TODAY = Date.UTC(2026, 9, 20), DAY = 864e5;
+  var MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var PROGRAMS = {
+    "Children's Ministry": ["Preschool", "Elementary"],
+    "Student Ministry": ["Middle School", "High School"],
+    "Special Needs": ["Special Friends"],
+    "Adults": ["Adult Bible Fellowship"]
+  };
+  var ROLES = ["Leader", "Teacher", "Helper", "Member"];
+  // req = date a training was requested in MinistrySafe with no score back yet
+  var people = [
+    { id: 1048, name: "Avery Collins", email: "avery.c@example.org", prog: "Children's Ministry", div: "Elementary", role: "Teacher", score: 92, date: "2025-03-14", course: 1 },
+    { id: 2210, name: "Jordan Reyes", email: "jreyes@example.org", prog: "Student Ministry", div: "High School", role: "Leader", score: 76, date: "2026-09-02", course: 1 },
+    { id: 3377, name: "Morgan Ellis", email: "morgan.ellis@example.org", prog: "Children's Ministry", div: "Preschool", role: "Teacher", score: 88, date: "2024-09-30", course: 1 },
+    { id: 4102, name: "Taylor Brooks", email: "tbrooks@example.org", prog: "Children's Ministry", div: "Elementary", role: "Leader", score: 95, date: "2024-11-28", course: 1 },
+    { id: 5521, name: "Casey Nguyen", email: "casey.n@example.org", prog: "Special Needs", div: "Special Friends", role: "Helper", score: null, date: null, course: 1 },
+    { id: 6013, name: "Riley Patel", email: "rpatel@example.org", prog: "Children's Ministry", div: "Preschool", role: "Helper", score: 84, date: "2026-01-11", course: 2 },
+    { id: 7240, name: "Jamie Foster", email: "jamie.f@example.org", prog: "Children's Ministry", div: "Elementary", role: "Helper", score: 81, date: "2025-06-20", course: 1 },
+    { id: 8195, name: "Drew Martin", email: "dmartin@example.org", prog: "Student Ministry", div: "Middle School", role: "Leader", score: 79, date: "2025-12-05", course: 1 },
+    { id: 9033, name: "Quinn Harper", email: "qharper@example.org", prog: "Children's Ministry", div: "Elementary", role: "Teacher", score: 100, date: "2023-08-15", course: 1 },
+    { id: 10456, name: "Skyler Owens", email: "skyler.o@example.org", prog: "Children's Ministry", div: "Preschool", role: "Leader", score: null, date: null, course: 1 },
+    { id: 11872, name: "Parker Lee", email: "plee@example.org", prog: "Special Needs", div: "Special Friends", role: "Leader", score: 90, date: "2024-12-10", course: 2 },
+    { id: 12309, name: "Reese Campbell", email: "reese.c@example.org", prog: "Student Ministry", div: "High School", role: "Helper", score: 86, date: "2026-05-18", course: 1 },
+    { id: 13551, name: "Logan Price", email: "lprice@example.org", prog: "Adults", div: "Adult Bible Fellowship", role: "Teacher", score: null, date: null, course: 1 },
+    { id: 14020, name: "Harper Wells", email: "hwells@example.org", prog: "Student Ministry", div: "Middle School", role: "Member", score: null, date: null, course: 1 },
+    { id: 15688, name: "Emerson Diaz", email: "ediaz@example.org", prog: "Adults", div: "Adult Bible Fellowship", role: "Leader", score: 91, date: "2025-08-01", course: 1 },
+    { id: 16904, name: "Rowan Kim", email: "rowan.k@example.org", prog: "Student Ministry", div: "High School", role: "Leader", score: null, date: null, req: "2026-09-20", course: 1 }
+  ];
+  var ruleSets = [
+    { id: "rs1", name: "Children and Special Needs volunteers", on: true, programs: ["Children's Ministry", "Special Needs"], divisions: [], roles: ["Leader", "Teacher", "Helper"], months: null, open: false },
+    { id: "rs2", name: "Student Ministry leaders", on: true, programs: ["Student Ministry"], divisions: [], roles: ["Leader", "Helper"], months: 12, open: false }
+  ];
+  var overrides = {};
+  var level = "admin", tab = "dash", filter = null, personId = 4102;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function parse(d) { var p = d.split("-"); return Date.UTC(+p[0], +p[1] - 1, +p[2]); }
+  function fmt(t) { var d = new Date(t); return MONTHS[d.getUTCMonth()] + " " + d.getUTCDate() + ", " + d.getUTCFullYear(); }
+  function addMonths(t, m) { var d = new Date(t); d.setUTCMonth(d.getUTCMonth() + m); return d.getTime(); }
+  function num(id, dflt) { var v = parseInt($(id).value, 10); return isNaN(v) ? dflt : v; }
+  function list(a) { return a.length ? a.join(", ") : ""; }
+  function canManage() { return level !== "view"; }
+
+  function rules() {
+    return {
+      pass: num("s-pass", 80), months: num("s-months", 24), warn: num("s-warn", 60), pend: num("s-pend", 14),
+      courses: { 1: $("c1").checked, 2: $("c2").checked, 3: $("c3").checked },
+      names: {
+        done: $("n-done").value || "Completed", soon: $("n-soon").value || "Expiring soon", exp: $("n-exp").value || "Expired",
+        low: $("n-low").value || "Below passing score", pend: $("n-pend").value || "Pending", none: $("n-none").value || "Not started", nr: "Not required"
+      }
+    };
+  }
+  function matches(p, rs) {
+    if (!rs.on) return false;
+    if (!rs.programs.length && !rs.divisions.length && !rs.roles.length) return false;
+    if (rs.programs.length && rs.programs.indexOf(p.prog) < 0) return false;
+    if (rs.divisions.length && rs.divisions.indexOf(p.div) < 0) return false;
+    if (rs.roles.length && rs.roles.indexOf(p.role) < 0) return false;
+    return true;
+  }
+  function scopeOf(p) { return ruleSets.filter(function (rs) { return matches(p, rs); }); }
+  function status(p, r) {
+    var sets = scopeOf(p);
+    var months = sets.reduce(function (m, rs) { return Math.min(m, rs.months || r.months); }, r.months);
+    var out;
+    var o = overrides[p.id];
+    if (o) out = { key: "done", until: addMonths(o.at, months), manual: true };
+    else if (p.score === null && p.req) out = { key: "pend", age: Math.round((TODAY - parse(p.req)) / DAY) };
+    else if (p.score === null || !r.courses[p.course]) out = { key: "none" };
+    else if (p.score < r.pass) out = { key: "low" };
+    else {
+      var until = addMonths(parse(p.date), months);
+      if (TODAY > until) out = { key: "exp", until: until };
+      else if ((until - TODAY) / DAY <= r.warn) out = { key: "soon", until: until };
+      else out = { key: "done", until: until };
+    }
+    out.sets = sets; out.months = months;
+    if (!sets.length) out.key = (out.key === "none" || out.key === "pend") ? "skip" : "nr";
+    return out;
+  }
+  var CLS = { done: "s-done", soon: "s-soon", exp: "s-exp", low: "s-low", pend: "s-pend", none: "s-none", nr: "s-nr" };
+  var ORDER = ["done", "soon", "exp", "low", "pend", "none"];
+  var ATTN = { soon: 1, exp: 1, low: 1, pend: 1, none: 1 };
+  function pill(s, r) {
+    var label = r.names[s.key];
+    if (s.manual) label += " (manual)";
+    if (s.key === "pend" && s.age >= r.pend) label += ", " + s.age + " days";
+    return '<span class="pill ' + CLS[s.key] + '">' + esc(label) + "</span>";
+  }
+
+  // ---------- Dashboard ----------
+  function fillFilters() {
+    var pv = $("f-prog").value || "";
+    $("f-prog").innerHTML = '<option value="">All programs</option>' + Object.keys(PROGRAMS).map(function (p) { return '<option' + (p === pv ? " selected" : "") + ">" + esc(p) + "</option>"; }).join("");
+    var dv = $("f-div").value || "";
+    var divs = pv ? PROGRAMS[pv] : [];
+    $("f-div").innerHTML = '<option value="">All divisions</option>' + divs.map(function (d) { return '<option' + (d === dv ? " selected" : "") + ">" + esc(d) + "</option>"; }).join("");
+    $("f-div").disabled = !pv;
+  }
+  function renderDash() {
+    fillFilters();
+    var r = rules(), pv = $("f-prog").value, dv = $("f-div").value, show = $("f-show").value;
+    var counts = { done: 0, soon: 0, exp: 0, low: 0, pend: 0, none: 0 };
+    var inArea = people.map(function (p) { return { p: p, s: status(p, r) }; })
+      .filter(function (x) { return x.s.key !== "nr" && x.s.key !== "skip" && (!pv || x.p.prog === pv) && (!dv || x.p.div === dv); });
+    inArea.forEach(function (x) { counts[x.s.key]++; });
+    $("tiles").innerHTML = ORDER.map(function (k) {
+      return '<button class="tile ' + CLS[k] + '" data-k="' + k + '" aria-pressed="' + (filter === k) + '"><span class="n">' + counts[k] + '</span><span class="l">' + esc(r.names[k]) + "</span></button>";
+    }).join("");
+    var shown = inArea.filter(function (x) { return filter ? x.s.key === filter : (show === "all" || ATTN[x.s.key]); })
+      .sort(function (a, b) { return ORDER.indexOf(b.s.key) - ORDER.indexOf(a.s.key) || a.p.name.localeCompare(b.p.name); });
+    var area = dv || pv || "all programs";
+    $("list-title").textContent = (filter ? r.names[filter] : (show === "all" ? "Everyone who needs it" : "Needs attention")) + " in " + area;
+    $("pager-l").textContent = "Showing " + shown.length + " of " + inArea.length + " people who need the training here";
+    $("sb-hint").innerHTML = "Same list in Search Builder: <code>Extra Value Code</code> Training Status " + (filter ? "= " + esc(r.names[filter]) : "One Of the statuses shown") +
+      (pv ? ", AND <code>Program</code> = " + esc(pv) : "") + ".";
+    $("act-h").hidden = !canManage();
+    $("rows").innerHTML = shown.length ? shown.map(function (x) {
+      var p = x.p, s = x.s, act = "";
+      if (canManage() && !s.manual && (s.key === "low" || s.key === "none" || s.key === "pend")) act = '<button class="btn ghost" data-approve="' + p.id + '">Approve</button>';
+      if (canManage() && s.manual) act = '<button class="btn ghost" data-undo="' + p.id + '">Undo</button>';
+      return '<tr class="row" data-pid="' + p.id + '"><td>' + esc(p.name) + "</td><td>" + esc(p.prog) + " / " + esc(p.div) + "</td><td>" + esc(p.role) +
+        '</td><td class="num">' + (p.score === null ? "–" : p.score + "%") + '</td><td class="num">' + (p.date ? fmt(parse(p.date)) : "–") +
+        '</td><td class="num">' + (s.until ? fmt(s.until) : "–") + "</td><td>" + pill(s, r) + "</td>" + (canManage() ? "<td>" + act + "</td>" : "") + "</tr>";
+    }).join("") : '<tr><td colspan="8" class="sub">No one here needs attention.</td></tr>';
+    $("run-now").disabled = !canManage();
+  }
+
+  // ---------- Person ----------
+  function renderResults() {
+    var q = $("p-q").value.trim().toLowerCase();
+    if (q.length < 2) { $("p-results").hidden = true; return; }
+    var hits = people.filter(function (p) { return p.name.toLowerCase().indexOf(q) >= 0 || p.email.indexOf(q) >= 0 || String(p.id) === q; }).slice(0, 20);
+    $("p-results").hidden = false;
+    $("p-results").innerHTML = hits.length ? hits.map(function (p) {
+      return '<button data-pick="' + p.id + '"><span>' + esc(p.name) + '</span><span class="meta">' + esc(p.div) + " · " + esc(p.role) + " · " + p.id + "</span></button>";
+    }).join("") : '<div class="sub" style="padding:8px 10px">No matches</div>';
+  }
+  function renderPerson() {
+    var r = rules(), p = people.filter(function (x) { return x.id === personId; })[0], s = status(p, r);
+    $("p-name").textContent = p.name;
+    $("p-min").textContent = p.prog + " · " + p.div + " · " + p.role + " · People ID " + p.id;
+    var shown = s.key === "skip" ? { key: "nr" } : s;
+    var detail = p.score === null ? (p.req ? "Requested in MinistrySafe on " + fmt(parse(p.req)) + ", no score back yet" : "No MinistrySafe result yet") :
+      "Score " + p.score + "% on " + fmt(parse(p.date)) + (s.until ? ", counts until " + fmt(s.until) : "") + ". Passing score " + r.pass + "%, renews every " + s.months + " months.";
+    $("p-reqs").innerHTML =
+      '<div class="req"><span class="t">Training</span>' + pill(shown, r) + '<span class="d">' + esc(detail) + "</span></div>" +
+      '<div class="req later"><span class="t">Background check</span><span class="pill">Roadmap</span><span class="d">Status, check level and expiration</span></div>' +
+      '<div class="req later"><span class="t">Policy sign-off</span><span class="pill">Roadmap</span><span class="d">Signed and dated on the record</span></div>' +
+      '<div class="req later"><span class="t">Certifications</span><span class="pill">Roadmap</span><span class="d">CPR, driver\'s license and others</span></div>' +
+      '<div class="req later"><span class="t">Cleared to serve in ' + esc(p.div) + '</span><span class="pill">Roadmap</span><span class="d">One answer from all the requirements above</span></div>';
+    $("p-why").innerHTML = s.sets.length ? s.sets.map(function (rs) { return "Matches <strong>" + esc(rs.name) + "</strong>" + (rs.months ? " (renews every " + rs.months + " months)" : ""); }).join("<br>") :
+      "Not in any rule set, so training is not required for " + esc(p.role.toLowerCase()) + "s in " + esc(p.div) + ".";
+    var h = [];
+    if (overrides[p.id]) h.push("Oct 20, 2026 · Approved by hand · note: " + esc(overrides[p.id].note));
+    if (p.score !== null) h.push(fmt(parse(p.date)) + " · MinistrySafe score received, " + p.score + "%");
+    if (p.req) h.push(fmt(parse(p.req)) + " · Training requested in MinistrySafe");
+    if (!h.length) h.push("Nothing yet");
+    $("p-hist").innerHTML = h.map(function (x) { return "<li>" + x + "</li>"; }).join("");
+    var a = "";
+    if (canManage() && !overrides[p.id] && (s.key === "low" || s.key === "none" || s.key === "pend")) a = '<button class="btn" data-approve="' + p.id + '">Approve by hand</button>';
+    if (canManage() && overrides[p.id]) a = '<button class="btn ghost" data-undo="' + p.id + '">Undo manual approval</button>';
+    $("p-actions").innerHTML = a;
+  }
+
+  // ---------- Settings ----------
+  function sentence(rs) {
+    var parts = [];
+    if (rs.programs.length) parts.push('in the <span class="tok">' + esc(list(rs.programs)) + "</span> program" + (rs.programs.length > 1 ? "s" : ""));
+    if (rs.divisions.length) parts.push('in the <span class="tok">' + esc(list(rs.divisions)) + "</span> division" + (rs.divisions.length > 1 ? "s" : ""));
+    if (rs.roles.length) parts.push('serving as <span class="tok">' + esc(list(rs.roles)) + "</span>");
+    if (!parts.length) return "Applies to no one yet. Pick a program, division or role.";
+    return "Everyone " + parts.join(" ") + " must have training" +
+      (rs.months ? ', renewed every <span class="tok">' + rs.months + " months</span>" : "") + ".";
+  }
+  function picker(rs, key, legend, options) {
+    var dis = level !== "admin" ? " disabled" : "";
+    return "<fieldset><legend>" + legend + "</legend>" + options.map(function (o) {
+      return '<label class="check"><input type="checkbox" data-rs="' + rs.id + '" data-key="' + key + '" value="' + esc(o) + '"' + (rs[key].indexOf(o) >= 0 ? " checked" : "") + dis + "> " + esc(o) + "</label>";
+    }).join("") + "</fieldset>";
+  }
+  function renderRuleSets() {
+    var isAdmin = level === "admin";
+    var allDivs = [];
+    Object.keys(PROGRAMS).forEach(function (p) { allDivs = allDivs.concat(PROGRAMS[p]); });
+    var r = rules();
+    $("rulesets").innerHTML = ruleSets.map(function (rs) {
+      var n = people.filter(function (p) { return matches(p, rs); }).length;
+      return '<div class="rs' + (rs.on ? "" : " off") + '"><div class="rs-head"><h3>' + esc(rs.name) + '</h3><div class="row-actions">' +
+        '<span class="sub" style="align-self:center">' + n + " example " + (n === 1 ? "person" : "people") + "</span>" +
+        '<label class="check"><input type="checkbox" data-rs-on="' + rs.id + '"' + (rs.on ? " checked" : "") + (isAdmin ? "" : " disabled") + "> On</label>" +
+        '<button class="btn ghost" data-rs-edit="' + rs.id + '">' + (rs.open ? "Done" : "Edit") + "</button></div></div>" +
+        '<div class="sentence">' + sentence(rs) + "</div>" +
+        (rs.open ? '<div class="picks">' + picker(rs, "programs", "Program", Object.keys(PROGRAMS)) + picker(rs, "divisions", "Division (narrows the programs)", allDivs) + picker(rs, "roles", "Role in the involvement", ROLES) +
+          '<fieldset><legend>Renewal here</legend><label class="check" style="flex-direction:column;align-items:stretch">Months (blank = ' + r.months + ')<input type="number" min="1" max="120" data-rs-months="' + rs.id + '" value="' + (rs.months || "") + '"' + (isAdmin ? "" : " disabled") + "></label></fieldset></div>" : "") +
+        "</div>";
+    }).join("");
+    $("rs-add").disabled = !isAdmin;
+  }
+  function renderSettings() {
+    var isAdmin = level === "admin";
+    Array.prototype.forEach.call(document.querySelectorAll(".rule, .admin"), function (el) { el.disabled = !isAdmin; });
+    Array.prototype.forEach.call(document.querySelectorAll(".sched"), function (el) { el.disabled = level === "view"; });
+    $("lock-note").hidden = isAdmin;
+    $("lock-note").textContent = level === "view" ? "View access: settings are read only." : "Manage access: you can change the update schedule and run it now. Rules, rule sets and access need Admin.";
+    renderRuleSets();
+  }
+
+  function render() {
+    ["dash", "person", "settings"].forEach(function (t) {
+      $("view-" + t).hidden = t !== tab;
+      $("tab-" + t).setAttribute("aria-selected", t === tab);
+    });
+    ["view", "manage", "admin"].forEach(function (l) { $("lv-" + l).setAttribute("aria-pressed", l === level); });
+    if (tab === "settings") renderSettings(); else Array.prototype.forEach.call(document.querySelectorAll(".rule, .admin"), function (el) { el.disabled = level !== "admin"; });
+    if (tab === "dash") renderDash();
+    if (tab === "person") renderPerson();
+  }
+
+  var toastTimer;
+  function toast(msg) { var t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 2200); }
+
+  document.addEventListener("click", function (e) {
+    var el = e.target.closest("button, tr.row");
+    if (!el) return;
+    if (el.dataset.tab) { tab = el.dataset.tab; render(); return; }
+    if (el.dataset.level) { level = el.dataset.level; render(); return; }
+    if (el.classList.contains("soon")) { toast("On the roadmap. Training is the first requirement."); return; }
+    if (el.dataset.k) { filter = filter === el.dataset.k ? null : el.dataset.k; render(); return; }
+    if (el.dataset.approve) { overrides[+el.dataset.approve] = { at: TODAY, note: "Reviewed with coordinator" }; toast("Approved. Status is now " + rules().names.done + "."); render(); return; }
+    if (el.dataset.undo) { delete overrides[+el.dataset.undo]; toast("Manual approval removed."); render(); return; }
+    if (el.dataset.pick) { personId = +el.dataset.pick; $("p-q").value = ""; $("p-results").hidden = true; render(); return; }
+    if (el.dataset.rsEdit) { ruleSets.forEach(function (rs) { if (rs.id === el.dataset.rsEdit) rs.open = !rs.open; }); renderRuleSets(); return; }
+    if (el.id === "rs-add") { ruleSets.push({ id: "rs" + (ruleSets.length + 1), name: "New rule set", on: true, programs: [], divisions: [], roles: [], months: null, open: true }); renderRuleSets(); return; }
+    if (el.id === "run-now") { toast("Update finished. 2 statuses changed."); return; }
+    if (el.dataset.pid) { personId = +el.dataset.pid; tab = "person"; render(); }
+  });
+  document.addEventListener("change", function (e) {
+    var el = e.target;
+    if (el.dataset.rs) {
+      ruleSets.forEach(function (rs) {
+        if (rs.id !== el.dataset.rs) return;
+        var arr = rs[el.dataset.key], i = arr.indexOf(el.value);
+        if (el.checked && i < 0) arr.push(el.value);
+        if (!el.checked && i >= 0) arr.splice(i, 1);
+      });
+      renderRuleSets(); return;
+    }
+    if (el.dataset.rsOn) { ruleSets.forEach(function (rs) { if (rs.id === el.dataset.rsOn) rs.on = el.checked; }); renderRuleSets(); return; }
+    if (el.dataset.rsMonths) { ruleSets.forEach(function (rs) { if (rs.id === el.dataset.rsMonths) rs.months = parseInt(el.value, 10) || null; }); renderRuleSets(); return; }
+    if (el.id === "f-prog") { $("f-div").value = ""; filter = null; render(); return; }
+    if (el.id === "f-div" || el.id === "f-show") { filter = null; render(); return; }
+  });
+  $("p-q").addEventListener("input", renderResults);
+  Array.prototype.forEach.call(document.querySelectorAll(".rule"), function (el) { el.addEventListener("input", render); });
+  render();
+})();
+</script>
+</body>
+</html>
