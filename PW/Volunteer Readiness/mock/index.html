@@ -111,6 +111,24 @@ tr.row:hover td { background: var(--accent-soft); }
 .picks legend { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 0 4px; }
 .toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 6px; font-size: 14px; }
 .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.s-skip { --c: var(--none); --cs: var(--none-soft); }
+.addonbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; border: 1px dashed var(--accent); background: var(--accent-soft); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+.addonbar .check { font-weight: 600; }
+.addonbar .sub { font-size: 13px; }
+.pill.addon { --c: var(--accent); --cs: var(--accent-soft); border: 1px dashed var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; vertical-align: middle; }
+.addon-off { color: var(--muted); font-size: 14px; background: var(--bg); border-radius: 6px; padding: 10px 12px; }
+.sum td.num { text-align: right; }
+.sum th.num { text-align: right; }
+.sum tr.prog td { font-weight: 600; }
+.sum tr.div td:first-child { padding-left: 28px; color: var(--muted); }
+.sum tr.tot td { font-weight: 700; border-top: 2px solid var(--line); }
+.sum .go { font: inherit; font-family: var(--font-data); font-size: 13px; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
+.sum .go[disabled] { color: var(--muted); text-decoration: none; cursor: default; }
+.sum .exp-btn { font: inherit; font-weight: 600; background: none; border: 0; color: var(--fg); cursor: pointer; padding: 0; text-align: left; }
+.pct { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.pct .bar { width: 60px; height: 6px; border-radius: 3px; background: var(--none-soft); overflow: hidden; }
+.pct .bar i { display: block; height: 100%; background: var(--good); }
+@media print { .banner, header .as, .reqbar, .addonbar, nav.tabs, .no-print { display: none !important; } body { background: #fff; } }
 @media (max-width: 520px) { .field { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: no-preference) { .tile, .chip, nav.tabs button { transition: background .15s, border-color .15s; } }
 </style>
@@ -118,7 +136,7 @@ tr.row:hover td { background: var(--accent-soft); }
 <body>
 
 <div class="wrap">
-  <div class="banner">Mockup with 16 example people. Nothing here is connected to TouchPoint. Change a rule or a "who needs it" rule set in Settings and the other tabs update.</div>
+  <div class="banner">Mockup with 16 example people. Nothing here is connected to TouchPoint. Change a rule in Settings and the other tabs update.</div>
 
   <header>
     <div>
@@ -142,8 +160,14 @@ tr.row:hover td { background: var(--accent-soft); }
     <button class="chip soon" id="rq-cert" aria-disabled="true">Certifications <small>Roadmap</small></button>
   </div>
 
+  <div class="addonbar">
+    <label class="check"><input type="checkbox" id="addon"> Show the optional Training requirements add-on</label>
+    <span class="sub" id="addon-desc"></span>
+  </div>
+
   <nav class="tabs" role="tablist">
     <button role="tab" id="tab-dash" data-tab="dash" aria-selected="true">Dashboard</button>
+    <button role="tab" id="tab-sum" data-tab="sum" aria-selected="false">Program summary</button>
     <button role="tab" id="tab-person" data-tab="person" aria-selected="false">Person</button>
     <button role="tab" id="tab-settings" data-tab="settings" aria-selected="false">Settings</button>
   </nav>
@@ -155,7 +179,7 @@ tr.row:hover td { background: var(--accent-soft); }
         <div class="filters">
           <div><label for="f-prog">Program</label><select id="f-prog"></select></div>
           <div><label for="f-div">Division</label><select id="f-div"></select></div>
-          <div><label for="f-show">Show</label><select id="f-show"><option value="attn">Needs attention</option><option value="all">Everyone who needs it</option></select></div>
+          <div><label for="f-show">Show</label><select id="f-show"><option value="attn">Needs attention</option><option value="all" id="f-show-all">Everyone who needs it</option></select></div>
         </div>
       </div>
       <div class="tiles" id="tiles"></div>
@@ -174,6 +198,24 @@ tr.row:hover td { background: var(--accent-soft); }
     </div>
   </section>
 
+  <!-- PROGRAM SUMMARY -->
+  <section id="view-sum" hidden>
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
+        <div><h2>Training by program</h2><div class="sub" id="sum-sub"></div></div>
+        <div class="row-actions no-print">
+          <button class="btn ghost" id="sum-print">Print</button>
+          <button class="btn ghost" id="sum-csv">Download CSV</button>
+        </div>
+      </div>
+      <div class="scroll"><table class="sum">
+        <thead id="sum-head"></thead>
+        <tbody id="sum-rows"></tbody>
+      </table></div>
+      <div class="sub no-print" style="font-size:13px">Click a program to see its divisions. Click any count to open those people on the Dashboard. This report can also be emailed to chosen staff from the morning batch.</div>
+    </div>
+  </section>
+
   <!-- PERSON -->
   <section id="view-person" hidden>
     <div style="display:flex;flex-direction:column;gap:16px">
@@ -189,7 +231,7 @@ tr.row:hover td { background: var(--accent-soft); }
           <div id="p-reqs"></div>
         </div>
         <div class="panel">
-          <h3>Why it is required</h3>
+          <h3 id="p-why-h">Why it is required</h3>
           <div class="sub" id="p-why"></div>
           <h3>Training history</h3>
           <ul class="hist" id="p-hist"></ul>
@@ -206,9 +248,10 @@ tr.row:hover td { background: var(--accent-soft); }
       <div class="lock" id="lock-note" hidden></div>
       <div class="panel">
         <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
-          <div><h2>Who needs it</h2><div class="sub">Rule sets use the same builder as the Compliance Dashboard. Someone matching any enabled rule set needs the training. If they match more than one, the shortest renewal applies.</div></div>
+          <div><h2>Who needs it <span class="pill addon">Add-on</span></h2><div class="sub">Rule sets use the same builder as the Compliance Dashboard. Someone matching any enabled rule set needs the training. If they match more than one, the shortest renewal applies.</div></div>
           <button class="btn ghost admin-btn" id="rs-add">Add rule set</button>
         </div>
+        <div class="addon-off" id="rs-off">Part of the optional Training requirements add-on. Without it, the tool tracks everyone who has a MinistrySafe training on record. Turn the add-on on at the top to try rule sets.</div>
         <div id="rulesets" style="display:flex;flex-direction:column;gap:12px"></div>
       </div>
       <div class="grid2">
@@ -217,7 +260,7 @@ tr.row:hover td { background: var(--accent-soft); }
           <div class="field"><label for="s-pass">Passing score (%)</label><input id="s-pass" type="number" min="0" max="100" value="80" class="rule">
             <div class="hint">Scores at or above this count as passed.</div></div>
           <div class="field"><label for="s-months">Counts for (months)</label><input id="s-months" type="number" min="1" max="120" value="24" class="rule">
-            <div class="hint">The default. A rule set can set a shorter renewal.</div></div>
+            <div class="hint">With the add-on, a rule set can set a shorter renewal.</div></div>
           <div class="field"><label for="s-warn">Warn before expiring (days)</label><input id="s-warn" type="number" min="0" max="365" value="60" class="rule"></div>
           <div class="field"><label for="s-pend">Flag Pending after (days)</label><input id="s-pend" type="number" min="1" max="90" value="14" class="rule">
             <div class="hint">Requested in MinistrySafe but no score back yet.</div></div>
@@ -235,7 +278,7 @@ tr.row:hover td { background: var(--accent-soft); }
           <div class="field"><label for="n-exp">Too old</label><input id="n-exp" value="Expired" class="rule"></div>
           <div class="field"><label for="n-low">Under passing score</label><input id="n-low" value="Below passing score" class="rule"></div>
           <div class="field"><label for="n-pend">Waiting on a score</label><input id="n-pend" value="Pending" class="rule"></div>
-          <div class="field"><label for="n-none">Needs it, never taken</label><input id="n-none" value="Not started" class="rule"></div>
+          <div class="field" id="n-none-f"><label for="n-none">Needs it, never taken <span class="pill addon">Add-on</span></label><input id="n-none" value="Not started" class="rule"></div>
         </div>
         <div class="panel">
           <h2>Access and schedule</h2>
@@ -287,7 +330,7 @@ tr.row:hover td { background: var(--accent-soft); }
     { id: "rs2", name: "Student Ministry leaders", on: true, programs: ["Student Ministry"], divisions: [], roles: ["Leader", "Helper"], months: 12, open: false }
   ];
   var overrides = {};
-  var level = "admin", tab = "dash", filter = null, personId = 4102;
+  var level = "admin", tab = "dash", filter = null, personId = 4102, addon = false, expanded = {};
   var $ = function (id) { return document.getElementById(id); };
 
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
@@ -304,7 +347,8 @@ tr.row:hover td { background: var(--accent-soft); }
       courses: { 1: $("c1").checked, 2: $("c2").checked, 3: $("c3").checked },
       names: {
         done: $("n-done").value || "Completed", soon: $("n-soon").value || "Expiring soon", exp: $("n-exp").value || "Expired",
-        low: $("n-low").value || "Below passing score", pend: $("n-pend").value || "Pending", none: $("n-none").value || "Not started", nr: "Not required"
+        low: $("n-low").value || "Below passing score", pend: $("n-pend").value || "Pending", none: $("n-none").value || "Not started", nr: "Not required",
+        skip: addon ? "Not required" : "No training on record"
       }
     };
   }
@@ -316,7 +360,8 @@ tr.row:hover td { background: var(--accent-soft); }
     if (rs.roles.length && rs.roles.indexOf(p.role) < 0) return false;
     return true;
   }
-  function scopeOf(p) { return ruleSets.filter(function (rs) { return matches(p, rs); }); }
+  // Without the add-on there are no rule sets: everyone with a MinistrySafe training on record is tracked
+  function scopeOf(p) { return addon ? ruleSets.filter(function (rs) { return matches(p, rs); }) : []; }
   function status(p, r) {
     var sets = scopeOf(p);
     var months = sets.reduce(function (m, rs) { return Math.min(m, rs.months || r.months); }, r.months);
@@ -333,11 +378,15 @@ tr.row:hover td { background: var(--accent-soft); }
       else out = { key: "done", until: until };
     }
     out.sets = sets; out.months = months;
-    if (!sets.length) out.key = (out.key === "none" || out.key === "pend") ? "skip" : "nr";
+    if (addon) { if (!sets.length) out.key = (out.key === "none" || out.key === "pend") ? "skip" : "nr"; }
+    else if (out.key === "none") out.key = "skip";
     return out;
   }
-  var CLS = { done: "s-done", soon: "s-soon", exp: "s-exp", low: "s-low", pend: "s-pend", none: "s-none", nr: "s-nr" };
-  var ORDER = ["done", "soon", "exp", "low", "pend", "none"];
+  var CLS = { done: "s-done", soon: "s-soon", exp: "s-exp", low: "s-low", pend: "s-pend", none: "s-none", nr: "s-nr", skip: "s-skip" };
+  var ALL_ORDER = ["done", "soon", "exp", "low", "pend", "none"], ORDER = ALL_ORDER;
+  function keys() { return addon ? ALL_ORDER : ALL_ORDER.slice(0, 5); }
+  function tracked(s) { return s.key !== "nr" && s.key !== "skip"; }
+  function who() { return addon ? "people who need the training" : "people with a training on record"; }
   var ATTN = { soon: 1, exp: 1, low: 1, pend: 1, none: 1 };
   function pill(s, r) {
     var label = r.names[s.key];
@@ -360,16 +409,17 @@ tr.row:hover td { background: var(--accent-soft); }
     var r = rules(), pv = $("f-prog").value, dv = $("f-div").value, show = $("f-show").value;
     var counts = { done: 0, soon: 0, exp: 0, low: 0, pend: 0, none: 0 };
     var inArea = people.map(function (p) { return { p: p, s: status(p, r) }; })
-      .filter(function (x) { return x.s.key !== "nr" && x.s.key !== "skip" && (!pv || x.p.prog === pv) && (!dv || x.p.div === dv); });
+      .filter(function (x) { return tracked(x.s) && (!pv || x.p.prog === pv) && (!dv || x.p.div === dv); });
     inArea.forEach(function (x) { counts[x.s.key]++; });
-    $("tiles").innerHTML = ORDER.map(function (k) {
+    $("f-show-all").textContent = addon ? "Everyone who needs it" : "Everyone with a training";
+    $("tiles").innerHTML = keys().map(function (k) {
       return '<button class="tile ' + CLS[k] + '" data-k="' + k + '" aria-pressed="' + (filter === k) + '"><span class="n">' + counts[k] + '</span><span class="l">' + esc(r.names[k]) + "</span></button>";
     }).join("");
     var shown = inArea.filter(function (x) { return filter ? x.s.key === filter : (show === "all" || ATTN[x.s.key]); })
       .sort(function (a, b) { return ORDER.indexOf(b.s.key) - ORDER.indexOf(a.s.key) || a.p.name.localeCompare(b.p.name); });
     var area = dv || pv || "all programs";
-    $("list-title").textContent = (filter ? r.names[filter] : (show === "all" ? "Everyone who needs it" : "Needs attention")) + " in " + area;
-    $("pager-l").textContent = "Showing " + shown.length + " of " + inArea.length + " people who need the training here";
+    $("list-title").textContent = (filter ? r.names[filter] : (show === "all" ? $("f-show-all").textContent : "Needs attention")) + " in " + area;
+    $("pager-l").textContent = "Showing " + shown.length + " of " + inArea.length + " " + who() + " here";
     $("sb-hint").innerHTML = "Same list in Search Builder: <code>Extra Value Code</code> Training Status " + (filter ? "= " + esc(r.names[filter]) : "One Of the statuses shown") +
       (pv ? ", AND <code>Program</code> = " + esc(pv) : "") + ".";
     $("act-h").hidden = !canManage();
@@ -398,7 +448,7 @@ tr.row:hover td { background: var(--accent-soft); }
     var r = rules(), p = people.filter(function (x) { return x.id === personId; })[0], s = status(p, r);
     $("p-name").textContent = p.name;
     $("p-min").textContent = p.prog + " · " + p.div + " · " + p.role + " · People ID " + p.id;
-    var shown = s.key === "skip" ? { key: "nr" } : s;
+    var shown = s;
     var detail = p.score === null ? (p.req ? "Requested in MinistrySafe on " + fmt(parse(p.req)) + ", no score back yet" : "No MinistrySafe result yet") :
       "Score " + p.score + "% on " + fmt(parse(p.date)) + (s.until ? ", counts until " + fmt(s.until) : "") + ". Passing score " + r.pass + "%, renews every " + s.months + " months.";
     $("p-reqs").innerHTML =
@@ -407,7 +457,9 @@ tr.row:hover td { background: var(--accent-soft); }
       '<div class="req later"><span class="t">Policy sign-off</span><span class="pill">Roadmap</span><span class="d">Signed and dated on the record</span></div>' +
       '<div class="req later"><span class="t">Certifications</span><span class="pill">Roadmap</span><span class="d">CPR, driver\'s license and others</span></div>' +
       '<div class="req later"><span class="t">Cleared to serve in ' + esc(p.div) + '</span><span class="pill">Roadmap</span><span class="d">One answer from all the requirements above</span></div>';
-    $("p-why").innerHTML = s.sets.length ? s.sets.map(function (rs) { return "Matches <strong>" + esc(rs.name) + "</strong>" + (rs.months ? " (renews every " + rs.months + " months)" : ""); }).join("<br>") :
+    $("p-why-h").textContent = addon ? "Why it is required" : "Who is tracked";
+    $("p-why").innerHTML = !addon ? "Everyone with a MinistrySafe training on record is tracked. Turn on the Training requirements add-on to set who needs it by program, division, involvement type or role." :
+      s.sets.length ? s.sets.map(function (rs) { return "Matches <strong>" + esc(rs.name) + "</strong>" + (rs.months ? " (renews every " + rs.months + " months)" : ""); }).join("<br>") :
       "Not in any rule set, so training is not required for " + esc(p.role.toLowerCase()) + "s in " + esc(p.div) + ".";
     var h = [];
     if (overrides[p.id]) h.push("Oct 20, 2026 · Approved by hand · note: " + esc(overrides[p.id].note));
@@ -461,17 +513,84 @@ tr.row:hover td { background: var(--accent-soft); }
     Array.prototype.forEach.call(document.querySelectorAll(".sched"), function (el) { el.disabled = level === "view"; });
     $("lock-note").hidden = isAdmin;
     $("lock-note").textContent = level === "view" ? "View access: settings are read only." : "Manage access: you can change the update schedule and run it now. Rules, rule sets and access need Admin.";
+    $("rs-off").hidden = addon;
+    $("rulesets").hidden = !addon;
+    $("rs-add").hidden = !addon;
+    $("n-none-f").hidden = !addon;
     renderRuleSets();
   }
 
+  // ---------- Program summary ----------
+  function summary() {
+    var r = rules(), byProg = {};
+    Object.keys(PROGRAMS).forEach(function (pg) {
+      byProg[pg] = { c: zero(), divs: {} };
+      PROGRAMS[pg].forEach(function (d) { byProg[pg].divs[d] = zero(); });
+    });
+    var tot = zero();
+    people.forEach(function (p) {
+      var s = status(p, r);
+      if (!tracked(s)) return;
+      [byProg[p.prog].c, byProg[p.prog].divs[p.div], tot].forEach(function (c) { c[s.key]++; c.all++; });
+    });
+    return { r: r, byProg: byProg, tot: tot };
+  }
+  function zero() { return { done: 0, soon: 0, exp: 0, low: 0, pend: 0, none: 0, all: 0 }; }
+  function pct(c) { return c.all ? Math.round((c.done + c.soon) * 100 / c.all) : null; }
+  function pctLabel() { return addon ? "% ready" : "% current"; }
+  function sumCells(c, pg, dv) {
+    var go = function (k, n) {
+      return '<td class="num"><button class="go" data-go="1" data-gp="' + esc(pg || "") + '" data-gd="' + esc(dv || "") + '" data-gk="' + k + '"' + (n ? "" : " disabled") + ">" + n + "</button></td>";
+    };
+    var v = pct(c);
+    return go("", c.all) + keys().map(function (k) { return go(k, c[k]); }).join("") +
+      '<td class="num">' + (v === null ? "–" : '<span class="pct">' + v + '%<span class="bar"><i style="width:' + v + '%"></i></span></span>') + "</td>";
+  }
+  function renderSum() {
+    var x = summary(), r = x.r;
+    $("sum-sub").textContent = addon ? "Everyone a rule set says needs the training, by where they serve. % ready = Completed plus Expiring soon, out of everyone who needs it."
+      : "Everyone with a MinistrySafe training on record, by where they serve. % current = Completed plus Expiring soon, out of everyone with a training.";
+    $("sum-head").innerHTML = "<tr><th>Program / Division</th><th class=\"num\">" + (addon ? "Need it" : "With a training") + "</th>" +
+      keys().map(function (k) { return '<th class="num">' + esc(r.names[k]) + "</th>"; }).join("") + '<th class="num">' + pctLabel() + "</th></tr>";
+    var rows = [];
+    Object.keys(PROGRAMS).forEach(function (pg) {
+      var P = x.byProg[pg], open = !!expanded[pg];
+      rows.push('<tr class="prog"><td><button class="exp-btn" data-expand="' + esc(pg) + '" aria-expanded="' + open + '">' + (open ? "▾ " : "▸ ") + esc(pg) + "</button></td>" + sumCells(P.c, pg, "") + "</tr>");
+      if (open) PROGRAMS[pg].forEach(function (d) { rows.push('<tr class="div"><td>' + esc(d) + "</td>" + sumCells(P.divs[d], pg, d) + "</tr>"); });
+    });
+    rows.push('<tr class="tot"><td>All programs</td>' + sumCells(x.tot, "", "") + "</tr>");
+    $("sum-rows").innerHTML = rows.join("");
+  }
+  function downloadCsv() {
+    var x = summary(), r = x.r, q = function (s) { return '"' + String(s).replace(/"/g, '""') + '"'; };
+    var head = ["Program", "Division", addon ? "Need it" : "With a training"].concat(keys().map(function (k) { return r.names[k]; }), [pctLabel()]);
+    var line = function (pg, dv, c) { var v = pct(c); return [pg, dv, c.all].concat(keys().map(function (k) { return c[k]; }), [v === null ? "" : v]); };
+    var out = [head];
+    Object.keys(PROGRAMS).forEach(function (pg) {
+      out.push(line(pg, "", x.byProg[pg].c));
+      PROGRAMS[pg].forEach(function (d) { out.push(line(pg, d, x.byProg[pg].divs[d])); });
+    });
+    out.push(line("All programs", "", x.tot));
+    var blob = new Blob([out.map(function (row) { return row.map(q).join(","); }).join("\r\n")], { type: "text/csv" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = "training-by-program.csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+
   function render() {
-    ["dash", "person", "settings"].forEach(function (t) {
+    ["dash", "sum", "person", "settings"].forEach(function (t) {
       $("view-" + t).hidden = t !== tab;
       $("tab-" + t).setAttribute("aria-selected", t === tab);
     });
+    $("addon").checked = addon;
+    $("addon-desc").textContent = addon ? "On: who needs it by program, division, involvement type or role, plus Not started and % ready."
+      : "Off: shows what you asked for. Tracks everyone who has a MinistrySafe training on record.";
+    if (!addon && filter === "none") filter = null;
     ["view", "manage", "admin"].forEach(function (l) { $("lv-" + l).setAttribute("aria-pressed", l === level); });
     if (tab === "settings") renderSettings(); else Array.prototype.forEach.call(document.querySelectorAll(".rule, .admin"), function (el) { el.disabled = level !== "admin"; });
     if (tab === "dash") renderDash();
+    if (tab === "sum") renderSum();
     if (tab === "person") renderPerson();
   }
 
@@ -485,6 +604,13 @@ tr.row:hover td { background: var(--accent-soft); }
     if (el.dataset.level) { level = el.dataset.level; render(); return; }
     if (el.classList.contains("soon")) { toast("On the roadmap. Training is the first requirement."); return; }
     if (el.dataset.k) { filter = filter === el.dataset.k ? null : el.dataset.k; render(); return; }
+    if (el.dataset.expand) { expanded[el.dataset.expand] = !expanded[el.dataset.expand]; renderSum(); return; }
+    if (el.dataset.go) {
+      fillFilters(); $("f-prog").value = el.dataset.gp; fillFilters(); $("f-div").value = el.dataset.gd;
+      filter = el.dataset.gk || null; $("f-show").value = "all"; tab = "dash"; render(); return;
+    }
+    if (el.id === "sum-print") { window.print(); return; }
+    if (el.id === "sum-csv") { downloadCsv(); return; }
     if (el.dataset.approve) { overrides[+el.dataset.approve] = { at: TODAY, note: "Reviewed with coordinator" }; toast("Approved. Status is now " + rules().names.done + "."); render(); return; }
     if (el.dataset.undo) { delete overrides[+el.dataset.undo]; toast("Manual approval removed."); render(); return; }
     if (el.dataset.pick) { personId = +el.dataset.pick; $("p-q").value = ""; $("p-results").hidden = true; render(); return; }
@@ -506,6 +632,7 @@ tr.row:hover td { background: var(--accent-soft); }
     }
     if (el.dataset.rsOn) { ruleSets.forEach(function (rs) { if (rs.id === el.dataset.rsOn) rs.on = el.checked; }); renderRuleSets(); return; }
     if (el.dataset.rsMonths) { ruleSets.forEach(function (rs) { if (rs.id === el.dataset.rsMonths) rs.months = parseInt(el.value, 10) || null; }); renderRuleSets(); return; }
+    if (el.id === "addon") { addon = el.checked; render(); return; }
     if (el.id === "f-prog") { $("f-div").value = ""; filter = null; render(); return; }
     if (el.id === "f-div" || el.id === "f-show") { filter = null; render(); return; }
   });
