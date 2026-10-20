@@ -125,6 +125,8 @@ tr.row:hover td { background: var(--accent-soft); }
 .sum .go { font: inherit; font-family: var(--font-data); font-size: 13px; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
 .sum .go[disabled] { color: var(--muted); text-decoration: none; cursor: default; }
 .sum .exp-btn { font: inherit; font-weight: 600; background: none; border: 0; color: var(--fg); cursor: pointer; padding: 0; text-align: left; }
+.sum .name-link { color: var(--accent); }
+.sum tr.div .name-link { font-weight: 400; }
 .pct { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; }
 .pct .bar { width: 60px; height: 6px; border-radius: 3px; background: var(--none-soft); overflow: hidden; }
 .pct .bar i { display: block; height: 100%; background: var(--good); }
@@ -161,28 +163,28 @@ tr.row:hover td { background: var(--accent-soft); }
   </div>
 
   <div class="addonbar">
-    <label class="check"><input type="checkbox" id="addon"> Show the optional Training requirements add-on</label>
+    <label class="check"><input type="checkbox" id="addon"> Preview the optional add-on: who is required to have training</label>
     <span class="sub" id="addon-desc"></span>
   </div>
 
   <nav class="tabs" role="tablist">
-    <button role="tab" id="tab-dash" data-tab="dash" aria-selected="true">Dashboard</button>
-    <button role="tab" id="tab-sum" data-tab="sum" aria-selected="false">Program summary</button>
+    <button role="tab" id="tab-sum" data-tab="sum" aria-selected="true">Dashboard</button>
+    <button role="tab" id="tab-dash" data-tab="dash" aria-selected="false">People</button>
     <button role="tab" id="tab-person" data-tab="person" aria-selected="false">Person</button>
     <button role="tab" id="tab-settings" data-tab="settings" aria-selected="false">Settings</button>
   </nav>
 
-  <!-- DASHBOARD -->
-  <section id="view-dash">
+  <!-- PEOPLE (the details behind every dashboard number) -->
+  <section id="view-dash" hidden>
     <div style="display:flex;flex-direction:column;gap:16px">
       <div class="panel">
         <div class="filters">
           <div><label for="f-prog">Program</label><select id="f-prog"></select></div>
           <div><label for="f-div">Division</label><select id="f-div"></select></div>
+          <div><label for="f-status">Status</label><select id="f-status"></select></div>
           <div><label for="f-show">Show</label><select id="f-show"><option value="attn">Needs attention</option><option value="all" id="f-show-all">Everyone who needs it</option></select></div>
         </div>
       </div>
-      <div class="tiles" id="tiles"></div>
       <div class="panel">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
           <h2 id="list-title"></h2>
@@ -198,8 +200,10 @@ tr.row:hover td { background: var(--accent-soft); }
     </div>
   </section>
 
-  <!-- PROGRAM SUMMARY -->
-  <section id="view-sum" hidden>
+  <!-- DASHBOARD: KPIs and the program roll-up -->
+  <section id="view-sum">
+    <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="tiles" id="tiles"></div>
     <div class="panel">
       <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
         <div><h2>Training by program</h2><div class="sub" id="sum-sub"></div></div>
@@ -212,7 +216,8 @@ tr.row:hover td { background: var(--accent-soft); }
         <thead id="sum-head"></thead>
         <tbody id="sum-rows"></tbody>
       </table></div>
-      <div class="sub no-print" style="font-size:13px">Click a program to see its divisions. Click any count to open those people on the Dashboard. This report can also be emailed to chosen staff from the morning batch.</div>
+      <div class="sub no-print" style="font-size:13px">Click a program, division or count to see those people on the People tab. Use the arrow to open a program's divisions. This report can also be emailed to chosen staff from the morning batch.</div>
+    </div>
     </div>
   </section>
 
@@ -330,7 +335,7 @@ tr.row:hover td { background: var(--accent-soft); }
     { id: "rs2", name: "Student Ministry leaders", on: true, programs: ["Student Ministry"], divisions: [], roles: ["Leader", "Helper"], months: 12, open: false }
   ];
   var overrides = {};
-  var level = "admin", tab = "dash", filter = null, personId = 4102, addon = false, expanded = {};
+  var level = "admin", tab = "sum", filter = null, personId = 4102, addon = false, expanded = {};
   var $ = function (id) { return document.getElementById(id); };
 
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
@@ -412,9 +417,10 @@ tr.row:hover td { background: var(--accent-soft); }
       .filter(function (x) { return tracked(x.s) && (!pv || x.p.prog === pv) && (!dv || x.p.div === dv); });
     inArea.forEach(function (x) { counts[x.s.key]++; });
     $("f-show-all").textContent = addon ? "Everyone who needs it" : "Everyone with a training";
-    $("tiles").innerHTML = keys().map(function (k) {
-      return '<button class="tile ' + CLS[k] + '" data-k="' + k + '" aria-pressed="' + (filter === k) + '"><span class="n">' + counts[k] + '</span><span class="l">' + esc(r.names[k]) + "</span></button>";
+    $("f-status").innerHTML = '<option value="">Any status</option>' + keys().map(function (k) {
+      return '<option value="' + k + '"' + (filter === k ? " selected" : "") + ">" + esc(r.names[k]) + " (" + counts[k] + ")</option>";
     }).join("");
+    $("f-show").disabled = !!filter;
     var shown = inArea.filter(function (x) { return filter ? x.s.key === filter : (show === "all" || ATTN[x.s.key]); })
       .sort(function (a, b) { return ORDER.indexOf(b.s.key) - ORDER.indexOf(a.s.key) || a.p.name.localeCompare(b.p.name); });
     var area = dv || pv || "all programs";
@@ -547,7 +553,12 @@ tr.row:hover td { background: var(--accent-soft); }
       '<td class="num">' + (v === null ? "–" : '<span class="pct">' + v + '%<span class="bar"><i style="width:' + v + '%"></i></span></span>') + "</td>";
   }
   function renderSum() {
-    var x = summary(), r = x.r;
+    var x = summary(), r = x.r, v = pct(x.tot);
+    $("tiles").innerHTML = '<div class="tile s-done" style="cursor:default"><span class="n">' + (v === null ? "–" : v + "%") + '</span><span class="l">' +
+      (addon ? "Ready to serve" : "Current") + " (" + (x.tot.done + x.tot.soon) + " of " + x.tot.all + ")</span></div>" +
+      keys().map(function (k) {
+        return '<button class="tile ' + CLS[k] + '" data-k="' + k + '"><span class="n">' + x.tot[k] + '</span><span class="l">' + esc(r.names[k]) + "</span></button>";
+      }).join("");
     $("sum-sub").textContent = addon ? "Everyone a rule set says needs the training, by where they serve. % ready = Completed plus Expiring soon, out of everyone who needs it."
       : "Everyone with a MinistrySafe training on record, by where they serve. % current = Completed plus Expiring soon, out of everyone with a training.";
     $("sum-head").innerHTML = "<tr><th>Program / Division</th><th class=\"num\">" + (addon ? "Need it" : "With a training") + "</th>" +
@@ -555,8 +566,11 @@ tr.row:hover td { background: var(--accent-soft); }
     var rows = [];
     Object.keys(PROGRAMS).forEach(function (pg) {
       var P = x.byProg[pg], open = !!expanded[pg];
-      rows.push('<tr class="prog"><td><button class="exp-btn" data-expand="' + esc(pg) + '" aria-expanded="' + open + '">' + (open ? "▾ " : "▸ ") + esc(pg) + "</button></td>" + sumCells(P.c, pg, "") + "</tr>");
-      if (open) PROGRAMS[pg].forEach(function (d) { rows.push('<tr class="div"><td>' + esc(d) + "</td>" + sumCells(P.divs[d], pg, d) + "</tr>"); });
+      rows.push('<tr class="prog"><td><button class="exp-btn" data-expand="' + esc(pg) + '" aria-expanded="' + open + '" aria-label="Show divisions">' + (open ? "▾" : "▸") + "</button> " +
+        '<button class="exp-btn name-link" data-go="1" data-gp="' + esc(pg) + '" data-gd="" data-gk="">' + esc(pg) + "</button></td>" + sumCells(P.c, pg, "") + "</tr>");
+      if (open) PROGRAMS[pg].forEach(function (d) {
+        rows.push('<tr class="div"><td><button class="exp-btn name-link" data-go="1" data-gp="' + esc(pg) + '" data-gd="' + esc(d) + '" data-gk="">' + esc(d) + "</button></td>" + sumCells(P.divs[d], pg, d) + "</tr>");
+      });
     });
     rows.push('<tr class="tot"><td>All programs</td>' + sumCells(x.tot, "", "") + "</tr>");
     $("sum-rows").innerHTML = rows.join("");
@@ -584,8 +598,8 @@ tr.row:hover td { background: var(--accent-soft); }
       $("tab-" + t).setAttribute("aria-selected", t === tab);
     });
     $("addon").checked = addon;
-    $("addon-desc").textContent = addon ? "On: who needs it by program, division, involvement type or role, plus Not started and % ready."
-      : "Off: shows what you asked for. Tracks everyone who has a MinistrySafe training on record.";
+    $("addon-desc").textContent = addon ? "Now showing the add-on. Settings has rules for who must have training, so the dashboard also counts people who have not started."
+      : "Unchecked shows what you asked for: the dashboard counts people who have taken a MinistrySafe training. Check it to see the add-on.";
     if (!addon && filter === "none") filter = null;
     ["view", "manage", "admin"].forEach(function (l) { $("lv-" + l).setAttribute("aria-pressed", l === level); });
     if (tab === "settings") renderSettings(); else Array.prototype.forEach.call(document.querySelectorAll(".rule, .admin"), function (el) { el.disabled = level !== "admin"; });
@@ -603,7 +617,7 @@ tr.row:hover td { background: var(--accent-soft); }
     if (el.dataset.tab) { tab = el.dataset.tab; render(); return; }
     if (el.dataset.level) { level = el.dataset.level; render(); return; }
     if (el.classList.contains("soon")) { toast("On the roadmap. Training is the first requirement."); return; }
-    if (el.dataset.k) { filter = filter === el.dataset.k ? null : el.dataset.k; render(); return; }
+    if (el.dataset.k) { fillFilters(); $("f-prog").value = ""; fillFilters(); filter = el.dataset.k; $("f-show").value = "all"; tab = "dash"; render(); return; }
     if (el.dataset.expand) { expanded[el.dataset.expand] = !expanded[el.dataset.expand]; renderSum(); return; }
     if (el.dataset.go) {
       fillFilters(); $("f-prog").value = el.dataset.gp; fillFilters(); $("f-div").value = el.dataset.gd;
@@ -634,7 +648,9 @@ tr.row:hover td { background: var(--accent-soft); }
     if (el.dataset.rsMonths) { ruleSets.forEach(function (rs) { if (rs.id === el.dataset.rsMonths) rs.months = parseInt(el.value, 10) || null; }); renderRuleSets(); return; }
     if (el.id === "addon") { addon = el.checked; render(); return; }
     if (el.id === "f-prog") { $("f-div").value = ""; filter = null; render(); return; }
-    if (el.id === "f-div" || el.id === "f-show") { filter = null; render(); return; }
+    if (el.id === "f-div") { filter = null; render(); return; }
+    if (el.id === "f-show") { render(); return; }
+    if (el.id === "f-status") { filter = el.value || null; render(); return; }
   });
   $("p-q").addEventListener("input", renderResults);
   Array.prototype.forEach.call(document.querySelectorAll(".rule"), function (el) { el.addEventListener("input", render); });
