@@ -2,7 +2,7 @@
 Fortis Troubleshooter
 =====================
 A self-service diagnostics page for a TouchPoint(R) site running payments
-through the Fortis gateway. Two tabs, answering two different questions.
+through the Fortis gateway. Three tabs, answering three different questions.
 
 DENIALS  -- why did this payment fail?
   Reads dbo.FortisTransactionLog and turns raw gateway rejections into
@@ -17,13 +17,27 @@ HEALTH & FLOW  -- is anything getting through at all?
   in previous months, tracks ACH through settlement, and can email you when
   a payment method goes silent.
 
+BLOCKED BEFORE FORTIS  -- did TouchPoint stop it before Fortis saw it?
+  TouchPoint runs its own checks (captcha, address, email domain, IP fraud
+  score, failed-attempt lockout) before sending anything to Fortis. A payment
+  stopped there leaves nothing in either Fortis table and TouchPoint does not
+  log the block. This tab shows each check's current setting, the IP scores
+  TouchPoint saved and who was signed in on those IPs, and a person lookup
+  that says whether signing in would get them past the IP check.
+  Typical trigger: "Giving is not supported from your current location."
+
 WHY THE SECOND TAB EXISTS
 -------------------------
 dbo.FortisTransactionLog is an ERROR-ONLY log: every row is a request the
 gateway rejected. That is the right tool for "this person's card declined",
-and completely blind to the more expensive failure.  A payment method that
+and completely blind to the more expensive failure -- a payment method that
 stops being submitted at all. Nothing is attempted, so nothing errors, so an
 error log shows a reassuring zero.
+
+This was written after ACH submissions stopped for eight days without a
+single logged error. Donors thought they had given; the money never moved;
+the denial page showed nothing wrong because nothing had gone wrong -- it
+had just stopped happening. The health tab makes silence visible.
 
 READING THE DENIAL DATA
 -----------------------
@@ -35,7 +49,7 @@ difference matters when you send examples to your processor:
     carry the masked account number, so the LAST 4 IS AVAILABLE.
 
   * Contact-sync errors come from /v1/contacts. That request carries only
-    name and address --> no card at all <-- so there is NO last 4 to report.
+    name and address -- no card at all -- so there is NO last 4 to report.
     The card never entered the picture; the contact record was rejected
     before any transaction existed.
 
@@ -75,7 +89,7 @@ or your phone. No tab switching, no lost context.
 https://tpxigo.com
 ----------------------------------------------------------------
 
-Version: 2.0
+Version: 2.2
 """
 
 import json
@@ -1235,6 +1249,1107 @@ def render_actions_js():
 
 
 #####################################################################
+#### BLOCKED BEFORE FORTIS
+#####################################################################
+# TouchPoint runs its own checks before a payment is sent to Fortis. A payment
+# stopped there never reaches the gateway, so neither FortisTransactionLog nor
+# the webhook stream has a row for it, and TouchPoint does not log the block
+# either. This tab shows what evidence does exist: the settings that decide
+# each check, the IP scores TouchPoint saved, who was on those IPs, and the
+# log line written when a returning giver skips the IP check.
+#
+# The order and wording below follow GivingPaymentModel.cs (bvcms source).
+
+GATES_DEFAULT_DAYS = 14
+
+# An IP used by at least this many different signed-in users in a week is a
+# shared network (the church office, a school, a phone carrier). One high
+# score there blocks everyone on it.
+GATES_SHARED_IP_USERS = 10
+
+# Setting id -> default TouchPoint uses when the row is missing.
+GATE_SETTING_DEFAULTS = {
+    "UseRecaptcha": "false",
+    "ValidateAddressInGiving": "true",
+    "BlockedEmailDomainsGiving": "tempmail.com,guerrillamail.com,throwaway.email,mailinator.com,yopmail.com",
+    "FraudScoreMaximumGiving": "100",
+    "FailedConsecutiveGiftBlockEnabled": "false",
+    "FailedConsecutiveGiftLockout": "3",
+    "FailedConsecutiveGiftTimeframe": "30",
+    "FailedConsecutiveGiftBlockTime": "60",
+    "FailedConsecutiveGiftIPIgnoreList": "",
+}
+
+BYPASS_ACTIVITY = "Fraud score check bypassed for authenticated user with contribution history"
+
+
+def gate_settings():
+    vals = dict(GATE_SETTING_DEFAULTS)
+    ids = ",".join("'%s'" % k for k in GATE_SETTING_DEFAULTS)
+    for r in q.QuerySql("SELECT Id, Setting FROM dbo.Setting WHERE Id IN (%s)" % ids):
+        if r.Setting is not None and str(r.Setting).strip() != "":
+            vals[str(r.Id)] = str(r.Setting).strip()
+    return vals
+
+
+def _bool(s):
+    return str(s).strip().lower() == "true"
+
+
+def _int(s, default):
+    try:
+        return int(str(s).strip())
+    except Exception:
+        return default
+
+
+def fraud_limit(settings):
+    return _int(settings["FraudScoreMaximumGiving"], 100)
+
+
+def ip_blocked(score, limit):
+    # Same rule as NetworkFraudScoreService.AllowAddressForGiving: a limit of
+    # 100 turns the check off, otherwise anything above the limit is refused.
+    return limit != 100 and score is not None and int(score) > limit
+
+
+def _sql_in(values):
+    return ",".join("'%s'" % sql_escape(v) for v in values) or "''"
+
+
+def ip_people(ips, since):
+    """Signed-in users seen on each IP since `since`, newest first."""
+    out = {}
+    if not ips:
+        return out
+    sql = """
+        SELECT al.ClientIp, u.PeopleId, p.Name, MAX(al.ActivityDate) AS LastSeen
+        FROM dbo.ActivityLog al WITH (NOLOCK)
+        JOIN dbo.Users u ON u.UserId = al.UserId
+        LEFT JOIN dbo.People p ON p.PeopleId = u.PeopleId
+        WHERE al.ActivityDate >= '{0}' AND al.ClientIp IN ({1})
+        GROUP BY al.ClientIp, u.PeopleId, p.Name
+        ORDER BY al.ClientIp, MAX(al.ActivityDate) DESC
+    """.format(since.strftime("%Y-%m-%d"), _sql_in(ips))
+    for r in q.QuerySql(sql):
+        out.setdefault(str(r.ClientIp), []).append(r)
+    return out
+
+
+def shared_ip_counts(ips):
+    """Distinct signed-in users per IP over the last 7 days."""
+    out = {}
+    if not ips:
+        return out
+    sql = """
+        SELECT ClientIp, COUNT(DISTINCT UserId) AS Users
+        FROM dbo.ActivityLog WITH (NOLOCK)
+        WHERE ActivityDate >= DATEADD(day, -7, GETDATE())
+          AND UserId IS NOT NULL AND ClientIp IN ({0})
+        GROUP BY ClientIp
+    """.format(_sql_in(ips))
+    for r in q.QuerySql(sql):
+        out[str(r.ClientIp)] = int(r.Users or 0)
+    return out
+
+
+def ip_scores(ips):
+    out = {}
+    if not ips:
+        return out
+    sql = ("SELECT Evidence, Score, LastUpdated FROM dbo.FraudScores "
+           "WHERE Evidence IN ({0})".format(_sql_in(ips)))
+    for r in q.QuerySql(sql):
+        out[str(r.Evidence)] = r
+    return out
+
+
+def gate_find_people(term):
+    term = (term or "").strip()
+    if not term:
+        return []
+    if term.isdigit():
+        where = "p.PeopleId = %d" % int(term)
+    elif "@" in term:
+        t = sql_escape(term)
+        where = "(p.EmailAddress = '{0}' OR p.EmailAddress2 = '{0}')".format(t)
+    elif " " in term:
+        t = sql_escape(term)
+        where = "(p.Name LIKE '%{0}%' OR p.Name2 LIKE '%{0}%')".format(t)
+    else:
+        # Match the start of a name, or "Ivan" finds every Sullivan.
+        t = sql_escape(term)
+        where = ("(p.FirstName LIKE '{0}%' OR p.LastName LIKE '{0}%' "
+                 "OR p.NickName LIKE '{0}%')".format(t))
+    exact = sql_escape(term)
+    sql = """
+        SELECT TOP 25 p.PeopleId, p.Name, p.EmailAddress, p.Age, p.PrimaryCity,
+            bill.TransactionDate AS LastBillDate, bill.OrganizationName AS LastBillOrg,
+            ISNULL(NULLIF(bill.Amt, 0), ABS(bill.Amtdue)) AS LastBillAmt,
+            pay.TransactionDate AS LastPayDate, pay.Amt AS LastPayAmt,
+            (SELECT COUNT(*) FROM dbo.Contribution c WITH (NOLOCK)
+             WHERE c.PeopleId = p.PeopleId AND c.ContributionStatusId = 0) AS RecordedGifts,
+            (SELECT MAX(u.LastLoginDate) FROM dbo.Users u WHERE u.PeopleId = p.PeopleId) AS LastLogin,
+            (SELECT COUNT(*) FROM dbo.Users u WHERE u.PeopleId = p.PeopleId) AS Accounts
+        FROM dbo.People p
+        OUTER APPLY (
+            SELECT TOP 1 t.TransactionDate, t.Amt, t.Amtdue, o.OrganizationName
+            FROM dbo.[Transaction] t WITH (NOLOCK)
+            JOIN dbo.TransactionPeople tp ON tp.Id = t.OriginalId
+            LEFT JOIN dbo.Organizations o ON o.OrganizationId = t.OrgId
+            WHERE tp.PeopleId = p.PeopleId AND {2}
+              AND t.TransactionDate >= DATEADD(day, -90, GETDATE())
+            ORDER BY t.TransactionDate DESC
+        ) bill
+        OUTER APPLY (
+            SELECT TOP 1 t.TransactionDate, t.Amt
+            FROM dbo.[Transaction] t WITH (NOLOCK)
+            JOIN dbo.TransactionPeople tp ON tp.Id = t.OriginalId
+            WHERE tp.PeopleId = p.PeopleId AND t.Approved = 1 AND t.Amt > 0 AND NOT {2}
+              AND t.TransactionDate >= DATEADD(day, -90, GETDATE())
+            ORDER BY t.TransactionDate DESC
+        ) pay
+        WHERE {0} AND p.IsDeceased = 0
+        ORDER BY CASE WHEN p.Name = '{1}' OR p.FirstName = '{1}' OR p.LastName = '{1}'
+                      OR p.NickName = '{1}' THEN 0 ELSE 1 END,
+                 CASE WHEN bill.TransactionDate IS NOT NULL THEN 0 ELSE 1 END,
+                 bill.TransactionDate DESC, p.Name2
+    """.format(where, exact, FEE_TX_SQL)
+    return list(q.QuerySql(sql))
+
+
+def person_ips(people_id, since):
+    """IPs this person used while signed in. Guest payments leave nothing."""
+    sql = """
+        SELECT al.ClientIp, MAX(al.ActivityDate) AS LastSeen, COUNT(*) AS Hits
+        FROM dbo.ActivityLog al WITH (NOLOCK)
+        JOIN dbo.Users u ON u.UserId = al.UserId
+        WHERE u.PeopleId = {0} AND al.ActivityDate >= '{1}' AND al.ClientIp IS NOT NULL
+        GROUP BY al.ClientIp
+        ORDER BY MAX(al.ActivityDate) DESC
+    """.format(int(people_id), since.strftime("%Y-%m-%d"))
+    return list(q.QuerySql(sql))
+
+
+# Pay-balance links log the transaction's LoginPeopleId before the payer. On
+# a bill a staff member created, that is the STAFF member, so their name shows
+# up from every home that pays one of their bills. Anyone who has created
+# transactions for at least this many other people in the last year is
+# treated as billing staff and their rows are resolved to the real payer.
+BILLING_STAFF_MIN_PAYERS = 5
+
+# Visits under one billing-staff name more than this many minutes apart are
+# different payers, so they are kept as separate rows.
+STAFF_VISIT_GAP_MINUTES = 45
+
+PAY_STEPS = ("OnlineReg PaymentForm", "OnlineReg PayDueStart")
+
+# Steps TouchPoint logs only when a registration or pay link finished.
+DONE_STEPS = ("OnlineReg PayDueConfirm", "OnlineReg Confirm", "OnlineReg ZeroDue",
+              "OnlineReg JoinedOrg")
+
+
+def to_pydt_safe(dt):
+    try:
+        v = to_pydt(dt)
+        if v is not None:
+            return v
+    except Exception:
+        pass
+    for fmt, n in (("%Y-%m-%d %H:%M:%S", 19), ("%Y-%m-%d %H:%M", 16)):
+        try:
+            return datetime.datetime.strptime(str(dt)[:n], fmt)
+        except Exception:
+            continue
+    return None
+
+
+def ip_visits(ip, since):
+    """Every registration and pay-balance step logged from one IP.
+
+    These pages log each step with the IP and an involvement, even for
+    guests. Guest visits to the online giving page are not logged at all, so
+    blocked gifts cannot be found this way.
+    """
+    sql = """
+        SELECT TOP 2000 al.ActivityDate, al.PeopleId, al.OrgId, al.Activity, al.UserId,
+            p.Name, o.OrganizationName, u.PeopleId AS UserPeopleId, up.Name AS UserName,
+            CASE WHEN EXISTS (SELECT 1 FROM dbo.Contribution c WITH (NOLOCK)
+                              WHERE c.PeopleId = u.PeopleId AND c.ContributionStatusId = 0)
+                 THEN 1 ELSE 0 END AS UserHasGift
+        FROM dbo.ActivityLog al WITH (NOLOCK)
+        LEFT JOIN dbo.People p ON p.PeopleId = al.PeopleId
+        LEFT JOIN dbo.Organizations o ON o.OrganizationId = al.OrgId
+        LEFT JOIN dbo.Users u ON u.UserId = al.UserId
+        LEFT JOIN dbo.People up ON up.PeopleId = u.PeopleId
+        WHERE al.ClientIp = '{0}' AND al.ActivityDate >= '{1}'
+          AND al.Activity LIKE 'OnlineReg%' AND al.PeopleId IS NOT NULL
+        ORDER BY al.ActivityDate
+    """.format(sql_escape(ip), since.strftime("%Y-%m-%d"))
+    return list(q.QuerySql(sql))
+
+
+# Staff add a fee or adjustment to someone's account, then open that
+# person's pay link to run the card. The fee row is marked by its
+# TransactionId ("AdjustFee (id)" or "Initial Tran (id)"), carries the staff
+# member as LoginPeopleId, and names the real payer, so it is how a visit
+# logged under staff is traced back to the family.
+FEE_TX_SQL = ("(t.TransactionId LIKE 'AdjustFee%' OR t.TransactionId LIKE 'Initial Tran%' "
+              "OR ISNULL(t.Message, '') LIKE 'ADJ%' OR ISNULL(t.Message, '') LIKE 'FEE%')")
+
+# How long before a staff pay-link visit the fee row can be and still count
+# as the bill they opened.
+FEE_TO_VISIT_MINUTES = 15
+
+
+def billing_staff(pids):
+    pids = sorted(set(int(p) for p in pids if p))
+    if not pids:
+        return set()
+    sql = """
+        SELECT t.LoginPeopleId
+        FROM dbo.[Transaction] t WITH (NOLOCK)
+        JOIN dbo.TransactionPeople tp ON tp.Id = t.OriginalId
+        WHERE t.LoginPeopleId IN ({0}) AND tp.PeopleId <> t.LoginPeopleId AND {1}
+          AND t.TransactionDate >= DATEADD(day, -365, GETDATE())
+        GROUP BY t.LoginPeopleId
+        HAVING COUNT(DISTINCT tp.PeopleId) >= {2}
+    """.format(",".join(str(p) for p in pids), FEE_TX_SQL, BILLING_STAFF_MIN_PAYERS)
+    return set(int(r.LoginPeopleId) for r in q.QuerySql(sql))
+
+
+def org_transactions(org_ids, since):
+    """Fees and real payments in these involvements. A real payment is
+    gateway-approved money in; fee rows are bills, not payments."""
+    org_ids = sorted(set(int(o) for o in org_ids if o))
+    if not org_ids:
+        return []
+    sql = """
+        SELECT t.TransactionDate, t.OrgId, t.Amt, t.Amtdue, t.LoginPeopleId, t.OriginalId,
+            tp.PeopleId AS PayerId, p.Name AS PayerName,
+            CASE WHEN {2} THEN 1 ELSE 0 END AS IsFee
+        FROM dbo.[Transaction] t WITH (NOLOCK)
+        JOIN dbo.TransactionPeople tp ON tp.Id = t.OriginalId
+        LEFT JOIN dbo.People p ON p.PeopleId = tp.PeopleId
+        WHERE t.OrgId IN ({0}) AND t.Approved = 1
+          AND t.TransactionDate >= DATEADD(day, -1, '{1}')
+        ORDER BY t.TransactionDate
+    """.format(",".join(str(o) for o in org_ids), since.strftime("%Y-%m-%d"), FEE_TX_SQL)
+    out = []
+    for r in q.QuerySql(sql):
+        fee = bool(int(r.IsFee or 0))
+        amt = float(r.Amt or 0)
+        out.append({"at": to_pydt_safe(r.TransactionDate), "raw_at": r.TransactionDate,
+                    "org": int(r.OrgId or 0), "amt": amt, "due": float(r.Amtdue or 0),
+                    "login": int(r.LoginPeopleId or 0), "payer": int(r.PayerId or 0),
+                    "payer_name": r.PayerName or "", "orig": int(r.OriginalId or 0),
+                    "fee": fee, "paid": (not fee) and amt > 0})
+    return out
+
+
+def open_bills(staff_id, org_id, at):
+    """People in this involvement with a bill from this staff member and no
+    payment since `at`. One of them is who was on the payment page."""
+    sql = """
+        SELECT TOP 12 tp.PeopleId, p.Name, MAX(t.TransactionDate) AS LastBill
+        FROM dbo.[Transaction] t WITH (NOLOCK)
+        JOIN dbo.TransactionPeople tp ON tp.Id = t.OriginalId
+        JOIN dbo.People p ON p.PeopleId = tp.PeopleId
+        WHERE t.OrgId = {1} AND t.LoginPeopleId = {0} AND tp.PeopleId <> {0}
+          AND t.TransactionDate >= DATEADD(day, -180, '{2}')
+          AND EXISTS (SELECT 1 FROM dbo.OrganizationMembers om
+                      WHERE om.OrganizationId = {1} AND om.PeopleId = tp.PeopleId)
+          AND NOT EXISTS (
+              SELECT 1 FROM dbo.[Transaction] t2 WITH (NOLOCK)
+              JOIN dbo.TransactionPeople tp2 ON tp2.Id = t2.OriginalId
+              WHERE tp2.PeopleId = tp.PeopleId AND t2.OrgId = {1}
+                AND t2.Approved = 1 AND t2.Amt > 0 AND t2.TransactionDate >= '{2}'
+                AND NOT {3})
+        GROUP BY tp.PeopleId, p.Name
+        ORDER BY MAX(t.TransactionDate) DESC
+    """.format(int(staff_id), int(org_id), at.strftime("%Y-%m-%d %H:%M:%S"),
+               FEE_TX_SQL.replace("t.", "t2."))
+    return list(q.QuerySql(sql))
+
+
+def group_visits(visits, staff):
+    """One row per person and involvement, except under billing staff, where
+    each burst of visits is a separate payer and gets its own row."""
+    groups = {}
+    order = []
+    for v in visits:
+        pid = int(v.PeopleId)
+        org = int(v.OrgId or 0)
+        at = to_pydt_safe(v.ActivityDate)
+        key = (pid, org)
+        if pid in staff:
+            prev = groups.get(("open",) + key)
+            if prev is None or at is None or prev["last"] is None or \
+                    at - prev["last"] > datetime.timedelta(minutes=STAFF_VISIT_GAP_MINUTES):
+                key = key + (len(order),)
+                groups[("open", pid, org)] = None
+            else:
+                key = prev["key"]
+        g = groups.get(key)
+        if g is None:
+            g = {"key": key, "pid": pid, "org": org, "name": v.Name or "",
+                 "org_name": v.OrganizationName or "", "first": at, "last": at,
+                 "raw_first": v.ActivityDate, "raw_last": v.ActivityDate,
+                 "pay": False, "signed_in": False, "staff": pid in staff,
+                 "user_name": "", "user_pid": 0, "skips_check": False, "done": False}
+            groups[key] = g
+            order.append(key)
+        g["last"] = at
+        g["raw_last"] = v.ActivityDate
+        if v.Activity in PAY_STEPS:
+            g["pay"] = True
+        if v.Activity in DONE_STEPS:
+            g["done"] = True
+        if v.UserId is not None:
+            g["signed_in"] = True
+            g["user_name"] = v.UserName or ""
+            g["user_pid"] = int(v.UserPeopleId or 0)
+            # Signing in only skips the IP check when the signed-in account
+            # has a recorded gift. Staff impersonating a member sign in AS
+            # that member, so the member's gift history is what counts.
+            if int(v.UserHasGift or 0):
+                g["skips_check"] = True
+        if pid in staff:
+            groups[("open", pid, org)] = g
+    return [groups[k] for k in order]
+
+
+def _as_label(g):
+    if not g["signed_in"]:
+        return "guest"
+    who = h_escape(g["user_name"]) or "someone"
+    if g["skips_check"]:
+        return 'signed in as {0} <span class="muted">(has a gift, skips the IP check)</span>'.format(who)
+    return ('signed in as {0} <span style="color:#c0392b">(no recorded gift, still '
+            'checked)</span>'.format(who))
+
+
+def find_fee(g, txs):
+    """The bill a staff member created just before opening a pay link."""
+    best = None
+    for t in txs:
+        if not t["fee"] or t["org"] != g["org"] or t["login"] != g["pid"] \
+                or t["at"] is None or g["first"] is None:
+            continue
+        if g["first"] - datetime.timedelta(minutes=FEE_TO_VISIT_MINUTES) <= t["at"] \
+                <= g["first"] + datetime.timedelta(minutes=1):
+            best = t
+    return best
+
+
+def match_payment(g, txs, fee=None):
+    for t in txs:
+        if not t["paid"] or t["org"] != g["org"] or t["at"] is None or g["first"] is None:
+            continue
+        if t["at"] < g["first"] - datetime.timedelta(minutes=1):
+            continue
+        if fee is not None:
+            if t["orig"] == fee["orig"] or t["payer"] == fee["payer"]:
+                return t
+        elif not g["staff"] and (t["payer"] == g["pid"] or t["login"] == g["pid"]):
+            return t
+    return None
+
+
+def family_pay_visits(people_id, since):
+    """Registration and pay-link steps that may belong to this family, from
+    any IP: logged under a family member, or under the staff member who
+    created one of the family's bills."""
+    sql = """
+        ;WITH fam AS (
+            SELECT PeopleId FROM dbo.People
+            WHERE FamilyId = (SELECT FamilyId FROM dbo.People WHERE PeopleId = {0})
+        ), tx AS (
+            SELECT DISTINCT t.OrgId, t.LoginPeopleId
+            FROM dbo.[Transaction] t WITH (NOLOCK)
+            JOIN dbo.TransactionPeople tp ON tp.Id = t.OriginalId
+            WHERE tp.PeopleId IN (SELECT PeopleId FROM fam)
+              AND t.TransactionDate >= DATEADD(day, -400, GETDATE())
+        ), orgs AS (
+            SELECT OrgId FROM tx
+            UNION SELECT om.OrganizationId FROM dbo.OrganizationMembers om
+            WHERE om.PeopleId IN (SELECT PeopleId FROM fam)
+        )
+        SELECT TOP 60 al.ActivityDate, al.ClientIp, al.PeopleId, p.Name, al.OrgId,
+            o.OrganizationName, al.Activity, al.UserId,
+            CASE WHEN al.PeopleId IN (SELECT PeopleId FROM fam) THEN 1 ELSE 0 END AS IsFamily
+        FROM dbo.ActivityLog al WITH (NOLOCK)
+        LEFT JOIN dbo.People p ON p.PeopleId = al.PeopleId
+        LEFT JOIN dbo.Organizations o ON o.OrganizationId = al.OrgId
+        WHERE al.ActivityDate >= '{1}' AND al.Activity LIKE 'OnlineReg%'
+          AND al.OrgId IN (SELECT OrgId FROM orgs)
+          AND (al.PeopleId IN (SELECT PeopleId FROM fam)
+               OR (al.Activity IN ('OnlineReg PayDueStart', 'OnlineReg PaymentForm')
+                   AND EXISTS (SELECT 1 FROM tx WHERE tx.OrgId = al.OrgId
+                               AND tx.LoginPeopleId = al.PeopleId)))
+        ORDER BY al.ActivityDate DESC
+    """.format(int(people_id), since.strftime("%Y-%m-%d"))
+    return list(q.QuerySql(sql))
+
+
+def render_ip_drill(ip, since, days, settings):
+    limit = fraud_limit(settings)
+    sc = ip_scores([ip]).get(ip)
+    users = shared_ip_counts([ip]).get(ip, 0)
+    out = []
+    a = out.append
+    a('<h3 style="margin-top:22px">Activity from {0}</h3>'.format(h_escape(ip)))
+    a('<p>Score: {0}{1}. Signed-in users on it this week: <b>{2}</b>{3}. '
+      '<a href="?tab=gates&amp;gdays={4}">Back to all IPs</a></p>'.format(
+          _score_badge(sc.Score if sc else None, limit),
+          (", saved " + fmt_dt(sc.LastUpdated)) if sc else "",
+          users, " (shared network)" if users >= GATES_SHARED_IP_USERS else "", days))
+    if sc and ip_blocked(sc.Score, limit) and users >= GATES_SHARED_IP_USERS:
+        a('<div class="ft-note" style="border-left-color:#c0392b"><b>Everyone paying as a guest '
+          'from this network is being refused.</b> The score is reused for 30 days from the time '
+          'above. Signed-in givers with a recorded gift still get through. Raising '
+          '<code>FraudScoreMaximumGiving</code> above {0} (or to 100, which turns the check off) '
+          'clears it immediately.</div>'.format(int(sc.Score)))
+
+    # A block happens from the moment the score is saved. LastUpdated is
+    # church time on the first save but UTC on a refresh, so allow for both.
+    blocked_ip = sc is not None and ip_blocked(sc.Score, limit)
+    scored_at = to_pydt_safe(sc.LastUpdated) if sc else None
+    cutoff = scored_at - datetime.timedelta(hours=6) if scored_at else None
+
+    visits = ip_visits(ip, since)
+    a('<h4 style="margin-top:16px">Registration and pay-balance attempts</h4>')
+    if not visits:
+        a('<p class="muted">None from this IP in the last {0} days.</p>'.format(days))
+    else:
+        staff = billing_staff([v.PeopleId for v in visits])
+        groups = group_visits(visits, staff)
+        txs = org_transactions([g["org"] for g in groups], since)
+        groups.sort(key=lambda g: g["last"] or datetime.datetime.min, reverse=True)
+        counts = {"blocked": 0, "unpaid": 0, "paid": 0}
+        body = []
+        for g in groups:
+            # Signed in as the very person the row is logged under means it
+            # is their own visit, even if they also bill other people.
+            if g["staff"] and g["signed_in"] and g["user_pid"] == g["pid"]:
+                g["staff"] = False
+            g["fee"] = find_fee(g, txs) if g["staff"] else None
+            g["paid_tx"] = match_payment(g, txs, g["fee"])
+        for g in groups:
+            fee, paid = g["fee"], g["paid_tx"]
+            hot = ''
+            if paid is not None:
+                status = '<span style="color:#27ae60">Paid ${0:,.2f} on {1}</span>'.format(
+                    paid["amt"], fmt_dt(paid["raw_at"]))
+                counts["paid"] += 1
+            elif g["done"]:
+                status = '<span style="color:#27ae60">Completed</span>'
+                counts["paid"] += 1
+            elif g["pay"] and blocked_ip and not g["skips_check"] and \
+                    (cutoff is None or g["last"] is None or g["last"] >= cutoff):
+                status = ('<span style="background:#c0392b;color:#fff;padding:2px 8px;'
+                          'border-radius:3px">Likely blocked</span>')
+                counts["blocked"] += 1
+                hot = ' style="background:#fdecea"'
+            elif g["pay"]:
+                status = '<span style="color:#b9770e">Reached payment, not paid</span>'
+                counts["unpaid"] += 1
+            else:
+                status = '<span class="muted">Did not reach payment</span>'
+
+            staff_link = '<a href="/Person2/{0}" target="_blank">{1}</a>'.format(
+                g["pid"], h_escape(g["name"]))
+            if not g["staff"]:
+                person = staff_link
+            elif fee is not None:
+                person = ('<a href="/Person2/{0}" target="_blank"><b>{1}</b></a>'
+                          '<div style="font-size:11px;color:#777">{2} billed them ${3:,.2f} at '
+                          '{4}, then opened their pay link.</div>'.format(
+                              fee["payer"], h_escape(fee["payer_name"]), staff_link,
+                              fee["amt"] or abs(fee["due"]), fmt_dt(fee["raw_at"])))
+            else:
+                person = ('<span class="muted">pay link for a bill from</span> ' + staff_link +
+                          '<div style="font-size:11px;color:#777">Logged under the staff member '
+                          'who created the bill; the payer is not recorded.</div>')
+                if paid is None and g["pay"]:
+                    # Staff often reopen a bill from an earlier day instead of
+                    # making a new one, so there is no fresh bill to trace.
+                    # Someone whose earlier try on a bill from the same staff
+                    # and involvement is still unpaid is the likeliest payer.
+                    probable = []
+                    for e in groups:
+                        if e is g or e["fee"] is None or e["paid_tx"] is not None:
+                            continue
+                        if e["pid"] == g["pid"] and e["org"] == g["org"] and \
+                                e["first"] is not None and g["first"] is not None and \
+                                e["first"] < g["first"] and \
+                                e["fee"]["payer"] not in [x["fee"]["payer"] for x in probable]:
+                            probable.append(e)
+                    if probable:
+                        person += ('<div style="font-size:12px;margin-top:3px"><b>Probably ' +
+                                   ", ".join('<a href="/Person2/{0}" target="_blank">{1}</a> '
+                                             '(billed ${2:,.2f} on {3}, still unpaid)'.format(
+                                                 e["fee"]["payer"], h_escape(e["fee"]["payer_name"]),
+                                                 e["fee"]["amt"] or abs(e["fee"]["due"]),
+                                                 fmt_dt(e["fee"]["raw_at"])) for e in probable) +
+                                   '</b>: an earlier try on a bill from the same person was '
+                                   'never paid, and reopening it leaves no new bill to trace.</div>')
+                    try:
+                        cands = open_bills(g["pid"], g["org"], g["first"])
+                    except Exception:
+                        cands = []
+                    cands = [c for c in cands if int(c.PeopleId) not in
+                             [e["fee"]["payer"] for e in probable]]
+                    if cands:
+                        person += ('<div style="font-size:11px">Other open bills from them here, newest first: ' +
+                                   ", ".join('<a href="/Person2/{0}" target="_blank">{1}</a>'.format(
+                                       int(c.PeopleId), h_escape(c.Name or "")) for c in cands) +
+                                   '</div>')
+            body.append('<tr{0}><td class="wrap">{1}</td>'
+                        '<td><a href="/Org/{2}" target="_blank">{3}</a></td>'
+                        '<td>{4}</td><td>{5}</td><td>{6}</td><td class="wrap">{7}</td></tr>'.format(
+                            hot, person, g["org"], h_escape(g["org_name"]),
+                            fmt_dt(g["raw_first"]), fmt_dt(g["raw_last"]),
+                            _as_label(g), status))
+        a('<p><b>{0}</b> likely blocked, {1} reached payment but did not pay, {2} paid.</p>'.format(
+            counts["blocked"], counts["unpaid"], counts["paid"]))
+        a('<div class="ft-scroll"><table class="ft-tbl"><thead><tr><th>Person</th>'
+          '<th>Involvement</th><th>First seen</th><th>Last seen</th><th>As</th><th>Result</th>'
+          '</tr></thead><tbody>' + "".join(body) + '</tbody></table></div>')
+    a('<p style="font-size:11px;color:#777">&ldquo;Likely blocked&rdquo; means a guest reached '
+      'the payment form on this IP after it was scored, was not signed in as someone with a '
+      'recorded gift, and no approved payment followed. Staff impersonating a member are '
+      'signed in as that member, so the member&rsquo;s gifts decide it. A '
+      'person who simply gave up looks the same. Pay-balance links are logged under whoever '
+      'created the bill, which is often staff; those rows list the people with open bills from '
+      'that staff member, and one of them was the payer. To check one family directly, use the '
+      'person lookup. Guest visits to the online giving page are not logged by TouchPoint, so '
+      'blocked gifts do not appear here.</p>')
+
+    who = ip_people([ip], since).get(ip, [])
+    a('<details style="margin-top:10px"><summary>Everyone signed in on this IP ({0})</summary>'.format(len(who)))
+    if who:
+        a('<table class="ft-tbl" style="width:auto"><thead><tr><th>Who</th><th>Last seen</th>'
+          '</tr></thead><tbody>')
+        for r in who[:200]:
+            a('<tr><td><a href="/Person2/{0}" target="_blank">{1}</a></td><td>{2}</td></tr>'.format(
+                int(r.PeopleId), h_escape(r.Name or ""), fmt_dt(r.LastSeen)))
+        a('</tbody></table>')
+    a('</details>')
+    return "".join(out)
+
+
+def _ip_link(ip, days):
+    return '<a href="?tab=gates&amp;gdays={0}&amp;ip={1}">{2}</a>'.format(
+        days, h_escape(ip), h_escape(ip))
+
+
+def _score_badge(score, limit):
+    if score is None:
+        return '<span class="muted">not scored</span>'
+    if ip_blocked(score, limit):
+        return ('<span style="background:#c0392b;color:#fff;padding:2px 8px;'
+                'border-radius:3px">{0} BLOCKED</span>'.format(int(score)))
+    return '<span style="color:#27ae60"><b>{0}</b> allowed</span>'.format(int(score))
+
+
+def _names(rows, limit=3):
+    if not rows:
+        return '<span class="muted">nobody signed in</span>'
+    shown = ", ".join('<a href="/Person2/{0}" target="_blank">{1}</a>'.format(
+        int(r.PeopleId), h_escape(r.Name or "")) for r in rows[:limit])
+    if len(rows) > limit:
+        shown += ' <span class="muted">(+{0} more)</span>'.format(len(rows) - limit)
+    return shown
+
+
+def render_gate_table(s):
+    limit = fraud_limit(s)
+    lock_on = _bool(s["FailedConsecutiveGiftBlockEnabled"])
+    rows = [
+        ("Captcha", "Captcha must be completed",
+         "On" if _bool(s["UseRecaptcha"]) else "Off",
+         "Skipped for a signed-in giver with a recorded gift. Wallet payments skip it."),
+        ("Billing address", "Invalid billing address",
+         "On" if _bool(s["ValidateAddressInGiving"]) else "Off",
+         "Only for card and bank entry, not wallets."),
+        ("Email domain", "The email address provided cannot be used for online giving.",
+         h_escape(s["BlockedEmailDomainsGiving"]) or "none",
+         "Checks the billing email against this list."),
+        ("IP fraud score", "Giving is not supported from your current location.",
+         ("<b>Off</b> (limit 100)" if limit == 100 else
+          '<b style="color:#c0392b">On</b>: scores above <b>{0}</b> are refused'.format(limit)),
+         "Each IP gets a 0 to 100 risk score. Skipped for a signed-in giver with a "
+         "recorded gift. Saved scores are reused for 30 days."),
+        ("Failed-attempt lockout", "Giving is temporarily blocked due to too many failed attempts.",
+         ("On: {0} failures in {1} min locks for {2} min".format(
+             s["FailedConsecutiveGiftLockout"], s["FailedConsecutiveGiftTimeframe"],
+             s["FailedConsecutiveGiftBlockTime"]) if lock_on else "Off"),
+         "Counts are kept in TouchPoint's cache, not the database, so this page "
+         "cannot list who is locked out. Ignored IPs: {0}".format(
+             h_escape(s["FailedConsecutiveGiftIPIgnoreList"]) or "none")),
+    ]
+    out = ['<div class="ft-scroll"><table class="ft-tbl"><thead><tr>'
+           '<th>Check</th><th>What the giver sees</th><th>Your setting</th>'
+           '<th style="width:38%">Notes</th></tr></thead><tbody>']
+    for name, msg, setting, note in rows:
+        out.append('<tr><td><b>{0}</b></td><td class="wrap">&ldquo;{1}&rdquo;</td>'
+                   '<td class="wrap">{2}</td><td class="wrap" style="font-size:12px">{3}'
+                   '</td></tr>'.format(name, h_escape(msg), setting, note))
+    out.append('</tbody></table></div>')
+    return "".join(out)
+
+
+def render_person_lookup(term, since, settings, days=GATES_DEFAULT_DAYS):
+    limit = fraud_limit(settings)
+    blocked_domains = [d.strip().lower() for d in settings["BlockedEmailDomainsGiving"].split(",") if d.strip()]
+    people = gate_find_people(term)
+    if not people:
+        return '<p>No one found for &ldquo;{0}&rdquo;.</p>'.format(h_escape(term))
+    if len(people) > 1:
+        # Full detail for every match is a wall of tables; pick one first.
+        rows = []
+        for p in people:
+            billed = to_pydt_safe(p.LastBillDate) if p.LastBillDate is not None else None
+            paid = to_pydt_safe(p.LastPayDate) if p.LastPayDate is not None else None
+            if billed is None:
+                bill_txt, hot = '<span class="muted">none in 90 days</span>', ''
+            else:
+                unpaid = paid is None or paid < billed
+                bill_txt = '{0}: ${1:,.2f} on {2}{3}'.format(
+                    h_escape(p.LastBillOrg or ""), float(p.LastBillAmt or 0),
+                    fmt_dt(p.LastBillDate),
+                    ' <b style="color:#c0392b">not paid since</b>' if unpaid else '')
+                hot = ' style="background:#fdecea"' if unpaid else ''
+            pay_txt = ('${0:,.2f} on {1}'.format(float(p.LastPayAmt or 0), fmt_dt(p.LastPayDate))
+                       if p.LastPayDate is not None else '<span class="muted">none in 90 days</span>')
+            rows.append(
+                '<tr{0}><td><a href="?tab=gates&amp;gdays={1}&amp;person={2}"><b>{3}</b></a></td>'
+                '<td class="num">{2}</td><td class="num">{4}</td><td>{5}</td><td>{6}</td>'
+                '<td class="wrap">{7}</td><td>{8}</td></tr>'.format(
+                    hot, days, int(p.PeopleId), h_escape(p.Name),
+                    int(p.Age) if p.Age is not None else "", h_escape(p.PrimaryCity or ""),
+                    h_escape(p.EmailAddress or ""), bill_txt, pay_txt))
+        return ('<p>{0} people match &ldquo;{1}&rdquo;. Pick one. Anyone billed recently '
+                'is listed first, and a red row has a bill with no payment since.</p>'
+                '<div class="ft-scroll"><table class="ft-tbl"><thead><tr><th>Name</th>'
+                '<th class="num">PeopleId</th><th class="num">Age</th><th>City</th><th>Email</th>'
+                '<th>Last bill (90 days)</th><th>Last payment</th></tr></thead>'
+                '<tbody>{2}</tbody></table></div>'.format(len(people), h_escape(term), "".join(rows)))
+
+    out = []
+    for p in people:
+        gifts = int(p.RecordedGifts or 0)
+        email = p.EmailAddress or ""
+        domain = email.split("@")[-1].strip().lower() if "@" in email else ""
+        out.append('<div style="border:1px solid #e0e0e0;border-radius:6px;padding:10px 14px;margin:10px 0">')
+        out.append('<b><a href="/Person2/{0}" target="_blank">{1}</a></b> '
+                   '<span class="muted">({0}) {2}</span>'.format(
+                       int(p.PeopleId), h_escape(p.Name), h_escape(email)))
+
+        facts = []
+        if int(p.Accounts or 0) == 0:
+            facts.append("No user account, so they always pay as a guest and get every check.")
+        elif gifts > 0:
+            facts.append("Has {0} recorded gift(s). <b>If they sign in first</b>, the captcha and "
+                         "IP checks are skipped.".format(gifts))
+        else:
+            facts.append("Has an account but no recorded gifts, so signing in does "
+                         "<b>not</b> skip the IP check.")
+        if int(p.Accounts or 0):
+            facts.append("Last sign in: {0}".format(fmt_dt(p.LastLogin) if p.LastLogin else "never"))
+            try:
+                links = account_signin_links(p.PeopleId, since)
+            except Exception:
+                links = []
+            if links:
+                facts.append("Sign-in links used for their account (staff impersonating them, or "
+                             "an emailed sign-in link): " + ", ".join(
+                                 fmt_dt(l.Expires) for l in links) +
+                             ". While someone is signed in as them, the IP check uses <b>their</b> "
+                             "gift history.")
+        if domain and domain in blocked_domains:
+            facts.append('<b style="color:#c0392b">Their email domain ({0}) is on the blocked '
+                         'list.</b>'.format(h_escape(domain)))
+        out.append('<ul style="margin:6px 0 6px 18px;font-size:13px">' +
+                   "".join("<li>%s</li>" % f for f in facts) + '</ul>')
+
+        ips = person_ips(p.PeopleId, since)
+        if not ips:
+            out.append('<p class="muted" style="font-size:12px">No signed-in activity in this '
+                       'window, so there is no IP to check. A guest payment records nothing '
+                       'that ties an IP to a person.</p>')
+        else:
+            ip_list = [str(r.ClientIp) for r in ips]
+            scores = ip_scores(ip_list)
+            shared = shared_ip_counts(ip_list)
+            out.append('<table class="ft-tbl" style="width:auto"><thead><tr><th>IP they used</th>'
+                       '<th>Last seen</th><th class="num">Users this week</th><th>Score</th>'
+                       '</tr></thead><tbody>')
+            for r in ips[:10]:
+                ip = str(r.ClientIp)
+                sc = scores.get(ip)
+                users = shared.get(ip, 0)
+                tag = (' <span class="muted">shared network</span>'
+                       if users >= GATES_SHARED_IP_USERS else '')
+                out.append('<tr><td>{0}{1}</td><td>{2}</td><td class="num">{3}</td>'
+                           '<td>{4}</td></tr>'.format(
+                               _ip_link(ip, days), tag, fmt_dt(r.LastSeen), users,
+                               _score_badge(sc.Score if sc else None, limit)))
+            out.append('</tbody></table>')
+        out.append(render_family_visits(p.PeopleId, since, days, limit))
+        out.append('</div>')
+    return "".join(out)
+
+
+def account_signin_links(people_id, since):
+    """One-time sign-in links used for this person's accounts.
+
+    Impersonating someone creates one of these (expiring after a minute) and
+    then signs in as them, so a used link on the day of a failed payment is
+    good evidence staff were in their account. Emailed sign-in links use the
+    same table and look the same; who used the link is not stored.
+    """
+    sql = """
+        SELECT TOP 20 u.Username, l.expires AS Expires
+        FROM dbo.OneTimeLinks l WITH (NOLOCK)
+        JOIN dbo.Users u ON u.Username = l.querystring
+        WHERE u.PeopleId = {0} AND l.used = 1 AND l.expires >= '{1}'
+        ORDER BY l.expires DESC
+    """.format(int(people_id), since.strftime("%Y-%m-%d"))
+    return list(q.QuerySql(sql))
+
+
+def family_ids(people_id):
+    sql = """
+        SELECT PeopleId FROM dbo.People
+        WHERE FamilyId = (SELECT FamilyId FROM dbo.People WHERE PeopleId = {0})
+    """.format(int(people_id))
+    return set(int(r.PeopleId) for r in q.QuerySql(sql))
+
+
+def render_family_visits(people_id, since, days, limit):
+    visits = family_pay_visits(people_id, since)
+    if not visits:
+        return ('<p class="muted" style="font-size:12px">No registration or pay-link visits '
+                'for this family in the window.</p>')
+    fam = family_ids(people_id)
+    ips = sorted(set(str(v.ClientIp) for v in visits if v.ClientIp))
+    scores = ip_scores(ips)
+    staff_orgs = [v.OrgId for v in visits if not int(v.IsFamily or 0)]
+    # Bills can predate the window by months, so look further back for them.
+    txs = org_transactions(staff_orgs, since - datetime.timedelta(days=180)) if staff_orgs else []
+
+    def family_owed_staff(g):
+        """True when this family had an unpaid bill from this staff member in
+        this involvement at the time of the visit."""
+        last_bill = None
+        for t in txs:
+            if t["org"] == g["org"] and t["payer"] in fam and t["at"] is not None \
+                    and g["first"] is not None and t["at"] <= g["first"]:
+                if t["fee"] and t["login"] == g["pid"]:
+                    last_bill = t["at"]
+                elif t["paid"] and last_bill is not None and t["at"] >= last_bill:
+                    last_bill = None
+        return last_bill is not None
+
+    # A visit logged under staff is a pay link for one of the bills they
+    # created. The bill they created just before it names the family, so it
+    # is either provably theirs or provably someone else's. Only visits with
+    # no such bill stay uncertain, and of those only blocked IPs are kept.
+    rows, other_family, uncertain_hidden = [], 0, 0
+    for v in visits:
+        sc = scores.get(str(v.ClientIp or ""))
+        if int(v.IsFamily or 0):
+            rows.append((v, sc, None, None))
+            continue
+        g = {"org": int(v.OrgId or 0), "pid": int(v.PeopleId), "staff": True,
+             "first": to_pydt_safe(v.ActivityDate)}
+        fee = find_fee(g, txs)
+        if fee is not None:
+            if fee["payer"] in fam:
+                rows.append((v, sc, fee, match_payment(g, txs, fee)))
+            else:
+                other_family += 1
+        elif sc is not None and ip_blocked(sc.Score, limit) and family_owed_staff(g):
+            rows.append((v, sc, None, None))
+        else:
+            uncertain_hidden += 1
+    if not rows:
+        return ('<p class="muted" style="font-size:12px">No registration or pay-link visits for '
+                'this family in the window.</p>')
+
+    out = ['<p style="font-size:13px;margin:10px 0 4px"><b>Registration and pay-link visits '
+           'for this family</b> (any IP, signed in or not)</p>'
+           '<table class="ft-tbl"><thead><tr><th>When</th><th>IP</th>'
+           '<th>Score</th><th>Involvement</th><th>Step</th><th>Who</th>'
+           '</tr></thead><tbody>']
+    for v, sc, fee, paid in rows:
+        ip = str(v.ClientIp or "")
+        blocked = sc is not None and ip_blocked(sc.Score, limit)
+        staff_link = '<a href="/Person2/{0}" target="_blank">{1}</a>'.format(
+            int(v.PeopleId), h_escape(v.Name or ""))
+        if int(v.IsFamily or 0):
+            who = staff_link
+        elif fee is not None:
+            if paid is not None:
+                result = '<span style="color:#27ae60">paid ${0:,.2f} at {1}</span>'.format(
+                    paid["amt"], fmt_dt(paid["raw_at"]))
+            elif blocked:
+                result = ('<b style="color:#c0392b">no payment followed; this IP is blocked, '
+                          'so this is very likely the refused payment</b>')
+            else:
+                result = 'no payment followed'
+            who = ('<b>Theirs.</b> {0} billed <a href="/Person2/{1}" target="_blank">{2}</a> '
+                   '${3:,.2f} at {4}, then opened the pay link; {5}.'.format(
+                       staff_link, fee["payer"], h_escape(fee["payer_name"]),
+                       fee["amt"] or abs(fee["due"]), fmt_dt(fee["raw_at"]), result))
+        else:
+            who = staff_link + (' <span class="muted">(pay link for a bill they created. This '
+                                'family owed them one at the time, but so may others.)</span>')
+        hot = ' style="background:#fdecea"' if blocked and v.Activity in PAY_STEPS \
+            and (fee is None or paid is None) else ''
+        out.append('<tr{0}><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td>'
+                   '<td class="wrap">{6}</td></tr>'.format(
+                       hot, fmt_dt(v.ActivityDate), _ip_link(ip, days) if ip else "",
+                       _score_badge(sc.Score if sc else None, limit),
+                       h_escape(v.OrganizationName or ""),
+                       h_escape((v.Activity or "").replace("OnlineReg ", "")), who))
+    out.append('</tbody></table>')
+    if other_family or uncertain_hidden:
+        out.append('<p class="muted" style="font-size:11px">Left out: {0} pay-link visits that '
+                   'were other families&rsquo; bills from the same staff, and {1} that could not be '
+                   'traced to this family.</p>'.format(other_family, uncertain_hidden))
+    return "".join(out)
+
+
+def internal_networks():
+    """IPs that many different people signed in from this week: the church
+    building, most likely. Returned busiest first."""
+    sql = """
+        SELECT TOP 3 ClientIp, COUNT(DISTINCT UserId) AS Users
+        FROM dbo.ActivityLog WITH (NOLOCK)
+        WHERE ActivityDate >= DATEADD(day, -7, GETDATE())
+          AND UserId IS NOT NULL AND ClientIp IS NOT NULL
+        GROUP BY ClientIp
+        HAVING COUNT(DISTINCT UserId) >= {0}
+        ORDER BY COUNT(DISTINCT UserId) DESC
+    """.format(GATES_SHARED_IP_USERS)
+    return [(str(r.ClientIp), int(r.Users or 0)) for r in q.QuerySql(sql)]
+
+
+def ignored_ips(settings):
+    raw = settings.get("FailedConsecutiveGiftIPIgnoreList") or ""
+    return [x for x in re.split(r"[\s,;]+", raw) if x]
+
+
+def render_findings(settings, days):
+    """Plain-language list of what is wrong, worst first."""
+    limit = fraud_limit(settings)
+    lock_on = _bool(settings["FailedConsecutiveGiftBlockEnabled"])
+    ignored = ignored_ips(settings)
+    nets = internal_networks()
+    scores = ip_scores([ip for ip, _ in nets])
+    found = []  # (level, html)
+
+    for ip, users in nets:
+        sc = scores.get(ip)
+        label = '{0} ({1} people signed in from it this week)'.format(_ip_link(ip, days), users)
+        if sc is not None and ip_blocked(sc.Score, limit):
+            scored_at = to_pydt_safe(sc.LastUpdated)
+            until = (scored_at + datetime.timedelta(days=30)).strftime("%b %d") if scored_at else "30 days after it was scored"
+            found.append(("bad",
+                '<b>Your building&rsquo;s network is blocked.</b> {0} looks like an internal IP, '
+                'and it scored <b>{1}</b> against your limit of {2} on {3}. Every guest payment '
+                'made from the building (front desk, kiosks, staff helping someone pay) is '
+                'refused with &ldquo;Giving is not supported from your current location&rdquo; '
+                'until about <b>{4}</b>, and it may score high again after that.'
+                '<ul style="margin:6px 0 0 18px">'
+                '<li>Quickest: have staff <b>sign in</b> before running a payment. Anyone '
+                'signed in who has a recorded gift of their own skips this check.</li>'
+                '<li>Set <code>FraudScoreMaximumGiving</code> to 100 to turn the check off, or '
+                'ask TouchPoint support to clear the saved score for this IP.</li>'
+                '<li>Ask IT why the building scores high (a VPN, proxy, guest wifi, or an '
+                'infected device on the network can all do it).</li>'
+                '<li>The Failed Transaction Ignored IPs setting does <b>not</b> help here; it '
+                'only covers the lockout below.</li></ul>'.format(
+                    label, int(sc.Score), limit, fmt_dt(sc.LastUpdated), until)))
+        elif sc is not None and limit != 100 and int(sc.Score) >= limit - 10:
+            found.append(("warn",
+                '{0} looks like an internal IP and scored <b>{1}</b>, close to your limit of '
+                '{2}. A small change in its reputation will block every guest payment made '
+                'from the building.'.format(label, int(sc.Score), limit)))
+
+        if lock_on and ip not in ignored:
+            found.append(("warn",
+                '{0} looks like an internal IP but is not in <b>Failed Transaction Ignored '
+                'IPs</b> (Admin &gt; Advanced &gt; Settings &gt; Finance &gt; Online Giving). '
+                'A few declined cards at the front desk would lock everyone in the building out '
+                'of paying for {1} minutes. Adding it does not affect the location check.'.format(
+                    label, settings["FailedConsecutiveGiftBlockTime"])))
+        elif lock_on:
+            found.append(("ok",
+                '{0} is in Failed Transaction Ignored IPs, so the building cannot be locked out '
+                'by repeated declines. That list does not cover the location check.'.format(label)))
+
+    stale = [x for x in ignored if x not in [ip for ip, _ in nets]]
+    if stale:
+        found.append(("info",
+            'Failed Transaction Ignored IPs also lists {0}, which nobody signed in from this '
+            'week. If the building&rsquo;s IP changed, update the list.'.format(
+                ", ".join(h_escape(x) for x in stale))))
+
+    if not nets:
+        found.append(("info",
+            'No internal network detected (no IP had {0}+ people signed in this week).'.format(
+                GATES_SHARED_IP_USERS)))
+
+    if not found:
+        return ''
+    colors = {"bad": "#c0392b", "warn": "#f0ad4e", "info": "#2a72d4", "ok": "#27ae60"}
+    rank = {"bad": 0, "warn": 1, "info": 2, "ok": 3}
+    found.sort(key=lambda f: rank[f[0]])
+    out = ['<h3 style="margin-top:18px">Detected problems</h3>']
+    for level, html in found:
+        out.append('<div class="ft-note" style="border-left-color:{0};font-size:13px">{1}'
+                   '</div>'.format(colors[level], html))
+    return "".join(out)
+
+
+def render_gates():
+    try:
+        days = int(get_param("gdays") or GATES_DEFAULT_DAYS)
+    except Exception:
+        days = GATES_DEFAULT_DAYS
+    if days <= 0:
+        days = GATES_DEFAULT_DAYS
+    since = datetime.datetime.now() - datetime.timedelta(days=days)
+    person = get_param("person")
+    drill_ip = get_param("ip")
+    if not re.match(r"^[0-9a-fA-F\.:]{3,45}$", drill_ip or ""):
+        drill_ip = ""
+    settings = gate_settings()
+    limit = fraud_limit(settings)
+
+    if drill_ip:
+        return render_ip_drill(drill_ip, since, days, settings)
+
+    out = []
+    a = out.append
+    a('<div class="ft-note"><b>Why the other tabs show nothing.</b> TouchPoint runs the '
+      'checks below <b>before</b> a payment is sent to Fortis. A payment stopped here never '
+      'reaches Fortis, so it is not in the Denials or Health tabs, and TouchPoint does not '
+      'log the block itself. This tab collects the evidence that does exist. These checks '
+      'apply to gifts and to registration payments.</div>')
+
+    a('<div class="ft-filters"><form method="get" action="">'
+      '<input type="hidden" name="tab" value="gates">'
+      '<label>Person (name, email or PeopleId)</label> '
+      '<input type="text" name="person" value="{0}" size="28" placeholder="e.g. Smith or jane@example.com"> '
+      '<label>Look back</label> <select name="gdays">{1}</select> '
+      '<button class="ft-btn" type="submit">Check</button></form></div>'.format(
+          h_escape(person),
+          "".join('<option value="{0}"{1}>{0} days</option>'.format(
+              d, " selected" if d == days else "") for d in (3, 7, 14, 30, 60))))
+
+    if person:
+        a('<h3 style="margin-top:18px">Person lookup</h3>')
+        a(render_person_lookup(person, since, settings, days))
+        a('<p style="font-size:12px"><a href="?tab=gates&amp;gdays={0}">Clear the person '
+          'search</a></p>'.format(days))
+
+    try:
+        a(render_findings(settings, days))
+    except Exception as e:
+        a('<div class="ft-note">Could not run the problem checks: ' + h_escape(str(e)) + '</div>')
+
+    # ---- the checks ---------------------------------------------------
+    a('<h3 style="margin-top:18px">The checks, in the order TouchPoint runs them</h3>')
+    a(render_gate_table(settings))
+    if limit == 100:
+        a('<p style="font-size:12px;color:#777">The IP check is off right now, so it cannot be '
+          'the cause of a block that happens today. If a giver saw &ldquo;not supported from '
+          'your current location&rdquo; while this reads 100, the setting was changed after '
+          'the attempt. Ask TouchPoint support which value was in effect.</p>')
+
+    # While a person is looked up, the site-wide tables are folded away so the
+    # answer is not buried under them.
+    if person:
+        a('<details style="margin-top:22px"><summary style="cursor:pointer;font-size:15px">'
+          '<b>All scored IP addresses and returning givers</b> (click to show)</summary>')
+
+    # ---- scored IPs ----------------------------------------------------
+    a('<h3 style="margin-top:22px">IP addresses scored in the last {0} days</h3>'.format(days))
+    a('<p style="font-size:12px;color:#777">Click an IP to see who went through registration '
+      'or a pay-balance link from it, and whether they paid.</p>')
+    scored = list(q.QuerySql("""
+        SELECT TOP 200 Evidence, Score, LastUpdated FROM dbo.FraudScores
+        WHERE LastUpdated >= '{0}' ORDER BY LastUpdated DESC
+    """.format(since.strftime("%Y-%m-%d"))))
+    if not scored:
+        a('<p>None. TouchPoint only scores an IP while the IP check is on, and only when '
+          'someone reaches the payment step.</p>')
+    else:
+        ips = [str(r.Evidence) for r in scored]
+        who = ip_people(ips, since)
+        shared = shared_ip_counts(ips)
+        nblocked = len([r for r in scored if ip_blocked(r.Score, limit)])
+        a('<p>{0} IP(s) scored, <b>{1}</b> over the current limit. A score is saved the first '
+          'time an IP reaches the payment step and refreshed after 30 days, so the time shown '
+          'is the first attempt, not every one.</p>'.format(len(scored), nblocked))
+        a('<div class="ft-scroll"><table class="ft-tbl"><thead><tr><th>IP</th><th>Score</th>'
+          '<th>Scored</th><th class="num">Users this week</th><th>Signed in on this IP</th>'
+          '</tr></thead><tbody>')
+        for r in scored:
+            ip = str(r.Evidence)
+            users = shared.get(ip, 0)
+            tag = (' <span class="muted">shared network</span>'
+                   if users >= GATES_SHARED_IP_USERS else '')
+            hot = ' style="background:#fdecea"' if ip_blocked(r.Score, limit) else ''
+            a('<tr{0}><td>{1}{2}</td><td>{3}</td><td>{4}</td><td class="num">{5}</td>'
+              '<td class="wrap">{6}</td></tr>'.format(
+                  hot, _ip_link(ip, days), tag, _score_badge(r.Score, limit),
+                  fmt_dt(r.LastUpdated), users, _names(who.get(ip, []))))
+        a('</tbody></table></div>')
+        a('<p style="font-size:11px;color:#777">&ldquo;Signed in on this IP&rdquo; is anyone '
+          'who used TouchPoint from that address in the window. It shows who was there, not '
+          'who tried to pay. A guest payment leaves no name.</p>')
+
+    # ---- bypass log ---------------------------------------------------
+    a('<h3 style="margin-top:22px">Givers who skipped the IP check</h3>')
+    bypass = list(q.QuerySql("""
+        SELECT TOP 25 al.ActivityDate, al.ClientIp, al.PeopleId, p.Name
+        FROM dbo.ActivityLog al WITH (NOLOCK)
+        LEFT JOIN dbo.People p ON p.PeopleId = al.PeopleId
+        WHERE al.ActivityDate >= '{0}' AND al.Activity = '{1}'
+        ORDER BY al.ActivityDate DESC
+    """.format(since.strftime("%Y-%m-%d"), sql_escape(BYPASS_ACTIVITY))))
+    a('<p style="font-size:13px">TouchPoint writes a line each time a signed-in giver with a '
+      'recorded gift reaches the payment step. These people can never be blocked by the IP '
+      'check. The line is written even while the check is off, so it does not prove the '
+      'check was on.</p>')
+    if not bypass:
+        a('<p class="muted">None in this window.</p>')
+    else:
+        a('<table class="ft-tbl" style="width:auto"><thead><tr><th>When</th><th>Who</th>'
+          '<th>IP</th></tr></thead><tbody>')
+        for r in bypass:
+            a('<tr><td>{0}</td><td><a href="/Person2/{1}" target="_blank">{2}</a></td>'
+              '<td>{3}</td></tr>'.format(fmt_dt(r.ActivityDate), int(r.PeopleId or 0),
+                                         h_escape(r.Name or ""), h_escape(r.ClientIp or "")))
+        a('</tbody></table>')
+    if person:
+        a('</details>')
+
+    a('<div class="ft-note" style="margin-top:22px"><b>Helping a blocked giver.</b> '
+      'Ask them to sign in before paying if they have given before, or to switch networks '
+      '(phone data instead of a VPN or office wifi). Staff can also enter the payment for '
+      'them. If the blocked IP is your own building, every guest there is blocked until the '
+      'score is refreshed; raise the limit or contact TouchPoint support.</div>')
+    return "".join(out)
+
+
+#####################################################################
 #### MAIN
 #####################################################################
 
@@ -1261,7 +2376,8 @@ def render_footer():
 
 
 def render_tabs(active):
-    tabs = [("denials", "Denials"), ("health", "Health &amp; flow")]
+    tabs = [("denials", "Denials"), ("health", "Health &amp; flow"),
+            ("gates", "Blocked before Fortis")]
     out = ['<div style="border-bottom:2px solid #ddd;margin:14px 0 6px">']
     for key, label in tabs:
         if key == active:
@@ -1484,14 +2600,14 @@ def main():
 
     tab = (get_param("tab") or "denials").lower()
 
-    if tab == "health":
+    if tab in ("health", "gates"):
         html = ['<div class="ft-wrap">', render_styles(),
                 '<h2>' + PAGE_TITLE + '</h2>', render_tabs(tab)]
         try:
-            html.append(render_health())
+            html.append(render_health() if tab == "health" else render_gates())
         except Exception as e:
             import traceback
-            html.append('<div class="ft-note"><b>The health tab hit an error.</b>'
+            html.append('<div class="ft-note"><b>This tab hit an error.</b>'
                         '<pre style="white-space:pre-wrap;font-size:11px;">'
                         + h_escape(str(e)) + '\n\n'
                         + h_escape(traceback.format_exc()) + '</pre>'
