@@ -58,17 +58,52 @@ a full PAN. There is no PCI concern in sharing its output.
 
 WHAT YOU WILL NEED TO SET
 -------------------------
-Everything configurable sits in the CONFIGURATION blocks below. At minimum
-check ALLOWED_ROLES, CONTACT_API_PREFIX and UTC_OFFSET_HOURS. To get email
-alerts, set HEALTH_ALERT_PEOPLE_ID and add the ScheduledTasks block shown
-at the bottom of the Health tab.
+Everything configurable sits in the CONFIGURATION blocks below. Check:
+  * ALLOWED_ROLES       who can open the page (default Finance, Admin,
+                        ManageApplication). Someone with only FinanceAdmin,
+                        for example, will be turned away until you add it.
+  * CONTACT_API_PREFIX  your Fortis contact prefix (how to find it is in
+                        the comment next to it).
+  * UTC_OFFSET_HOURS    your time zone, so times read correctly.
+Email alerts are optional; the "Setup and email alerts" checklist at the
+bottom of the Health & flow tab walks through them with the code ready to
+copy.
 
 --Upload Instructions Start--
-1. Admin ~ Advanced ~ Special Content ~ Python
+1. Admin > Advanced > Special Content > Python
 2. New Python Script File
 3. Name it "FortisTroubleshooter" and paste this code
-4. Access via /PyScriptForm/FortisTroubleshooter
-   (optionally add to a menu / Blue Toolbar)
+4. Open it at /PyScriptForm/FortisTroubleshooter (bookmark it)
+
+Optional: add it to the Finance reports menu. In Special Content >
+Text Content, create a text file named exactly ReportsMenuFinance.xml:
+
+    <ReportsMenu>
+      <Column3>
+        <Header roles="Finance">Troubleshooting</Header>
+        <Report roles="Finance" link="/PyScriptForm/FortisTroubleshooter">Fortis Troubleshooter</Report>
+      </Column3>
+    </ReportsMenu>
+
+Do NOT add it to CustomReports. That list is for Blue Toolbar reports,
+which run on people picked from a search, and this page fails there with
+"Missing Call to Query Function 'BlueToolbarReport'".
+
+Optional: email alerts when card or ACH payments stop coming through.
+  a. Set HEALTH_ALERT_PEOPLE_ID and HEALTH_ALERT_FROM_EMAIL below.
+  b. Add this to Special Content > Python > ScheduledTasks (create a script
+     with that exact name if you do not have one). If you saved this script
+     under a different name, use that name in CallScript.
+
+    # >>> Fortis health check >>>
+    try:
+        Data.fortis_health = 'true'
+        model.CallScript('FortisTroubleshooter')
+    except Exception as _fh_e:
+        print 'Fortis health error: ' + str(_fh_e)
+    # <<< Fortis health check <<<
+
+  The Health & flow tab shows whether the scheduled check is running.
 --Upload Instructions End--
 
 Written By: Ben Swaby (TPxi Software, LLC)
@@ -89,7 +124,7 @@ or your phone. No tab switching, no lost context.
 https://tpxigo.com
 ----------------------------------------------------------------
 
-Version: 2.2
+Version: 2.3
 """
 
 import json
@@ -2602,29 +2637,97 @@ def render_health():
       'percentage of that method\'s transactions, not a raw count. A count rises purely with '
       'volume; a rate is comparable month to month.</p>')
 
-    # ---- alert status ------------------------------------------------
+    # ---- setup ---------------------------------------------------------
+    a(render_setup())
+    return "".join(out)
+
+
+def _step(done, title, body):
+    mark = ('<span style="color:#27ae60;font-weight:bold">&#10003; Done</span>' if done is True
+            else '<span style="color:#b9770e;font-weight:bold">To do</span>' if done is False
+            else '<span class="muted">Optional</span>')
+    return ('<div style="border:1px solid #e0e0e0;border-radius:6px;padding:10px 14px;'
+            'margin:10px 0"><div><b>{0}</b> &nbsp; {1}</div>'
+            '<div style="font-size:13px;margin-top:6px">{2}</div></div>'.format(title, mark, body))
+
+
+def render_setup():
+    """Setup checklist. Python cannot see the name this script was saved
+    under, so the code samples carry a placeholder that the small script at
+    the end swaps for the name in the page address."""
     st = health_load_state()
-    a('<h3 style="margin-top:22px">Alerting</h3>')
+    last = st.get("last_check")
+    hrs = _hours_since(last) if last else None
+    running = hrs is not None and hrs < 2
+    name = '<span class="ft-script-name">FortisTroubleshooter</span>'
+    pre = '<pre style="font-size:11px;background:#f7f7f7;padding:8px;border-radius:4px;white-space:pre-wrap">'
+
+    out = ['<h3 style="margin-top:22px">Setup and email alerts</h3>']
+
+    # 1. who gets the email
     if HEALTH_ALERT_PEOPLE_ID:
-        a('<p>Emailing PeopleId <b>{0}</b> when a method goes silent, at most once every '
-          '{1} hours, plus once when it recovers.<br>'
-          '<span style="font-size:12px;color:#777">Last scheduled check: {2}</span></p>'.format(
-              HEALTH_ALERT_PEOPLE_ID, HEALTH_ALERT_COOLDOWN_HOURS,
-              h_escape(st.get("last_check") or "never run")))
+        body1 = ('Alerts go to PeopleId <b>{0}</b>, from {1}, at most once every {2} hours per '
+                 'payment method, plus once when it recovers.'.format(
+                     HEALTH_ALERT_PEOPLE_ID, h_escape(HEALTH_ALERT_FROM_EMAIL),
+                     HEALTH_ALERT_COOLDOWN_HOURS))
     else:
-        a('<div class="ft-note"><b>Email alerting is off.</b> Set '
-          '<code>HEALTH_ALERT_PEOPLE_ID</code> to a PeopleId, then add this to Special '
-          'Content &gt; Python &gt; ScheduledTasks so it is checked without anyone '
-          'remembering to look:<br>'
-          '<pre style="font-size:11px">'
-          '# &gt;&gt;&gt; Fortis health check &gt;&gt;&gt;\n'
-          'try:\n'
-          '    Data.fortis_health = \'true\'\n'
-          '    model.CallScript(\'FortisTroubleshooter\')\n'
-          'except Exception as _fh_e:\n'
-          '    print \'Fortis health error: \' + str(_fh_e)\n'
-          '# &lt;&lt;&lt; Fortis health check &lt;&lt;&lt;'
-          '</pre></div>')
+        body1 = ('Open this script in Admin &gt; Advanced &gt; Special Content &gt; Python and, '
+                 'near the top under HEALTH TAB CONFIGURATION, change:'
+                 + pre + 'HEALTH_ALERT_PEOPLE_ID = 0                         # the PeopleId to email\n'
+                 'HEALTH_ALERT_FROM_EMAIL = "noreply@yourchurch.org"  # an address you send from'
+                 '</pre>Then save the script.')
+    out.append(_step(bool(HEALTH_ALERT_PEOPLE_ID), "1. Choose who gets the alert email", body1))
+
+    # 2. scheduled check
+    if running:
+        state2 = '<p style="color:#27ae60">Running. Last check: {0}.</p>'.format(
+            fmt_local(to_pydt_safe(last)))
+    elif last:
+        state2 = ('<p style="color:#c0392b">The last scheduled check was {0}, {1} hours ago. '
+                  'It should run every 15 minutes or so; check that the block below is still '
+                  'in ScheduledTasks and that the script name in it matches.</p>'.format(
+                      fmt_local(to_pydt_safe(last)), int(hrs)))
+    else:
+        state2 = '<p>Not running yet.</p>'
+    body2 = (state2 +
+             'In Admin &gt; Advanced &gt; Special Content &gt; Python, open the script named '
+             '<b>ScheduledTasks</b> (create a new Python script with exactly that name if you do '
+             'not have one). Paste this at the bottom and save. TouchPoint runs ScheduledTasks on '
+             'its own about every 15 minutes, so there is nothing else to schedule.'
+             + pre + '# &gt;&gt;&gt; Fortis health check &gt;&gt;&gt;\n'
+             'try:\n'
+             '    Data.fortis_health = \'true\'\n'
+             '    model.CallScript(\'' + name + '\')\n'
+             'except Exception as _fh_e:\n'
+             '    print \'Fortis health error: \' + str(_fh_e)\n'
+             '# &lt;&lt;&lt; Fortis health check &lt;&lt;&lt;</pre>'
+             'The name in <code>CallScript</code> is already set to what you saved this script as. '
+             'If you ever rename the script, update it there too.')
+    out.append(_step(running, "2. Run the check automatically", body2))
+
+    # 3. menu
+    body3 = ('You can always open this page at <code>/PyScriptForm/' + name + '</code>. To put it '
+             'under <b>Reports &gt; Finance</b>, go to Admin &gt; Advanced &gt; Special Content &gt; '
+             'Text Content, create a text file named exactly <b>ReportsMenuFinance.xml</b>, and '
+             'paste:' + pre +
+             '&lt;ReportsMenu&gt;\n'
+             '  &lt;Column3&gt;\n'
+             '    &lt;Header roles="Finance"&gt;Troubleshooting&lt;/Header&gt;\n'
+             '    &lt;Report roles="Finance" link="/PyScriptForm/' + name + '"&gt;Fortis Troubleshooter&lt;/Report&gt;\n'
+             '  &lt;/Column3&gt;\n'
+             '&lt;/ReportsMenu&gt;</pre>'
+             'It appears within a minute or so. <b>Do not</b> add this script to CustomReports: '
+             'that list is for Blue Toolbar reports, which run on people picked from a search, and '
+             'this page fails there with &ldquo;Missing Call to Query Function&rdquo;.<br>'
+             'Who can open the page is set by <code>ALLOWED_ROLES</code> near the top of the script '
+             '(now: <b>{0}</b>). Someone needs one of those roles, so match the menu&rsquo;s '
+             '<code>roles</code> to it.'.format(h_escape(", ".join(ALLOWED_ROLES))))
+    out.append(_step(None, "3. Add it to the Finance reports menu", body3))
+
+    out.append('<script>(function(){var m=/\\/PyScript(?:Form)?\\/([^\\/?#]+)/.exec(location.pathname);'
+               'if(!m)return;var n=decodeURIComponent(m[1]);'
+               'var els=document.querySelectorAll(".ft-script-name");'
+               'for(var i=0;i<els.length;i++){els[i].textContent=n;}})();</script>')
     return "".join(out)
 
 
