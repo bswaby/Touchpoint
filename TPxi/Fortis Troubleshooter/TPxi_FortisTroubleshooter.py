@@ -1704,6 +1704,8 @@ def render_ip_drill(ip, since, days, settings):
           _score_badge(sc.Score if sc else None, limit),
           (", saved " + fmt_dt(sc.LastUpdated)) if sc else "",
           users, " (shared network)" if users >= GATES_SHARED_IP_USERS else "", days))
+    if sc and ip_blocked(sc.Score, limit):
+        a(render_why_box(ip))
     if sc and ip_blocked(sc.Score, limit) and users >= GATES_SHARED_IP_USERS:
         a('<div class="ft-note" style="border-left-color:#c0392b"><b>Everyone paying as a guest '
           'from this network is being refused.</b> The score is reused for 30 days from the time '
@@ -1837,6 +1839,41 @@ def render_ip_drill(ip, since, days, settings):
         a('</tbody></table>')
     a('</details>')
     return "".join(out)
+
+
+# TouchPoint asks IPQualityScore for the score. IPQS also answers whether the
+# address is a proxy, VPN or Tor exit, but TouchPoint only saves the number,
+# so the reason is gone. Their free lookup page shows today's view of the
+# same address; it can differ from a score saved up to 30 days ago.
+IPQS_LOOKUP_URL = "https://www.ipqualityscore.com/free-ip-lookup-proxy-vpn-test/lookup/{0}"
+
+
+def _why_link(ip):
+    return (' <a href="{0}" target="_blank" rel="noopener noreferrer" '
+            'style="font-size:11px" title="Look this address up on IPQualityScore, the service '
+            'TouchPoint gets the score from">why?</a>'.format(
+                IPQS_LOOKUP_URL.format(h_escape(ip))))
+
+
+def render_why_box(ip):
+    return (
+        '<div class="ft-note" style="font-size:13px"><b>Why was this address scored high?</b> '
+        'TouchPoint gets the score from IPQualityScore. IPQS also says whether the address is a '
+        'proxy, VPN or Tor, but TouchPoint keeps only the number, so the reason is not stored '
+        'anywhere. <a href="{0}" target="_blank" rel="noopener noreferrer">Look up {1} on '
+        'IPQualityScore</a> to see today&rsquo;s view (proxy, VPN, recent abuse, internet '
+        'provider). It can differ from a score saved up to 30 days ago.'
+        '<ul style="margin:6px 0 0 18px">'
+        '<li><b>VPN or privacy relay</b>: iPhone iCloud Private Relay, a phone carrier&rsquo;s '
+        'privacy feature, an antivirus &ldquo;secure browsing&rdquo; VPN, or a work VPN. The '
+        'fix is to turn it off for a moment, or pay over a different connection.</li>'
+        '<li><b>Proxy or data center address</b>: the provider shown is a hosting company, '
+        'not a home internet provider.</li>'
+        '<li><b>Recent abuse</b>: someone else on the same address (public, hotel or apartment '
+        'wifi, some cell networks) sent spam or tested cards. Switching networks fixes it.</li>'
+        '</ul>TouchPoint already asks for the most lenient score IPQS offers, so a 100 means '
+        'IPQS is confident the address is risky.</div>').format(
+            IPQS_LOOKUP_URL.format(h_escape(ip)), h_escape(ip))
 
 
 def _ip_link(ip, days):
@@ -1994,7 +2031,8 @@ def render_person_lookup(term, since, settings, days=GATES_DEFAULT_DAYS):
                        if users >= GATES_SHARED_IP_USERS else '')
                 out.append('<tr><td>{0}{1}</td><td>{2}</td><td class="num">{3}</td>'
                            '<td>{4}</td></tr>'.format(
-                               _ip_link(ip, days), tag, fmt_dt(r.LastSeen), users,
+                               _ip_link(ip, days) + (_why_link(ip) if sc and ip_blocked(sc.Score, limit) else ''),
+                               tag, fmt_dt(r.LastSeen), users,
                                _score_badge(sc.Score if sc else None, limit)))
             out.append('</tbody></table>')
         out.append(render_family_visits(p.PeopleId, since, days, limit))
@@ -2111,7 +2149,8 @@ def render_family_visits(people_id, since, days, limit):
             and (fee is None or paid is None) else ''
         out.append('<tr{0}><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td>'
                    '<td class="wrap">{6}</td></tr>'.format(
-                       hot, fmt_dt(v.ActivityDate), _ip_link(ip, days) if ip else "",
+                       hot, fmt_dt(v.ActivityDate),
+                       (_ip_link(ip, days) + (_why_link(ip) if blocked else '')) if ip else "",
                        _score_badge(sc.Score if sc else None, limit),
                        h_escape(v.OrganizationName or ""),
                        h_escape((v.Activity or "").replace("OnlineReg ", "")), who))
@@ -2308,7 +2347,8 @@ def render_gates():
             hot = ' style="background:#fdecea"' if ip_blocked(r.Score, limit) else ''
             a('<tr{0}><td>{1}{2}</td><td>{3}</td><td>{4}</td><td class="num">{5}</td>'
               '<td class="wrap">{6}</td></tr>'.format(
-                  hot, _ip_link(ip, days), tag, _score_badge(r.Score, limit),
+                  hot, _ip_link(ip, days) + (_why_link(ip) if ip_blocked(r.Score, limit) else ''),
+                  tag, _score_badge(r.Score, limit),
                   fmt_dt(r.LastUpdated), users, _names(who.get(ip, []))))
         a('</tbody></table></div>')
         a('<p style="font-size:11px;color:#777">&ldquo;Signed in on this IP&rdquo; is anyone '
