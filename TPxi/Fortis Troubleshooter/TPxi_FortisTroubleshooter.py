@@ -23,7 +23,9 @@ BLOCKED BEFORE FORTIS  -- did TouchPoint stop it before Fortis saw it?
   stopped there leaves nothing in either Fortis table and TouchPoint does not
   log the block. This tab shows each check's current setting, the IP scores
   TouchPoint saved and who was signed in on those IPs, and a person lookup
-  that says whether signing in would get them past the IP check.
+  that says whether signing in would get them past the IP check. On an IP's
+  page, "Second opinions" asks other reputation services about the same
+  address (on click only), so an IPQS false positive can be shown.
   Typical trigger: "Giving is not supported from your current location."
 
 WHY THE SECOND TAB EXISTS
@@ -124,7 +126,7 @@ or your phone. No tab switching, no lost context.
 https://tpxigo.com
 ----------------------------------------------------------------
 
-Version: 2.3
+Version: 2.4
 """
 
 import json
@@ -1741,6 +1743,10 @@ def render_ip_drill(ip, since, days, settings):
           users, " (shared network)" if users >= GATES_SHARED_IP_USERS else "", days))
     if sc and ip_blocked(sc.Score, limit):
         a(render_why_box(ip))
+    try:
+        a(render_second_opinions(ip, days))
+    except Exception as e:
+        a('<div class="ft-note">Second opinions could not run: ' + h_escape(str(e)) + '</div>')
     if sc and ip_blocked(sc.Score, limit) and users >= GATES_SHARED_IP_USERS:
         a('<div class="ft-note" style="border-left-color:#c0392b"><b>Everyone paying as a guest '
           'from this network is being refused.</b> The score is reused for 30 days from the time '
@@ -1883,11 +1889,12 @@ def render_ip_drill(ip, since, days, settings):
 IPQS_LOOKUP_URL = "https://www.ipqualityscore.com/free-ip-lookup-proxy-vpn-test/lookup/{0}"
 
 
-def _why_link(ip):
-    return (' <a href="{0}" target="_blank" rel="noopener noreferrer" '
-            'style="font-size:11px" title="Look this address up on IPQualityScore, the service '
-            'TouchPoint gets the score from">why?</a>'.format(
-                IPQS_LOOKUP_URL.format(h_escape(ip))))
+def _why_link(ip, days, label="why?"):
+    # Opens the address's page at its Second opinions panel. The IPQS public
+    # lookup is linked from the "why" box there.
+    return (' <a href="?tab=gates&amp;gdays={0}&amp;ip={1}#ftSecond" style="font-size:11px" '
+            'title="Compare this address&rsquo;s score with other reputation services">{2}</a>'.format(
+                days, h_escape(ip), label))
 
 
 def render_why_box(ip):
@@ -1906,9 +1913,297 @@ def render_why_box(ip):
         'not a home internet provider.</li>'
         '<li><b>Recent abuse</b>: someone else on the same address (public, hotel or apartment '
         'wifi, some cell networks) sent spam or tested cards. Switching networks fixes it.</li>'
-        '</ul>TouchPoint already asks for the most lenient score IPQS offers, so a 100 means '
-        'IPQS is confident the address is risky.</div>').format(
+        '</ul>A high score is not proof. IPQS can flag an ordinary business network (firewall '
+        'filtering, many staff on one address) as a proxy or VPN, and it does not say why. Use '
+        '<b>Second opinions</b> below to see whether other services agree.</div>').format(
             IPQS_LOOKUP_URL.format(h_escape(ip)), h_escape(ip))
+
+
+#####################################################################
+#### SECOND OPINIONS
+#####################################################################
+# IPQS is the only service TouchPoint asks, and it gives no reason for a
+# score. These lookups ask a few others about the same address so a false
+# positive can be shown, not just suspected. They run only when someone clicks
+# the button, because each one sends the address to that service.
+#
+# The IPQS row repeats TouchPoint's exact request (IPQSFraudScoreProvider.cs):
+# same settings, made with the church's own free IPQS key. It can still differ
+# from TouchPoint's saved score: that may be up to 30 days old, and TouchPoint
+# uses its own IPQS account.
+#
+# There is nowhere safe in TouchPoint to keep the key (Special Content and
+# settings can both be read by people who should not have it), so the key
+# stays in the viewer's browser and is posted with each lookup. It is never
+# saved or shown back on the page.
+
+IPQS_API_URL = ("https://www.ipqualityscore.com/api/json/ip/{0}/{1}"
+                "?strictness=0&allow_public_access_points=true&fast=true"
+                "&lighter_penalties=true&mobile=true")
+PROXYCHECK_URL = "https://proxycheck.io/v2/{0}?vpn=1&asn=1&risk=1"
+IPAPI_URL = "http://ip-api.com/json/{0}?fields=status,message,isp,org,as,mobile,proxy,hosting"
+
+# Services that block automated lookups or need a sign-in: links only.
+SECOND_OPINION_LINKS = [
+    ("Scamalytics", "https://scamalytics.com/ip/{0}", "fraud score, the closest match to IPQS"),
+    ("Spur", "https://spur.us/context/{0}", "VPN and proxy detection"),
+    ("AbuseIPDB", "https://www.abuseipdb.com/check/{0}", "abuse reports from other admins"),
+    ("Cisco Talos", "https://talosintelligence.com/reputation_center/lookup?search={0}",
+     "email and web reputation"),
+    ("VirusTotal", "https://www.virustotal.com/gui/ip-address/{0}", "many security vendors at once"),
+]
+
+# Saved scores are reused this many days before IPQS is asked again
+# (SCORE_PERSIST_LIFETIME_DAYS in NetworkFraudScoreService).
+FRAUD_SCORE_LIFETIME_DAYS = 30
+
+
+def _rest_json(url):
+    """GET a URL through TouchPoint and parse JSON. Returns (dict, error)."""
+    try:
+        raw = model.RestGet(url, {})
+    except Exception as e:
+        return None, "could not reach the service (%s)" % str(e)[:120]
+    raw = (raw or "").strip()
+    if not raw:
+        return None, "no answer from the service"
+    if not raw.startswith("{"):
+        return None, "unexpected answer: " + raw[:120]
+    try:
+        return json.loads(raw), None
+    except Exception:
+        return None, "unreadable answer: " + raw[:120]
+
+
+def lookup_ipqs(ip, key):
+    d, err = _rest_json(IPQS_API_URL.format(key, ip))
+    if err:
+        return {"error": err}
+    if not d.get("success"):
+        return {"error": d.get("message") or "IPQS refused the lookup"}
+    return {
+        "score": d.get("fraud_score"),
+        "proxy": d.get("proxy"),
+        "vpn": d.get("vpn"),
+        "abuse": d.get("recent_abuse"),
+        "bot": d.get("bot_status"),
+        "isp": d.get("ISP") or "",
+    }
+
+
+def lookup_proxycheck(ip):
+    d, err = _rest_json(PROXYCHECK_URL.format(ip))
+    if err:
+        return {"error": err}
+    if d.get("status") not in ("ok", "warning") or ip not in d:
+        return {"error": d.get("message") or "proxycheck.io refused the lookup"}
+    r = d[ip]
+    return {
+        "risk": r.get("risk"),
+        "proxy": str(r.get("proxy", "")).lower() == "yes",
+        "kind": r.get("type") or "",
+        "org": r.get("organisation") or r.get("provider") or "",
+    }
+
+
+def lookup_ipapi(ip):
+    d, err = _rest_json(IPAPI_URL.format(ip))
+    if err:
+        return {"error": err}
+    if d.get("status") != "success":
+        return {"error": d.get("message") or "ip-api refused the lookup"}
+    return {
+        "proxy": d.get("proxy"),
+        "hosting": d.get("hosting"),
+        "mobile": d.get("mobile"),
+        "org": d.get("org") or d.get("isp") or "",
+    }
+
+
+def _flag(v, bad_when=True):
+    if v is None:
+        return '<span class="muted">?</span>'
+    if bool(v) == bad_when:
+        return '<b style="color:#c0392b">yes</b>'
+    return '<span style="color:#27ae60">no</span>'
+
+
+def _err_cells(msg):
+    return '<td colspan="4" class="wrap muted">{0}</td>'.format(h_escape(msg))
+
+
+def rescore_date(sc):
+    scored_at = to_pydt_safe(sc.LastUpdated) if sc else None
+    if scored_at is None:
+        return None
+    return scored_at + datetime.timedelta(days=FRAUD_SCORE_LIFETIME_DAYS)
+
+
+def render_second_opinions(ip, days):
+    """The panel and its button. The lookups themselves run in the background
+    (see second_opinions_ajax): a POST to /PyScriptForm/ returns only what the
+    script prints, so a plain form post would come back as an empty page."""
+    out = []
+    a = out.append
+    a('<h4 style="margin-top:18px" id="ftSecond">Second opinions</h4>')
+    a('<p style="font-size:12px;color:#777">IPQS is the only service TouchPoint asks. This '
+      'checks the same address with others, so you can tell a real problem from a false '
+      'positive. Each lookup sends the address to that service, so it only runs when you '
+      'click.</p>')
+    a('<form id="ftSop" class="ft-filters" autocomplete="off" data-ip="{0}" data-days="{1}">'
+      '<span id="ftKeySaved" style="display:none">IPQS key saved on this computer '
+      '<a href="#" id="ftKeyChange" style="font-size:11px">change</a></span>'
+      '<span id="ftKeyEdit"><label>Your IPQS key (optional)</label> '
+      '<input type="password" id="ftIpqsKey" size="34" autocomplete="off" '
+      'placeholder="free key from ipqualityscore.com"> '
+      '<label style="font-weight:normal"><input type="checkbox" id="ftIpqsRemember" checked> '
+      'remember on this computer</label></span> '
+      '<button class="ft-btn" type="submit" id="ftSopBtn">Check other services</button></form>'.format(
+          h_escape(ip), days))
+    a('<p style="font-size:11px;color:#777;margin-top:2px">With a key, the IPQS row repeats '
+      'TouchPoint&rsquo;s exact request. The key is kept only in this browser, never in '
+      'TouchPoint, because anything a script saves there can be read by people who should '
+      'not have it. Each person enters it once per computer. Without one, the IPQS row is '
+      'skipped.</p>')
+    a('<div id="ftSopOut"></div>')
+    a("""<script>
+(function(){
+  var f = document.getElementById('ftSop'), k = document.getElementById('ftIpqsKey');
+  var r = document.getElementById('ftIpqsRemember'), b = document.getElementById('ftSopBtn');
+  var o = document.getElementById('ftSopOut');
+  var ks = document.getElementById('ftKeySaved'), ke = document.getElementById('ftKeyEdit');
+  function showSaved(on){ ks.style.display = on ? '' : 'none'; ke.style.display = on ? 'none' : ''; }
+  try {
+    var saved = window.localStorage.getItem('ftIpqsKey');
+    if (saved) { k.value = saved; r.checked = true; showSaved(true); }
+  } catch (e) {}
+  document.getElementById('ftKeyChange').addEventListener('click', function(ev){
+    ev.preventDefault(); showSaved(false); k.focus(); k.select();
+  });
+  f.addEventListener('submit', function(ev){
+    ev.preventDefault();
+    var key = (k.value || '').replace(/\\s+/g, '');
+    try {
+      if (r.checked && key) { window.localStorage.setItem('ftIpqsKey', key); showSaved(true); }
+      else { window.localStorage.removeItem('ftIpqsKey'); }
+    } catch (e) {}
+    b.disabled = true;
+    o.innerHTML = '<p class="muted">Checking, this takes a few seconds...</p>';
+    var x = new XMLHttpRequest();
+    x.open('POST', window.location.pathname, true);
+    x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    x.onload = function(){
+      b.disabled = false;
+      var t = x.responseText || '';
+      o.innerHTML = t.indexOf('ft-sop-result') >= 0 ? t :
+        '<div class="ft-note">The lookup did not come back (HTTP ' + x.status + '). Try again in a minute.</div>';
+    };
+    x.onerror = function(){
+      b.disabled = false;
+      o.innerHTML = '<div class="ft-note">Could not reach TouchPoint. Try again in a minute.</div>';
+    };
+    x.send('sop=1&sop_ip=' + encodeURIComponent(f.getAttribute('data-ip')) +
+           '&ipqs_k=' + encodeURIComponent(key));
+  });
+})();
+</script>""")
+    return "".join(out)
+
+
+def _ascii_html(s):
+    # IronPython's print fails on non-ASCII; send everything else as entities.
+    if not isinstance(s, unicode):
+        s = s.decode("utf-8", "replace")
+    return "".join(c if ord(c) < 128 else "&#%d;" % ord(c) for c in s)
+
+
+def second_opinions_ajax():
+    """Background POST from the Second opinions button: print the results."""
+    ip = get_param("sop_ip")
+    if not re.match(r"^[0-9a-fA-F\.:]{3,45}$", ip or ""):
+        print('<div class="ft-sop-result ft-note">That is not an IP address.</div>')
+        return
+    settings = gate_settings()
+    try:
+        html = render_second_opinion_results(ip, ip_scores([ip]).get(ip), fraud_limit(settings),
+                                             get_param("ipqs_k"))
+    except Exception as e:
+        html = ('<div class="ft-note">Second opinions could not run: ' +
+                h_escape(str(e)) + '</div>')
+    print(_ascii_html('<div class="ft-sop-result">' + html + '</div>'))
+
+
+def render_second_opinion_results(ip, sc, limit, key):
+    out = []
+    a = out.append
+    rows = []
+    if sc is not None:
+        due = rescore_date(sc)
+        rows.append('<tr><td><b>TouchPoint (saved)</b></td><td class="num">{0}</td>'
+                    '<td colspan="3" class="wrap">saved {1}; IPQS is asked again after about '
+                    '<b>{2}</b>, the next time someone pays from this address</td>'
+                    '<td class="wrap">{3}</td></tr>'.format(
+                        int(sc.Score), fmt_dt(sc.LastUpdated),
+                        due.strftime("%b %d") if due else "30 days",
+                        "this is the score that decides a block"))
+    else:
+        rows.append('<tr><td><b>TouchPoint (saved)</b></td>' +
+                    _err_cells("not scored yet") + '<td></td></tr>')
+
+    key = re.sub(r"\s+", "", key or "")
+    if not key:
+        rows.append('<tr><td><b>IPQS now</b></td>' +
+                    _err_cells("skipped: no IPQS key entered") + '<td></td></tr>')
+    elif not re.match(r"^[A-Za-z0-9]{8,80}$", key):
+        rows.append('<tr><td><b>IPQS now</b></td>' +
+                    _err_cells("skipped: that does not look like an IPQS key") + '<td></td></tr>')
+    else:
+        r = lookup_ipqs(ip, key)
+        if "error" in r:
+            rows.append('<tr><td><b>IPQS now</b></td>' + _err_cells(r["error"]) + '<td></td></tr>')
+        else:
+            note = "same request TouchPoint makes, with your key"
+            if r["score"] is not None and ip_blocked(r["score"], limit):
+                note = '<b style="color:#c0392b">over your limit of {0}</b>; '.format(limit) + note
+            rows.append('<tr><td><b>IPQS now</b></td><td class="num">{0}</td><td>{1}</td>'
+                        '<td>{2}</td><td class="wrap">recent abuse {3}, bot {4}</td>'
+                        '<td class="wrap">{5}</td></tr>'.format(
+                            h_escape(r["score"]), _flag(r["proxy"]), _flag(r["vpn"]),
+                            _flag(r["abuse"]), _flag(r["bot"]), note))
+
+    r = lookup_proxycheck(ip)
+    if "error" in r:
+        rows.append('<tr><td><b>proxycheck.io</b></td>' + _err_cells(r["error"]) + '<td></td></tr>')
+    else:
+        rows.append('<tr><td><b>proxycheck.io</b></td><td class="num">{0}</td><td>{1}</td>'
+                    '<td class="muted">incl.</td><td class="wrap">type {2}</td>'
+                    '<td class="wrap">{3}</td></tr>'.format(
+                        h_escape(r["risk"]), _flag(r["proxy"]), h_escape(r["kind"] or "?"),
+                        h_escape(r["org"])))
+
+    r = lookup_ipapi(ip)
+    if "error" in r:
+        rows.append('<tr><td><b>ip-api</b></td>' + _err_cells(r["error"]) + '<td></td></tr>')
+    else:
+        rows.append('<tr><td><b>ip-api</b></td><td class="num muted">n/a</td><td>{0}</td>'
+                    '<td class="muted">n/a</td><td class="wrap">hosting {1}, mobile {2}</td>'
+                    '<td class="wrap">{3}</td></tr>'.format(
+                        _flag(r["proxy"]), _flag(r["hosting"]), _flag(r["mobile"]),
+                        h_escape(r["org"])))
+
+    a('<div class="ft-scroll"><table class="ft-tbl"><thead><tr><th>Service</th>'
+      '<th class="num">Score</th><th>Proxy</th><th>VPN</th><th>Other</th><th>Notes</th>'
+      '</tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>')
+    a('<p style="font-size:12px;margin-top:6px">Check by hand (these block automatic '
+      'lookups): ' + ", ".join(
+          '<a href="{0}" target="_blank" rel="noopener noreferrer">{1}</a> '
+          '<span class="muted">({2})</span>'.format(
+              h_escape(url.format(ip)), name, desc) for name, url, desc in SECOND_OPINION_LINKS) +
+      '</p>')
+    a('<p style="font-size:11px;color:#777">Scores are 0 (safe) to 100 (risky). If IPQS is the '
+      'only service flagging the address, that is worth sending to TouchPoint support: only '
+      'they can ask IPQS about the score their account saved.</p>')
+    return "".join(out)
 
 
 def _ip_link(ip, days):
@@ -1953,13 +2248,23 @@ def render_gate_table(s):
           '<b style="color:#c0392b">On</b>: scores above <b>{0}</b> are refused'.format(limit)),
          "Each IP gets a 0 to 100 risk score. Skipped for a signed-in giver with a "
          "recorded gift. Saved scores are reused for 30 days."),
-        ("Failed-attempt lockout", "Giving is temporarily blocked due to too many failed attempts.",
+        ("Failed-attempt lockout (velocity check)", "Giving is temporarily blocked due to too many failed attempts.",
          ("On: {0} failures in {1} min locks for {2} min".format(
              s["FailedConsecutiveGiftLockout"], s["FailedConsecutiveGiftTimeframe"],
              s["FailedConsecutiveGiftBlockTime"]) if lock_on else "Off"),
          "Counts are kept in TouchPoint's cache, not the database, so this page "
-         "cannot list who is locked out. Ignored IPs: {0}".format(
+         "cannot list who is locked out. Ignored IPs: {0}. That list covers only this velocity "
+         "lockout, never the IP fraud score.".format(
              h_escape(s["FailedConsecutiveGiftIPIgnoreList"]) or "none")),
+        ("Payment type", "This payment type is not accepted. Please choose a different payment method.",
+         "From your payment setup",
+         "Added Oct 2026. A card is refused where the church takes bank accounts only, or on an "
+         "involvement with No Credit Cards checked. Apple Pay, Google Pay, PayPal and Venmo "
+         "count as cards."),
+        ("Giving page settings", "Please sign in to give on this page.",
+         "Per giving page",
+         "Added Oct 2026. A page set to Require Login refuses guests. A page also refuses "
+         "funds and kinds of giving it does not offer, and a disabled page refuses everything."),
     ]
     out = ['<div class="ft-scroll"><table class="ft-tbl"><thead><tr>'
            '<th>Check</th><th>What the giver sees</th><th>Your setting</th>'
@@ -2066,7 +2371,7 @@ def render_person_lookup(term, since, settings, days=GATES_DEFAULT_DAYS):
                        if users >= GATES_SHARED_IP_USERS else '')
                 out.append('<tr><td>{0}{1}</td><td>{2}</td><td class="num">{3}</td>'
                            '<td>{4}</td></tr>'.format(
-                               _ip_link(ip, days) + (_why_link(ip) if sc and ip_blocked(sc.Score, limit) else ''),
+                               _ip_link(ip, days) + (_why_link(ip, days) if sc and ip_blocked(sc.Score, limit) else ''),
                                tag, fmt_dt(r.LastSeen), users,
                                _score_badge(sc.Score if sc else None, limit)))
             out.append('</tbody></table>')
@@ -2185,7 +2490,7 @@ def render_family_visits(people_id, since, days, limit):
         out.append('<tr{0}><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td>'
                    '<td class="wrap">{6}</td></tr>'.format(
                        hot, fmt_dt(v.ActivityDate),
-                       (_ip_link(ip, days) + (_why_link(ip) if blocked else '')) if ip else "",
+                       (_ip_link(ip, days) + (_why_link(ip, days) if blocked else '')) if ip else "",
                        _score_badge(sc.Score if sc else None, limit),
                        h_escape(v.OrganizationName or ""),
                        h_escape((v.Activity or "").replace("OnlineReg ", "")), who))
@@ -2246,7 +2551,7 @@ def render_findings(settings, days):
                 '<li>Ask IT why the building scores high (a VPN, proxy, guest wifi, or an '
                 'infected device on the network can all do it).</li>'
                 '<li>The Failed Transaction Ignored IPs setting does <b>not</b> help here; it '
-                'only covers the lockout below.</li></ul>'.format(
+                'only covers the failed-attempt lockout (the velocity check).</li></ul>'.format(
                     label, int(sc.Score), limit, fmt_dt(sc.LastUpdated), until)))
         elif sc is not None and limit != 100 and int(sc.Score) >= limit - 10:
             found.append(("warn",
@@ -2382,7 +2687,8 @@ def render_gates():
             hot = ' style="background:#fdecea"' if ip_blocked(r.Score, limit) else ''
             a('<tr{0}><td>{1}{2}</td><td>{3}</td><td>{4}</td><td class="num">{5}</td>'
               '<td class="wrap">{6}</td></tr>'.format(
-                  hot, _ip_link(ip, days) + (_why_link(ip) if ip_blocked(r.Score, limit) else ''),
+                  hot, _ip_link(ip, days) + (_why_link(ip, days) if ip_blocked(r.Score, limit) else
+                                              _why_link(ip, days, "check") if users >= GATES_SHARED_IP_USERS else ''),
                   tag, _score_badge(r.Score, limit),
                   fmt_dt(r.LastUpdated), users, _names(who.get(ip, []))))
         a('</tbody></table></div>')
@@ -2739,6 +3045,10 @@ def main():
                       '<h2>' + PAGE_TITLE + '</h2>'
                       '<div class="ft-note">You do not have permission to view this page. '
                       'Required role (one of): ' + ", ".join(ALLOWED_ROLES) + '.</div></div>')
+        return
+
+    if get_param("sop") == "1":
+        second_opinions_ajax()
         return
 
     tab = (get_param("tab") or "denials").lower()
