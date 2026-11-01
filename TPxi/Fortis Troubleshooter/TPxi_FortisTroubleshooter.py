@@ -127,6 +127,29 @@ https://tpxigo.com
 ----------------------------------------------------------------
 
 Version: 2.4
+
+RELEASE NOTES
+-------------
+2.4 (November 2026)
+  * Second opinions: on an IP's page, "Check other services" compares
+    TouchPoint's saved score with proxycheck.io and ip-api, plus links to
+    Scamalytics, Spur, AbuseIPDB, Cisco Talos and VirusTotal. TouchPoint's
+    score comes from one company (IPQualityScore) that never says why, so
+    this is how a false positive gets shown rather than guessed at.
+  * Optional IPQS key: repeats TouchPoint's exact request with your own free
+    key. The key is kept only in your browser, never in TouchPoint, and is
+    hidden behind a "change" link once saved.
+  * Shows when TouchPoint will ask IPQS for a fresh score (30 days after the
+    saved one), so you know when a lowered score could change.
+  * "check" link on shared networks such as the church office, even when
+    allowed, and "why?" links now open the Second opinions panel.
+  * Two checks added in TouchPoint's October 2026 release are listed: payment
+    types your church does not accept, and giving pages set to Require Login.
+  * The failed-attempt lockout is labeled as the velocity check, the name
+    TouchPoint uses, and the page says plainly that Failed Transaction Ignored
+    IPs covers only that check, never the IP fraud score.
+  * The "why" box no longer says a high score means the address is risky.
+    IPQS can flag an ordinary business network as a proxy or VPN.
 """
 
 import json
