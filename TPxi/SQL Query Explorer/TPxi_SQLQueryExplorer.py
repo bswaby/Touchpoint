@@ -1,26 +1,9 @@
 #roles=Admin
 
-# Written By: Ben Swaby (TPxi Software, LLC)
-# Email: bswaby@fbchtn.org                                                                                                      
-# Website: https://tpxisoftware.com
-# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
-# ----------------------------------------------------------------                                                              
-# These tools are free because they should be.
-# If they've saved you time or helped your team, and you want to                                                                
-# support continued development, check out:                                                                                     
-#
-# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
-# https://displaycache.com                                
-#
-# TPxi Go(TM) - your church contacts, wherever you work.
-# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
-# or your phone. No tab switching, no lost context.
-# https://tpxigo.com                                                                                                            
-# ----------------------------------------------------------------
-
 #####################################################################
 # TouchPoint SQL Query Explorer & Editor - Multi-Tab Version
 #####################################################################
+
 # Features:
 # 1. Multiple editor tabs
 # 2. Database schema explorer with lazy loading
@@ -29,70 +12,167 @@
 # 5. Saved queries functionality
 # 6. Collapsible schema panel
 # 7. Keyboard shortcuts (Ctrl+T, Ctrl+Tab, etc.)
+#
+# Version: 2.1
+
+#Written By: Ben Swaby (TPxi Software, LLC)
+#Email: bswaby@fbchtn.org
+#Website: https://tpxisoftware.com
+#GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)
+#----------------------------------------------------------------
+#These tools are free because they should be.
+#If they've saved you time or helped your team, and you want to
+#support continued development, check out:
+#
+#DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)
+#https://displaycache.com
+#
+#TPxi Go(TM) - your church contacts, wherever you work.
+#Look up anyone in TouchPoint(R), log calls and emails from Outlook
+#or your phone. No tab switching, no lost context.
+#https://tpxigo.com
+#----------------------------------------------------------------
+
+#
+# RELEASE NOTES
+# 2.0 (November 2026)
+# - Row limit: queries stop at 1,000 rows unless you pick more (10,000,
+#   or all up to 50,000). The page says when there were more rows.
+# - Warning before an unfiltered query on one of TouchPoint's largest
+#   tables (TagPerson, ActivityLog, Attend and others).
+# - Full values: long text is no longer cut at 1,000 characters or
+#   flattened onto one line. The grid shortens long cells (click to see
+#   all of it), and Export CSV and Copy always use the full values.
+# - Columns come back in the order the query returns them, including
+#   CTEs, subqueries and SELECT *. Two columns with the same name both
+#   show (the second becomes Name_2).
+# - Dates show as 2026-11-02 14:30 instead of the US text form, so they
+#   sort correctly.
+# - Results grid: click a header to sort, type under a header to filter,
+#   NULL shows as NULL, double-click a cell to copy it, click a row
+#   number to copy the row, Copy grid copies everything for Excel.
+# - Links: PeopleId, OrganizationId, FamilyId, MeetingId and BundleId
+#   open their page. Columns named Id are no longer guessed to be people.
+# - Saved queries are now private to you (stored on your own record),
+#   instead of in Special Content, which anyone can read without signing
+#   in. Queries saved by earlier versions still show and can be copied
+#   to My queries. Other SQL in Special Content shows in its own group.
+# - Query history: the last 50 queries you ran, under the History tab.
+# - Open tabs and their SQL come back after a reload.
+# - This page only reads data. Writes to permanent tables are refused
+#   for everyone (temp tables and table variables still work).
+# - Error tips no longer say table names are case sensitive.
+# - Accented names no longer break the results.
+# - The hide-panel button sits at the end of the tab row instead of over
+#   the tabs, and the hidden panel leaves a slim strip to bring it back.
+#
+# 2.1 (November 2026)
+# - Find and replace in the editor (Ctrl+F, Ctrl+H; Cmd on a Mac).
+# - Ctrl+/ comments the selected lines on and off.
+# - Run statement (Ctrl+Shift+Enter) runs just the statement the cursor
+#   is in, so a long scratch file can hold many queries.
+# - Format SQL uses a real T-SQL formatter (CTEs, CASE, subqueries).
+#   Select part of the SQL to format only that part.
+# - Parameters: write @StartDate (or any @Name you do not DECLARE) and a
+#   box for it appears above the editor. Values are sent as real query
+#   parameters and remembered. @UserPeopleId and @CurrentOrgId are filled
+#   in by TouchPoint; @BlueToolbarTagId takes a tag Id to test with.
+# - Schema search also finds columns: type CampusId to see every table
+#   and view that has it.
+# - Results: a totals row (sum and average for number columns), a column
+#   profile (distinct values, NULLs, most common values), a quick bar
+#   chart, and Excel export that keeps numbers and dates as numbers and
+#   dates. Export, Excel, Copy grid and Chart now sit above the results.
+# - New look: the page uses its own class names, so TouchPoint's styles
+#   no longer reorder the toolbar or box in the left panel. Run and Run
+#   statement share one button, the page fills the window, and the grid,
+#   tabs, schema list, errors and shortcuts popup were tidied to match.
 #####################################################################
 
+#written by: Ben Swaby
+#email:bswaby@fbchtn.org
 
 import json
 import re
 from datetime import datetime
 
-# Custom JSON encoder for Python 2.7 Unicode handling
-class SafeJSONEncoder(json.JSONEncoder):
-    def default(self, obj):
-        # Handle datetime objects
-        if hasattr(obj, 'isoformat'):
-            return obj.isoformat()
-        elif hasattr(obj, 'strftime'):
-            return obj.strftime('%Y-%m-%d %H:%M:%S')
-        # Let the base class handle other types
-        return super(SafeJSONEncoder, self).default(obj)
-
-def safe_json_dumps(obj):
-    """Safely serialize object to JSON, handling encoding issues"""
-    try:
-        return json.dumps(obj, cls=SafeJSONEncoder, ensure_ascii=True)
-    except Exception as e:
-        # If that fails, try cleaning the data
+# JSON for AJAX replies. json.dumps breaks on accented names in IronPython,
+# so this walks the data and writes every non-ASCII character as \\uXXXX.
+def _json_escape_string(s):
+    if not isinstance(s, basestring):
+        s = unicode(s)
+    parts = ['"']
+    for ch in s:
         try:
-            def clean_for_json(item):
-                """Recursively clean data for JSON serialization"""
-                if isinstance(item, dict):
-                    return {k: clean_for_json(v) for k, v in item.items()}
-                elif isinstance(item, list):
-                    return [clean_for_json(i) for i in item]
-                elif 'unicode' in dir(__builtins__) and isinstance(item, unicode):
-                    # Python 2.7 unicode string
-                    # Replace non-ASCII characters with XML character references
-                    return item.encode('ascii', 'xmlcharrefreplace').decode('ascii')
-                elif isinstance(item, str):
-                    # Python 2.7 byte string or Python 3 string
-                    try:
-                        # Try to decode as UTF-8 first
-                        if 'unicode' in dir(__builtins__):
-                            # Python 2.7: decode then encode
-                            return item.decode('utf-8', 'replace').encode('ascii', 'xmlcharrefreplace').decode('ascii')
-                        else:
-                            # Python 3: just encode
-                            return item.encode('ascii', 'xmlcharrefreplace').decode('ascii')
-                    except:
-                        # If that fails, try latin-1
-                        try:
-                            if 'unicode' in dir(__builtins__):
-                                return item.decode('latin-1', 'replace').encode('ascii', 'xmlcharrefreplace').decode('ascii')
-                            else:
-                                return item.encode('ascii', 'replace').decode('ascii')
-                        except:
-                            # Last resort - return placeholder
-                            return "[Unable to decode text]"
-                else:
-                    # Return as-is for other types (numbers, booleans, None, etc.)
-                    return item
-            
-            cleaned = clean_for_json(obj)
-            return json.dumps(cleaned, ensure_ascii=True)
-        except Exception as fallback_error:
-            # Last resort - return error as JSON
-            return json.dumps({'success': False, 'error': 'Unable to encode response: ' + str(fallback_error)})
+            code = ord(ch)
+        except Exception:
+            parts.append('\\ufffd')
+            continue
+        if code == 0x22:
+            parts.append('\\"')
+        elif code == 0x5C:
+            parts.append('\\\\')
+        elif code == 0x0A:
+            parts.append('\\n')
+        elif code == 0x0D:
+            parts.append('\\r')
+        elif code == 0x09:
+            parts.append('\\t')
+        elif code < 0x20 or code >= 0x7F:
+            if code > 0xFFFF:
+                code -= 0x10000
+                parts.append('\\u%04x\\u%04x' % (0xD800 + (code >> 10), 0xDC00 + (code & 0x3FF)))
+            else:
+                parts.append('\\u%04x' % code)
+        else:
+            parts.append(chr(code))
+    parts.append('"')
+    return ''.join(parts)
+
+def _json_encode(obj):
+    if obj is None:
+        return 'null'
+    if obj is True:
+        return 'true'
+    if obj is False:
+        return 'false'
+    if isinstance(obj, (int, long)):
+        return str(obj)
+    if isinstance(obj, float):
+        return 'null' if obj != obj else repr(obj)
+    if isinstance(obj, basestring):
+        return _json_escape_string(obj)
+    if isinstance(obj, dict):
+        return '{' + ','.join(_json_escape_string(unicode(k)) + ':' + _json_encode(v)
+                              for k, v in obj.items()) + '}'
+    if isinstance(obj, (list, tuple)):
+        return '[' + ','.join(_json_encode(x) for x in obj) + ']'
+    return _json_escape_string(unicode(obj))
+
+def safe_json(obj):
+    try:
+        return _json_encode(obj)
+    except Exception as e:
+        return '{"success":false,"error":' + _json_escape_string('safe_json: ' + repr(e)) + '}'
+
+def get_param(name, default=''):
+    try:
+        v = getattr(model.Data, name, None)
+    except Exception:
+        v = None
+    if v is None:
+        return default
+    return unicode(v)
+
+# Row limits. MAX_ROWS_ALL is the ceiling for "All rows".
+DEFAULT_MAX_ROWS = 1000
+MAX_ROWS_ALL = 50000
+# Long values are sent in full up to this size, so exports are complete.
+MAX_VALUE_CHARS = 100000
+# Private saved queries live on the user's own record (PeopleExtra), not in
+# Special Content, which /v1/Contents serves to anyone without signing in.
+SAVED_FIELD = 'SQE_SavedQueries'
+SQE_KEYWORD = 'SQL Query Explorer'
 
 model.Header = "SQL Query Explorer"
 
@@ -225,41 +305,76 @@ class QueryExplorer:
         return q.QuerySql(columns_sql)
     
     def get_saved_queries(self):
-        """Get user's saved queries from Content table"""
-        # Simple query that we know works - Name is a reserved word so needs brackets
+        """SQL scripts in Special Content, split into the ones this page saved
+        (keyword 'SQL Query Explorer') and everything else."""
         sql = """
-        SELECT 
+        SELECT
             c.Id,
             c.[Name],
-            c.Body
+            c.Body,
+            CASE WHEN EXISTS (SELECT 1 FROM ContentKeyWords k
+                              WHERE k.Id = c.Id AND k.Word = '%s')
+                 THEN 1 ELSE 0 END AS FromSqe
         FROM Content c
         WHERE c.TypeID = 4  -- SQL Script type
         ORDER BY c.[Name]
-        """
-        
+        """ % SQE_KEYWORD.replace("'", "''")
         try:
-            results = q.QuerySql(sql)
-            # Force evaluation of the query results
-            results_list = []
-            if results:
-                for r in results:
-                    results_list.append(r)
-            return results_list
-        except Exception as e:
-            # Return empty list if error
+            return list(q.QuerySql(sql))
+        except Exception:
+            try:
+                return list(q.QuerySql("SELECT c.Id, c.[Name], c.Body, 0 AS FromSqe FROM Content c WHERE c.TypeID = 4 ORDER BY c.[Name]"))
+            except Exception:
+                return []
+
+    def load_my_queries(self):
+        """This user's private saved queries, newest format: list of dicts."""
+        if not self.user_id:
             return []
-    
-    def save_query(self, name, sql):
-        """Save a query to TouchPoint Content table"""
         try:
-            # Try to use WriteContentSql first - it might work
-            model.WriteContentSql(name, sql, "SQL Query Explorer")
-            return True
-        except Exception as e:
-            # If WriteContentSql fails, try alternative approach
-            # Return a message that saving requires different approach
-            raise Exception("Failed to save query: " + str(e))
-    
+            raw = model.ExtraValueText(self.user_id, SAVED_FIELD)
+        except Exception:
+            raw = ''
+        if not raw:
+            return []
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return []
+        queries = data.get('queries', []) if isinstance(data, dict) else []
+        return [x for x in queries if isinstance(x, dict) and x.get('name')]
+
+    def store_my_queries(self, queries):
+        text = safe_json({'v': 1, 'queries': queries})
+        if len(text) > 1000000:
+            raise Exception('Your saved queries would pass 1 MB. Delete a few first.')
+        model.AddExtraValueText(self.user_id, SAVED_FIELD, text)
+
+    def save_query(self, name, sql):
+        """Save (or replace) a private query on the user's own record"""
+        if not self.user_id:
+            raise Exception('No signed-in user to save the query for')
+        name = name.strip()[:200]
+        queries = [x for x in self.load_my_queries() if x.get('name') != name]
+        queries.append({
+            'name': name,
+            'sql': sql,
+            'saved': datetime.now().strftime('%Y-%m-%d %H:%M')
+        })
+        queries.sort(key=lambda x: x.get('name', '').lower())
+        self.store_my_queries(queries)
+        return True
+
+    def delete_query(self, name):
+        if not self.user_id:
+            raise Exception('No signed-in user')
+        queries = self.load_my_queries()
+        kept = [x for x in queries if x.get('name') != name]
+        if len(kept) == len(queries):
+            return False
+        self.store_my_queries(kept)
+        return True
+
     def get_common_queries(self):
         """Predefined useful queries from TouchPoint SQL Documentation
         Reference: https://bswaby.github.io/Touchpoint/DOC_SQLDocumentation.html
@@ -478,13 +593,14 @@ ORDER BY p.CreatedDate DESC'''
                 
                 # Check if it's a case sensitivity issue
                 suggestions.append("Check if the table name is spelled correctly")
-                suggestions.append("Table names are case-sensitive - try: " + table_name.lower() + " or " + table_name.upper())
-                
+                if table_name.startswith('#'):
+                    suggestions.append("Temp tables only last for one run. Run the statement that creates it in the same run")
+
                 # Check for common table name mistakes
                 if table_name.lower() == 'people1':
                     suggestions.append("Did you mean 'People' instead of 'people1'?")
-                elif not '.' in table_name:
-                    suggestions.append("Try adding the schema prefix (e.g., dbo." + table_name + ")")
+                elif not '.' in table_name and not table_name.startswith('#'):
+                    suggestions.append("If it is a lookup table, add its schema, for example lookup." + table_name)
                 
                 # Suggest using the schema browser
                 suggestions.append("Use the Schema browser on the left to find the correct table name")
@@ -496,9 +612,22 @@ ORDER BY p.CreatedDate DESC'''
                 column_name = match.group(1)
                 error_type = "Invalid Column Name"
                 suggestions.append("Check if the column name is spelled correctly")
-                suggestions.append("Column names are case-sensitive")
+                suggestions.append("Make sure the column belongs to the table its alias points to")
                 suggestions.append("Click on a table in the Schema browser to see available columns")
                 
+        # A variable that is neither declared nor given a value
+        elif "Must declare the scalar variable" in error_str or "Must declare the table variable" in error_str:
+            match = re.search(r'variable "@?([^"]+)"', error_str)
+            name = match.group(1) if match else 'it'
+            error_type = "Missing Parameter"
+            if name.lower() == 'bluetoolbartagid':
+                suggestions.append("Type a tag Id for @BlueToolbarTagId in the Parameters bar above the editor to test with")
+            elif name in ('UserPeopleId', 'CurrentOrgId') or name.lower() not in ('userpeopleid', 'currentorgid'):
+                suggestions.append("Type a value for @" + name + " in the Parameters bar above the editor, or DECLARE it in the query")
+            else:
+                suggestions.append("TouchPoint only fills this in when it is spelled exactly @UserPeopleId or @CurrentOrgId")
+            suggestions.append("A variable DECLAREd in one run is gone by the next. Run the DECLARE and the query together")
+
         # Syntax errors
         elif "Incorrect syntax" in error_str:
             error_type = "SQL Syntax Error"
@@ -507,10 +636,10 @@ ORDER BY p.CreatedDate DESC'''
             suggestions.append("Verify JOIN conditions are properly specified")
             
         # Permission errors
-        elif "permission" in error_str.lower():
+        elif "permission" in error_str.lower() or "read-only" in error_str.lower() or "read only" in error_str.lower():
             error_type = "Permission Denied"
-            suggestions.append("You may not have access to this table or operation")
-            suggestions.append("Contact your database administrator for access")
+            suggestions.append("TouchPoint runs these queries with a read-only login, so changing data is not possible here")
+            suggestions.append("Temp tables (#Name) and table variables (@Name) still work for building up results")
             
         # Ambiguous column
         elif "Ambiguous column name" in error_str:
@@ -556,6 +685,7 @@ ORDER BY p.CreatedDate DESC'''
             # Parse columns (simplified - handles basic cases)
             column_names = {}
             modified_columns = []
+            changed = False
             
             # Split by comma but be careful with nested functions
             # Better splitting that handles nested parentheses
@@ -599,6 +729,7 @@ ORDER BY p.CreatedDate DESC'''
                         column_names[column_name] += 1
                         new_alias = table_alias + '_' + column_name
                         modified_columns.append(part + ' AS ' + new_alias)
+                        changed = True
                     else:
                         column_names[column_name] = 1
                         modified_columns.append(part)
@@ -606,6 +737,10 @@ ORDER BY p.CreatedDate DESC'''
                     # Not a simple column reference, keep as-is
                     modified_columns.append(part)
             
+            # Leave the SQL exactly as typed unless an alias was added
+            if not changed:
+                return sql
+
             # Reconstruct SQL with aliased columns
             new_select_clause = ', '.join(modified_columns)
             new_sql = sql[:select_match.start(1)] + new_select_clause + sql[select_match.end(1):]
@@ -616,325 +751,295 @@ ORDER BY p.CreatedDate DESC'''
             # If anything fails, return original SQL
             return sql
     
-    def execute_query(self, sql):
-        """Execute SQL query and return results"""
-        # Check permission first
+    def is_write_query(self, sql):
+        """True when the SQL would change a permanent table.
+        Temp tables (#Name) and table variables (@Name) are allowed."""
+        s = re.sub(r'--[^\n]*', ' ', sql)
+        s = re.sub(r'/\*.*?\*/', ' ', s, flags=re.DOTALL)
+        s = re.sub(r"'(?:[^']|'')*'", "''", s)
+        s = s.upper()
+        patterns = [
+            r'\bINSERT\s+(?:INTO\s+)?(?!INTO\b)(?![@#])[\w\[]',
+            r'\bINTO\s+(?![@#])[\w\[]',
+            r'\bUPDATE\s+(?:TOP\s*\([^)]*\)\s+)?(?!TOP\b)(?![@#])[\w\[]',
+            r'\bDELETE\s+(?:TOP\s*\([^)]*\)\s+)?(?!TOP\b)(?:FROM\s+)?(?!FROM\b)(?![@#])[\w\[]',
+            r'\bMERGE\s+(?:TOP\s*\([^)]*\)\s+)?(?!TOP\b)(?:INTO\s+)?(?!INTO\b)(?![@#])[\w\[]',
+            r'\bTRUNCATE\s+TABLE\s+(?!#)',
+            r'\bDROP\s+(?!TABLE\s+(?:IF\s+EXISTS\s+)?#)',
+            r'\bCREATE\s+(?!TABLE\s+#)(?!(?:UNIQUE\s+)?(?:CLUSTERED\s+|NONCLUSTERED\s+)?INDEX\s+\w+\s+ON\s+#)',
+            r'\bALTER\s+(?!TABLE\s+#)',
+            r'\b(?:GRANT|REVOKE|DENY)\s',
+            r'\bEXEC(?:UTE)?\s+(?:\w+\.)*(?:SP_|XP_)'
+        ]
+        for pattern in patterns:
+            if re.search(pattern, s):
+                return True
+        return False
+
+    def builds_temp_data(self, sql):
+        """True when the SQL fills a temp table or table variable. SET ROWCOUNT
+        would cut those short too, so the row limit is applied while reading."""
+        s = re.sub(r'--[^\n]*', ' ', sql)
+        s = re.sub(r'/\*.*?\*/', ' ', s, flags=re.DOTALL)
+        return re.search(r'\b(INTO|INSERT|UPDATE|DELETE|MERGE)\b', s, re.IGNORECASE) is not None
+
+    def guess_column_order(self, sql):
+        """Fallback only: read column names from the first SELECT list."""
+        column_order = []
+        select_match = re.search(r'SELECT\s+(TOP\s+\d+\s+)?(.*?)\s+FROM', sql, re.IGNORECASE | re.DOTALL)
+        if not select_match:
+            return column_order
+        select_clause = select_match.group(2).strip()
+        if select_clause == '*':
+            return column_order
+        parts = []
+        current = ''
+        paren_depth = 0
+        in_quotes = False
+        quote_char = None
+        for char in select_clause + ',':
+            if char in ('"', "'", '[') and not in_quotes:
+                in_quotes = True
+                quote_char = ']' if char == '[' else char
+                current += char
+            elif in_quotes and char == quote_char:
+                in_quotes = False
+                current += char
+            elif not in_quotes:
+                if char == '(':
+                    paren_depth += 1
+                    current += char
+                elif char == ')':
+                    paren_depth -= 1
+                    current += char
+                elif char == ',' and paren_depth == 0:
+                    parts.append(current.strip())
+                    current = ''
+                else:
+                    current += char
+            else:
+                current += char
+        for part in parts:
+            if part:
+                alias_match = re.search(r'\s+[Aa][Ss]\s+([^\s]+)$', part)
+                if alias_match:
+                    column_order.append(alias_match.group(1).strip('"\'[]'))
+                else:
+                    words = re.findall(r'[\w\[\]]+', part)
+                    if words:
+                        column_order.append(words[-1].strip('[]'))
+        return column_order
+
+    def row_pairs(self, row):
+        """The row's (name, value) pairs in the order the query returned them,
+        duplicate names included. None when the row cannot be read that way."""
+        try:
+            pairs = [(kv.Key, kv.Value) for kv in row]
+        except Exception:
+            return None
+        if not pairs:
+            return None
+        for k, v in pairs:
+            if not isinstance(k, basestring):
+                return None
+        return pairs
+
+    def clean_value(self, value):
+        """Make one value safe to send as JSON, keeping the full text."""
+        if value is None:
+            return None
+        if isinstance(value, (bool, int, long, float)):
+            return value
+        tn = type(value).__name__
+        try:
+            if tn in ('DateTime', 'DateTimeOffset'):
+                txt = value.ToString('yyyy-MM-dd HH:mm:ss')
+                return txt[:-9] if txt.endswith(' 00:00:00') else txt
+            if hasattr(value, 'strftime'):
+                txt = value.strftime('%Y-%m-%d %H:%M:%S')
+                return txt[:-9] if txt.endswith(' 00:00:00') else txt
+            if tn.startswith('Array'):
+                return '[binary, %d bytes]' % len(value)
+        except Exception:
+            pass
+        try:
+            txt = unicode(value)
+        except Exception:
+            try:
+                txt = str(value).decode('utf-8', 'replace')
+            except Exception:
+                return '[unreadable value]'
+        txt = txt.replace(u'\x00', u'')
+        if len(txt) > MAX_VALUE_CHARS:
+            txt = txt[:MAX_VALUE_CHARS] + u' [cut at 100,000 characters]'
+        return txt
+
+    def build_params(self, raw):
+        """The page's parameter values as a dict for q.QuerySql, which sends
+        them as real query parameters. Whole numbers go in as numbers and
+        everything else as text; SQL Server converts text when it is compared
+        with a date or decimal column. Empty means NULL."""
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        params = {}
+        for k, v in data.items():
+            k = unicode(k)
+            if not re.match(r'^[A-Za-z_][A-Za-z0-9_]{0,127}$', k):
+                continue
+            # TouchPoint fills these itself and would overwrite ours anyway
+            if k in ('UserPeopleId', 'CurrentOrgId'):
+                continue
+            v = u'' if v is None else unicode(v).strip()
+            if v == u'':
+                params[k] = None
+            elif re.match(r'^-?[0-9]{1,9}$', v):
+                params[k] = int(v)
+            else:
+                params[k] = v
+        return params
+
+    def execute_query(self, sql, max_rows=DEFAULT_MAX_ROWS, params=None):
+        """Execute SQL and return columns plus rows (lists, in column order)"""
         if not self.has_permission:
             return {
                 'success': False,
                 'error': 'Access Denied: Admin or Developer role required'
             }
-        
+
+        if self.is_write_query(sql):
+            return {
+                'success': False,
+                'error': 'This page only reads data. It will not change permanent tables.',
+                'error_info': {
+                    'type': 'Read Only',
+                    'suggestions': [
+                        'Temp tables (#Name) and table variables (@Name) work for building up results',
+                        'Make data changes through TouchPoint itself or a Python script'
+                    ],
+                    'raw_error': 'Blocked before running: the SQL writes to a permanent table'
+                }
+            }
+
+        try:
+            max_rows = int(max_rows)
+        except Exception:
+            max_rows = DEFAULT_MAX_ROWS
+        if max_rows <= 0 or max_rows > MAX_ROWS_ALL:
+            max_rows = MAX_ROWS_ALL
+
         try:
             start_time = datetime.now()
-            
-            # Auto-alias duplicate columns to prevent data loss
+
             sql = self.auto_alias_duplicate_columns(sql)
-            
-            # Handle Unicode in SQL query for Python 2.7
+
+            # Stop SQL Server itself after the limit (plus one row, to know there
+            # were more). Kept on the first line so error line numbers still match.
+            run_sql = sql
+            if not self.builds_temp_data(sql):
+                run_sql = 'SET ROWCOUNT %d; ' % (max_rows + 1) + sql
+
             try:
-                # Python 2.7 compatibility - check if unicode exists
-                if 'unicode' in dir(__builtins__):
-                    if isinstance(sql, unicode):
-                        # If it's already unicode, encode to utf-8 for processing
-                        sql = sql.encode('utf-8', 'ignore')
-                # Handle regular strings
-                if isinstance(sql, str):
-                    # Try to ensure it's properly encoded
-                    try:
-                        sql = sql.decode('utf-8', 'ignore').encode('utf-8', 'ignore')
-                    except:
-                        # If decode fails, just use as-is
-                        pass
-            except:
-                # If any Unicode handling fails, continue with original SQL
-                pass
-            
-            # Remove or replace emoji and other problematic Unicode characters
-            # This is necessary because SQL Server may not handle all Unicode characters
-            if isinstance(sql, str):
-                # Remove emoji and other non-ASCII characters from comments
-                # First, let's preserve the structure by only cleaning comments
-                lines = sql.split('\n')
-                cleaned_lines = []
-                for line in lines:
-                    # Check if line contains a comment
-                    comment_pos = line.find('--')
-                    if comment_pos >= 0:
-                        # Clean only the comment part
-                        before_comment = line[:comment_pos]
-                        comment = line[comment_pos:]
-                        # Replace non-ASCII characters in comments with spaces
-                        cleaned_comment = ''.join(c if ord(c) < 128 else ' ' for c in comment)
-                        cleaned_lines.append(before_comment + cleaned_comment)
-                    else:
-                        cleaned_lines.append(line)
-                sql = '\n'.join(cleaned_lines)
-            
-            # Add safety check for destructive queries
-            sql_upper = sql.upper()
-
-            # Remove comments before checking to avoid false positives
-            sql_no_comments = re.sub(r'--.*?$', '', sql_upper, flags=re.MULTILINE)
-            sql_no_comments = re.sub(r'/\*.*?\*/', '', sql_no_comments, flags=re.DOTALL)
-
-            # Check for write operations, but allow temp table and table variable operations
-            # More precise patterns that exclude temp tables, table variables, and other allowed operations
-            destructive_patterns = [
-                r'\bDELETE\s+(?!FROM\s+[@#])',     # DELETE not on temp tables or table variables
-                r'\bUPDATE\s+(?![@#])',            # UPDATE not on temp tables or table variables
-                r'\bINSERT\s+(?![@#])',            # INSERT not into temp tables or table variables
-                r'\bDROP\s+(?!TABLE\s+[@#])',      # DROP not on temp tables or table variables
-                r'\bCREATE\s+(?!TABLE\s+[@#])',    # CREATE not temp tables or table variables
-                r'\bALTER\s+TABLE\s+(?![@#])',     # ALTER TABLE not on temp tables or table variables
-                r'\bTRUNCATE\s+',                  # TRUNCATE always blocked
-                r'\bEXEC\s+SP_',                   # Block system stored procedures
-                r'\bEXECUTE\s+SP_'                 # Block system stored procedures
-            ]
-
-            # Check each pattern more carefully
-            found_violation = False
-            for pattern in destructive_patterns:
-                if re.search(pattern, sql_no_comments):
-                    # Special case: Allow INSERT @variable and INSERT #temp
-                    if 'INSERT' in pattern:
-                        # Check if it's INSERT @variable or INSERT #temp
-                        if not re.search(r'\bINSERT\s+[@#]\w+', sql_no_comments):
-                            found_violation = True
-                            break
-                    else:
-                        found_violation = True
-                        break
-
-            # Also allow SELECT INTO #temp
-            if found_violation and not re.search(r'\bSELECT\b.*\bINTO\s+#', sql_no_comments):
-                if not self.is_developer:
-                    return {
-                        'error': 'Only developers can execute write operations on permanent tables. Temp tables (#TableName) and table variables (@TableName) are allowed for read-only users.',
-                        'success': False
-                    }
-            
-            # Try to parse column names from the SELECT statement to preserve order
-            column_order = []
-            select_match = re.search(r'SELECT\s+(TOP\s+\d+\s+)?(.*?)\s+FROM', sql, re.IGNORECASE | re.DOTALL)
-            if select_match:
-                select_clause = select_match.group(2).strip()
-                if select_clause != '*':
-                    # Parse column names/aliases from SELECT clause
-                    # This is a simplified parser - won't handle all SQL perfectly
-                    parts = []
-                    current = ''
-                    paren_depth = 0
-                    in_quotes = False
-                    quote_char = None
-                    
-                    for char in select_clause + ',':
-                        if char in ('"', "'", '[') and not in_quotes:
-                            in_quotes = True
-                            quote_char = ']' if char == '[' else char
-                            current += char
-                        elif in_quotes and char == quote_char:
-                            in_quotes = False
-                            current += char
-                        elif not in_quotes:
-                            if char == '(':
-                                paren_depth += 1
-                                current += char
-                            elif char == ')':
-                                paren_depth -= 1
-                                current += char
-                            elif char == ',' and paren_depth == 0:
-                                parts.append(current.strip())
-                                current = ''
-                            else:
-                                current += char
-                        else:
-                            current += char
-                    
-                    # Extract column names/aliases
-                    for part in parts:
-                        if part:
-                            # Look for alias after AS or just last word
-                            alias_match = re.search(r'\s+[Aa][Ss]\s+([^\s]+)$', part)
-                            if alias_match:
-                                column_order.append(alias_match.group(1).strip('"\'[]'))
-                            else:
-                                # Get the last identifier (handles table.column)
-                                words = re.findall(r'[\w\[\]]+', part)
-                                if words:
-                                    column_order.append(words[-1].strip('[]'))
-            
-            # Execute query with encoding error handling
-            try:
-                results = q.QuerySql(sql)
-            except Exception as query_error:
-                # Check if it's an encoding error
-                try:
-                    error_str = str(query_error)
-                except:
-                    # The error message itself has encoding issues
-                    return {
-                        'success': False,
-                        'error': 'Data encoding error: The query results contain characters that cannot be displayed.',
-                        'error_info': {
-                            'type': 'Encoding Error',
-                            'suggestions': [
-                                'The data contains special characters that cannot be processed',
-                                'Try selecting specific columns to isolate the problematic data',
-                                'Use CAST(column AS VARCHAR) to convert problematic columns',
-                                'Add WHERE conditions to exclude rows with special characters',
-                                'Check for non-English characters or corrupted data in text fields'
-                            ],
-                            'raw_error': 'Unable to display error details due to encoding issues'
-                        }
-                    }
-                
-                if 'codec' in error_str or 'decode' in error_str or 'Unicode' in error_str:
-                    # This is likely an encoding issue with the data
-                    # Try to extract meaningful info from the error
-                    return {
-                        'success': False,
-                        'error': 'Data encoding error: The query results contain characters that cannot be displayed. This often happens with special characters or corrupted data.',
-                        'error_info': {
-                            'type': 'Encoding Error',
-                            'suggestions': [
-                                'Try selecting specific columns instead of all columns',
-                                'Check if any text columns contain special characters',
-                                'Consider using CAST or CONVERT to handle the data',
-                                'Add WHERE conditions to filter out problematic rows'
-                            ],
-                            'raw_error': error_str
-                        }
-                    }
+                if params:
+                    results = q.QuerySql(run_sql, params)
                 else:
-                    # Re-raise other types of errors
-                    raise
-            
-            # Convert to list of dictionaries
-            data = []
+                    results = q.QuerySql(run_sql)
+            except Exception as query_error:
+                try:
+                    error_str = unicode(query_error)
+                except Exception:
+                    error_str = 'Database error (the message could not be read)'
+                error_str = error_str.replace('SET ROWCOUNT %d; ' % (max_rows + 1), '')
+                return {
+                    'success': False,
+                    'error': error_str,
+                    'error_info': self.parse_sql_error(error_str)
+                }
+
             columns = []
-            
-            if results:
-                # Get column names from first row
-                first_row = True
-                for row in results:
-                    if first_row:
-                        # Get all available columns from the row
-                        available_cols = [col for col in dir(row) if not col.startswith('_')]
-                        
-                        # If we parsed column order from SQL, use that order
-                        if column_order:
-                            # Use parsed order, but only for columns that exist
-                            ordered_cols = []
-                            remaining_cols = set(available_cols)
-                            
-                            # First add columns in the order specified in SELECT
-                            for col in column_order:
-                                # Try exact match first
-                                if col in available_cols:
-                                    ordered_cols.append(col)
-                                    remaining_cols.discard(col)
-                                else:
-                                    # Try case-insensitive match
-                                    for avail_col in available_cols:
-                                        if col.lower() == avail_col.lower():
-                                            ordered_cols.append(avail_col)
-                                            remaining_cols.discard(avail_col)
-                                            break
-                            
-                            # Add any remaining columns that weren't in the SELECT
-                            # (this handles SELECT * or computed columns)
-                            ordered_cols.extend(sorted(remaining_cols))
-                            columns = ordered_cols
-                        else:
-                            # No parsed order, use alphabetical
-                            columns = sorted(available_cols)
-                        
-                        first_row = False
-                    
-                    row_dict = {}
-                    for col in columns:
+            rows = []
+            use_pairs = None
+            names = []
+            truncated = False
+
+            for row in results:
+                if len(rows) >= max_rows:
+                    truncated = True
+                    break
+
+                if use_pairs is None:
+                    pairs = self.row_pairs(row)
+                    available = [c for c in dir(row) if not c.startswith('_')]
+                    if pairs and set(k for k, v in pairs) <= set(available):
+                        use_pairs = True
+                        seen = {}
+                        for k, v in pairs:
+                            if k in seen:
+                                seen[k] += 1
+                                columns.append('%s_%d' % (k, seen[k]))
+                            else:
+                                seen[k] = 1
+                                columns.append(k)
+                    else:
+                        use_pairs = False
+                        order = self.guess_column_order(sql)
+                        remaining = list(available)
+                        for col in order:
+                            for avail in remaining:
+                                if avail.lower() == col.lower():
+                                    names.append(avail)
+                                    remaining.remove(avail)
+                                    break
+                        names.extend(sorted(remaining))
+                        columns = list(names)
+
+                if use_pairs:
+                    pairs = self.row_pairs(row) or []
+                    rows.append([self.clean_value(v) for k, v in pairs])
+                else:
+                    values = []
+                    for col in names:
                         try:
-                            value = getattr(row, col, None)
-                            
-                            # Skip binary/blob columns
-                            if col.lower() in ['body', 'content'] and value and isinstance(value, (bytes, bytearray)):
-                                value = "[Binary Data - {} bytes]".format(len(value))
-                            # Convert datetime objects to strings
-                            elif hasattr(value, 'strftime'):
-                                value = value.strftime('%Y-%m-%d %H:%M:%S')
-                            elif hasattr(value, '__class__') and 'datetime' in str(value.__class__).lower():
-                                # Handle TouchPoint's datetime objects
-                                value = str(value)
-                            elif value is not None and not isinstance(value, (str, int, float, bool)):
-                                # Convert any other non-JSON-serializable objects to string
-                                value = str(value)
-                            
-                            # Handle encoding issues - clean up non-UTF8 characters
-                            if isinstance(value, str):
-                                try:
-                                    # First try to handle as UTF-8
-                                    value = value.encode('utf-8', 'ignore').decode('utf-8', 'ignore')
-                                except:
-                                    try:
-                                        # Try Latin-1 encoding (common for legacy data)
-                                        value = value.encode('latin-1', 'ignore').decode('latin-1', 'ignore')
-                                    except:
-                                        # Last resort - strip non-ASCII characters
-                                        value = ''.join(char if ord(char) < 128 else ' ' for char in str(value))
-                                
-                                # Replace common problematic characters
-                                value = value.replace('\xa0', ' ')  # Non-breaking space
-                                value = value.replace('\x00', '')   # Null character
-                                value = value.replace('\r\n', ' ')  # Windows line endings
-                                value = value.replace('\n', ' ')    # Unix line endings
-                                value = value.replace('\t', ' ')    # Tabs
-                                
-                                # Truncate very long values (likely HTML content)
-                                if len(value) > 1000:
-                                    value = value[:1000] + '...'
-                            row_dict[col] = value
-                        except Exception as e:
-                            # If we can't get the value, set it to None
-                            row_dict[col] = None
-                    
-                    data.append(row_dict)
-            
+                            values.append(self.clean_value(getattr(row, col, None)))
+                        except Exception:
+                            values.append(None)
+                    rows.append(values)
+
             exec_time = (datetime.now() - start_time).total_seconds() * 1000
-            
+
             return {
                 'success': True,
-                'data': data,
                 'columns': columns,
-                'rowCount': len(data),
+                'rows': rows,
+                'rowCount': len(rows),
+                'truncated': truncated,
+                'maxRows': max_rows,
+                'orderKnown': bool(use_pairs),
                 'executionTime': int(exec_time)
             }
-            
+
         except Exception as e:
-            # Handle encoding errors in the exception message itself
             try:
-                error_msg = str(e)
-            except:
-                try:
-                    # Try to get the error message with encoding handling
-                    if 'unicode' in dir(__builtins__):
-                        error_msg = unicode(e).encode('utf-8', 'ignore')
-                    else:
-                        error_msg = repr(e)
-                except:
-                    # If all else fails, provide a generic message
-                    error_msg = "Database error occurred (encoding issue)"
-            
-            # Parse the error for better user experience
-            error_info = self.parse_sql_error(error_msg)
+                error_msg = unicode(e)
+            except Exception:
+                error_msg = 'Database error occurred (the message could not be read)'
             return {
                 'success': False,
                 'error': error_msg,
-                'error_info': error_info
+                'error_info': self.parse_sql_error(error_msg)
             }
-    
+
     def render_interface(self):
         """Render the complete interface with multi-tab support"""
+        # Browser storage (tabs, history) is keyed by user so a shared
+        # computer does not mix two people's work.
+        print('<script>window.SQE_USER = "%s"; window.SQE_DEFAULT_ROWS = %d; window.SQE_MAX_ALL = %d;</script>'
+              % (int(self.user_id or 0), DEFAULT_MAX_ROWS, MAX_ROWS_ALL))
         print("""
         <!-- CodeMirror CSS -->
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
@@ -958,6 +1063,11 @@ ORDER BY p.CreatedDate DESC'''
         <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/brace-fold.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/indent-fold.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/comment-fold.min.js"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/dialog/dialog.min.css">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/dialog/dialog.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/search/searchcursor.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/search/search.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/comment/comment.min.js"></script>
         
         <style>
             /* Layout */
@@ -993,42 +1103,52 @@ ORDER BY p.CreatedDate DESC'''
             
             /* Panel toggle button */
             .panel-toggle {
-                position: absolute;
-                top: 5px;
-                right: 5px;
-                width: 30px;
-                height: 30px;
-                background: #0066cc;
-                border: none;
+                margin-left: auto;
+                margin-right: 2px;
+                flex-shrink: 0;
+                align-self: center;
+                width: 26px;
+                height: 26px;
+                background: transparent;
+                border: 1px solid #d1d5db;
                 border-radius: 4px;
                 cursor: pointer;
                 padding: 0;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-size: 16px;
-                color: white;
-                transition: all 0.2s ease;
-                z-index: 1000;
+                font-size: 18px;
+                line-height: 1;
+                color: #6b7280;
             }
             
             .panel-toggle:hover {
-                background: #0052a3;
+                background: #eef2ff;
+                color: #2563eb;
+                border-color: #2563eb;
             }
             
+            /* Collapsed: a narrow strip that keeps only the toggle */
             .left-panel.collapsed {
-                width: 0 !important;
-                min-width: 0 !important;
+                width: 40px !important;
+                min-width: 40px !important;
                 overflow: hidden;
-                padding: 0;
-                border: none;
+                padding-right: 0;
+            }
+            
+            .left-panel.collapsed .sqe-ltab,
+            .left-panel.collapsed .sqe-pane {
+                display: none !important;
+            }
+            
+            .left-panel.collapsed .sqe-ltabs {
+                border-bottom: none;
+                justify-content: center;
+                padding-top: 6px;
             }
             
             .left-panel.collapsed .panel-toggle {
-                position: fixed;
-                left: 5px;
-                top: 80px;
-                right: auto;
+                margin-left: 0;
             }
             
             .left-panel.collapsed .panel-resize-handle {
@@ -1290,10 +1410,66 @@ ORDER BY p.CreatedDate DESC'''
             
             /* Results wrapper for horizontal scroll */
             .results-wrapper {
-                overflow-x: auto;
-                overflow-y: visible;
+                overflow: auto;
+                max-height: 65vh;
                 max-width: 100%;
+                border: 1px solid #e5e7eb;
             }
+            .results-table th { z-index: 2; white-space: nowrap; cursor: pointer; user-select: none; }
+            .results-table th .sqe-arrow { color: #2563eb; margin-left: 4px; }
+            .results-table tr.sqe-filter-row th { top: 37px; padding: 4px; cursor: default; background: #f9fafb; }
+            .sqe-filter { width: 100%; min-width: 60px; font-size: 12px; padding: 2px 4px; border: 1px solid #d1d5db; border-radius: 3px; font-weight: normal; }
+            .results-table td.sqe-rownum, .results-table th.sqe-rownum { color: #9ca3af; text-align: right; cursor: copy; font-size: 12px; width: 1%; }
+            .results-table td.sqe-rownum:hover { color: #2563eb; }
+            .results-table td { white-space: nowrap; max-width: 480px; overflow: hidden; text-overflow: ellipsis; }
+            .results-table td.sqe-open { white-space: pre-wrap; max-width: 720px; overflow: visible; }
+            .sqe-null { color: #9ca3af; font-style: italic; }
+            .sqe-more { color: #2563eb; cursor: pointer; font-size: 12px; margin-left: 4px; }
+            .sqe-flash { background: #dcfce7 !important; }
+            .sqe-info { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 10px; background: #f3f4f6; font-size: 13px; }
+            .sqe-info .sqe-warn { color: #92400e; background: #fef3c7; padding: 2px 8px; border-radius: 4px; }
+            .sqe-info .sqe-hint { color: #6b7280; font-size: 12px; }
+            .sqe-info .sqe-actions { display: flex; gap: 6px; margin-left: auto; }
+            .sqe-params { display: none; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 10px; margin-bottom: 8px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px; font-size: 13px; }
+            .sqe-params-title { font-weight: 600; color: #3730a3; }
+            .sqe-param { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-weight: normal; font-family: monospace; }
+            .sqe-param input { font-family: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid #a5b4fc; border-radius: 4px; width: 170px; }
+            .sqe-params .sqe-hint { color: #4b5563; font-size: 12px; }
+            .results-table tfoot td { position: sticky; bottom: 0; background: #f3f4f6; font-size: 12px; color: #374151; border-top: 2px solid #d1d5db; z-index: 1; white-space: nowrap; }
+            .sqe-prof-btn { color: #9ca3af; margin-left: 6px; font-weight: normal; cursor: pointer; }
+            .sqe-prof-btn:hover { color: #2563eb; }
+            .sqe-panel { border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; background: #fff; }
+            .sqe-panel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+            .sqe-panel-close { margin-left: auto; color: #6b7280; cursor: pointer; font-size: 12px; }
+            .sqe-panel-close:hover { color: #2563eb; }
+            .sqe-prof-stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; margin-bottom: 6px; }
+            .sqe-prof-row { position: relative; display: flex; justify-content: space-between; gap: 10px; padding: 3px 6px; font-size: 13px; cursor: pointer; max-width: 640px; }
+            .sqe-prof-row:hover { outline: 1px solid #2563eb; }
+            .sqe-prof-bar { position: absolute; left: 0; top: 0; bottom: 0; background: #dbeafe; z-index: 0; }
+            .sqe-prof-val, .sqe-prof-n { position: relative; z-index: 1; }
+            .sqe-prof-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .sqe-chart-box { position: relative; height: 320px; max-width: 100%; }
+            .sqe-colgroup { margin-bottom: 10px; }
+            .sqe-colgroup-head { font-weight: 600; font-size: 13px; padding: 4px 0; color: #374151; }
+            .sqe-colhit { font-size: 13px; padding: 3px 4px; border-bottom: 1px solid #f3f4f6; }
+            .sqe-colhit-col { font-weight: 600; cursor: pointer; }
+            .sqe-colhit-tbl { cursor: pointer; color: #2563eb; }
+            .sqe-colhit-col:hover, .sqe-colhit-tbl:hover { text-decoration: underline; }
+            .sqe-colhit-in { color: #9ca3af; }
+            .sqe-mini-btn { font-size: 12px; padding: 3px 10px; border: 1px solid #d1d5db; background: #fff; border-radius: 4px; cursor: pointer; }
+            .sqe-mini-btn:hover { background: #eef2ff; }
+            .sqe-rows { font-size: 13px; padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; }
+            .sqe-banner { padding: 12px 14px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; margin: 10px 0; }
+            .sqe-banner button { margin: 8px 8px 0 0; }
+            .sqe-note { font-size: 12px; color: #6b7280; padding: 4px 8px 8px; }
+            .sqe-item-actions { float: right; font-size: 12px; }
+            .sqe-item-actions a { color: #6b7280; cursor: pointer; margin-left: 6px; }
+            .sqe-item-actions a:hover { color: #2563eb; }
+            .sqe-hist { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; cursor: pointer; font-size: 12px; }
+            .sqe-hist:hover { background: #eef2ff; }
+            .sqe-hist .sqe-hist-sql { font-family: monospace; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .sqe-hist .sqe-hist-meta { color: #6b7280; }
+            .sqe-hist .sqe-hist-err { color: #b91c1c; }
             
             .results-table {
                 width: 100%;
@@ -1319,63 +1495,93 @@ ORDER BY p.CreatedDate DESC'''
                 background: #f9fafb;
             }
             
-            /* Tabs */
-            .tabs {
+            /* Left panel tabs */
+            .sqe-ltabs {
                 display: flex;
-                border-bottom: 2px solid #e5e7eb;
-                margin-bottom: 15px;
+                align-items: flex-end;
+                min-height: 37px;
+                border-bottom: 1px solid var(--sqe-border);
+                margin-bottom: 10px;
             }
-            
-            .tab {
-                padding: 10px 20px;
+            .sqe-ltab {
+                padding: 9px 8px 8px;
+                font-size: 13px;
+                color: #4b5563;
+                white-space: nowrap;
+                flex: 0 1 auto;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
                 cursor: pointer;
                 border-bottom: 2px solid transparent;
-                transition: all 0.2s;
+                margin-bottom: -1px;
             }
-            
-            .tab:hover {
-                background: #f3f4f6;
+            .sqe-ltab:hover { color: var(--sqe-accent); }
+            .sqe-ltab.active {
+                color: var(--sqe-accent);
+                border-bottom-color: var(--sqe-accent);
+                font-weight: 600;
             }
-            
-            .tab.active {
-                border-bottom-color: #2563eb;
-                color: #2563eb;
-                font-weight: 500;
-            }
-            
-            /* Buttons */
-            .btn-group {
+            .sqe-ltabs .panel-toggle { align-self: center; }
+
+            /* Toolbar and buttons (not .btn: TouchPoint's Bootstrap owns that name) */
+            .sqe-toolbar {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 8px;
                 margin: 10px 0;
             }
-            
-            .btn-run {
-                background: #10b981;
-                color: white;
-                padding: 8px 16px;
-                border: none;
-                border-radius: 4px;
+            .sqe-spacer { flex: 1; }
+            .sqe-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                height: 32px;
+                padding: 0 12px;
+                font-size: 13px;
+                line-height: 1;
+                color: #374151;
+                background: #fff;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
                 cursor: pointer;
-                font-size: 14px;
+                white-space: nowrap;
             }
-            
-            .btn-run:hover {
-                background: #059669;
+            .sqe-btn:hover { background: var(--sqe-soft); border-color: #9ca3af; }
+            .sqe-btn-primary {
+                background: var(--sqe-accent);
+                border-color: var(--sqe-accent);
+                color: #fff;
+                font-weight: 600;
             }
-            
-            .btn {
-                padding: 8px 16px;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 14px;
-                margin-right: 10px;
-                background: white;
+            .sqe-btn-primary:hover { background: var(--sqe-accent-dark); border-color: var(--sqe-accent-dark); }
+            .sqe-split { display: inline-flex; }
+            .sqe-split .sqe-btn:first-child { border-radius: 6px 0 0 6px; }
+            .sqe-split .sqe-btn + .sqe-btn {
+                border-radius: 0 6px 6px 0;
+                border-left: 1px solid rgba(255, 255, 255, 0.35);
+                font-weight: 500;
             }
-            
-            .btn:hover {
-                background: #f3f4f6;
+            .sqe-kbd { font-size: 11px; font-weight: 400; opacity: 0.75; }
+            .sqe-btn-icon {
+                width: 32px;
+                padding: 0;
+                justify-content: center;
+                border-radius: 50%;
+                color: var(--sqe-muted);
+                font-weight: 600;
             }
-            
+            .query-explorer select.sqe-rows {
+                height: 32px;
+                width: auto;
+                padding: 0 8px;
+                font-size: 13px;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                background: #fff;
+            }
+
             /* Loading */
             .loading {
                 text-align: center;
@@ -1583,39 +1789,163 @@ ORDER BY p.CreatedDate DESC'''
             .CodeMirror-lint-markers {
                 width: 16px;
             }
+
+            /* ---- Look (2.1) ---- */
+            .query-explorer {
+                --sqe-accent: #2563eb;
+                --sqe-accent-dark: #1d4ed8;
+                --sqe-border: #e5e7eb;
+                --sqe-muted: #6b7280;
+                --sqe-soft: #f8fafc;
+                font-size: 14px;
+                min-height: 520px;
+            }
+            .left-panel { padding-right: 12px; border-right-color: var(--sqe-border); }
+            .sqe-pane { padding: 0; border: none; }
+            .sqe-search {
+                display: block;
+                width: 100%;
+                height: 32px;
+                padding: 0 10px;
+                font-size: 13px;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                margin-bottom: 10px;
+                box-sizing: border-box;
+            }
+            .sqe-search:focus, .sqe-param input:focus, .sqe-filter:focus {
+                outline: none;
+                border-color: var(--sqe-accent);
+                box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+            }
+            .schema-group { margin-bottom: 8px; }
+            .schema-group-header { font-size: 13px; padding: 4px 0; }
+            .schema-group-content { margin-left: 10px; }
+            .table-item { padding: 3px 6px; font-size: 13px; }
+            .table-name { font-size: 13px; font-weight: 400; color: var(--sqe-accent); overflow-wrap: anywhere; }
+
+            .editor-tabs {
+                background: transparent;
+                border-bottom: 1px solid var(--sqe-border);
+                min-height: 37px;
+                align-items: flex-end;
+                gap: 2px;
+            }
+            .editor-tab {
+                padding: 7px 8px 7px 14px;
+                background: #f3f4f6;
+                border: 1px solid var(--sqe-border);
+                border-bottom: none;
+                border-radius: 6px 6px 0 0;
+                margin: 0 0 -1px 0;
+                font-size: 13px;
+                color: #4b5563;
+            }
+            .editor-tab:hover { background: #e5e7eb; }
+            .editor-tab.active { background: #fff; color: #111827; box-shadow: inset 0 2px 0 var(--sqe-accent); }
+            .new-tab-btn { padding: 4px 10px; border-radius: 6px; align-self: center; }
+
+            .sql-editor { border: none; }
+            .editor-wrapper { border: 1px solid #d1d5db; border-radius: 6px; }
+            .CodeMirror { resize: none; font-size: 13px; }
+            .editor-wrapper .resize-handle { height: 6px; background: #f3f4f6; border-top: 1px solid var(--sqe-border); }
+            .editor-wrapper .resize-handle:hover { background: #dbeafe; }
+            .sqe-params { border-radius: 6px; }
+
+            /* Results fill the rest of the window; the grid scrolls inside */
+            .results-container { margin-top: 12px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+            #results { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+            #results > .results-wrapper { flex: 1 1 auto; min-height: 120px; max-height: none; }
+            #sqe-side { flex: 0 0 auto; max-height: 45%; overflow: auto; }
+            #sqe-side:empty { display: none; }
+            .sqe-info { border: 1px solid var(--sqe-border); border-radius: 6px; background: var(--sqe-soft); margin-bottom: 6px; }
+            .results-wrapper { border-color: var(--sqe-border); border-radius: 6px; }
+            .results-table { font-size: 13px; }
+            .results-table th { background: #f3f4f6; color: #374151; font-weight: 600; padding: 7px 8px; border-color: var(--sqe-border); }
+            .results-table td { padding: 5px 8px; border-color: #eef0f3; }
+            .results-table tbody tr:nth-child(even) { background: #fafbfc; }
+            .results-table tbody tr:hover { background: #eef2ff; }
+            .sqe-mini-btn {
+                height: 26px;
+                padding: 0 10px;
+                font-size: 12px;
+                color: #374151;
+                background: #fff;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                cursor: pointer;
+            }
+            .sqe-mini-btn:hover { background: #eef2ff; border-color: var(--sqe-accent); color: var(--sqe-accent); }
+
+            .error-container { background: #fff; border: 1px solid #fecaca; border-left: 4px solid #dc2626; border-radius: 6px; padding: 12px 14px; }
+            .error-type { background: #fee2e2; color: #991b1b; }
+            .error-suggestions { background: var(--sqe-soft); border: 1px solid var(--sqe-border); }
+            .error-suggestions li { color: #374151; }
+            .error-details { background: transparent; border: none; padding: 0; }
+            .error-raw { background: #f3f4f6; color: #4b5563; }
+
+            .sqe-modal { display: none; position: fixed; inset: 0; background: rgba(17, 24, 39, 0.45); z-index: 1000; }
+            .sqe-modal-box {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: min(520px, calc(100vw - 32px));
+                max-height: 80vh;
+                overflow-y: auto;
+                background: #fff;
+                padding: 18px 20px;
+                border-radius: 10px;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+                font-size: 13px;
+            }
+            .sqe-modal-box h3 { margin: 0 0 10px; font-size: 16px; }
+            .sqe-modal-box table { width: 100%; border-collapse: collapse; }
+            .sqe-modal-box td { vertical-align: top; }
         </style>
         
         <div class="query-explorer">
             <!-- Left Panel -->
             <div class="left-panel" id="left-panel">
-                <button id="panel-toggle" class="panel-toggle" onclick="togglePanel()" title="Toggle panel">
-                    <span id="toggle-icon">◀</span>
-                </button>
-                <div class="tabs">
-                    <div class="tab active" onclick="showTab('schema')">Schema</div>
-                    <div class="tab" onclick="showTab('saved')">Saved</div>
-                    <div class="tab" onclick="showTab('examples')">Examples</div>
+                <div class="sqe-ltabs">
+                    <div class="sqe-ltab active" onclick="showTab('schema')">Schema</div>
+                    <div class="sqe-ltab" onclick="showTab('saved')">Saved</div>
+                    <div class="sqe-ltab" onclick="showTab('history')">History</div>
+                    <div class="sqe-ltab" onclick="showTab('examples')">Examples</div>
+                    <button id="panel-toggle" class="panel-toggle" onclick="togglePanel()" title="Hide this panel">
+                        <span id="toggle-icon">&#8249;</span>
+                    </button>
                 </div>
                 
-                <div id="schema-tab" class="tab-content">
-                    <input type="text" id="schema-search" placeholder="Search tables..." 
-                           class="form-control" style="margin-bottom: 10px;"
+                <div id="schema-tab" class="sqe-pane">
+                    <input type="text" id="schema-search" placeholder="Search tables or columns..." 
+                           class="sqe-search"
                            onkeyup="filterSchema()">
+                    <div id="column-matches"></div>
                     <div id="schema-tree" class="schema-tree">
                         <div class="loading">Loading schema...</div>
                     </div>
                 </div>
                 
-                <div id="saved-tab" class="tab-content" style="display:none;">
+                <div id="saved-tab" class="sqe-pane" style="display:none;">
                     <input type="text" id="saved-search" placeholder="Search saved queries..." 
-                           class="form-control" style="margin-bottom: 10px;"
+                           class="sqe-search"
                            onkeyup="filterSaved()">
                     <div id="saved-queries">
                         <div class="loading">Loading saved queries...</div>
                     </div>
                 </div>
                 
-                <div id="examples-tab" class="tab-content" style="display:none;">
+                <div id="history-tab" class="sqe-pane" style="display:none;">
+                    <input type="text" id="history-search" placeholder="Search history..."
+                           class="sqe-search"
+                           onkeyup="renderHistory()">
+                    <div class="sqe-note">The last 50 queries you ran, kept in this browser only. Click one to open it in a new tab.
+                        <a style="cursor:pointer;color:#2563eb;" onclick="clearHistory(this)">Clear</a></div>
+                    <div id="history-list"></div>
+                </div>
+
+                <div id="examples-tab" class="sqe-pane" style="display:none;">
                     <div id="example-queries"></div>
                 </div>
                 
@@ -1634,24 +1964,28 @@ ORDER BY p.CreatedDate DESC'''
                     <button class="new-tab-btn" onclick="newTab()" title="New Query Tab (Ctrl+T)">+</button>
                 </div>
                 
-                <div class="btn-group">
-                    <button class="btn-run" onclick="executeQuery()">
-                        ▶ Run Query (Ctrl+Enter)
-                    </button>
-                    <button class="btn btn-secondary" onclick="formatSQL()">
-                        Format SQL
-                    </button>
-                    <button class="btn btn-secondary" onclick="saveQuery()">
-                        Save Query
-                    </button>
-                    <button class="btn btn-secondary" onclick="exportResults()">
-                        Export CSV
-                    </button>
-                    <span class="keyboard-shortcuts" onclick="showKeyboardShortcuts()" style="cursor: help; text-decoration: underline;">
-                        Keyboard Shortcuts (click for more)
+                <div class="sqe-toolbar">
+                    <span class="sqe-split">
+                        <button class="sqe-btn sqe-btn-primary" onclick="executeQuery()" title="Run the query, or just the selected text (Ctrl+Enter)">
+                            &#9654; Run <span class="sqe-kbd">Ctrl+Enter</span>
+                        </button>
+                        <button class="sqe-btn sqe-btn-primary" onclick="executeSelected()" title="Run only the statement the cursor is in (Ctrl+Shift+Enter)">
+                            Statement
+                        </button>
                     </span>
+                    <select id="sqe-rows" class="sqe-rows" title="Stop after this many rows">
+                        <option value="1000">1,000 rows</option>
+                        <option value="10000">10,000 rows</option>
+                        <option value="0">All rows (up to 50,000)</option>
+                    </select>
+                    <span class="sqe-spacer"></span>
+                    <button class="sqe-btn" onclick="formatSQL()" title="Format the SQL, or just the selected part">Format</button>
+                    <button class="sqe-btn" onclick="saveQuery()" title="Save to My queries">Save</button>
+                    <button class="sqe-btn sqe-btn-icon" onclick="showKeyboardShortcuts()" title="Keyboard shortcuts">?</button>
                 </div>
                 
+                <div id="sqe-params" class="sqe-params"></div>
+
                 <div id="editors-container">
                     <div id="sql-editor-1" class="sql-editor active" data-tab-id="1">
                         <div class="editor-wrapper">
@@ -1670,21 +2004,22 @@ ORDER BY p.JoinDate DESC</textarea>
                 </div>
                 
                 <div class="results-container">
-                    <div id="results-info" style="padding: 10px; background: #f3f4f6; display: none;">
-                        <span id="row-count"></span> rows returned in <span id="exec-time"></span>ms
-                    </div>
+                    <div id="results-info" class="sqe-info" style="display: none;"></div>
                     <div id="results"></div>
                 </div>
             </div>
         </div>
         
         <!-- Keyboard Shortcuts Modal -->
-        <div id="shortcuts-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
-            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 8px; max-width: 500px; max-height: 80vh; overflow-y: auto;">
-                <h3 style="margin-top: 0;">Keyboard Shortcuts</h3>
-                <table style="width: 100%; border-collapse: collapse;">
+        <div id="shortcuts-modal" class="sqe-modal">
+            <div class="sqe-modal-box">
+                <h3>Keyboard Shortcuts</h3>
+                <table>
                     <tr><td style="padding: 5px;"><strong>Query Execution:</strong></td><td></td></tr>
                     <tr><td style="padding: 5px 20px;">Ctrl+Enter or F5</td><td>Execute Query (or selected text if any)</td></tr>
+                    <tr><td style="padding: 5px 20px;">Ctrl+Shift+Enter</td><td>Run only the statement the cursor is in</td></tr>
+                    <tr><td style="padding: 5px 20px;">Ctrl+F / Ctrl+H</td><td>Find / Find and replace (Cmd+F, Cmd+Alt+F on a Mac)</td></tr>
+                    <tr><td style="padding: 5px 20px;">Ctrl+/</td><td>Comment selected lines on or off</td></tr>
                     <tr><td style="padding: 5px;"><strong>Tab Management:</strong></td><td></td></tr>
                     <tr><td style="padding: 5px 20px;">Ctrl+T</td><td>New Tab</td></tr>
                     <tr><td style="padding: 5px 20px;">Ctrl+W</td><td>Close Current Tab</td></tr>
@@ -1702,7 +2037,7 @@ ORDER BY p.JoinDate DESC</textarea>
                     <tr><td style="padding: 5px 20px;">Ctrl+Q</td><td>Toggle Code Folding at Cursor</td></tr>
                     <tr><td style="padding: 5px 20px;">Click fold icon</td><td>Fold/Unfold Code Block</td></tr>
                 </table>
-                <button onclick="document.getElementById('shortcuts-modal').style.display='none'" style="margin-top: 15px; padding: 8px 16px;">Close</button>
+                <button class="sqe-btn" onclick="document.getElementById('shortcuts-modal').style.display='none'" style="margin-top: 15px;">Close</button>
             </div>
         </div>
         
@@ -2552,6 +2887,14 @@ ORDER BY p.JoinDate DESC</textarea>
                             "Ctrl-Space": function(cm) { cm.showHint(); },
                             "Ctrl-Enter": function() { executeQuery(); },
                             "F5": function() { executeQuery(); },
+                            "Cmd-Enter": function() { executeQuery(); },
+                            "Ctrl-Shift-Enter": function() { executeSelected(); },
+                            "Cmd-Shift-Enter": function() { executeSelected(); },
+                            "Ctrl-/": function(cm) { cm.toggleComment({ indent: true }); },
+                            "Cmd-/": function(cm) { cm.toggleComment({ indent: true }); },
+                            "Ctrl-F": "findPersistent",
+                            "Cmd-F": "findPersistent",
+                            "Ctrl-H": "replace",
                             "Ctrl-Z": "undo",
                             "Cmd-Z": "undo",
                             "Ctrl-Y": "redo",
@@ -2607,6 +2950,7 @@ ORDER BY p.JoinDate DESC</textarea>
                     
                     // Add change listener to track unsaved changes
                     editors[1].on('change', function() {
+                        schedulePersist();
                         if (!tabs[1].isDirty) {
                             tabs[1].isDirty = true;
                             const tabElement = document.querySelector(`.editor-tab[data-tab-id="1"] .editor-tab-name`);
@@ -2617,6 +2961,20 @@ ORDER BY p.JoinDate DESC</textarea>
                     });
                 }
                 
+                // Fill the window below TouchPoint's header
+                fitExplorerHeight();
+                let fitTimer = null;
+                window.addEventListener('resize', () => {
+                    clearTimeout(fitTimer);
+                    fitTimer = setTimeout(fitExplorerHeight, 150);
+                });
+
+                // Bring back the tabs open at the last visit, and the history list
+                restoreTabs();
+                renderHistory();
+                updateParamBar();
+                window.addEventListener('beforeunload', persistTabs);
+
                 // Load full schema first for autocomplete
                 loadFullSchema();
                 
@@ -2739,7 +3097,8 @@ ORDER BY p.JoinDate DESC</textarea>
                 if (leftPanel.classList.contains('collapsed')) {
                     // Show panel
                     leftPanel.classList.remove('collapsed');
-                    toggleIcon.textContent = '◀';
+                    toggleIcon.textContent = '\u2039';
+                    document.getElementById('panel-toggle').title = 'Hide this panel';
                     
                     // Restore saved width or default
                     if (window.localStorage) {
@@ -2764,7 +3123,8 @@ ORDER BY p.JoinDate DESC</textarea>
                     
                     // Hide panel
                     leftPanel.classList.add('collapsed');
-                    toggleIcon.textContent = '▶';
+                    toggleIcon.textContent = '\u203A';
+                    document.getElementById('panel-toggle').title = 'Show tables, saved queries and history';
                 }
             }
             
@@ -2851,6 +3211,14 @@ ORDER BY p.JoinDate DESC</textarea>
                         "Ctrl-Space": function(cm) { cm.showHint(); },
                         "Ctrl-Enter": function() { executeQuery(); },
                         "F5": function() { executeQuery(); },
+                        "Cmd-Enter": function() { executeQuery(); },
+                        "Ctrl-Shift-Enter": function() { executeSelected(); },
+                        "Cmd-Shift-Enter": function() { executeSelected(); },
+                        "Ctrl-/": function(cm) { cm.toggleComment({ indent: true }); },
+                        "Cmd-/": function(cm) { cm.toggleComment({ indent: true }); },
+                        "Ctrl-F": "findPersistent",
+                        "Cmd-F": "findPersistent",
+                        "Ctrl-H": "replace",
                         "Ctrl-Z": "undo",
                         "Cmd-Z": "undo",
                         "Ctrl-Y": "redo",
@@ -2905,6 +3273,7 @@ ORDER BY p.JoinDate DESC</textarea>
                 
                 // Add change listener to track unsaved changes
                 editors[newTabId].on('change', function() {
+                    schedulePersist();
                     if (!tabs[newTabId].isDirty) {
                         tabs[newTabId].isDirty = true;
                         const tabElement = document.querySelector(`.editor-tab[data-tab-id="${newTabId}"] .editor-tab-name`);
@@ -2926,15 +3295,11 @@ ORDER BY p.JoinDate DESC</textarea>
                 const currentEditor = getCurrentEditor();
                 if (currentEditor) {
                     tabs[currentTabId].content = currentEditor.getValue();
-                    // Save current results
-                    const resultsDiv = document.getElementById('results');
-                    const resultsInfo = document.getElementById('results-info');
-                    tabs[currentTabId].results = resultsDiv.innerHTML;
-                    tabs[currentTabId].resultsInfo = {
-                        display: resultsInfo.style.display,
-                        rowCount: document.getElementById('row-count').textContent,
-                        execTime: document.getElementById('exec-time').textContent
-                    };
+                    // Grids are redrawn from their data; anything else (errors,
+                    // messages) is kept as it looks now
+                    if (!tabs[currentTabId].grid) {
+                        tabs[currentTabId].results = document.getElementById('results').innerHTML;
+                    }
                 }
                 
                 // Hide all editors
@@ -2968,19 +3333,9 @@ ORDER BY p.JoinDate DESC</textarea>
                     }
                     
                     // Restore results for this tab
-                    const resultsDiv = document.getElementById('results');
-                    const resultsInfo = document.getElementById('results-info');
-                    if (tabs[tabId].results !== null) {
-                        resultsDiv.innerHTML = tabs[tabId].results;
-                        if (tabs[tabId].resultsInfo) {
-                            resultsInfo.style.display = tabs[tabId].resultsInfo.display;
-                            document.getElementById('row-count').textContent = tabs[tabId].resultsInfo.rowCount;
-                            document.getElementById('exec-time').textContent = tabs[tabId].resultsInfo.execTime;
-                        }
-                    } else {
-                        resultsDiv.innerHTML = '';
-                        resultsInfo.style.display = 'none';
-                    }
+                    restoreResults(tabId);
+                    schedulePersist();
+                    updateParamBar();
                     
                     // Ensure panel stays visible when switching tabs
                     ensurePanelVisible();
@@ -3025,12 +3380,14 @@ ORDER BY p.JoinDate DESC</textarea>
                         switchTab(parseInt(remainingTabIds[0]));
                     }
                 }
+                schedulePersist();
             }
             
             function renameTab(tabId) {
                 const newName = prompt('Enter new tab name:', tabs[tabId].name);
                 if (newName) {
                     tabs[tabId].name = newName;
+                    schedulePersist();
                     const tabElement = document.querySelector(`.editor-tab[data-tab-id="${tabId}"] .editor-tab-name`);
                     if (tabElement) {
                         tabElement.textContent = newName;
@@ -3087,7 +3444,7 @@ ORDER BY p.JoinDate DESC</textarea>
                 }
             }
             
-            function executeQuery(sql = null) {
+            function executeQuery(sql = null, force = false) {
                 const editor = getCurrentEditor();
                 if (!editor) return;
                 
@@ -3095,10 +3452,8 @@ ORDER BY p.JoinDate DESC</textarea>
                 if (!sql) {
                     const selectedText = editor.getSelection();
                     if (selectedText && selectedText.trim()) {
-                        // Use selected text
                         sql = selectedText;
                     } else {
-                        // Use full editor content
                         sql = editor.getValue();
                     }
                 }
@@ -3107,55 +3462,83 @@ ORDER BY p.JoinDate DESC</textarea>
                     document.getElementById('results').innerHTML = '<div class="alert alert-warning">No SQL to execute</div>';
                     return;
                 }
-                
+
+                const maxRows = document.getElementById('sqe-rows').value;
+
+                // Ask first before a slow query on one of the largest tables
+                if (!force) {
+                    const big = slowBigTableQuery(sql, maxRows);
+                    if (big) {
+                        window.sqePendingSql = sql;
+                        tabs[currentTabId].grid = null;
+                        renderInfo();
+                        document.getElementById('results').innerHTML =
+                            '<div class="sqe-banner"><b>' + escapeAttr(big) + '</b> is one of the largest tables in TouchPoint, ' +
+                            'and this query has no WHERE. Sorting, grouping, joining or counting it can take minutes. ' +
+                            'Add a WHERE (a date range or an Id) to make it fast.<br>' +
+                            '<button class="sqe-mini-btn" onclick="runPending()">Run anyway</button>' +
+                            '<button class="sqe-mini-btn" onclick="cancelPending()">Cancel</button></div>';
+                        return;
+                    }
+                }
+
+                const tabId = currentTabId;
+                tabs[tabId].grid = null;
+                renderInfo();
                 document.getElementById('results').innerHTML = '<div class="loading">Executing query...</div>';
                 
-                // Get PyScriptForm URL
-                var url = window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
-                
-                // Create form data
-                var formData = new FormData();
-                formData.append('action', 'execute_query');
-                formData.append('sql_query', sql);
-                
-                // Make AJAX request
-                fetch(url, {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok');
-                    }
-                    return response.text();
-                })
-                .then(text => {
-                    try {
-                        // Try to find JSON in the response
-                        // TouchPoint sometimes logs the response to console
-                        const jsonStart = text.indexOf('{');
-                        const jsonEnd = text.lastIndexOf('}') + 1;
-                        
-                        if (jsonStart >= 0 && jsonEnd > jsonStart) {
-                            const jsonStr = text.substring(jsonStart, jsonEnd);
-                            const data = JSON.parse(jsonStr);
-                            showResults(data);
-                            
-                            // Ensure panel stays visible after query execution
-                            ensurePanelVisible();
-                        } else {
-                            throw new Error('No JSON found in response');
-                        }
-                    } catch (e) {
-                        // Only show error if we really can't parse the response
-                        console.error('Response parsing error:', e);
-                        console.log('Raw response:', text);
-                        document.getElementById('results').innerHTML = '<div class="alert alert-danger">Error: Invalid response from server. Check console for details.</div>';
-                    }
+                const found = detectParams(sql);
+                const vals = readParamValues();
+                const params = {};
+                found.names.forEach(nm => { params[nm] = String(vals[nm.toLowerCase()] || '').trim(); });
+
+                postAction({ action: 'execute_query', sql_query: sql, max_rows: maxRows, sql_params: JSON.stringify(params) })
+                .then(data => {
+                    addHistory({
+                        sql: sql,
+                        at: Date.now(),
+                        ok: !!data.success,
+                        rows: data.rowCount || 0,
+                        ms: data.executionTime || 0
+                    });
+                    showResults(data, tabId);
+                    ensurePanelVisible();
                 })
                 .catch(error => {
-                    document.getElementById('results').innerHTML = '<div class="alert alert-danger">Error: ' + error + '</div>';
+                    console.error('Query error:', error);
+                    tabs[tabId].results = '<div class="alert alert-danger">Error: ' + escapeAttr(String(error.message || error)) + '</div>';
+                    if (tabId === currentTabId) {
+                        document.getElementById('results').innerHTML = tabs[tabId].results;
+                    }
                 });
+            }
+
+            function runPending() {
+                const sql = window.sqePendingSql;
+                window.sqePendingSql = null;
+                if (sql) executeQuery(sql, true);
+            }
+
+            function cancelPending() {
+                window.sqePendingSql = null;
+                document.getElementById('results').innerHTML = '';
+            }
+
+            // TouchPoint's biggest tables. A query on one of these with no WHERE
+            // is only quick when it just reads the first rows.
+            const SQE_BIG_TABLES = ['TagPerson', 'ActivityLog', 'EmailResponses', 'EngagementScore',
+                'Attend', 'Contribution', 'SMSItems', 'SMSList', 'RegistrationData', 'TaskNote',
+                'Meetings', 'EmailQueueTo', 'ChangeLog', 'PeopleExtra'];
+
+            function slowBigTableQuery(sql, maxRows) {
+                let s = sql.replace(/--[^\\n]*/g, ' ').replace(/\\/\\*[\\s\\S]*?\\*\\//g, ' ').replace(/'(?:[^']|'')*'/g, "''");
+                if (/\\bWHERE\\b/i.test(s)) return null;
+                const heavy = maxRows === '0' || /\\b(ORDER\\s+BY|GROUP\\s+BY|DISTINCT|JOIN|COUNT\\s*\\(|SUM\\s*\\(|AVG\\s*\\(|MAX\\s*\\(|MIN\\s*\\()/i.test(s);
+                if (!heavy) return null;
+                for (const t of SQE_BIG_TABLES) {
+                    if (new RegExp('(^|[^\\\\w.#@])(dbo\\\\.)?\\\\[?' + t + '\\\\]?(?![\\\\w])', 'i').test(s)) return t;
+                }
+                return null;
             }
             
             function executeSelected() {
@@ -3223,152 +3606,959 @@ ORDER BY p.JoinDate DESC</textarea>
                 return div.innerHTML;
             }
             
-            function showResults(result) {
-                const resultsDiv = document.getElementById('results');
-                const resultsInfo = document.getElementById('results-info');
-                
+            function showResults(result, tabId) {
+                if (tabId === undefined) tabId = currentTabId;
+                const tab = tabs[tabId];
+                if (!tab) return;
+                tab.grid = null;
+                tab.results = null;
+
                 if (!result.success) {
                     let errorHtml = '<div class="error-container">';
-                    
-                    // Check if we have parsed error info
                     if (result.error_info) {
                         errorHtml += '<div class="error-header">';
-                        errorHtml += '<span class="error-type">' + result.error_info.type + '</span>';
+                        errorHtml += '<span class="error-type">' + escapeAttr(result.error_info.type || 'SQL Error') + '</span>';
                         errorHtml += '</div>';
-                        
                         if (result.error_info.suggestions && result.error_info.suggestions.length > 0) {
                             errorHtml += '<div class="error-suggestions">';
                             errorHtml += '<strong>Suggestions to fix this error:</strong>';
                             errorHtml += '<ul>';
                             result.error_info.suggestions.forEach(function(suggestion) {
-                                errorHtml += '<li>' + suggestion + '</li>';
+                                errorHtml += '<li>' + escapeAttr(suggestion) + '</li>';
                             });
                             errorHtml += '</ul>';
                             errorHtml += '</div>';
                         }
-                        
                         errorHtml += '<div class="error-details">';
                         errorHtml += '<details>';
                         errorHtml += '<summary>Show technical details</summary>';
-                        errorHtml += '<pre class="error-raw">' + escapeHtml(result.error) + '</pre>';
+                        errorHtml += '<pre class="error-raw">' + escapeHtml(result.error || '') + '</pre>';
                         errorHtml += '</details>';
                         errorHtml += '</div>';
                     } else {
-                        // Fallback to raw error
-                        errorHtml += '<div class="alert alert-danger">Error: ' + escapeHtml(result.error) + '</div>';
+                        errorHtml += '<div class="alert alert-danger">Error: ' + escapeHtml(result.error || 'Unknown error') + '</div>';
                     }
-                    
                     errorHtml += '</div>';
-                    
-                    resultsDiv.innerHTML = errorHtml;
-                    resultsInfo.style.display = 'none';
-                    
-                    // Save results to current tab
-                    tabs[currentTabId].results = resultsDiv.innerHTML;
-                    tabs[currentTabId].resultsInfo = {
-                        display: 'none',
-                        rowCount: '0',
-                        execTime: '0'
-                    };
-                    return;
-                }
-                
-                if (!result.data || result.data.length === 0) {
-                    resultsDiv.innerHTML = '<div style="padding: 20px; color: #6b7280;">No results returned</div>';
-                    resultsInfo.style.display = 'none';
-                    // Save results to current tab
-                    tabs[currentTabId].results = resultsDiv.innerHTML;
-                    tabs[currentTabId].resultsInfo = {
-                        display: 'none',
-                        rowCount: '0',
-                        execTime: '0'
-                    };
-                    return;
-                }
-                
-                // Build table with wrapper for scrolling
-                let html = '<div class="results-wrapper"><table class="results-table"><thead><tr>';
-                
-                result.columns.forEach(col => {
-                    html += `<th>${col}</th>`;
-                });
-                html += '</tr></thead><tbody>';
-                
-                result.data.forEach(row => {
-                    html += '<tr>';
-                    result.columns.forEach(col => {
-                        let value = row[col];
-                        // Escape HTML by default to prevent rendering
-                        let displayValue = value !== null && value !== undefined 
-                            ? String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
-                            : '';
-                        
-                        // Create links for ID columns
-                        if (value && !isNaN(value) && value > 0) {
-                            const colLower = col.toLowerCase();
-                            const intValue = parseInt(value);
-                            
-                            // Check for PeopleId variations
-                            if (colLower === 'peopleid' || 
-                                colLower === 'personid' ||
-                                colLower === 'leaderid' ||
-                                colLower === 'headofhouseholdid' ||
-                                colLower === 'createdby' ||
-                                colLower === 'modifiedby' ||
-                                (colLower === 'id' && result.columns.some(c => c.toLowerCase().includes('name') || c.toLowerCase().includes('email')))) {
-                                // Keep the original escaped value for display in the link
-                                displayValue = `<a href="/Person2/${intValue}" target="_blank" style="color: #2563eb; text-decoration: underline;">${displayValue}</a>`;
-                            }
-                            // Check for Organization IDs
-                            else if (colLower === 'organizationid' || 
-                                     colLower === 'orgid' ||
-                                     colLower === 'divisionid') {
-                                displayValue = `<a href="/Org/${intValue}" target="_blank" style="color: #2563eb; text-decoration: underline;">${displayValue}</a>`;
-                            }
-                            // Check for Family ID
-                            else if (colLower === 'familyid') {
-                                displayValue = `<a href="/Family/${intValue}" target="_blank" style="color: #2563eb; text-decoration: underline;">${displayValue}</a>`;
-                            }
-                            // Check for Meeting ID
-                            else if (colLower === 'meetingid') {
-                                displayValue = `<a href="/Meeting/${intValue}" target="_blank" style="color: #2563eb; text-decoration: underline;">${displayValue}</a>`;
-                            }
-                            // Check for Contribution ID
-                            else if (colLower === 'contributionid' || colLower === 'bundleid') {
-                                displayValue = `<a href="/Finance/Bundle/${intValue}" target="_blank" style="color: #2563eb; text-decoration: underline;">${displayValue}</a>`;
-                            }
-                            // Check for Fund ID
-                            else if (colLower === 'fundid') {
-                                displayValue = `<a href="/Funds" target="_blank" style="color: #2563eb; text-decoration: underline;">${displayValue}</a>`;
-                            }
+                    tab.results = errorHtml;
+                } else if (!result.columns || result.columns.length === 0) {
+                    tab.results = '<div style="padding: 20px; color: #6b7280;">The query ran and returned no rows.</div>';
+                } else {
+                    tab.grid = {
+                        columns: result.columns,
+                        rows: result.rows || [],
+                        sortCol: -1,
+                        sortDir: 1,
+                        filters: {},
+                        view: null,
+                        meta: {
+                            rowCount: result.rowCount || 0,
+                            ms: result.executionTime || 0,
+                            truncated: !!result.truncated,
+                            maxRows: result.maxRows || 0,
+                            orderKnown: !!result.orderKnown
                         }
-                        
-                        html += `<td>${displayValue != null ? displayValue : ''}</td>`;
+                    };
+                }
+
+                if (tabId === currentTabId) {
+                    restoreResults(tabId);
+                }
+            }
+
+            function restoreResults(tabId) {
+                const tab = tabs[tabId];
+                const resultsDiv = document.getElementById('results');
+                if (tab && tab.grid) {
+                    renderGrid();
+                } else {
+                    resultsDiv.innerHTML = (tab && tab.results) || '';
+                    renderInfo();
+                }
+            }
+
+            // ---- Results grid ----
+            const GRID_DOM_LIMIT = 2000;
+            const CELL_SHORT = 200;
+            const LINK_COLUMNS = {
+                peopleid: '/Person2/', personid: '/Person2/', leaderid: '/Person2/',
+                headofhouseholdid: '/Person2/', headofhouseholdspouseid: '/Person2/', spouseid: '/Person2/',
+                organizationid: '/Org/', orgid: '/Org/',
+                familyid: '/Family/',
+                meetingid: '/Meeting/',
+                bundleid: '/Bundle/', bundleheaderid: '/Bundle/'
+            };
+
+            function escapeAttr(text) {
+                return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            }
+
+            function fmtNum(n) {
+                return Number(n || 0).toLocaleString();
+            }
+
+            function isBlank(v) {
+                return v === null || v === undefined || v === '';
+            }
+
+            function compareValues(x, y) {
+                const tx = String(x).trim(), ty = String(y).trim();
+                const nx = Number(tx), ny = Number(ty);
+                if (tx !== '' && ty !== '' && !isNaN(nx) && !isNaN(ny)) return nx - ny;
+                return tx.localeCompare(ty, undefined, { numeric: true, sensitivity: 'base' });
+            }
+
+            function gridView(grid) {
+                const active = Object.keys(grid.filters).filter(k => grid.filters[k]);
+                const idx = [];
+                for (let i = 0; i < grid.rows.length; i++) {
+                    let keep = true;
+                    for (const k of active) {
+                        const v = grid.rows[i][k];
+                        const t = (v === null || v === undefined) ? 'null' : String(v).toLowerCase();
+                        if (t.indexOf(grid.filters[k].toLowerCase()) < 0) { keep = false; break; }
+                    }
+                    if (keep) idx.push(i);
+                }
+                if (grid.sortCol >= 0) {
+                    const c = grid.sortCol, d = grid.sortDir;
+                    idx.sort((a, b) => {
+                        const x = grid.rows[a][c], y = grid.rows[b][c];
+                        const xb = isBlank(x), yb = isBlank(y);
+                        if (xb || yb) return xb === yb ? a - b : (xb ? 1 : -1);
+                        return (compareValues(x, y) * d) || (a - b);
                     });
-                    html += '</tr>';
+                }
+                return idx;
+            }
+
+            function renderGrid() {
+                const grid = tabs[currentTabId] && tabs[currentTabId].grid;
+                const resultsDiv = document.getElementById('results');
+                if (!grid) return;
+                let html = '<div class="results-wrapper"><table class="results-table"><thead><tr>' +
+                    '<th class="sqe-rownum" title="Click a row number to copy that row">#</th>';
+                grid.columns.forEach((col, i) => {
+                    html += '<th onclick="sortGrid(' + i + ')" title="Click to sort">' + escapeAttr(col) +
+                        '<span class="sqe-arrow" id="sqe-arrow-' + i + '"></span>' +
+                        '<span class="sqe-prof-btn" onclick="profileColumn(' + i + ', event)" title="Column profile">&#9432;</span></th>';
                 });
-                
-                html += '</tbody></table></div>';
-                resultsDiv.innerHTML = html;
-                
-                // Show info
-                document.getElementById('row-count').textContent = result.rowCount;
-                document.getElementById('exec-time').textContent = result.executionTime;
-                resultsInfo.style.display = 'block';
-                
-                // Save results to current tab
-                tabs[currentTabId].results = resultsDiv.innerHTML;
-                tabs[currentTabId].resultsInfo = {
-                    display: 'block',
-                    rowCount: result.rowCount,
-                    execTime: result.executionTime
+                html += '</tr><tr class="sqe-filter-row"><th class="sqe-rownum"></th>';
+                grid.columns.forEach((col, i) => {
+                    html += '<th><input class="sqe-filter" data-c="' + i + '" placeholder="filter" value="' +
+                        escapeAttr(grid.filters[i] || '') + '" oninput="filterGrid(this)"></th>';
+                });
+                html += '</tr></thead><tbody id="sqe-tbody"></tbody><tfoot id="sqe-tfoot"></tfoot></table></div>';
+                resultsDiv.innerHTML = '<div id="sqe-side"></div>' + html;
+                const head = resultsDiv.querySelector('thead tr');
+                const h = head ? head.getBoundingClientRect().height : 37;
+                resultsDiv.querySelectorAll('tr.sqe-filter-row th').forEach(th => { th.style.top = h + 'px'; });
+                fillGridBody();
+            }
+
+            function fillGridBody() {
+                const grid = tabs[currentTabId] && tabs[currentTabId].grid;
+                const tbody = document.getElementById('sqe-tbody');
+                if (!grid || !tbody) return;
+                const view = gridView(grid);
+                grid.view = view;
+                const shown = Math.min(view.length, GRID_DOM_LIMIT);
+                const links = grid.columns.map(c => LINK_COLUMNS[String(c).toLowerCase()] || null);
+                const parts = [];
+                for (let n = 0; n < shown; n++) {
+                    const r = view[n];
+                    const row = grid.rows[r];
+                    parts.push('<tr><td class="sqe-rownum" data-r="' + r + '" onclick="copyRow(this)" title="Copy this row">' + (n + 1) + '</td>');
+                    for (let c = 0; c < grid.columns.length; c++) {
+                        parts.push(cellHtml(row[c], links[c], r, c));
+                    }
+                    parts.push('</tr>');
+                }
+                tbody.innerHTML = parts.join('');
+                renderTotals(grid, view);
+                renderSide();
+                grid.columns.forEach((col, i) => {
+                    const a = document.getElementById('sqe-arrow-' + i);
+                    if (a) a.textContent = grid.sortCol === i ? (grid.sortDir > 0 ? '\\u25B2' : '\\u25BC') : '';
+                });
+                renderInfo();
+            }
+
+            function cellHtml(v, link, r, c) {
+                const attrs = ' data-r="' + r + '" data-c="' + c + '" ondblclick="copyCell(this)"';
+                if (v === null || v === undefined) {
+                    return '<td' + attrs + '><span class="sqe-null">NULL</span></td>';
+                }
+                const t = String(v);
+                if (link && /^[0-9]+$/.test(t) && t !== '0') {
+                    return '<td' + attrs + '><a href="' + link + t + '" target="_blank" style="color: #2563eb; text-decoration: underline;">' + t + '</a></td>';
+                }
+                const flat = t.replace(/\\s+/g, ' ');
+                if (flat.length > CELL_SHORT) {
+                    return '<td' + attrs + '>' + escapeAttr(flat.substring(0, CELL_SHORT)) +
+                        '\\u2026<span class="sqe-more" onclick="openCell(this, event)">more</span></td>';
+                }
+                const title = flat.length > 60 ? ' title="' + escapeAttr(flat) + '"' : '';
+                return '<td' + attrs + title + '>' + escapeAttr(flat) + '</td>';
+            }
+
+            function openCell(el, event) {
+                event.stopPropagation();
+                const td = el.parentNode;
+                const grid = tabs[currentTabId].grid;
+                const v = grid.rows[td.dataset.r][td.dataset.c];
+                td.classList.add('sqe-open');
+                td.innerHTML = escapeAttr(String(v)) + '<span class="sqe-more" onclick="closeCell(this, event)">less</span>';
+            }
+
+            function closeCell(el, event) {
+                event.stopPropagation();
+                const td = el.parentNode;
+                const grid = tabs[currentTabId].grid;
+                const r = td.dataset.r, c = td.dataset.c;
+                td.outerHTML = cellHtml(grid.rows[r][c], LINK_COLUMNS[String(grid.columns[c]).toLowerCase()] || null, r, c);
+            }
+
+            function sortGrid(i) {
+                const grid = tabs[currentTabId].grid;
+                if (!grid) return;
+                if (grid.sortCol !== i) { grid.sortCol = i; grid.sortDir = 1; }
+                else if (grid.sortDir === 1) { grid.sortDir = -1; }
+                else { grid.sortCol = -1; grid.sortDir = 1; }
+                fillGridBody();
+            }
+
+            let filterTimer = null;
+            function filterGrid(input) {
+                const grid = tabs[currentTabId].grid;
+                if (!grid) return;
+                grid.filters[input.dataset.c] = input.value;
+                clearTimeout(filterTimer);
+                filterTimer = setTimeout(fillGridBody, grid.rows.length > 5000 ? 250 : 80);
+            }
+
+            function renderInfo() {
+                const info = document.getElementById('results-info');
+                const grid = tabs[currentTabId] && tabs[currentTabId].grid;
+                if (!grid) {
+                    info.style.display = 'none';
+                    info.innerHTML = '';
+                    return;
+                }
+                const m = grid.meta;
+                const view = grid.view || [];
+                let h = '<span><b>' + fmtNum(m.rowCount) + '</b> rows in ' + fmtNum(m.ms) + ' ms</span>';
+                if (m.truncated) {
+                    if (m.maxRows >= (window.SQE_MAX_ALL || 50000)) {
+                        h += '<span class="sqe-warn">Stopped at ' + fmtNum(m.maxRows) + ' rows, the most this page reads. Add a WHERE to narrow it.</span>';
+                    } else {
+                        h += '<span class="sqe-warn">Stopped at ' + fmtNum(m.maxRows) + ' rows. There are more: pick a bigger limit next to Run, or add a WHERE.</span>';
+                    }
+                }
+                if (view.length !== grid.rows.length) {
+                    h += '<span>' + fmtNum(view.length) + ' match the filters</span>';
+                }
+                if (view.length > GRID_DOM_LIMIT) {
+                    h += '<span class="sqe-warn">Showing the first ' + fmtNum(GRID_DOM_LIMIT) + ' here. Export CSV and Copy grid include all ' + fmtNum(view.length) + '.</span>';
+                }
+                if (!m.orderKnown && grid.columns.length > 1) {
+                    h += '<span class="sqe-hint">Column order is a best guess for this query.</span>';
+                }
+                h += '<span class="sqe-hint">Click a header to sort, &#9432; for a column profile. Double-click a cell to copy it. Click a row number to copy the row.</span>';
+                h += '<span class="sqe-actions">' +
+                    '<button class="sqe-mini-btn" onclick="exportResults()">Export CSV</button>' +
+                    '<button class="sqe-mini-btn" onclick="exportExcel()">Excel</button>' +
+                    '<button class="sqe-mini-btn" onclick="copyGrid()">Copy grid</button>' +
+                    '<button class="sqe-mini-btn" onclick="openChart()">Chart</button></span>';
+                info.innerHTML = h;
+                info.style.display = 'flex';
+            }
+
+            // ---- Copy ----
+            function copyText(text, el) {
+                const done = () => {
+                    if (el) {
+                        el.classList.add('sqe-flash');
+                        setTimeout(() => el.classList.remove('sqe-flash'), 600);
+                    }
                 };
-                
-                // Always ensure panel visibility after showing results
-                ensurePanelVisible();
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+                } else {
+                    fallbackCopy(text, done);
+                }
+            }
+
+            function fallbackCopy(text, done) {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); done(); } catch (e) { }
+                document.body.removeChild(ta);
+            }
+
+            function tsvValue(v) {
+                if (v === null || v === undefined) return '';
+                const t = String(v);
+                return /[\\t\\n\\r"]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+            }
+
+            function copyCell(td) {
+                const grid = tabs[currentTabId].grid;
+                const v = grid.rows[td.dataset.r][td.dataset.c];
+                copyText(v === null || v === undefined ? '' : String(v), td);
+            }
+
+            function copyRow(td) {
+                const grid = tabs[currentTabId].grid;
+                copyText(grid.rows[td.dataset.r].map(tsvValue).join('\\t'), td.parentNode);
+            }
+
+            function copyGrid() {
+                const grid = tabs[currentTabId] && tabs[currentTabId].grid;
+                if (!grid) {
+                    showMessage('No results to copy. Run a query first.', 'error');
+                    return;
+                }
+                const view = grid.view || gridView(grid);
+                const lines = [grid.columns.map(tsvValue).join('\\t')];
+                view.forEach(r => lines.push(grid.rows[r].map(tsvValue).join('\\t')));
+                copyText(lines.join('\\r\\n'), null);
+                showMessage('Copied ' + fmtNum(view.length) + ' rows. Paste into Excel or Sheets.', 'success');
+            }
+
+            // ---- History (this browser only) ----
+            function historyKey() {
+                return 'sqe_history_' + (window.SQE_USER || '0');
+            }
+
+            function readHistory() {
+                try {
+                    const h = JSON.parse(localStorage.getItem(historyKey()) || '[]');
+                    return Array.isArray(h) ? h : [];
+                } catch (e) {
+                    return [];
+                }
+            }
+
+            function addHistory(entry) {
+                try {
+                    let h = readHistory().filter(x => x.sql !== entry.sql);
+                    h.unshift(entry);
+                    localStorage.setItem(historyKey(), JSON.stringify(h.slice(0, 50)));
+                } catch (e) { }
+                renderHistory();
+            }
+
+            function renderHistory() {
+                const list = document.getElementById('history-list');
+                if (!list) return;
+                const box = document.getElementById('history-search');
+                const term = (box && box.value || '').toLowerCase();
+                const h = readHistory();
+                window.sqeHistory = h;
+                const parts = [];
+                h.forEach((x, i) => {
+                    if (!x || typeof x.sql !== 'string') return;
+                    if (term && x.sql.toLowerCase().indexOf(term) < 0) return;
+                    const when = new Date(x.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+                    const meta = x.ok ? fmtNum(x.rows) + ' rows, ' + fmtNum(x.ms) + ' ms' : '<span class="sqe-hist-err">failed</span>';
+                    parts.push('<div class="sqe-hist" onclick="openHistory(' + i + ')" title="' + escapeAttr(x.sql.substring(0, 600)) + '">' +
+                        '<div class="sqe-hist-sql">' + escapeAttr(x.sql.replace(/\\s+/g, ' ').substring(0, 140)) + '</div>' +
+                        '<div class="sqe-hist-meta">' + escapeAttr(when) + ' &middot; ' + meta + '</div></div>');
+                });
+                list.innerHTML = parts.length ? parts.join('') :
+                    '<div class="sqe-note">' + (h.length ? 'Nothing matches.' : 'Queries you run will show here.') + '</div>';
+            }
+
+            function openHistory(i) {
+                const x = (window.sqeHistory || [])[i];
+                if (x) openSqlInNewTab(x.sql, 'From history');
+            }
+
+            function clearHistory(el) {
+                if (el.dataset.armed !== '1') {
+                    el.dataset.armed = '1';
+                    el.textContent = 'Click again to clear';
+                    setTimeout(() => { el.dataset.armed = ''; el.textContent = 'Clear'; }, 3000);
+                    return;
+                }
+                try { localStorage.removeItem(historyKey()); } catch (e) { }
+                el.dataset.armed = '';
+                el.textContent = 'Clear';
+                renderHistory();
+            }
+
+            // ---- Tabs survive a reload (this browser only) ----
+            function tabsKey() {
+                return 'sqe_tabs_' + (window.SQE_USER || '0');
+            }
+
+            let persistTimer = null;
+            let restoring = false;
+            function schedulePersist() {
+                scheduleParamBar();
+                if (restoring) return;
+                clearTimeout(persistTimer);
+                persistTimer = setTimeout(persistTabs, 400);
+            }
+
+            function persistTabs() {
+                if (restoring) return;
+                try {
+                    const ids = Object.keys(tabs).map(Number).sort((a, b) => a - b);
+                    const list = ids.map(id => ({
+                        name: tabs[id].name,
+                        sql: editors[id] ? editors[id].getValue() : (tabs[id].content || '')
+                    }));
+                    localStorage.setItem(tabsKey(), JSON.stringify({ v: 1, current: ids.indexOf(currentTabId), tabs: list }));
+                } catch (e) { }
+            }
+
+            function restoreTabs() {
+                let saved = null;
+                try { saved = JSON.parse(localStorage.getItem(tabsKey()) || 'null'); } catch (e) { }
+                if (!saved || !Array.isArray(saved.tabs) || !saved.tabs.length) return;
+                restoring = true;
+                try {
+                    saved.tabs.forEach((t, i) => {
+                        if (i > 0) newTab();
+                        const id = currentTabId;
+                        if (editors[id]) editors[id].setValue(typeof t.sql === 'string' ? t.sql : '');
+                        setTabName(id, t.name || ('Query ' + id));
+                        markClean(id);
+                    });
+                    const ids = Object.keys(tabs).map(Number).sort((a, b) => a - b);
+                    switchTab(ids[saved.current] || ids[0]);
+                } finally {
+                    restoring = false;
+                }
+                updateParamBar();
+            }
+
+            function setTabName(id, name) {
+                tabs[id].name = name;
+                const el = document.querySelector(`.editor-tab[data-tab-id="${id}"] .editor-tab-name`);
+                if (el) el.textContent = name;
+                schedulePersist();
+            }
+
+            function markClean(id) {
+                tabs[id].isDirty = false;
+                const el = document.querySelector(`.editor-tab[data-tab-id="${id}"] .editor-tab-name`);
+                if (el && el.textContent.endsWith(' *')) el.textContent = el.textContent.slice(0, -2);
+            }
+
+            function openSqlInNewTab(sql, name) {
+                newTab();
+                const editor = getCurrentEditor();
+                if (editor) {
+                    editor.setValue(sql);
+                    setTabName(currentTabId, name);
+                    markClean(currentTabId);
+                }
+            }
+
+
+            function fitExplorerHeight() {
+                const ex = document.querySelector('.query-explorer');
+                if (!ex) return;
+                const top = ex.getBoundingClientRect().top + window.scrollY;
+                ex.style.height = Math.max(520, window.innerHeight - top - 24) + 'px';
+                Object.keys(editors).forEach(id => { if (editors[id]) editors[id].refresh(); });
+            }
+
+            // ---- 2.1: libraries loaded only when first used ----
+            const SQE_LIBS = {
+                formatter: 'https://cdnjs.cloudflare.com/ajax/libs/sql-formatter/15.4.2/sql-formatter.min.js',
+                chart: 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
+                xlsx: 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
+            };
+            const sqeLibCache = {};
+            function loadLib(url, globalName) {
+                if (window[globalName]) return Promise.resolve(window[globalName]);
+                if (!sqeLibCache[url]) {
+                    sqeLibCache[url] = new Promise((resolve, reject) => {
+                        const tag = document.createElement('script');
+                        tag.src = url;
+                        tag.onload = () => window[globalName] ? resolve(window[globalName]) : reject(new Error(globalName + ' did not load'));
+                        tag.onerror = () => { delete sqeLibCache[url]; reject(new Error('Could not load ' + url)); };
+                        document.head.appendChild(tag);
+                    });
+                }
+                return sqeLibCache[url];
+            }
+
+            // ---- 2.1: parameters ----
+            // TouchPoint fills these in itself, but only when spelled exactly so
+            const SQE_TP_PARAMS = { UserPeopleId: 'you', CurrentOrgId: 'the involvement you last opened' };
+
+            function stripSqlNoise(sql) {
+                return sql.replace(/--[^\\n]*/g, ' ')
+                    .replace(/\\/\\*[\\s\\S]*?\\*\\//g, ' ')
+                    .replace(/N?'(?:[^']|'')*'/g, "''")
+                    .replace(/\\[[^\\]]*\\]/g, 'x');
+            }
+
+            // @Names used in the SQL that it does not DECLARE itself
+            function detectParams(sql) {
+                const s = stripSqlNoise(sql || '');
+                const declared = {};
+                const decl = /\\bDECLARE\\b/gi;
+                const stop = /^(SELECT|INSERT|UPDATE|DELETE|SET|WITH|IF|WHILE|BEGIN|DECLARE|EXEC|EXECUTE|CREATE|DROP|MERGE|RETURN|PRINT|TRUNCATE|OPEN|FETCH|CLOSE|DEALLOCATE)\\b/i;
+                let m;
+                while ((m = decl.exec(s)) !== null) {
+                    let i = m.index + 7, depth = 0, expectName = true;
+                    while (i < s.length) {
+                        const ch = s[i];
+                        if (ch === '(') depth++;
+                        else if (ch === ')') depth--;
+                        else if (depth === 0 && ch === ';') break;
+                        else if (depth === 0 && ch === ',') expectName = true;
+                        else if (depth === 0 && ch === '@' && expectName) {
+                            const nm = /^@(\\w+)/.exec(s.substring(i, i + 130));
+                            if (nm) {
+                                declared[nm[1].toLowerCase()] = 1;
+                                i += nm[0].length;
+                                expectName = false;
+                                continue;
+                            }
+                        } else if (depth === 0 && !expectName && /\\s/.test(ch) && stop.test(s.substring(i + 1, i + 12))) {
+                            break;
+                        }
+                        i++;
+                    }
+                }
+                const names = [], touchpoint = [], seen = {};
+                const use = /(^|[^@\\w])@(\\w+)/g;
+                while ((m = use.exec(s)) !== null) {
+                    const nm = m[2], key = nm.toLowerCase();
+                    if (declared[key] || seen[key]) continue;
+                    seen[key] = 1;
+                    if (SQE_TP_PARAMS[nm]) touchpoint.push(nm);
+                    else names.push(nm);
+                }
+                return { names: names, touchpoint: touchpoint };
+            }
+
+            function paramsKey() {
+                return 'sqe_params_' + (window.SQE_USER || '0');
+            }
+
+            function readParamValues() {
+                try {
+                    const v = JSON.parse(localStorage.getItem(paramsKey()) || '{}');
+                    return v && typeof v === 'object' ? v : {};
+                } catch (e) {
+                    return {};
+                }
+            }
+
+            function saveParamValue(input) {
+                const vals = readParamValues();
+                vals[input.dataset.p.toLowerCase()] = input.value;
+                try { localStorage.setItem(paramsKey(), JSON.stringify(vals)); } catch (e) { }
+            }
+
+            function paramKeyDown(event) {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    executeQuery();
+                }
+            }
+
+            let paramTimer = null;
+            function scheduleParamBar() {
+                clearTimeout(paramTimer);
+                paramTimer = setTimeout(updateParamBar, 300);
+            }
+
+            function updateParamBar() {
+                const bar = document.getElementById('sqe-params');
+                const editor = getCurrentEditor();
+                if (!bar || !editor) return;
+                const found = detectParams(editor.getValue());
+                const sig = found.names.join(',') + '|' + found.touchpoint.join(',');
+                if (bar.dataset.sig === sig) return;  // unchanged: keep focus while typing
+                bar.dataset.sig = sig;
+                if (!found.names.length && !found.touchpoint.length) {
+                    bar.style.display = 'none';
+                    bar.innerHTML = '';
+                    return;
+                }
+                const vals = readParamValues();
+                let h = '<span class="sqe-params-title">Parameters</span>';
+                found.names.forEach(nm => {
+                    const hint = nm.toLowerCase() === 'bluetoolbartagid' ? 'a tag Id to test with' : 'empty means NULL';
+                    h += '<label class="sqe-param">@' + escapeAttr(nm) + ' <input data-p="' + escapeAttr(nm) + '" value="' +
+                        escapeAttr(vals[nm.toLowerCase()] || '') + '" placeholder="' + hint +
+                        '" oninput="saveParamValue(this)" onkeydown="paramKeyDown(event)"></label>';
+                });
+                if (found.names.length) {
+                    h += '<span class="sqe-hint">Whole numbers go in as numbers, anything else as text, so 2026-01-31 works for a date.</span>';
+                }
+                if (found.touchpoint.length) {
+                    h += '<span class="sqe-hint">Filled in by TouchPoint: ' +
+                        found.touchpoint.map(nm => '@' + nm + ' is ' + SQE_TP_PARAMS[nm]).join(', ') + '.</span>';
+                }
+                bar.innerHTML = h;
+                bar.style.display = 'flex';
+            }
+
+            // ---- 2.1: column search ----
+            function renderColumnMatches(term) {
+                const box = document.getElementById('column-matches');
+                if (!box) return;
+                term = (term || '').toLowerCase();
+                if (term.length < 2 || !dynamicSchema.loaded) {
+                    box.innerHTML = '';
+                    return;
+                }
+                const hits = [];
+                [['tables', 0], ['views', 1]].forEach(([kind, isView]) => {
+                    const src = dynamicSchema[kind] || {};
+                    Object.keys(src).forEach(key => {
+                        (src[key].columns || []).forEach(col => {
+                            const lc = String(col).toLowerCase();
+                            const pos = lc.indexOf(term);
+                            if (pos < 0) return;
+                            hits.push({ col: col, table: key, view: isView, rank: lc === term ? 0 : (pos === 0 ? 1 : 2) });
+                        });
+                    });
+                });
+                hits.sort((a, b) => a.rank - b.rank || a.view - b.view ||
+                    String(a.col).localeCompare(String(b.col)) || a.table.localeCompare(b.table));
+                const shown = hits.slice(0, 150);
+                let h = '<div class="sqe-colgroup"><div class="sqe-colgroup-head">Columns matching "' + escapeAttr(term) + '" (' + fmtNum(hits.length) + ')</div>';
+                if (!hits.length) h += '<div class="sqe-note">No column has that in its name.</div>';
+                shown.forEach(x => {
+                    h += '<div class="sqe-colhit"><span class="sqe-colhit-col" data-v="' + escapeAttr(x.col) +
+                        '" onclick="insertText(this.dataset.v)" title="Insert the column name">' + escapeAttr(x.col) + '</span>' +
+                        ' <span class="sqe-colhit-in">in</span> <span class="sqe-colhit-tbl" data-v="' + escapeAttr(x.table) +
+                        '" onclick="insertText(this.dataset.v)" title="Insert the table name">' + escapeAttr(x.table) +
+                        (x.view ? ' <i>(view)</i>' : '') + '</span></div>';
+                });
+                if (hits.length > shown.length) {
+                    h += '<div class="sqe-note">Showing the first ' + shown.length + '. Type more to narrow it.</div>';
+                }
+                box.innerHTML = h + '</div>';
+            }
+
+            function insertText(text) {
+                const editor = getCurrentEditor();
+                if (!editor) return;
+                editor.replaceSelection(text);
+                editor.focus();
+            }
+
+            // ---- 2.1: totals, column profile, chart, Excel ----
+            function fmtDec(n) {
+                return Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+            }
+
+            function shortText(t, max) {
+                max = max || 80;
+                t = String(t).replace(/\\s+/g, ' ');
+                return t.length > max ? t.substring(0, max) + '\\u2026' : t;
+            }
+
+            function columnStats(grid, c, view) {
+                let n = 0, nulls = 0, blanks = 0, numeric = true, sum = 0, nums = 0;
+                for (const r of view) {
+                    const v = grid.rows[r][c];
+                    if (v === null || v === undefined) { nulls++; continue; }
+                    if (v === '') { blanks++; continue; }
+                    n++;
+                    const x = typeof v === 'number' ? v : (/^-?[0-9]+(\\.[0-9]+)?$/.test(String(v).trim()) ? Number(v) : NaN);
+                    if (typeof v === 'boolean' || isNaN(x)) numeric = false;
+                    else { sum += x; nums++; }
+                }
+                return { n: n, nulls: nulls, blanks: blanks, numeric: numeric && nums > 0, sum: sum, avg: nums ? sum / nums : 0 };
+            }
+
+            function renderTotals(grid, view) {
+                const foot = document.getElementById('sqe-tfoot');
+                if (!foot) return;
+                let h = '<tr><td class="sqe-rownum" title="Totals for the rows matching the filters">&Sigma;</td>';
+                grid.columns.forEach((col, c) => {
+                    const st = columnStats(grid, c, view);
+                    if (st.numeric && !/id$/i.test(String(col))) {
+                        h += '<td title="Sum and average">sum ' + fmtDec(st.sum) + '<br>avg ' + fmtDec(st.avg) + '</td>';
+                    } else {
+                        h += '<td title="Values that are not NULL or empty">' + fmtNum(st.n) + ' values</td>';
+                    }
+                });
+                foot.innerHTML = h + '</tr>';
+            }
+
+            function renderSide() {
+                const host = document.getElementById('sqe-side');
+                const grid = tabs[currentTabId] && tabs[currentTabId].grid;
+                if (!host || !grid) return;
+                if (!grid.side) {
+                    if (grid.chart) { grid.chart.destroy(); grid.chart = null; }
+                    host.innerHTML = '';
+                } else if (grid.side.kind === 'profile') {
+                    if (grid.chart) { grid.chart.destroy(); grid.chart = null; }
+                    renderProfile(grid, grid.side.c, host);
+                } else if (grid.side.kind === 'chart') {
+                    renderChart(grid, grid.side, host);
+                }
+            }
+
+            function closeSide() {
+                const grid = tabs[currentTabId] && tabs[currentTabId].grid;
+                if (!grid) return;
+                grid.side = null;
+                renderSide();
+            }
+
+            function profileColumn(c, event) {
+                event.stopPropagation();
+                const grid = tabs[currentTabId] && tabs[currentTabId].grid;
+                if (!grid) return;
+                grid.side = { kind: 'profile', c: c };
+                renderSide();
+            }
+
+            function renderProfile(grid, c, host) {
+                const view = grid.view || gridView(grid);
+                const counts = new Map();
+                view.forEach(r => {
+                    const v = grid.rows[r][c];
+                    if (v === null || v === undefined || v === '') return;
+                    const k = String(v);
+                    counts.set(k, (counts.get(k) || 0) + 1);
+                });
+                const st = columnStats(grid, c, view);
+                let min = null, max = null;
+                counts.forEach((n, k) => {
+                    if (min === null || compareValues(k, min) < 0) min = k;
+                    if (max === null || compareValues(k, max) > 0) max = k;
+                });
+                const top = [...counts.entries()].sort((a, b) => b[1] - a[1] || compareValues(a[0], b[0])).slice(0, 10);
+                const most = top.length ? top[0][1] : 1;
+                let h = '<div class="sqe-panel"><div class="sqe-panel-head"><b>' + escapeAttr(grid.columns[c]) + '</b>' +
+                    '<span class="sqe-hint">rows matching the filters</span>' +
+                    '<a class="sqe-panel-close" onclick="closeSide()">close</a></div><div class="sqe-prof-stats">';
+                [['rows', view.length], ['distinct', counts.size], ['NULL', st.nulls], ['empty text', st.blanks]].forEach(x => {
+                    h += '<span><b>' + fmtNum(x[1]) + '</b> ' + x[0] + '</span>';
+                });
+                if (min !== null) {
+                    h += '<span>lowest <b>' + escapeAttr(shortText(min, 40)) + '</b></span><span>highest <b>' + escapeAttr(shortText(max, 40)) + '</b></span>';
+                }
+                if (st.numeric) {
+                    h += '<span>sum <b>' + fmtDec(st.sum) + '</b></span><span>average <b>' + fmtDec(st.avg) + '</b></span>';
+                }
+                h += '</div>';
+                if (top.length) {
+                    h += '<div class="sqe-note">Most common values. Click one to filter to it.</div>';
+                    top.forEach(([k, n]) => {
+                        h += '<div class="sqe-prof-row" data-v="' + escapeAttr(k) + '" onclick="filterTo(' + c + ', this.dataset.v)">' +
+                            '<span class="sqe-prof-bar" style="width:' + Math.max(2, Math.round(n / most * 100)) + '%"></span>' +
+                            '<span class="sqe-prof-val">' + escapeAttr(shortText(k)) + '</span>' +
+                            '<span class="sqe-prof-n">' + fmtNum(n) + '</span></div>';
+                    });
+                }
+                host.innerHTML = h + '</div>';
+            }
+
+            function filterTo(c, value) {
+                const grid = tabs[currentTabId] && tabs[currentTabId].grid;
+                if (!grid) return;
+                grid.filters[c] = value;
+                const input = document.querySelector('.sqe-filter[data-c="' + c + '"]');
+                if (input) input.value = value;
+                fillGridBody();
+            }
+
+            function openChart() {
+                const grid = tabs[currentTabId] && tabs[currentTabId].grid;
+                if (!grid) {
+                    showMessage('No results to chart. Run a query first.', 'error');
+                    return;
+                }
+                if (!grid.side || grid.side.kind !== 'chart') {
+                    const view = grid.view || gridView(grid);
+                    let label = -1, value = -1;
+                    grid.columns.forEach((col, c) => {
+                        const st = columnStats(grid, c, view);
+                        if (st.numeric && !/id$/i.test(String(col))) {
+                            if (value < 0) value = c;
+                        } else if (label < 0 && !st.numeric) {
+                            label = c;
+                        }
+                    });
+                    grid.side = { kind: 'chart', label: label < 0 ? 0 : label, value: value };
+                }
+                renderSide();
+            }
+
+            function setChart(select) {
+                const grid = tabs[currentTabId] && tabs[currentTabId].grid;
+                if (!grid || !grid.side) return;
+                grid.side[select.dataset.k] = parseInt(select.value, 10);
+                renderSide();
+            }
+
+            function renderChart(grid, side, host) {
+                const view = grid.view || gridView(grid);
+                const pick = (k, cur, allowCount) => '<select class="sqe-rows" data-k="' + k + '" onchange="setChart(this)">' +
+                    (allowCount ? '<option value="-1"' + (cur < 0 ? ' selected' : '') + '>Count of rows</option>' : '') +
+                    grid.columns.map((col, c) => '<option value="' + c + '"' + (c === cur ? ' selected' : '') + '>' + escapeAttr(col) + '</option>').join('') +
+                    '</select>';
+                const agg = new Map();
+                view.forEach(r => {
+                    const row = grid.rows[r];
+                    const lv = row[side.label];
+                    const lab = lv === null || lv === undefined ? '(NULL)' : String(lv);
+                    let add = 1;
+                    if (side.value >= 0) {
+                        const v = row[side.value];
+                        const x = typeof v === 'number' ? v : Number(v);
+                        add = (v === null || v === undefined || v === '' || isNaN(x)) ? 0 : x;
+                    }
+                    agg.set(lab, (agg.get(lab) || 0) + add);
+                });
+                let entries = [...agg.entries()];
+                const LIMIT = 40;
+                let note = 'Rows with the same ' + grid.columns[side.label] + ' are added together.';
+                if (entries.length > LIMIT) {
+                    entries.sort((a, b) => b[1] - a[1]);
+                    note = 'Showing the ' + LIMIT + ' largest of ' + fmtNum(entries.length) + ' bars. ' + note;
+                    entries = entries.slice(0, LIMIT);
+                }
+                const horizontal = entries.length > 12;
+                const height = horizontal ? Math.max(240, entries.length * 20 + 40) : 320;
+                host.innerHTML = '<div class="sqe-panel"><div class="sqe-panel-head"><b>Chart</b>' +
+                    '<span>Bars</span>' + pick('label', side.label, false) +
+                    '<span>Size</span>' + pick('value', side.value, true) +
+                    '<a class="sqe-panel-close" onclick="closeSide()">close</a></div>' +
+                    '<div class="sqe-chart-box" style="height:' + height + 'px"><canvas id="sqe-chart"></canvas></div>' +
+                    '<div class="sqe-note">' + escapeAttr(note) + '</div></div>';
+                loadLib(SQE_LIBS.chart, 'Chart').then(ChartLib => {
+                    if (grid.chart) { grid.chart.destroy(); grid.chart = null; }
+                    const canvas = document.getElementById('sqe-chart');
+                    if (!canvas || tabs[currentTabId].grid !== grid) return;
+                    grid.chart = new ChartLib(canvas, {
+                        type: 'bar',
+                        data: {
+                            labels: entries.map(e => shortText(e[0], 40)),
+                            datasets: [{
+                                label: side.value >= 0 ? grid.columns[side.value] : 'Rows',
+                                data: entries.map(e => e[1]),
+                                backgroundColor: '#2563eb'
+                            }]
+                        },
+                        options: {
+                            indexAxis: horizontal ? 'y' : 'x',
+                            maintainAspectRatio: false,
+                            animation: false,
+                            plugins: { legend: { display: false } }
+                        }
+                    });
+                }).catch(e => {
+                    host.querySelector('.sqe-note').textContent = 'The chart library did not load: ' + e.message;
+                });
+            }
+
+            function exportExcel() {
+                const grid = tabs[currentTabId] && tabs[currentTabId].grid;
+                if (!grid) {
+                    showMessage('No results to export. Run a query first.', 'error');
+                    return;
+                }
+                loadLib(SQE_LIBS.xlsx, 'XLSX').then(XL => {
+                    const view = grid.view || gridView(grid);
+                    const dateRe = /^([0-9]{4})-([0-9]{2})-([0-9]{2})(?: ([0-9]{2}):([0-9]{2}):([0-9]{2}))?$/;
+                    const numRe = /^-?(0|[1-9][0-9]{0,14})(\\.[0-9]+)?$/;
+                    let cut = 0;
+                    const aoa = [grid.columns.slice()];
+                    view.forEach(r => {
+                        aoa.push(grid.rows[r].map(v => {
+                            if (v === null || v === undefined) return null;
+                            if (typeof v === 'number' || typeof v === 'boolean') return v;
+                            const t = String(v);
+                            const d = dateRe.exec(t);
+                            if (d) return new Date(+d[1], +d[2] - 1, +d[3], +(d[4] || 0), +(d[5] || 0), +(d[6] || 0));
+                            if (numRe.test(t)) return Number(t);
+                            if (t.length > 32767) {
+                                cut++;
+                                return t.substring(0, 32700) + ' [cut to fit an Excel cell]';
+                            }
+                            return t;
+                        }));
+                    });
+                    const ws = XL.utils.aoa_to_sheet(aoa, { cellDates: true });
+                    Object.keys(ws).forEach(addr => {
+                        const cell = ws[addr];
+                        if (addr[0] === '!' || !cell || cell.t !== 'd') return;
+                        const dt = cell.v;
+                        cell.z = (dt.getHours() || dt.getMinutes() || dt.getSeconds()) ? 'yyyy-mm-dd hh:mm' : 'yyyy-mm-dd';
+                    });
+                    ws['!cols'] = grid.columns.map(col => ({ wch: Math.min(50, Math.max(String(col).length + 2, 10)) }));
+                    if (ws['!ref']) ws['!autofilter'] = { ref: ws['!ref'] };
+                    const wb = XL.utils.book_new();
+                    XL.utils.book_append_sheet(wb, ws, 'Results');
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                    const filename = 'query_results_' + timestamp + '.xlsx';
+                    XL.writeFile(wb, filename);
+                    showMessage('Exported ' + fmtNum(view.length) + ' rows to ' + filename +
+                        (cut ? ' (' + cut + ' long values were cut to fit Excel)' : ''), 'success');
+                }).catch(e => showMessage('Excel export failed: ' + e.message, 'error'));
+            }
+
+            function parseJsonText(text) {
+                const a = text.indexOf('{');
+                const b = text.lastIndexOf('}') + 1;
+                return JSON.parse(a >= 0 && b > a ? text.substring(a, b) : text);
+            }
+
+            function postAction(params) {
+                const fd = new FormData();
+                Object.keys(params).forEach(k => fd.append(k, params[k]));
+                const url = window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
+                return fetch(url, { method: 'POST', body: fd, credentials: 'same-origin' })
+                    .then(r => {
+                        if (!r.ok) throw new Error('HTTP ' + r.status);
+                        return r.text();
+                    })
+                    .then(text => {
+                        try {
+                            return parseJsonText(text);
+                        } catch (e) {
+                            console.log('Raw response:', text);
+                            throw new Error('Invalid response from server. Check the console for details.');
+                        }
+                    });
             }
             
             function formatSQL() {
+                const editor = getCurrentEditor();
+                if (!editor) return;
+                const hasSel = editor.somethingSelected();
+                const src = hasSel ? editor.getSelection() : editor.getValue();
+                if (!src.trim()) return;
+                loadLib(SQE_LIBS.formatter, 'sqlFormatter').then(lib => {
+                    let out;
+                    try {
+                        out = lib.format(src, { language: 'transactsql', keywordCase: 'upper', tabWidth: 4, linesBetweenQueries: 1 });
+                    } catch (e) {
+                        showMessage('The formatter could not read this SQL, so the simple formatter was used. (' + e.message + ')', 'error');
+                        if (!hasSel) formatSQLBasic();
+                        return;
+                    }
+                    if (hasSel) editor.replaceSelection(out, 'around');
+                    else editor.setValue(out);
+                }).catch(() => {
+                    if (!hasSel) formatSQLBasic();
+                });
+            }
+
+            function formatSQLBasic() {
                 const editor = getCurrentEditor();
                 if (!editor) return;
                 
@@ -3693,15 +4883,15 @@ ORDER BY p.JoinDate DESC</textarea>
                 const clickTarget = event ? event.target : null;
                 
                 // Only proceed if this is an actual tab click
-                if (!clickTarget || !clickTarget.classList.contains('tab')) {
+                if (!clickTarget || !clickTarget.classList.contains('sqe-ltab')) {
                     return;
                 }
                 
-                document.querySelectorAll('.tab-content').forEach(tab => {
+                document.querySelectorAll('.sqe-pane').forEach(tab => {
                     tab.style.display = 'none';
                 });
                 
-                document.querySelectorAll('.tab').forEach(tab => {
+                document.querySelectorAll('.sqe-ltab').forEach(tab => {
                     tab.classList.remove('active');
                 });
                 
@@ -3724,12 +4914,19 @@ ORDER BY p.JoinDate DESC</textarea>
                     const visibleItems = group.querySelectorAll('.table-item:not([style*="display: none"])');
                     group.style.display = visibleItems.length > 0 ? 'block' : 'none';
                 });
+
+                renderColumnMatches(searchTerm.trim());
             }
             
             function filterSaved() {
                 const searchTerm = document.getElementById('saved-search').value.toLowerCase();
                 const items = document.querySelectorAll('#saved-tab .saved-query-item');
                 const groups = document.querySelectorAll('#saved-tab .schema-group');
+                if (!searchTerm) {
+                    items.forEach(item => { item.style.display = 'block'; });
+                    groups.forEach(group => { group.style.display = 'block'; });
+                    return;
+                }
                 
                 items.forEach(item => {
                     const itemName = item.querySelector('.table-name').textContent.toLowerCase();
@@ -3746,140 +4943,58 @@ ORDER BY p.JoinDate DESC</textarea>
             function saveQuery() {
                 const editor = getCurrentEditor();
                 if (!editor) return;
-                
                 const sql = editor.getValue();
                 if (!sql.trim()) {
                     showMessage('Please enter a query to save', 'error');
                     return;
                 }
-                
-                const name = prompt('Query name:', tabs[currentTabId].name);
-                if (!name) return;
-                
-                // Show saving indicator
-                showMessage('Saving query...', 'info');
-                
-                // Use AJAX to save the query
-                const formData = new FormData();
-                formData.append('action', 'save_query');
-                formData.append('query_name', name.trim());
-                formData.append('query_sql', sql);
-                
-                // TouchPoint requires /PyScriptForm/ for POST requests
-                const actionUrl = window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
-                
-                fetch(actionUrl, {
-                    method: 'POST',
-                    body: formData,
-                    credentials: 'same-origin'
-                })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.text();
-                })
-                .then(text => {
-                    try {
-                        const data = JSON.parse(text);
+                let name = prompt('Save to My queries (only you can see them). Name:', tabs[currentTabId].name);
+                if (!name || !name.trim()) return;
+                name = name.trim();
+                const mine = (window.savedLists && window.savedLists.mine) || [];
+                if (mine.some(x => x.name === name) && !confirm('You already have a query named "' + name + '". Replace it?')) return;
+                postAction({ action: 'save_query', query_name: name, query_sql: sql })
+                    .then(data => {
                         if (data.success) {
-                            showMessage(`Query "${name}" saved successfully!`, 'success');
-                            // Reload saved queries list
+                            showMessage('Saved "' + name + '" to My queries', 'success');
                             loadSavedQueries();
-                            // Update tab name if it was renamed
-                            if (tabs[currentTabId].name !== name) {
-                                tabs[currentTabId].name = name;
-                                const tabElement = document.querySelector(`.editor-tab[data-tab-id="${currentTabId}"] .editor-tab-name`);
-                                if (tabElement) {
-                                    tabElement.textContent = name;
-                                }
-                            }
-                            // Mark as saved (remove dirty indicator)
-                            tabs[currentTabId].isDirty = false;
-                            const tabElement = document.querySelector(`.editor-tab[data-tab-id="${currentTabId}"] .editor-tab-name`);
-                            if (tabElement && tabElement.textContent.endsWith(' *')) {
-                                tabElement.textContent = tabElement.textContent.replace(' *', '');
-                            }
+                            setTabName(currentTabId, name);
+                            markClean(currentTabId);
                         } else {
                             showMessage('Error saving query: ' + (data.error || 'Unknown error'), 'error');
                         }
-                    } catch (e) {
-                        // If response isn't JSON, it might be an HTML error page
-                        if (text.includes('<!DOCTYPE') || text.includes('<html')) {
-                            showMessage('Error: Server returned HTML instead of JSON. Check permissions.', 'error');
-                        } else {
-                            showMessage('Error parsing response: ' + e.message, 'error');
-                        }
-                    }
-                })
-                .catch(error => {
-                    console.error('Save error:', error);
-                    showMessage('Error saving query: ' + error.message, 'error');
-                });
+                    })
+                    .catch(error => showMessage('Error saving query: ' + error.message, 'error'));
             }
             
             function exportResults() {
-                // Check if we have results to export
-                const resultsTable = document.querySelector('#results .results-table');
-                if (!resultsTable) {
-                    alert('No results to export. Please run a query first.');
+                const grid = tabs[currentTabId] && tabs[currentTabId].grid;
+                if (!grid) {
+                    showMessage('No results to export. Run a query first.', 'error');
                     return;
                 }
-                
-                // Get all rows including headers
-                const rows = resultsTable.querySelectorAll('tr');
-                const csvData = [];
-                
-                // Process each row
-                rows.forEach((row, index) => {
-                    const cols = row.querySelectorAll(index === 0 ? 'th' : 'td');
-                    const rowData = [];
-                    
-                    cols.forEach(col => {
-                        // Get text content and handle special characters
-                        let text = col.textContent.trim();
-                        
-                        // Remove any HTML (like links) and get just text
-                        const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = col.innerHTML;
-                        text = tempDiv.textContent || tempDiv.innerText || '';
-                        
-                        // Escape quotes and wrap in quotes if contains comma, newline, or quotes
-                        if (text.includes('"')) {
-                            text = text.replace(/"/g, '""');
-                        }
-                        if (text.includes(',') || text.includes('\\n') || text.includes('"')) {
-                            text = '"' + text + '"';
-                        }
-                        
-                        rowData.push(text);
-                    });
-                    
-                    csvData.push(rowData.join(','));
-                });
-                
-                // Create CSV content
-                const csvContent = csvData.join('\\n');
-                
-                // Create blob and download
-                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const view = grid.view || gridView(grid);
+                const csvCell = v => {
+                    if (v === null || v === undefined) return '';
+                    const t = String(v);
+                    return /[",\\r\\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+                };
+                const lines = [grid.columns.map(csvCell).join(',')];
+                view.forEach(r => lines.push(grid.rows[r].map(csvCell).join(',')));
+
+                // The BOM tells Excel the file is UTF-8, so accented names survive
+                const blob = new Blob(['\\ufeff' + lines.join('\\r\\n')], { type: 'text/csv;charset=utf-8;' });
                 const link = document.createElement('a');
                 const url = URL.createObjectURL(blob);
-                
-                // Generate filename with timestamp
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
                 const filename = 'query_results_' + timestamp + '.csv';
-                
                 link.setAttribute('href', url);
                 link.setAttribute('download', filename);
                 link.style.visibility = 'hidden';
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
-                
-                // Show success message
-                const rowCount = rows.length - 1; // Exclude header row
-                showMessage('Exported ' + rowCount + ' rows to ' + filename, 'success');
+                showMessage('Exported ' + fmtNum(view.length) + ' rows to ' + filename, 'success');
             }
             
             function showMessage(msg, type) {
@@ -3901,108 +5016,94 @@ ORDER BY p.JoinDate DESC</textarea>
             }
             
             function loadSavedQueries() {
-                var url = window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
-                var formData = new FormData();
-                formData.append('action', 'get_saved');
-                
-                fetch(url, {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.text())
-                .then(text => {
-                    try {
-                        // Try to find JSON in the response
-                        const jsonStart = text.indexOf('{');
-                        const jsonEnd = text.lastIndexOf('}') + 1;
-                        
-                        if (jsonStart >= 0 && jsonEnd > jsonStart) {
-                            text = text.substring(jsonStart, jsonEnd);
-                        }
-                        
-                        const data = JSON.parse(text);
-                        console.log('Saved queries loaded:', data);
-                        if (data.debug) {
-                            console.log('Debug info:', data.debug);
-                        }
-                        if (data.error) {
-                            console.error('Error from backend:', data.error);
-                        }
-                        if (data.queries && data.queries.length > 0) {
-                            const savedDiv = document.getElementById('saved-queries');
-                            let html = '';
-                            
-                            
-                            // Count valid queries
-                            const validCount = data.queries.filter(q => q.name && q.name !== 'Unnamed' && q.id > 0).length;
-                            
-                            // Simple approach - show all queries in one list
-                            html += `
-                                <div class="schema-group" id="all-queries-group">
-                                    <div class="schema-group-header" onclick="toggleGroup('all-queries-group')">
-                                        <span class="expand-icon">▼</span>
-                                        <span>SQL Scripts (${validCount})</span>
-                                    </div>
-                                    <div class="schema-group-content">
-                            `;
-                            
-                            // Sort queries by name
-                            data.queries.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-                            
-                            data.queries.forEach((query) => {
-                                // Skip invalid entries
-                                if (query.name && query.name !== 'Unnamed' && query.id > 0) {
-                                    html += `
-                                        <div class="table-item saved-query-item" data-query-id="${query.id}">
-                                            <span class="table-name" onclick="openSavedQuery(${query.id})" title="${query.name}">
-                                                ${query.name}
-                                            </span>
-                                        </div>
-                                    `;
-                                }
-                            });
-                            
-                            html += '</div></div>';
-                            
-                            savedDiv.innerHTML = html;
-                            window.savedQueries = data.queries;
-                        } else {
-                            document.getElementById('saved-queries').innerHTML = 
-                                '<div style="padding: 10px; color: #666;">No saved SQL scripts found</div>';
-                        }
-                    } catch (e) {
-                        console.error('Error parsing saved queries:', e);
-                        document.getElementById('saved-queries').innerHTML = 
+                postAction({ action: 'get_saved' })
+                    .then(data => {
+                        if (data.success === false) throw new Error(data.error || 'Unknown error');
+                        renderSaved(data);
+                    })
+                    .catch(error => {
+                        console.error('Error loading saved queries:', error);
+                        document.getElementById('saved-queries').innerHTML =
                             '<div style="color: red; padding: 10px;">Error loading saved queries</div>';
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading saved queries:', error);
-                    document.getElementById('saved-queries').innerHTML = 
-                        '<div style="color: red; padding: 10px;">Error loading saved queries</div>';
-                });
+                    });
             }
-            
-            function openSavedQuery(queryId) {
-                // Find the query by ID
-                const query = window.savedQueries.find(q => q.id === queryId);
-                if (!query) return;
-                
-                // Create a new tab
-                newTab();
-                
-                // Load the SQL into the new tab
-                const editor = getCurrentEditor();
-                if (editor) {
-                    editor.setValue(query.sql);
-                    
-                    // Update tab name
-                    tabs[currentTabId].name = query.name;
-                    const tabElement = document.querySelector(`.editor-tab[data-tab-id="${currentTabId}"] .editor-tab-name`);
-                    if (tabElement) {
-                        tabElement.textContent = tabs[currentTabId].name;
-                    }
+
+            function renderSaved(data) {
+                const L = window.savedLists = { mine: data.mine || [], sqe: data.sqe || [], other: data.other || [] };
+                let html = savedGroup('saved-mine', 'My queries (' + L.mine.length + ')',
+                    'Only you can see these. They are kept on your own TouchPoint record.', L.mine, 'mine', false);
+                if (L.sqe.length) {
+                    html += savedGroup('saved-sqe', 'Saved by earlier versions (' + L.sqe.length + ')',
+                        'These are in Special Content, which anyone can read without signing in. Use "copy to mine", then delete them in Special Content.',
+                        L.sqe, 'sqe', false);
                 }
+                if (L.other.length) {
+                    html += savedGroup('saved-other', 'Other SQL in Special Content (' + L.other.length + ')',
+                        'Reports and scripts saved elsewhere in TouchPoint. Opening one here does not change it.',
+                        L.other, 'other', true);
+                }
+                document.getElementById('saved-queries').innerHTML = html;
+            }
+
+            function savedGroup(id, title, note, list, kind, collapsed) {
+                let h = '<div class="schema-group' + (collapsed ? ' collapsed' : '') + '" id="' + id + '">' +
+                    '<div class="schema-group-header" onclick="toggleGroup(this.parentNode.id)">' +
+                    '<span class="expand-icon">&#9660;</span><span>' + escapeAttr(title) + '</span></div>' +
+                    '<div class="schema-group-content"><div class="sqe-note">' + escapeAttr(note) + '</div>';
+                if (!list.length) {
+                    h += '<div class="sqe-note">Nothing saved yet. Use Save Query above the editor.</div>';
+                }
+                list.forEach((x, i) => {
+                    h += '<div class="table-item saved-query-item"><span class="sqe-item-actions">';
+                    if (kind === 'mine') h += '<a data-i="' + i + '" onclick="deleteSaved(this, event)">delete</a>';
+                    if (kind === 'sqe') h += '<a data-i="' + i + '" onclick="copySavedToMine(this, event)">copy to mine</a>';
+                    h += '</span><span class="table-name" data-kind="' + kind + '" data-i="' + i + '" onclick="openSaved(this)" title="' +
+                        escapeAttr(x.name + (x.saved ? ' (saved ' + x.saved + ')' : '')) + '">' + escapeAttr(x.name) + '</span></div>';
+                });
+                return h + '</div></div>';
+            }
+
+            function openSaved(el) {
+                const x = (window.savedLists[el.dataset.kind] || [])[+el.dataset.i];
+                if (x) openSqlInNewTab(x.sql || '', x.name);
+            }
+
+            function deleteSaved(a, event) {
+                event.stopPropagation();
+                const x = window.savedLists.mine[+a.dataset.i];
+                if (!x) return;
+                if (a.dataset.armed !== '1') {
+                    a.dataset.armed = '1';
+                    a.textContent = 'click again to delete';
+                    setTimeout(() => { a.dataset.armed = ''; a.textContent = 'delete'; }, 3000);
+                    return;
+                }
+                postAction({ action: 'delete_query', query_name: x.name })
+                    .then(data => {
+                        if (data.success) {
+                            showMessage('Deleted "' + x.name + '"', 'success');
+                            loadSavedQueries();
+                        } else {
+                            showMessage('Could not delete: ' + (data.error || 'Unknown error'), 'error');
+                        }
+                    })
+                    .catch(error => showMessage('Could not delete: ' + error.message, 'error'));
+            }
+
+            function copySavedToMine(a, event) {
+                event.stopPropagation();
+                const x = window.savedLists.sqe[+a.dataset.i];
+                if (!x) return;
+                postAction({ action: 'save_query', query_name: x.name, query_sql: x.sql || '' })
+                    .then(data => {
+                        if (data.success) {
+                            showMessage('Copied "' + x.name + '" to My queries. You can now delete it in Special Content.', 'success');
+                            loadSavedQueries();
+                        } else {
+                            showMessage('Could not copy: ' + (data.error || 'Unknown error'), 'error');
+                        }
+                    })
+                    .catch(error => showMessage('Could not copy: ' + error.message, 'error'));
             }
             
             
@@ -4265,72 +5366,7 @@ try:
     
     # Check if user has permission (but still handle AJAX requests)
     if explorer.has_permission:
-        # Check for non-AJAX save action first (page reload) - DEPRECATED, using AJAX now
-        if False and hasattr(model.Data, 'save_action') and model.Data.save_action == 'save_query':
-            # Handle save query during page load where model.WriteContentSql works
-            query_name = getattr(model.Data, 'query_name', '')
-            query_sql = getattr(model.Data, 'query_sql', '')
-            
-            if query_name and query_sql:
-                try:
-                    model.WriteContentSql(query_name, query_sql, "SQL Query Explorer")
-                    # Show only a nice confirmation page
-                    success_html = """<html><head><title>Query Saved - TouchPoint</title><style>
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f5f5f5; }
-.success-container { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; max-width: 500px; }
-.success-icon { font-size: 60px; color: #28a745; margin-bottom: 20px; }
-h2 { color: #333; margin-bottom: 10px; }
-.query-name { color: #0066cc; font-weight: bold; }
-.message { color: #666; margin: 20px 0; }
-.close-button { background: #0066cc; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; }
-.close-button:hover { background: #0052a3; }
-</style></head><body>
-<div class="success-container">
-<div class="success-icon">✓</div>
-<h2>Query Saved Successfully!</h2>
-<p>The query <span class="query-name">"{0}"</span> has been saved to Special Content.</p>
-<p class="message">You can now close this tab and return to the Query Explorer.</p>
-<button class="close-button" onclick="window.close()">Close This Tab</button>
-</div></body></html>""".format(query_name.replace('"', '&quot;'))
-                    print(success_html)
-                except Exception as e:
-                    # Show error page
-                    error_html = """<html><head><title>Error Saving Query - TouchPoint</title><style>
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f5f5f5; }
-.error-container { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; max-width: 500px; }
-.error-icon { font-size: 60px; color: #dc3545; margin-bottom: 20px; }
-h2 { color: #333; margin-bottom: 10px; }
-.error-message { color: #dc3545; margin: 20px 0; padding: 10px; background: #f8d7da; border-radius: 4px; }
-.close-button { background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; }
-.close-button:hover { background: #5a6268; }
-</style></head><body>
-<div class="error-container">
-<div class="error-icon">✗</div>
-<h2>Error Saving Query</h2>
-<p class="error-message">{0}</p>
-<button class="close-button" onclick="window.close()">Close This Tab</button>
-</div></body></html>""".format(str(e).replace('"', '&quot;'))
-                    print(error_html)
-            else:
-                # Show validation error page
-                warning_html = """<html><head><title>Invalid Request - TouchPoint</title><style>
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f5f5f5; }
-.warning-container { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; max-width: 500px; }
-.warning-icon { font-size: 60px; color: #ffc107; margin-bottom: 20px; }
-h2 { color: #333; margin-bottom: 10px; }
-.message { color: #666; margin: 20px 0; }
-.close-button { background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; }
-.close-button:hover { background: #5a6268; }
-</style></head><body>
-<div class="warning-container">
-<div class="warning-icon">⚠</div>
-<h2>Invalid Request</h2>
-<p class="message">Query name and SQL content are required to save a query.</p>
-<button class="close-button" onclick="window.close()">Close This Tab</button>
-</div></body></html>"""
-                print(warning_html)
-        # Check if this is an AJAX request
-        elif hasattr(model.Data, 'action') and model.Data.action:
+        if hasattr(model.Data, 'action') and model.Data.action:
             # Set content type for JSON responses
             model.Header = ""
             action = model.Data.action
@@ -4354,7 +5390,7 @@ h2 { color: #333; margin-bottom: 10px; }
                         elif obj.TABLE_TYPE == 'VIEW':
                             views_list.append(item)
                     
-                    print(json.dumps({
+                    print(safe_json({
                         'tables': tables_list,
                         'views': views_list
                     }))
@@ -4377,132 +5413,82 @@ h2 { color: #333; margin-bottom: 10px; }
                                 'key': col.KEY_TYPE
                             })
                         
-                        print(json.dumps({'columns': columns_list}))
+                        print(safe_json({'columns': columns_list}))
                     else:
-                        print(json.dumps({'error': 'No table name provided'}))
+                        print(safe_json({'error': 'No table name provided'}))
                 
                 elif action == 'execute_query':
-                    # Execute the query
-                    sql = model.Data.sql_query if hasattr(model.Data, 'sql_query') else ''
-                    if sql:
-                        # Check if explorer has the execute_query method
-                        if hasattr(explorer, 'execute_query'):
-                            result = explorer.execute_query(sql)
-                            # Try to serialize to JSON, handling encoding issues
-                            try:
-                                print(safe_json_dumps(result))
-                            except (UnicodeDecodeError, UnicodeError, Exception) as json_error:
-                                # JSON serialization failed due to encoding
-                                # Check if it's specifically an encoding error
-                                error_msg = str(json_error) if hasattr(json_error, '__str__') else 'Unknown error'
-                                if 'codec' in error_msg or 'decode' in error_msg or 'encode' in error_msg:
-                                    print(json.dumps({
-                                    'success': False,
-                                    'error': 'The query results contain special characters that cannot be displayed.',
-                                    'error_info': {
-                                        'type': 'Display Error',
-                                        'suggestions': [
-                                            'Try selecting fewer columns to isolate the problematic data',
-                                            'Use CONVERT(VARCHAR, column) for text fields with special characters',
-                                            'Add TOP 10 to limit results and identify problematic rows',
-                                            'Check for names with accented characters (é, ñ, ó, etc.)',
-                                            'Consider using ASCII() function to identify special characters'
-                                        ],
-                                        'raw_error': 'JSON encoding error - special characters in results'
-                                    }
-                                }))
-                                else:
-                                    # Other type of error
-                                    print(json.dumps({
-                                        'success': False,
-                                        'error': 'Error processing query results: ' + error_msg
-                                    }))
-                        else:
-                            print(json.dumps({'success': False, 'error': 'Explorer not properly initialized'}))
+                    sql = get_param('sql_query')
+                    if sql.strip():
+                        max_rows = get_param('max_rows', str(DEFAULT_MAX_ROWS))
+                        params = explorer.build_params(get_param('sql_params'))
+                        print(safe_json(explorer.execute_query(sql, max_rows, params)))
                     else:
-                        print(json.dumps({'success': False, 'error': 'No SQL query provided'}))
-                
+                        print(safe_json({'success': False, 'error': 'No SQL query provided'}))
+
                 elif action == 'get_full_schema':
                     # Get complete schema with all columns
                     try:
                         schema = explorer.get_full_schema()
-                        print(json.dumps({'success': True, 'schema': schema}))
+                        print(safe_json({'success': True, 'schema': schema}))
                     except Exception as e:
-                        print(json.dumps({'success': False, 'error': str(e)}))
+                        print(safe_json({'success': False, 'error': str(e)}))
                 
                 elif action == 'get_examples':
                     # Return example queries
                     examples = explorer.get_common_queries()
-                    print(json.dumps({'examples': examples}))
+                    print(safe_json({'examples': examples}))
                 
                 elif action == 'get_saved':
-                    # Get saved queries
-                    try:
-                        queries = explorer.get_saved_queries()
-                        queries_list = []
-                        
-                        # Debug: log query count
-                        query_count = 0
-                        if queries:
-                            for query in queries:
-                                query_count += 1
-                                try:
-                                    # Handle Body field that might have encoding issues
-                                    body_text = getattr(query, 'Body', '')
-                                    if body_text and isinstance(body_text, str):
-                                        # Clean up any encoding issues
-                                        body_text = body_text.encode('utf-8', 'ignore').decode('utf-8', 'ignore')
-                                    elif body_text:
-                                        body_text = str(body_text)
-                                    
-                                    queries_list.append({
-                                        'id': getattr(query, 'Id', 0),
-                                        'name': getattr(query, 'Name', 'Unnamed'),
-                                        'sql': body_text
-                                    })
-                                except Exception as e:
-                                    # Skip problematic records instead of adding error entries
-                                    continue
-                        
-                        # Always return something to help debug
-                        print(json.dumps({
-                            'queries': queries_list,
-                            'debug': {
-                                'total_rows': query_count,
-                                'processed': len(queries_list)
+                    mine = []
+                    for x in explorer.load_my_queries():
+                        mine.append({'name': x.get('name'), 'sql': x.get('sql', ''), 'saved': x.get('saved', '')})
+                    sqe = []
+                    other = []
+                    for row in explorer.get_saved_queries():
+                        try:
+                            item = {
+                                'id': int(getattr(row, 'Id', 0) or 0),
+                                'name': unicode(getattr(row, 'Name', '') or ''),
+                                'sql': unicode(getattr(row, 'Body', '') or '')
                             }
-                        }))
-                    except Exception as e:
-                        print(json.dumps({'queries': [], 'error': str(e), 'debug': 'Exception in get_saved'}))
-                
-                elif action == 'save_query':
-                    # Save a new query
-                    try:
-                        # Check both possible field names for compatibility
-                        name = getattr(model.Data, 'query_name', '') or getattr(model.Data, 'name', '')
-                        sql = getattr(model.Data, 'query_sql', '') or getattr(model.Data, 'sql', '')
-                        
-                        if name and sql:
-                            try:
-                                success = explorer.save_query(name, sql)
-                                if success:
-                                    print(json.dumps({'success': True, 'message': 'Query saved successfully'}))
-                                else:
-                                    print(json.dumps({'success': False, 'error': 'Failed to save query'}))
-                            except Exception as save_error:
-                                print(json.dumps({'success': False, 'error': str(save_error)}))
+                        except Exception:
+                            continue
+                        if not item['name'] or item['id'] <= 0:
+                            continue
+                        if getattr(row, 'FromSqe', 0):
+                            sqe.append(item)
                         else:
-                            print(json.dumps({'success': False, 'error': 'Name and SQL are required'}))
-                    except Exception as e:
-                        print(json.dumps({'success': False, 'error': 'Action handler error: ' + str(e)}))
-                
+                            other.append(item)
+                    print(safe_json({'success': True, 'mine': mine, 'sqe': sqe, 'other': other}))
+
+                elif action == 'save_query':
+                    name = get_param('query_name').strip()
+                    sql = get_param('query_sql')
+                    if name and sql.strip():
+                        try:
+                            explorer.save_query(name, sql)
+                            print(safe_json({'success': True, 'message': 'Query saved'}))
+                        except Exception as save_error:
+                            print(safe_json({'success': False, 'error': unicode(save_error)}))
+                    else:
+                        print(safe_json({'success': False, 'error': 'Name and SQL are required'}))
+
+                elif action == 'delete_query':
+                    name = get_param('query_name')
+                    try:
+                        found = explorer.delete_query(name)
+                        print(safe_json({'success': found, 'error': '' if found else 'Query not found'}))
+                    except Exception as del_error:
+                        print(safe_json({'success': False, 'error': unicode(del_error)}))
+
                 else:
                     # Unknown action
-                    print(json.dumps({'success': False, 'error': 'Unknown action: ' + action}))
+                    print(safe_json({'success': False, 'error': 'Unknown action: ' + action}))
                     
             except Exception as e:
                 # Always return JSON for AJAX requests
-                print(json.dumps({'success': False, 'error': str(e)}))
+                print(safe_json({'success': False, 'error': str(e)}))
         
         else:
             # Render the interface
@@ -4519,11 +5505,11 @@ h2 { color: #333; margin-bottom: 10px; }
                 sql = model.Data.sql_query if hasattr(model.Data, 'sql_query') else ''
                 if sql:
                     result = explorer.execute_query(sql)  # This will return permission denied
-                    print(json.dumps(result))
+                    print(safe_json(result))
                 else:
-                    print(json.dumps({'success': False, 'error': 'No SQL query provided'}))
+                    print(safe_json({'success': False, 'error': 'No SQL query provided'}))
             else:
-                print(json.dumps({'success': False, 'error': 'Access Denied: Admin or Developer role required'}))
+                print(safe_json({'success': False, 'error': 'Access Denied: Admin or Developer role required'}))
         else:
             print('<div class="alert alert-danger">Access Denied: Admin or Developer role required</div>')
         
@@ -4531,7 +5517,7 @@ except Exception as e:
     # Check if this is an AJAX request
     if hasattr(model.Data, 'action') and model.Data.action:
         # Return JSON error for AJAX requests
-        print(json.dumps({'success': False, 'error': 'Initialization error: ' + str(e)}))
+        print(safe_json({'success': False, 'error': 'Initialization error: ' + str(e)}))
     else:
         # Return HTML error for page load
         print('<div class="alert alert-danger">Error initializing Query Explorer: {0}</div>'.format(str(e)))
