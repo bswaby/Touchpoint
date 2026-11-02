@@ -53,10 +53,10 @@
 #   number to copy the row, Copy grid copies everything for Excel.
 # - Links: PeopleId, OrganizationId, FamilyId, MeetingId and BundleId
 #   open their page. Columns named Id are no longer guessed to be people.
-# - Saved queries are now private to you (stored on your own record),
-#   instead of in Special Content, which anyone can read without signing
-#   in. Queries saved by earlier versions still show and can be copied
-#   to My queries. Other SQL in Special Content shows in its own group.
+# - Saved queries still go to Special Content (SQL), tagged with the
+#   keyword "SQL Query Explorer" so the Saved tab can list them. Other SQL
+#   in Special Content shows in its own group. Saving over a name that
+#   this page did not create (a report, for example) asks first.
 # - Query history: the last 50 queries you ran, under the History tab.
 # - Open tabs and their SQL come back after a reload.
 # - This page only reads data. Writes to permanent tables are refused
@@ -351,18 +351,9 @@ class QueryExplorer:
         model.AddExtraValueText(self.user_id, SAVED_FIELD, text)
 
     def save_query(self, name, sql):
-        """Save (or replace) a private query on the user's own record"""
-        if not self.user_id:
-            raise Exception('No signed-in user to save the query for')
-        name = name.strip()[:200]
-        queries = [x for x in self.load_my_queries() if x.get('name') != name]
-        queries.append({
-            'name': name,
-            'sql': sql,
-            'saved': datetime.now().strftime('%Y-%m-%d %H:%M')
-        })
-        queries.sort(key=lambda x: x.get('name', '').lower())
-        self.store_my_queries(queries)
+        """Save (or replace) a query as SQL Special Content, tagged so the
+        Saved tab can tell it apart from TouchPoint's own SQL"""
+        model.WriteContentSql(name.strip()[:200], sql, SQE_KEYWORD)
         return True
 
     def delete_query(self, name):
@@ -4948,15 +4939,19 @@ ORDER BY p.JoinDate DESC</textarea>
                     showMessage('Please enter a query to save', 'error');
                     return;
                 }
-                let name = prompt('Save to My queries (only you can see them). Name:', tabs[currentTabId].name);
+                let name = prompt('Save to Special Content as:', tabs[currentTabId].name);
                 if (!name || !name.trim()) return;
                 name = name.trim();
-                const mine = (window.savedLists && window.savedLists.mine) || [];
-                if (mine.some(x => x.name === name) && !confirm('You already have a query named "' + name + '". Replace it?')) return;
+                const L = window.savedLists || {};
+                if ((L.other || []).some(x => x.name === name)) {
+                    if (!confirm('"' + name + '" already exists in Special Content and was not saved from this page. It may be a report. Replace it?')) return;
+                } else if ((L.sqe || []).some(x => x.name === name)) {
+                    if (!confirm('A saved query named "' + name + '" already exists. Replace it?')) return;
+                }
                 postAction({ action: 'save_query', query_name: name, query_sql: sql })
                     .then(data => {
                         if (data.success) {
-                            showMessage('Saved "' + name + '" to My queries', 'success');
+                            showMessage('Saved "' + name + '" to Special Content', 'success');
                             loadSavedQueries();
                             setTabName(currentTabId, name);
                             markClean(currentTabId);
@@ -5030,12 +5025,12 @@ ORDER BY p.JoinDate DESC</textarea>
 
             function renderSaved(data) {
                 const L = window.savedLists = { mine: data.mine || [], sqe: data.sqe || [], other: data.other || [] };
-                let html = savedGroup('saved-mine', 'My queries (' + L.mine.length + ')',
-                    'Only you can see these. They are kept on your own TouchPoint record.', L.mine, 'mine', false);
-                if (L.sqe.length) {
-                    html += savedGroup('saved-sqe', 'Saved by earlier versions (' + L.sqe.length + ')',
-                        'These are in Special Content, which anyone can read without signing in. Use "copy to mine", then delete them in Special Content.',
-                        L.sqe, 'sqe', false);
+                let html = savedGroup('saved-sqe', 'Saved queries (' + L.sqe.length + ')',
+                    'Saved from this page to Special Content (SQL).', L.sqe, 'sqe', false);
+                if (L.mine.length) {
+                    html += savedGroup('saved-mine', 'Private test saves (' + L.mine.length + ')',
+                        'Saved on your own record by an early 2.1 build. Open one and Save it to move it to Special Content.',
+                        L.mine, 'mine', false);
                 }
                 if (L.other.length) {
                     html += savedGroup('saved-other', 'Other SQL in Special Content (' + L.other.length + ')',
@@ -5051,12 +5046,11 @@ ORDER BY p.JoinDate DESC</textarea>
                     '<span class="expand-icon">&#9660;</span><span>' + escapeAttr(title) + '</span></div>' +
                     '<div class="schema-group-content"><div class="sqe-note">' + escapeAttr(note) + '</div>';
                 if (!list.length) {
-                    h += '<div class="sqe-note">Nothing saved yet. Use Save Query above the editor.</div>';
+                    h += '<div class="sqe-note">Nothing saved yet. Use Save above the editor.</div>';
                 }
                 list.forEach((x, i) => {
                     h += '<div class="table-item saved-query-item"><span class="sqe-item-actions">';
                     if (kind === 'mine') h += '<a data-i="' + i + '" onclick="deleteSaved(this, event)">delete</a>';
-                    if (kind === 'sqe') h += '<a data-i="' + i + '" onclick="copySavedToMine(this, event)">copy to mine</a>';
                     h += '</span><span class="table-name" data-kind="' + kind + '" data-i="' + i + '" onclick="openSaved(this)" title="' +
                         escapeAttr(x.name + (x.saved ? ' (saved ' + x.saved + ')' : '')) + '">' + escapeAttr(x.name) + '</span></div>';
                 });
@@ -5090,21 +5084,6 @@ ORDER BY p.JoinDate DESC</textarea>
                     .catch(error => showMessage('Could not delete: ' + error.message, 'error'));
             }
 
-            function copySavedToMine(a, event) {
-                event.stopPropagation();
-                const x = window.savedLists.sqe[+a.dataset.i];
-                if (!x) return;
-                postAction({ action: 'save_query', query_name: x.name, query_sql: x.sql || '' })
-                    .then(data => {
-                        if (data.success) {
-                            showMessage('Copied "' + x.name + '" to My queries. You can now delete it in Special Content.', 'success');
-                            loadSavedQueries();
-                        } else {
-                            showMessage('Could not copy: ' + (data.error || 'Unknown error'), 'error');
-                        }
-                    })
-                    .catch(error => showMessage('Could not copy: ' + error.message, 'error'));
-            }
             
             
             function loadExampleQueries() {
