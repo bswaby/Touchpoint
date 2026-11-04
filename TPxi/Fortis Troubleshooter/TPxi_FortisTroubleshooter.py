@@ -126,10 +126,35 @@ or your phone. No tab switching, no lost context.
 https://tpxigo.com
 ----------------------------------------------------------------
 
-Version: 2.4
+Version: 2.5
 
 RELEASE NOTES
 -------------
+2.5 (November 2026)
+  * Timeline on each IP's page: everything TouchPoint logged from that
+    address, plus what the same people did anywhere else in the window.
+    Payments started, approved or declined, Fortis refusals, charges staff
+    added, failed sign-ins and sign-ins from other networks, in one list in
+    time order, so a single attempt can be followed from start to finish.
+    Guest steps with no record (such as "could not find their record") are
+    included now; they were left out before.
+  * Score times corrected: since daylight saving ended on Nov 1, TouchPoint
+    saves new scores one hour ahead of its other times. The page measures
+    this from recent scores and shows them on church time, with a note, so a
+    score lines up with the payment step that caused it. It stops correcting
+    on its own once TouchPoint fixes the clock, and an on/off switch next to
+    the note (on by default, saved for everyone) turns it off by hand.
+  * IPQS today vs saved: with an IPQS key saved in the browser, a blocked
+    IP's page asks IPQS right away and shows today's score next to the saved
+    one, the reasons IPQS gives, and what to do (a stale score that would
+    pass today versus an address IPQS still flags). Allowed IPs get a
+    "Compare" link instead. Each comparison uses one lookup from your key and
+    is reused for 10 minutes.
+  * Finance role: amounts, card digits, gift counts and recorded gifts are
+    shown only to users with the Finance role, the same rule TouchPoint uses.
+    The Denials and Health tabs need Finance. Everyone who can open the page
+    still sees IP addresses, scores, and whether a person gets past the check.
+
 2.4 (November 2026)
   * Second opinions: on an IP's page, "Check other services" compares
     TouchPoint's saved score with proxycheck.io and ip-api, plus links to
@@ -271,6 +296,27 @@ def user_allowed():
     except:
         pass
     return False
+
+
+# TouchPoint shows giving only to the Finance role, so amounts, card digits
+# and gift history here follow the same rule. Everyone who can open the page
+# still sees IPs, scores and whether a person gets past the IP check.
+FINANCE_ROLE = "Finance"
+_FINANCE = [False]
+
+
+def is_finance():
+    return _FINANCE[0]
+
+
+def _amt(v):
+    """'$12.50 ' for Finance users, nothing for everyone else."""
+    if not is_finance():
+        return ""
+    try:
+        return "${0:,.2f} ".format(float(v or 0))
+    except Exception:
+        return ""
 
 
 #####################################################################
@@ -1413,12 +1459,159 @@ def shared_ip_counts(ips):
     return out
 
 
+# Since daylight saving ended on 2026-11-01, TouchPoint has saved new scores
+# exactly one hour ahead of its own clock (every other timestamp, checked
+# against Fortis's UTC times, is correct church time). The score is stamped
+# through a hand-written time zone conversion whose daylight saving dates are
+# worked out wrong; before Nov 1 the two clocks agreed. Rather than hard-code
+# the hour, it is measured: a score is saved the moment someone reaches a
+# payment step, so recent scores are compared with the nearest such step from
+# the same IP. When most sit about an hour after it, the hour is taken off,
+# and the correction stops by itself once TouchPoint fixes the clock.
+SCORE_CLOCK_CHECK_DAYS = 7
+SCORE_CLOCK_SAMPLE = 30
+_SCORE_SKEW = []
+
+
+def score_clock_skew():
+    """Minutes TouchPoint's score times run ahead of its other clocks: 60 or 0."""
+    if _SCORE_SKEW:
+        return _SCORE_SKEW[0]
+    skew = 0
+    try:
+        # The newest scores only: the clock can change (as it did on Nov 1),
+        # and an older batch must not outvote what is happening now. The
+        # payment steps are pulled once and paired here; a lookup per score
+        # against ActivityLog takes many seconds.
+        sql = """
+            ;WITH s AS (
+                SELECT TOP {1} Evidence, LastUpdated FROM dbo.FraudScores
+                WHERE LastUpdated >= DATEADD(day, -{0}, GETDATE())
+                  AND LastUpdated >= '{3}'
+                ORDER BY LastUpdated DESC
+            ), st AS (
+                SELECT ClientIp, ActivityDate FROM dbo.ActivityLog WITH (NOLOCK)
+                WHERE ActivityDate >= DATEADD(day, -{2}, GETDATE())
+                  AND Activity IN ('OnlineReg PaymentForm', 'OnlineReg PayDueStart')
+            )
+            SELECT s.Evidence, DATEDIFF(minute, st.ActivityDate, s.LastUpdated) AS d
+            FROM s JOIN st ON st.ClientIp = s.Evidence
+             AND st.ActivityDate BETWEEN DATEADD(hour, -2, s.LastUpdated)
+                                     AND DATEADD(hour, 1, s.LastUpdated)
+        """.format(SCORE_CLOCK_CHECK_DAYS, SCORE_CLOCK_SAMPLE, SCORE_CLOCK_CHECK_DAYS + 1,
+                   last_dst_end().strftime("%Y-%m-%d %H:%M"))
+        nearest = {}
+        for r in q.QuerySql(sql):
+            ip, d = str(r.Evidence), int(r.d)
+            if ip not in nearest or abs(d) < abs(nearest[ip]):
+                nearest[ip] = d
+        diffs = list(nearest.values())
+        ahead = len([d for d in diffs if 50 <= d <= 70])
+        if len(diffs) >= 5 and ahead * 10 >= len(diffs) * 6:
+            skew = 60
+    except Exception:
+        skew = 0
+    _SCORE_SKEW.append(skew)
+    return skew
+
+
+def last_dst_end(now=None):
+    """2 AM on the first Sunday of November, most recent one. Scores saved
+    before it were on the right clock."""
+    now = now or datetime.datetime.now()
+    for year in (now.year, now.year - 1):
+        d = datetime.datetime(year, 11, 1, 2, 0)
+        d += datetime.timedelta(days=(6 - d.weekday()) % 7)
+        if d <= now:
+            return d
+    return datetime.datetime(now.year - 1, 11, 1)
+
+
+# Page options anyone who can open the page may change, saved in a small text
+# content file. Nothing secret goes in it: Special Content can be read
+# without signing in.
+OPTIONS_KEY = "FortisTroubleshooter_Options"
+_OPTIONS = []
+
+
+def load_options():
+    if _OPTIONS:
+        return _OPTIONS[0]
+    opts = {}
+    try:
+        raw = model.TextContent(OPTIONS_KEY)
+        parsed = json.loads(raw) if raw else {}
+        if isinstance(parsed, dict):
+            opts = parsed
+    except Exception:
+        opts = {}
+    _OPTIONS.append(opts)
+    return opts
+
+
+def save_option(name, value):
+    opts = dict(load_options())
+    opts[name] = value
+    try:
+        model.WriteContentText(OPTIONS_KEY, json.dumps(opts), "")
+    except Exception:
+        return False
+    del _OPTIONS[:]
+    _OPTIONS.append(opts)
+    return True
+
+
+def clock_fix_on():
+    """The score time correction switch. On unless someone turned it off;
+    even when on it only corrects while the hour is actually measured."""
+    return load_options().get("score_clock_fix", True) is not False
+
+
+def score_cols():
+    """LastUpdated, moved back onto church time when the score clock is off.
+    Only scores saved since daylight saving ended are moved."""
+    skew = score_clock_skew() if clock_fix_on() else 0
+    if not skew:
+        return "Evidence, Score, LastUpdated"
+    return ("Evidence, Score, CASE WHEN LastUpdated >= '{0}' "
+            "THEN DATEADD(minute, -{1}, LastUpdated) ELSE LastUpdated END AS LastUpdated"
+            .format(last_dst_end().strftime("%Y-%m-%d %H:%M"), skew))
+
+
+def score_clock_note(days, ip=""):
+    """What the score time correction is doing, with its on/off switch."""
+    skew = score_clock_skew()
+    on = clock_fix_on()
+    since = last_dst_end().strftime("%b %d").replace(" 0", " ")
+    link = '<a href="?tab=gates&amp;gdays={0}{1}&amp;clockfix={2}">{3}</a>'.format(
+        days, ("&amp;ip=" + h_escape(ip)) if ip else "", "0" if on else "1",
+        "Turn off" if on else "Turn on")
+    if on and skew:
+        text = ('<b>Score time correction is on.</b> Scores saved since daylight saving ended '
+                '({0}) are shown an hour earlier than TouchPoint saved them. TouchPoint has been '
+                'stamping new scores one hour ahead of its other times; this page measures that '
+                'and corrects it, so a score lines up with the payment step that caused it.'
+                .format(since))
+    elif on:
+        text = ('<b>Score time correction is on</b>, but nothing needs correcting right now: '
+                'recent scores line up with the payment steps that caused them, so times are '
+                'shown as TouchPoint saved them.')
+    elif skew:
+        text = ('<b>Score time correction is off.</b> Times are shown as TouchPoint saved them, '
+                'and recent scores still look an hour ahead of the payment steps that caused '
+                'them.')
+    else:
+        text = ('<b>Score time correction is off.</b> Times are shown as TouchPoint saved them, '
+                'and recent scores line up, so it looks like TouchPoint has fixed the clock.')
+    return '<p class="muted" style="font-size:11px">{0} {1}</p>'.format(text, link)
+
+
 def ip_scores(ips):
     out = {}
     if not ips:
         return out
-    sql = ("SELECT Evidence, Score, LastUpdated FROM dbo.FraudScores "
-           "WHERE Evidence IN ({0})".format(_sql_in(ips)))
+    sql = ("SELECT {1} FROM dbo.FraudScores "
+           "WHERE Evidence IN ({0})".format(_sql_in(ips), score_cols()))
     for r in q.QuerySql(sql):
         out[str(r.Evidence)] = r
     return out
@@ -1684,9 +1877,10 @@ def _as_label(g):
         return "guest"
     who = h_escape(g["user_name"]) or "someone"
     if g["skips_check"]:
-        return 'signed in as {0} <span class="muted">(has a gift, skips the IP check)</span>'.format(who)
-    return ('signed in as {0} <span style="color:#c0392b">(no recorded gift, still '
-            'checked)</span>'.format(who))
+        return 'signed in as {0} <span class="muted">({1}skips the IP check)</span>'.format(
+            who, "has a gift, " if is_finance() else "")
+    return ('signed in as {0} <span style="color:#c0392b">({1}still '
+            'checked)</span>'.format(who, "no recorded gift, " if is_finance() else ""))
 
 
 def find_fee(g, txs):
@@ -1752,6 +1946,561 @@ def family_pay_visits(people_id, since):
     return list(q.QuerySql(sql))
 
 
+#####################################################################
+#### IP TIMELINE
+#####################################################################
+# One list, in time order, of everything that can be tied to an IP: what
+# TouchPoint logged from the address, and what the same people did anywhere
+# else in the window. Payments and Fortis refusals record no IP, so they are
+# matched by person. That is what lets one attempt be followed from the first
+# step to a refusal, and on to the network or sign-in that finally worked.
+
+TIMELINE_MAX_ROWS = 400
+TIMELINE_MAX_PEOPLE = 40
+
+# Repeats of the same step by the same person within this many minutes are
+# shown as one row with a count.
+TIMELINE_MERGE_MINUTES = 10
+
+# The log lines that matter when tracing a payment: registration and pay-link
+# steps, the IP-check bypass line, and sign-in attempts (signing in is how a
+# returning giver gets past the IP check). On a shared network only these are
+# shown, or the office's ordinary work buries everything else.
+RELEVANT_ACTIVITY_SQL = (
+    "(al.Activity LIKE 'OnlineReg%' OR al.Activity LIKE 'Fraud score%' "
+    "OR al.Activity LIKE 'User % logged in%' OR al.Activity LIKE 'Invalid log in%' "
+    "OR al.Activity LIKE 'failed password%' OR al.Activity LIKE 'Mobile: Failed password%' "
+    "OR al.Activity LIKE 'attempt to login%' OR al.Activity LIKE 'ForgotPassword%')")
+
+# On a shared network every staff sign-in lands on the same address, so only
+# payment steps and FAILED sign-ins are kept there.
+SHARED_ACTIVITY_SQL = RELEVANT_ACTIVITY_SQL.replace(
+    "OR al.Activity LIKE 'User % logged in%' ", "")
+
+STEP_LABELS = {
+    "OnlineReg PersonNotFound": "Registration: could not find their record",
+    "OnlineReg FindRecord": "Registration: looked up their record",
+    "OnlineReg SubmitNew": "Registration: entered as a new person",
+    "OnlineReg AddressNotValid": "Registration: address not accepted",
+    "OnlineReg SubmitQuestions": "Registration: answered the questions",
+    "OnlineReg Login": "Registration: signed in",
+    "OnlineReg NoLogin": "Registration: went on without signing in",
+    "OnlineReg YesLogin": "Registration: chose to sign in",
+    "OnlineReg PaymentForm": "Reached the payment form",
+    "OnlineReg PayDueStart": "Opened a pay-balance link",
+    "OnlineReg PayDueConfirm": "Pay-balance link completed",
+    "OnlineReg Confirm": "Registration completed",
+    "OnlineReg ZeroDue": "Registration completed, nothing due",
+    "OnlineReg JoinedOrg": "Added to the involvement",
+    "OnlineReg GoerPayment": "Mission trip payment page",
+    "OnlineReg GoerSupport": "Mission trip support page",
+    "OnlineReg AddPerson": "Registration: added a person",
+    "OnlineReg AddAnotherPerson": "Registration: adding another person",
+    "OnlineReg AddedToOrg": "Roster updated",
+    "OnlineReg SentConfirmations": "Confirmation email sent",
+    "OnlineReg SentConfirmationsToStaff": "Staff notified",
+    "OnlineReg AlreadyRegistered": "Registration: already registered",
+    "OnlineReg CannotProceed": "Registration: could not continue",
+}
+
+
+def _is_relevant(activity):
+    a = activity or ""
+    low = a.lower()
+    return (a.startswith("OnlineReg") or a.startswith("Fraud score") or
+            (a.startswith("User ") and " logged in" in a) or a.startswith("Invalid log in") or
+            low.startswith("failed password") or low.startswith("mobile: failed password") or
+            a.startswith("attempt to login") or a.startswith("ForgotPassword"))
+
+
+def _ids_sql(ids):
+    return ",".join(str(int(i)) for i in ids) or "0"
+
+
+ACTIVITY_COLUMNS = """
+    al.ActivityDate, al.ClientIp, al.Activity, al.PeopleId, p.Name, al.OrgId,
+    o.OrganizationName, al.UserId, u.PeopleId AS UserPeopleId, up.Name AS UserName
+    FROM dbo.ActivityLog al WITH (NOLOCK)
+    LEFT JOIN dbo.People p ON p.PeopleId = al.PeopleId
+    LEFT JOIN dbo.Organizations o ON o.OrganizationId = al.OrgId
+    LEFT JOIN dbo.Users u ON u.UserId = al.UserId
+    LEFT JOIN dbo.People up ON up.PeopleId = u.PeopleId
+"""
+
+
+def ip_activity(ip, since, relevant_only):
+    """Everything logged from one IP, newest kept when capped. With
+    relevant_only (a shared network), only payment steps and failed sign-ins."""
+    sql = """
+        SELECT TOP {3} {4}
+        WHERE al.ClientIp = '{0}' AND al.ActivityDate >= '{1}' {2}
+        ORDER BY al.ActivityDate DESC
+    """.format(sql_escape(ip), since.strftime("%Y-%m-%d"),
+               ("AND " + SHARED_ACTIVITY_SQL) if relevant_only else "",
+               TIMELINE_MAX_ROWS, ACTIVITY_COLUMNS)
+    return list(q.QuerySql(sql))
+
+
+def involved_people(rows, staff, any_user):
+    """People an IP's activity points at: whoever a registration or pay step
+    was logged under, and whoever was signed in. Billing staff are left out;
+    their pay-link steps belong to other families. On a shared network only
+    users doing payment steps count, not everyone at a desk."""
+    pids = []
+
+    def add(pid):
+        if pid:
+            pid = int(pid)
+            if pid not in staff and pid not in pids:
+                pids.append(pid)
+    for r in rows:
+        a = r.Activity or ""
+        if a.startswith("OnlineReg") or a.startswith("Fraud score"):
+            add(r.PeopleId)
+        # On a shared network a sign-in is just staff at work; only someone
+        # signed in while going through a payment step is traced.
+        if r.UserPeopleId and (any_user or a.startswith("OnlineReg") or
+                               a.startswith("Fraud score")):
+            add(r.UserPeopleId)
+    return pids[:TIMELINE_MAX_PEOPLE]
+
+
+def people_names(pids):
+    out = {}
+    if not pids:
+        return out
+    sql = ("SELECT PeopleId, Name, FirstName, LastName, NickName FROM dbo.People "
+           "WHERE PeopleId IN ({0})".format(_ids_sql(pids)))
+    for r in q.QuerySql(sql):
+        out[int(r.PeopleId)] = r
+    return out
+
+
+def people_other_activity(pids, ip, since):
+    """The same people's payment and sign-in steps from any other IP."""
+    if not pids:
+        return []
+    ids = _ids_sql(pids)
+    sql = """
+        SELECT TOP {3} {4}
+        WHERE al.ActivityDate >= '{1}' AND ISNULL(al.ClientIp, '') <> '{2}'
+          AND ((al.PeopleId IN ({0}) AND (al.Activity LIKE 'OnlineReg%'
+                                         OR al.Activity LIKE 'Fraud score%'))
+               OR (al.UserId IN (SELECT UserId FROM dbo.Users WHERE PeopleId IN ({0}))
+                   AND {5}))
+        ORDER BY al.ActivityDate DESC
+    """.format(ids, since.strftime("%Y-%m-%d"), sql_escape(ip), TIMELINE_MAX_ROWS,
+               ACTIVITY_COLUMNS, RELEVANT_ACTIVITY_SQL)
+    return list(q.QuerySql(sql))
+
+
+# A payment row stores no IP, and the newer registration forms log no steps
+# at all, only the sign-in. When a payment was made signed in, the address of
+# that person's last action shortly before it is almost always where they
+# paid from, so the timeline shows it, marked as "probably".
+PAYER_IP_LOOKBACK_MINUTES = 60
+
+
+def people_transactions(pids, since):
+    """Payments, bills and unfinished payments for these people. A payment
+    TouchPoint started but never approved has Approved NULL and an amount;
+    that is the closest thing to a record of a refused attempt."""
+    if not pids:
+        return []
+    ids = _ids_sql(pids)
+    sql = """
+        SELECT TOP 300 t.Id, t.TransactionDate, t.Approved, t.Amt, t.Amtdue, t.Message,
+            t.Description, t.OrgId, o.OrganizationName, t.LoginPeopleId, lp.Name AS LoginName,
+            t.TransactionId, t.LastFourCC, t.LastFourACH, t.voided, t.IsRefund,
+            COALESCE(mine.PeopleId, anyp.PeopleId) AS PayerId,
+            COALESCE(mine.Name, anyp.Name, t.Name) AS PayerName,
+            CASE WHEN {2} THEN 1 ELSE 0 END AS IsFee,
+            seen.ClientIp AS LastIp, seen.ActivityDate AS LastIpAt
+        FROM dbo.[Transaction] t WITH (NOLOCK)
+        LEFT JOIN dbo.Organizations o ON o.OrganizationId = t.OrgId
+        LEFT JOIN dbo.People lp ON lp.PeopleId = t.LoginPeopleId
+        OUTER APPLY (SELECT TOP 1 tp.PeopleId, p.Name FROM dbo.TransactionPeople tp
+                     JOIN dbo.People p ON p.PeopleId = tp.PeopleId
+                     WHERE tp.Id = t.OriginalId AND tp.PeopleId IN ({0})) mine
+        OUTER APPLY (SELECT TOP 1 tp.PeopleId, p.Name FROM dbo.TransactionPeople tp
+                     JOIN dbo.People p ON p.PeopleId = tp.PeopleId
+                     WHERE tp.Id = t.OriginalId) anyp
+        OUTER APPLY (SELECT TOP 1 al.ClientIp, al.ActivityDate
+                     FROM dbo.ActivityLog al WITH (NOLOCK)
+                     WHERE t.LoginPeopleId IS NOT NULL AND al.ClientIp IS NOT NULL
+                       AND al.UserId IN (SELECT UserId FROM dbo.Users
+                                         WHERE PeopleId = t.LoginPeopleId)
+                       AND al.ActivityDate BETWEEN DATEADD(minute, -{3}, t.TransactionDate)
+                                               AND DATEADD(minute, 1, t.TransactionDate)
+                     ORDER BY al.ActivityDate DESC) seen
+        WHERE t.TransactionDate >= '{1}'
+          AND (mine.PeopleId IS NOT NULL OR t.LoginPeopleId IN ({0}))
+        ORDER BY t.TransactionDate DESC
+    """.format(ids, since.strftime("%Y-%m-%d"), FEE_TX_SQL, PAYER_IP_LOOKBACK_MINUTES)
+    return list(q.QuerySql(sql))
+
+
+def people_denials(pids, names, since):
+    """Fortis refusals for these people, by the PeopleId in a contact sync or
+    by the name on the card or contact."""
+    if not pids:
+        return []
+    want = set()
+    for r in names.values():
+        for n in (r.Name, "%s %s" % (r.FirstName or "", r.LastName or ""),
+                  "%s %s" % (r.NickName or "", r.LastName or "")):
+            n = (n or "").strip().lower()
+            if n and " " in n:
+                want.add(n)
+    out = []
+    for row in get_rows(since, datetime.datetime.now() + datetime.timedelta(days=1), None):
+        try:
+            rec = build_record(row)
+        except Exception:
+            continue
+        pid = rec.get("people_id")
+        try:
+            pid = int(pid) if pid else None
+        except Exception:
+            pid = None
+        if (pid and pid in pids) or (rec.get("name") or "").strip().lower() in want:
+            out.append(rec)
+    return out
+
+
+def people_gifts(pids, since):
+    """Gifts recorded for these people that did not come through a TouchPoint
+    payment (those already appear as transactions): Pushpay, checks, cash.
+    A blocked giver who gave another way shows up here. Finance only."""
+    if not pids or not is_finance():
+        return []
+    sql = """
+        SELECT TOP 100 c.ContributionDate, c.PeopleId, p.Name, c.ContributionAmount,
+            f.FundName, bt.Description AS BundleType
+        FROM dbo.Contribution c WITH (NOLOCK)
+        JOIN dbo.People p ON p.PeopleId = c.PeopleId
+        LEFT JOIN dbo.ContributionFund f ON f.FundId = c.FundId
+        LEFT JOIN dbo.BundleDetail bd ON bd.ContributionId = c.ContributionId
+        LEFT JOIN dbo.BundleHeader bh ON bh.BundleHeaderId = bd.BundleHeaderId
+        LEFT JOIN lookup.BundleHeaderTypes bt ON bt.Id = bh.BundleHeaderTypeId
+        WHERE c.PeopleId IN ({0}) AND c.ContributionDate >= '{1}' AND c.TranId IS NULL
+          AND c.ContributionStatusId = 0 AND c.ContributionTypeId NOT IN (6, 7, 8, 99)
+        ORDER BY c.ContributionDate DESC
+    """.format(_ids_sql(pids), since.strftime("%Y-%m-%d"))
+    return list(q.QuerySql(sql))
+
+
+def _plink(pid, name):
+    if not pid:
+        return h_escape(name or "")
+    return '<a href="/Person2/{0}" target="_blank">{1}</a>'.format(int(pid), h_escape(name or ""))
+
+
+def _tag(text, color):
+    return ('<span style="display:inline-block;padding:0 6px;border-radius:3px;font-size:11px;'
+            'color:#fff;background:{0}">{1}</span> '.format(color, text))
+
+
+def _activity_event(r, here_ip, staff=()):
+    a = r.Activity or ""
+    subject = int(r.PeopleId) if r.PeopleId else 0
+    user = int(r.UserPeopleId) if r.UserPeopleId else 0
+    if a.startswith("Fraud score"):
+        what = _tag("skipped IP check", "#27ae60") + (
+            "Signed in with a recorded gift, so the IP check was skipped" if is_finance()
+            else "Signed in, so the IP check was skipped")
+        kind = "ok"
+    elif a.startswith("User ") and " logged in" in a:
+        what, kind = "Signed in", "login"
+    elif _is_relevant(a) and not a.startswith("OnlineReg"):
+        # "Invalid log in IncorrectPassword:There is a problem..." carries a
+        # long canned message after the colon; the reason is before it.
+        short = a.split(":")[0] if a.startswith("Invalid log in") else a
+        what, kind = _tag("sign-in failed", "#b9770e") + h_escape(short[:120]), "warn"
+    elif a.startswith("OnlineReg"):
+        label = STEP_LABELS.get(a, a.replace("OnlineReg ", "Registration: "))
+        if a in DONE_STEPS:
+            what, kind = _tag("done", "#27ae60") + label, "ok"
+        elif a in PAY_STEPS:
+            what, kind = _tag("payment", "#2a72d4") + label, "pay"
+        elif a in ("OnlineReg PersonNotFound", "OnlineReg AddressNotValid"):
+            what, kind = _tag("stuck", "#b9770e") + label, "warn"
+        else:
+            what, kind = label, "step"
+    else:
+        what, kind = h_escape(a[:160]), "other"
+
+    if subject and user and subject != user:
+        who = _plink(subject, r.Name) + ' <span class="muted">signed in as ' + \
+            _plink(user, r.UserName) + '</span>'
+    elif subject and subject in staff and a in PAY_STEPS:
+        who = _plink(subject, r.Name) + (' <span class="muted">staff, opening a pay link for a '
+                                         'bill they created; the payer is the person billed '
+                                         'just before</span>')
+    elif subject:
+        who = _plink(subject, r.Name) + (' <span class="muted">signed in</span>' if user
+                                         else ' <span class="muted">guest</span>')
+    elif user:
+        who = _plink(user, r.UserName)
+    elif a.startswith("OnlineReg"):
+        who = '<span class="muted">guest, no record matched</span>'
+    else:
+        who = '<span class="muted">not signed in</span>'
+    detail = ''
+    if r.OrgId:
+        detail = '<a href="/Org/{0}" target="_blank">{1}</a>'.format(
+            int(r.OrgId), h_escape(r.OrganizationName or ""))
+    ip = str(r.ClientIp or "")
+    return {"at": to_pydt_safe(r.ActivityDate), "raw": r.ActivityDate,
+            "ip": ip, "here": ip == here_ip, "who": who, "what": what,
+            "detail": detail, "kind": kind, "step": a}
+
+
+def _transaction_event(t):
+    amt = float(t.Amt or 0)
+    tid = str(t.TransactionId or "")
+    org = ('<a href="/Org/{0}" target="_blank">{1}</a>'.format(
+        int(t.OrgId), h_escape(t.OrganizationName or t.Description or ""))
+        if t.OrgId else h_escape(t.Description or ""))
+    card = ""
+    if is_finance():
+        if t.LastFourCC:
+            card = " card ending " + h_escape(t.LastFourCC)
+        elif t.LastFourACH:
+            card = " bank account ending " + h_escape(t.LastFourACH)
+    if int(t.IsFee or 0):
+        what = ("Credit applied by " if amt < 0 else "Charge added by ") + \
+            _plink(t.LoginPeopleId, t.LoginName) + \
+            (" " + _amt(abs(amt) or abs(float(t.Amtdue or 0))).strip() if is_finance() else "")
+        kind = "step"
+    elif tid == "zero due":
+        what, kind = "Registration saved, nothing due", "step"
+    elif t.Approved is None and amt > 0:
+        what = _tag("not approved", "#c0392b") + \
+            "Payment {0}started and never approved{1}".format(_amt(amt), card)
+        kind = "bad"
+    elif t.Approved is not None and not t.Approved:
+        what = _tag("declined", "#c0392b") + "Payment {0}declined{1}: {2}".format(
+            _amt(amt), card, h_escape((t.Message or "")[:160]))
+        kind = "bad"
+    elif amt > 0:
+        extra = ""
+        if t.voided:
+            extra = " (later voided)"
+        elif t.IsRefund:
+            extra = " (refund)"
+        what = _tag("approved", "#27ae60") + "Payment {0}approved{1}{2}".format(
+            _amt(amt), card, extra)
+        kind = "ok"
+    else:
+        # Zero-dollar bookkeeping rows (default charges, adjustments) add
+        # nothing to the story.
+        return None
+    who = _plink(t.PayerId, t.PayerName)
+    if t.LoginPeopleId and int(t.LoginPeopleId) != int(t.PayerId or 0) and not int(t.IsFee or 0):
+        who += ' <span class="muted">paid while signed in as</span> ' + \
+            _plink(t.LoginPeopleId, t.LoginName)
+    guess = str(t.LastIp) if t.LastIp else None
+    guess_note = ""
+    if guess:
+        last = to_pydt_safe(t.LastIpAt)
+        at = to_pydt_safe(t.TransactionDate)
+        mins = int((at - last).total_seconds() // 60) if last and at else None
+        guess_note = ('their last action there was {0} min before'.format(max(mins, 0))
+                      if mins is not None else 'their last action there was shortly before')
+    return {"at": to_pydt_safe(t.TransactionDate), "raw": t.TransactionDate, "ip": None,
+            "guess_ip": guess, "guess_note": guess_note,
+            "here": False, "who": who, "what": what,
+            "detail": org, "kind": kind, "step": ""}
+
+
+def _denial_event(rec, names):
+    pid = rec.get("people_id")
+    try:
+        pid = int(pid) if pid else 0
+    except Exception:
+        pid = 0
+    who = _plink(pid, names[pid].Name) if pid in names else h_escape(rec.get("name") or "")
+    what = _tag("Fortis refused", "#c0392b") + h_escape(
+        CATEGORY_LABELS.get(rec.get("category"), rec.get("category") or "")) + \
+        " (" + h_escape(rec.get("type") or "") + ")"
+    detail = h_escape((rec.get("detail") or "")[:200])
+    if is_finance():
+        bits = []
+        if rec.get("amount"):
+            bits.append(rec["amount"])
+        if rec.get("last4"):
+            bits.append("card ending " + rec["last4"])
+        if bits:
+            detail = h_escape(", ".join(bits)) + ("<br>" + detail if detail else "")
+    return {"at": to_pydt_safe(rec.get("dt")), "raw": rec.get("dt"), "ip": None,
+            "here": False, "who": who, "what": what, "detail": detail,
+            "kind": "bad", "step": ""}
+
+
+def _gift_event(g):
+    return {"at": to_pydt_safe(g.ContributionDate), "raw": g.ContributionDate, "ip": None,
+            "here": False, "who": _plink(g.PeopleId, g.Name),
+            "what": _tag("gift recorded", "#27ae60") + "{0}to {1}".format(
+                _amt(g.ContributionAmount), h_escape(g.FundName or "")),
+            "detail": h_escape(g.BundleType or ""), "kind": "ok", "step": ""}
+
+
+def _merge_repeats(events):
+    out = []
+    for e in events:
+        prev = out[-1] if out else None
+        if prev is not None and prev["ip"] == e["ip"] and prev["who"] == e["who"] and \
+                prev["what"] == e["what"] and prev["detail"] == e["detail"] and \
+                prev["last"] is not None and e["at"] is not None and \
+                e["at"] - prev["last"] <= datetime.timedelta(minutes=TIMELINE_MERGE_MINUTES):
+            prev["n"] += 1
+            prev["last"] = e["at"]
+            continue
+        e["n"] = 1
+        e["last"] = e["at"]
+        out.append(e)
+    return out
+
+
+def render_ip_timeline(ip, since, days, sc, limit, shared):
+    show_all = get_param("tall") == "1" or not shared
+    rows = ip_activity(ip, since, not show_all)
+    candidates = [r.PeopleId for r in rows if r.PeopleId] + \
+        [r.UserPeopleId for r in rows if r.UserPeopleId]
+    staff = billing_staff(candidates)
+    pids = involved_people(rows, staff, not shared)
+    names = people_names(pids)
+
+    events = [_activity_event(r, ip, staff) for r in rows]
+    problems = []
+
+    def elsewhere():
+        # An ordinary sign-in from another network is just someone using
+        # TouchPoint; failed sign-ins and payment steps are what matter there.
+        return [_activity_event(r, ip, staff) for r in people_other_activity(pids, ip, since)
+                if not ((r.Activity or "").startswith("User ") and " logged in" in (r.Activity or ""))]
+    for label, fn in (("other networks", elsewhere),
+                      ("payments", lambda: [e for e in (_transaction_event(t) for t in
+                                                        people_transactions(pids, since)) if e]),
+                      ("Fortis refusals", lambda: [_denial_event(d, names) for d in
+                                                   people_denials(pids, names, since)]),
+                      # On a shared network the people traced are mostly staff
+                      # and members at the front desk; their gifts say nothing
+                      # about this address.
+                      ("gifts", lambda: [] if shared else
+                       [_gift_event(g) for g in people_gifts(pids, since)])):
+        try:
+            events.extend(fn())
+        except Exception as ex:
+            problems.append("%s: %s" % (label, ex))
+
+    scored_at = to_pydt_safe(sc.LastUpdated) if sc else None
+    if sc is not None:
+        events.append({"at": scored_at, "raw": sc.LastUpdated, "ip": ip, "here": True,
+                       "who": '<span class="muted">TouchPoint</span>',
+                       "what": _tag("risk score", "#555") + "Score saved for this IP: " +
+                       _score_badge(sc.Score, limit),
+                       "detail": '<span class="muted">IPQS is asked when someone first reaches '
+                                 'a payment step; the time can be church time or UTC.</span>',
+                       "kind": "score", "step": ""})
+
+    floor = datetime.datetime(1900, 1, 1)
+    events.sort(key=lambda e: e["at"] or floor)
+    events = _merge_repeats(events)
+
+    other_ips = sorted(set([e["ip"] for e in events if e["ip"] and not e["here"]] +
+                           [e["guess_ip"] for e in events if e.get("guess_ip")]))
+    other_scores = ip_scores(other_ips) if other_ips else {}
+    blocked = sc is not None and ip_blocked(sc.Score, limit)
+    cutoff = scored_at - datetime.timedelta(hours=6) if scored_at else None
+
+    out = []
+    a = out.append
+    a('<h4 id="ftTimeline" style="margin-top:18px">Timeline</h4>')
+    a('<p style="font-size:13px;margin:4px 0">Everything TouchPoint logged from this address, '
+      'and what the same people did anywhere else in the last {0} days: other networks they '
+      'used, sign-ins, payments started, approved or declined, Fortis refusals and charges '
+      'staff added. Payments and Fortis refusals record no address, so they are matched by '
+      'person; a payment made while signed in shows where that person was last seen in the '
+      'hour before (&ldquo;probably&rdquo;). The newer registration forms log only the '
+      'sign-in, not each step. Read it top to bottom to follow an attempt from the first step to the '
+      'failure, and to whatever worked afterwards.</p>'.format(days))
+    if pids:
+        a('<p style="font-size:12px;margin:4px 0">People traced: ' + ", ".join(
+            '<a href="?tab=gates&amp;gdays={0}&amp;person={1}">{2}</a>'.format(
+                days, pid, h_escape(names[pid].Name if pid in names else str(pid)))
+            for pid in pids) + ' <span class="muted">(click a name for their person lookup)'
+            '</span></p>')
+    else:
+        a('<p class="muted" style="font-size:12px;margin:4px 0">No person could be tied to this '
+          'address. A guest on the online giving page leaves no record at all; only the score '
+          'line above shows they were here.</p>')
+    if shared:
+        if show_all:
+            a('<p style="font-size:12px">Showing every logged action. <a href="?tab=gates&amp;'
+              'gdays={0}&amp;ip={1}#ftTimeline">Show only payment and sign-in steps</a></p>'
+              .format(days, h_escape(ip)))
+        else:
+            a('<p style="font-size:12px">This is a shared network, so only payment and '
+              'registration steps and failed sign-ins are shown. <a href="?tab=gates&amp;gdays={0}'
+              '&amp;ip={1}&amp;tall=1#ftTimeline">Show every logged action</a></p>'
+              .format(days, h_escape(ip)))
+    if len(rows) >= TIMELINE_MAX_ROWS:
+        a('<p style="font-size:12px;color:#b9770e">Only the newest {0} log lines from this '
+          'address are included. Pick a shorter look-back to see earlier ones.</p>'
+          .format(TIMELINE_MAX_ROWS))
+    if not is_finance():
+        a('<p class="muted" style="font-size:11px">Amounts, card digits and gifts are shown '
+          'only to users with the Finance role.</p>')
+
+    if not events:
+        a('<p class="muted">Nothing in this window.</p>')
+    else:
+        a('<div class="ft-scroll" style="max-height:640px;overflow-y:auto">'
+          '<table class="ft-tbl"><thead><tr><th>When</th><th>Where</th><th>Who</th>'
+          '<th>What happened</th><th>Involvement / detail</th></tr></thead><tbody>')
+        for e in events:
+            if e["here"]:
+                where = '<b>this IP</b>'
+            elif e.get("guess_ip"):
+                g = e["guess_ip"]
+                if g == ip:
+                    where = '<b>probably this IP</b>'
+                else:
+                    gsc = other_scores.get(g)
+                    where = 'probably ' + _ip_link(g, days) + '<br>' + \
+                        _score_badge(gsc.Score if gsc else None, limit)
+                where += '<div class="muted" style="font-size:11px">{0}</div>'.format(
+                    h_escape(e["guess_note"]))
+            elif e["ip"]:
+                osc = other_scores.get(e["ip"])
+                where = _ip_link(e["ip"], days) + '<br>' + \
+                    _score_badge(osc.Score if osc else None, limit)
+            else:
+                where = '<span class="muted">no IP recorded</span>'
+            hot = ''
+            if e["kind"] == "bad":
+                hot = ' style="background:#fdecea"'
+            elif e["here"] and blocked and e["step"] in PAY_STEPS and \
+                    (cutoff is None or e["at"] is None or e["at"] >= cutoff):
+                hot = ' style="background:#fdecea"'
+            elif e["kind"] == "score":
+                hot = ' style="background:#f3f3f3"'
+            when = fmt_dt(e["raw"])
+            if e["n"] > 1:
+                when += '<div class="muted" style="font-size:11px">{0} times, to {1}</div>'.format(
+                    e["n"], e["last"].strftime("%H:%M") if e["last"] else "")
+            a('<tr{0}><td>{1}</td><td>{2}</td><td class="wrap">{3}</td><td class="wrap">{4}</td>'
+              '<td class="wrap">{5}</td></tr>'.format(hot, when, where, e["who"], e["what"],
+                                                      e["detail"]))
+        a('</tbody></table></div>')
+    if problems:
+        a('<p class="muted" style="font-size:11px">Some parts could not be read: ' +
+          h_escape("; ".join(problems)) + '</p>')
+    return "".join(out)
+
+
 def render_ip_drill(ip, since, days, settings):
     limit = fraud_limit(settings)
     sc = ip_scores([ip]).get(ip)
@@ -1764,12 +2513,19 @@ def render_ip_drill(ip, since, days, settings):
           _score_badge(sc.Score if sc else None, limit),
           (", saved " + fmt_dt(sc.LastUpdated)) if sc else "",
           users, " (shared network)" if users >= GATES_SHARED_IP_USERS else "", days))
+    a(score_clock_note(days, ip))
+    if sc is not None:
+        a(render_ipqs_compare_slot(ip, ip_blocked(sc.Score, limit)))
     if sc and ip_blocked(sc.Score, limit):
         a(render_why_box(ip))
     try:
         a(render_second_opinions(ip, days))
     except Exception as e:
         a('<div class="ft-note">Second opinions could not run: ' + h_escape(str(e)) + '</div>')
+    try:
+        a(render_ip_timeline(ip, since, days, sc, limit, users >= GATES_SHARED_IP_USERS))
+    except Exception as e:
+        a('<div class="ft-note">The timeline could not be built: ' + h_escape(str(e)) + '</div>')
     if sc and ip_blocked(sc.Score, limit) and users >= GATES_SHARED_IP_USERS:
         a('<div class="ft-note" style="border-left-color:#c0392b"><b>Everyone paying as a guest '
           'from this network is being refused.</b> The score is reused for 30 days from the time '
@@ -1805,8 +2561,8 @@ def render_ip_drill(ip, since, days, settings):
             fee, paid = g["fee"], g["paid_tx"]
             hot = ''
             if paid is not None:
-                status = '<span style="color:#27ae60">Paid ${0:,.2f} on {1}</span>'.format(
-                    paid["amt"], fmt_dt(paid["raw_at"]))
+                status = '<span style="color:#27ae60">Paid {0}on {1}</span>'.format(
+                    _amt(paid["amt"]), fmt_dt(paid["raw_at"]))
                 counts["paid"] += 1
             elif g["done"]:
                 status = '<span style="color:#27ae60">Completed</span>'
@@ -1829,10 +2585,10 @@ def render_ip_drill(ip, since, days, settings):
                 person = staff_link
             elif fee is not None:
                 person = ('<a href="/Person2/{0}" target="_blank"><b>{1}</b></a>'
-                          '<div style="font-size:11px;color:#777">{2} billed them ${3:,.2f} at '
+                          '<div style="font-size:11px;color:#777">{2} billed them {3}at '
                           '{4}, then opened their pay link.</div>'.format(
                               fee["payer"], h_escape(fee["payer_name"]), staff_link,
-                              fee["amt"] or abs(fee["due"]), fmt_dt(fee["raw_at"])))
+                              _amt(fee["amt"] or abs(fee["due"])), fmt_dt(fee["raw_at"])))
             else:
                 person = ('<span class="muted">pay link for a bill from</span> ' + staff_link +
                           '<div style="font-size:11px;color:#777">Logged under the staff member '
@@ -1854,9 +2610,9 @@ def render_ip_drill(ip, since, days, settings):
                     if probable:
                         person += ('<div style="font-size:12px;margin-top:3px"><b>Probably ' +
                                    ", ".join('<a href="/Person2/{0}" target="_blank">{1}</a> '
-                                             '(billed ${2:,.2f} on {3}, still unpaid)'.format(
+                                             '(billed {2}on {3}, still unpaid)'.format(
                                                  e["fee"]["payer"], h_escape(e["fee"]["payer_name"]),
-                                                 e["fee"]["amt"] or abs(e["fee"]["due"]),
+                                                 _amt(e["fee"]["amt"] or abs(e["fee"]["due"])),
                                                  fmt_dt(e["fee"]["raw_at"])) for e in probable) +
                                    '</b>: an earlier try on a bill from the same person was '
                                    'never paid, and reopening it leaves no new bill to trace.</div>')
@@ -2156,6 +2912,131 @@ def second_opinions_ajax():
     print(_ascii_html('<div class="ft-sop-result">' + html + '</div>'))
 
 
+# How long the browser reuses a comparison before asking IPQS again. Every
+# lookup spends one of the key owner's IPQS credits, so a reload or a trip
+# back to the same IP should not spend another.
+IPQS_COMPARE_CACHE_MINUTES = 10
+
+
+def render_ipqs_compare(ip, sc, limit, key):
+    """TouchPoint's saved score next to what IPQS says today, with a verdict."""
+    key = re.sub(r"\s+", "", key or "")
+    if not re.match(r"^[A-Za-z0-9]{8,80}$", key):
+        return '<span class="muted">The saved IPQS key does not look right. Change it under Second opinions.</span>'
+    r = lookup_ipqs(ip, key)
+    if "error" in r:
+        return '<span class="muted">IPQS did not answer: ' + h_escape(r["error"]) + '</span>'
+    now = r["score"]
+    try:
+        now = int(now)
+    except Exception:
+        return '<span class="muted">IPQS answered without a score.</span>'
+    saved = int(sc.Score) if sc is not None else None
+    reasons = [label for label, v in (("proxy", r["proxy"]), ("VPN", r["vpn"]),
+                                       ("recent abuse", r["abuse"]), ("bot", r["bot"])) if v]
+    why = ("IPQS flags it as " + ", ".join(reasons)) if reasons else "IPQS flags nothing specific"
+    isp = (" Provider: " + h_escape(r["isp"]) + ".") if r["isp"] else ""
+    due = rescore_date(sc)
+    due_txt = due.strftime("%b %d").replace(" 0", " ") if due else "30 days after it was saved"
+    blocked_now = ip_blocked(now, limit)
+    blocked_saved = saved is not None and ip_blocked(saved, limit)
+
+    if blocked_saved and not blocked_now:
+        color = "#27ae60"
+        verdict = ('<b>Today this address would be allowed.</b> TouchPoint is still using the '
+                   'saved {0} and will not ask IPQS again until about <b>{1}</b>. Until then '
+                   'guests here stay blocked. TouchPoint support can clear the saved score, or '
+                   'you can {2} for now.'.format(
+                       saved, due_txt,
+                       'raise <code>FraudScoreMaximumGiving</code> to {0}'.format(saved)
+                       if saved < 99 else
+                       'set <code>FraudScoreMaximumGiving</code> to 100, which turns the IP '
+                       'check off for everyone'))
+    elif blocked_now:
+        color = "#c0392b"
+        verdict = ('<b>IPQS still scores it over your limit of {0}.</b> A fresh score would not '
+                   'help. Givers here should sign in first (if they have given before) or use '
+                   'another network.'.format(limit))
+    else:
+        color = "#555"
+        verdict = 'Both scores are under your limit of {0}.'.format(limit)
+
+    return ('<div class="ft-ipqs-cmp" style="border-left:4px solid {0};background:#fafafa;'
+            'padding:8px 12px;margin:8px 0;font-size:13px">'
+            '<b>IPQS now: {1}</b> &nbsp;vs&nbsp; TouchPoint saved: <b>{2}</b>'
+            '{3}<br>{4}. {5}<br>{6}'
+            '<div style="font-size:11px;color:#777;margin-top:4px">Same request TouchPoint '
+            'makes, with your key. Your IPQS account can score a few points differently from '
+            'TouchPoint&rsquo;s. Checked just now, using one lookup from your key.</div></div>'.format(
+                color, _score_badge(now, limit), saved if saved is not None else "none",
+                (" (" + fmt_dt(sc.LastUpdated) + ")") if sc is not None else "",
+                h_escape(why), isp, verdict))
+
+
+def ipqs_compare_ajax():
+    """Background POST from an IP page: compare the saved score with IPQS now."""
+    ip = get_param("sop_ip")
+    if not re.match(r"^[0-9a-fA-F\.:]{3,45}$", ip or ""):
+        print('<div class="ft-sop-result">That is not an IP address.</div>')
+        return
+    try:
+        html = render_ipqs_compare(ip, ip_scores([ip]).get(ip), fraud_limit(gate_settings()),
+                                   get_param("ipqs_k"))
+    except Exception as e:
+        html = '<span class="muted">The comparison could not run: ' + h_escape(str(e)) + '</span>'
+    print(_ascii_html('<div class="ft-sop-result">' + html + '</div>'))
+
+
+def render_ipqs_compare_slot(ip, blocked):
+    """Where the comparison lands. With a saved key it runs by itself on a
+    blocked address; otherwise it waits for a click. Without a key nothing
+    is sent anywhere."""
+    return ("""<div id="ftIpqsNow" data-ip="{0}" data-blocked="{1}"></div>
+<script>
+(function(){{
+  var box = document.getElementById('ftIpqsNow');
+  var ip = box.getAttribute('data-ip'), blocked = box.getAttribute('data-blocked') === '1';
+  var key = '', cacheKey = 'ftIpqsCmp:' + ip;
+  try {{ key = window.localStorage.getItem('ftIpqsKey') || ''; }} catch (e) {{}}
+  if (!key) {{
+    if (blocked) box.innerHTML = '<p class="muted" style="font-size:12px">Save an IPQS key under ' +
+      '<a href="#ftSecond">Second opinions</a> and this page will compare today&rsquo;s IPQS score ' +
+      'with the saved one by itself.</p>';
+    return;
+  }}
+  function run(){{
+    box.innerHTML = '<p class="muted" style="font-size:12px">Asking IPQS about this address now...</p>';
+    var x = new XMLHttpRequest();
+    x.open('POST', window.location.pathname, true);
+    x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    x.onload = function(){{
+      var t = x.responseText || '';
+      if (t.indexOf('ft-sop-result') < 0) {{
+        box.innerHTML = '<p class="muted" style="font-size:12px">IPQS comparison did not come back (HTTP ' + x.status + ').</p>';
+        return;
+      }}
+      box.innerHTML = t;
+      try {{ window.sessionStorage.setItem(cacheKey, JSON.stringify({{at: Date.now(), html: t}})); }} catch (e) {{}}
+    }};
+    x.onerror = function(){{ box.innerHTML = '<p class="muted" style="font-size:12px">Could not reach TouchPoint for the IPQS comparison.</p>'; }};
+    x.send('sop=2&sop_ip=' + encodeURIComponent(ip) + '&ipqs_k=' + encodeURIComponent(key));
+  }}
+  try {{
+    var c = JSON.parse(window.sessionStorage.getItem(cacheKey) || 'null');
+    if (c && Date.now() - c.at < {2} * 60000) {{
+      box.innerHTML = c.html.replace('Checked just now', 'Checked ' +
+        Math.max(1, Math.round((Date.now() - c.at) / 60000)) + ' min ago');
+      return;
+    }}
+  }} catch (e) {{}}
+  if (blocked) {{ run(); return; }}
+  box.innerHTML = '<p style="font-size:12px"><a href="#" id="ftIpqsGo">Compare with IPQS now</a> ' +
+    '<span class="muted">(uses one lookup from your key)</span></p>';
+  document.getElementById('ftIpqsGo').addEventListener('click', function(ev){{ ev.preventDefault(); run(); }});
+}})();
+</script>""".format(h_escape(ip), "1" if blocked else "0", IPQS_COMPARE_CACHE_MINUTES))
+
+
 def render_second_opinion_results(ip, sc, limit, key):
     out = []
     a = out.append
@@ -2316,12 +3197,12 @@ def render_person_lookup(term, since, settings, days=GATES_DEFAULT_DAYS):
                 bill_txt, hot = '<span class="muted">none in 90 days</span>', ''
             else:
                 unpaid = paid is None or paid < billed
-                bill_txt = '{0}: ${1:,.2f} on {2}{3}'.format(
-                    h_escape(p.LastBillOrg or ""), float(p.LastBillAmt or 0),
+                bill_txt = '{0}: billed {1}on {2}{3}'.format(
+                    h_escape(p.LastBillOrg or ""), _amt(p.LastBillAmt),
                     fmt_dt(p.LastBillDate),
                     ' <b style="color:#c0392b">not paid since</b>' if unpaid else '')
                 hot = ' style="background:#fdecea"' if unpaid else ''
-            pay_txt = ('${0:,.2f} on {1}'.format(float(p.LastPayAmt or 0), fmt_dt(p.LastPayDate))
+            pay_txt = ('{0}on {1}'.format(_amt(p.LastPayAmt), fmt_dt(p.LastPayDate))
                        if p.LastPayDate is not None else '<span class="muted">none in 90 days</span>')
             rows.append(
                 '<tr{0}><td><a href="?tab=gates&amp;gdays={1}&amp;person={2}"><b>{3}</b></a></td>'
@@ -2351,11 +3232,12 @@ def render_person_lookup(term, since, settings, days=GATES_DEFAULT_DAYS):
         if int(p.Accounts or 0) == 0:
             facts.append("No user account, so they always pay as a guest and get every check.")
         elif gifts > 0:
-            facts.append("Has {0} recorded gift(s). <b>If they sign in first</b>, the captcha and "
-                         "IP checks are skipped.".format(gifts))
+            facts.append("{0}<b>If they sign in first</b>, the captcha and IP checks are "
+                         "skipped.".format("Has {0} recorded gift(s). ".format(gifts)
+                                           if is_finance() else ""))
         else:
-            facts.append("Has an account but no recorded gifts, so signing in does "
-                         "<b>not</b> skip the IP check.")
+            facts.append("Has an account, but signing in does <b>not</b> skip the IP "
+                         "check{0}.".format(" (no recorded gifts)" if is_finance() else ""))
         if int(p.Accounts or 0):
             facts.append("Last sign in: {0}".format(fmt_dt(p.LastLogin) if p.LastLogin else "never"))
             try:
@@ -2494,17 +3376,17 @@ def render_family_visits(people_id, since, days, limit):
             who = staff_link
         elif fee is not None:
             if paid is not None:
-                result = '<span style="color:#27ae60">paid ${0:,.2f} at {1}</span>'.format(
-                    paid["amt"], fmt_dt(paid["raw_at"]))
+                result = '<span style="color:#27ae60">paid {0}at {1}</span>'.format(
+                    _amt(paid["amt"]), fmt_dt(paid["raw_at"]))
             elif blocked:
                 result = ('<b style="color:#c0392b">no payment followed; this IP is blocked, '
                           'so this is very likely the refused payment</b>')
             else:
                 result = 'no payment followed'
             who = ('<b>Theirs.</b> {0} billed <a href="/Person2/{1}" target="_blank">{2}</a> '
-                   '${3:,.2f} at {4}, then opened the pay link; {5}.'.format(
+                   '{3}at {4}, then opened the pay link; {5}.'.format(
                        staff_link, fee["payer"], h_escape(fee["payer_name"]),
-                       fee["amt"] or abs(fee["due"]), fmt_dt(fee["raw_at"]), result))
+                       _amt(fee["amt"] or abs(fee["due"])), fmt_dt(fee["raw_at"]), result))
         else:
             who = staff_link + (' <span class="muted">(pay link for a bill they created. This '
                                 'family owed them one at the time, but so may others.)</span>')
@@ -2626,6 +3508,8 @@ def render_gates():
     if days <= 0:
         days = GATES_DEFAULT_DAYS
     since = datetime.datetime.now() - datetime.timedelta(days=days)
+    if get_param("clockfix") in ("0", "1"):
+        save_option("score_clock_fix", get_param("clockfix") == "1")
     person = get_param("person")
     drill_ip = get_param("ip")
     if not re.match(r"^[0-9a-fA-F\.:]{3,45}$", drill_ip or ""):
@@ -2682,12 +3566,15 @@ def render_gates():
 
     # ---- scored IPs ----------------------------------------------------
     a('<h3 style="margin-top:22px">IP addresses scored in the last {0} days</h3>'.format(days))
-    a('<p style="font-size:12px;color:#777">Click an IP to see who went through registration '
-      'or a pay-balance link from it, and whether they paid.</p>')
+    a('<p style="font-size:12px;color:#777">Click an IP for its timeline: every step logged '
+      'from it, and the same people&rsquo;s payments, Fortis refusals and other networks.</p>')
+    # Above the table: the list can run to a hundred or more rows, and the
+    # switch is no use at the bottom of it.
+    a(score_clock_note(days))
     scored = list(q.QuerySql("""
-        SELECT TOP 200 Evidence, Score, LastUpdated FROM dbo.FraudScores
-        WHERE LastUpdated >= '{0}' ORDER BY LastUpdated DESC
-    """.format(since.strftime("%Y-%m-%d"))))
+        SELECT TOP 200 {1} FROM dbo.FraudScores
+        WHERE LastUpdated >= '{0}' ORDER BY 3 DESC
+    """.format(since.strftime("%Y-%m-%d"), score_cols())))
     if not scored:
         a('<p>None. TouchPoint only scores an IP while the IP check is on, and only when '
           'someone reaches the payment step.</p>')
@@ -2720,7 +3607,8 @@ def render_gates():
           'who tried to pay. A guest payment leaves no name.</p>')
 
     # ---- bypass log ---------------------------------------------------
-    a('<h3 style="margin-top:22px">Givers who skipped the IP check</h3>')
+    a('<h3 style="margin-top:22px">{0} who skipped the IP check</h3>'.format(
+        "Givers" if is_finance() else "Signed-in people"))
     bypass = list(q.QuerySql("""
         SELECT TOP 25 al.ActivityDate, al.ClientIp, al.PeopleId, p.Name
         FROM dbo.ActivityLog al WITH (NOLOCK)
@@ -2782,6 +3670,8 @@ def render_footer():
 def render_tabs(active):
     tabs = [("denials", "Denials"), ("health", "Health &amp; flow"),
             ("gates", "Blocked before Fortis")]
+    if not is_finance():
+        tabs = [("gates", "Blocked before Fortis")]
     out = ['<div style="border-bottom:2px solid #ddd;margin:14px 0 6px">']
     for key, label in tabs:
         if key == active:
@@ -3070,11 +3960,23 @@ def main():
                       'Required role (one of): ' + ", ".join(ALLOWED_ROLES) + '.</div></div>')
         return
 
+    try:
+        _FINANCE[0] = bool(model.UserIsInRole(FINANCE_ROLE))
+    except Exception:
+        _FINANCE[0] = False
+
     if get_param("sop") == "1":
         second_opinions_ajax()
         return
+    if get_param("sop") == "2":
+        ipqs_compare_ajax()
+        return
 
-    tab = (get_param("tab") or "denials").lower()
+    tab = (get_param("tab") or ("denials" if is_finance() else "gates")).lower()
+    if not is_finance() and tab != "gates":
+        # Denials carry names, card digits and amounts; Health carries
+        # payment totals. Both are Finance information.
+        tab = "gates"
 
     if tab in ("health", "gates"):
         html = ['<div class="ft-wrap">', render_styles(),
