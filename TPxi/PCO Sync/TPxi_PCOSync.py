@@ -101,6 +101,12 @@
 #                            status, dates and report link PCO kept with
 #                            what was sent. It only checked that the
 #                            record existed, so an ignored update passed.
+#                          - The confirmation is now visible: Run now
+#                            results, the email, and the Activity Log show
+#                            "Confirmed in PCO" with what PCO returned.
+#                          - Check one person (Background Checks card):
+#                            asks PCO live, next to the TouchPoint checks,
+#                            and says what the next sync would do.
 #                          - Activity Log names for email and settings rows.
 #                          - Person Data Sync text no longer says TP to PCO
 #                            is "planned".
@@ -1447,6 +1453,18 @@ def _bgc_differs(payload, pco):
                                       != safe_str(pco.get('report_url', '') or '')):
         diffs.append('report link')
     return diffs
+
+
+def _bgc_pco_brief(c):
+    """One line describing a PCO background check record as PCO has it."""
+    bits = [safe_str(c.get('status', '')) or '(no status)']
+    bits.append('completed ' + (_norm_date(c.get('completed_at', '') or '') or '(none)'))
+    bits.append('expires ' + (_norm_date(c.get('expires_on', '') or '') or '(none)'))
+    if c.get('report_url'):
+        bits.append('report link')
+    if c.get('id'):
+        bits.append('PCO record ' + safe_str(c.get('id')))
+    return ', '.join(bits)
 
 
 def _bgc_readback_diffs(sent, got):
@@ -2995,7 +3013,7 @@ def _verify_written(item, tp_people_id, pco_person_id):
         diffs = _bgc_readback_diffs(sent, found)
         if diffs:
             return got, False, 'PCO has different values: ' + '; '.join(diffs)
-        return got, True, 'Read back from PCO and matched.'
+        return got, True, 'Confirmed in PCO: ' + _bgc_pco_brief(found)
     if field.get('pcoKind') == 'attribute':
         cur, err = pco_get('/people/v2/people/%s' % safe_str(pco_person_id))
         if err:
@@ -3067,10 +3085,13 @@ def execute_tp_to_pco_plan(plan, apply=False):
             out['error'] = note
             res['errors'].append('%s: %s' % (item['label'], note))
             append_audit({'action': 'pco_write_unverified', 'tpPeopleId': tp_id,
-                          'pcoPersonId': pco_id, 'field': item['field'], 'note': note})
+                          'pcoPersonId': pco_id, 'field': item['field'], 'note': note,
+                          'error': note, 'detail': safe_str(item.get('detail', ''))[:300]})
             res['items'].append(out)
             continue
 
+        if note:
+            out['confirmed'] = note
         sent = item['tpValue']
         if item['field'] == 'address':
             sent = person_household_address(tp_id)
@@ -3096,6 +3117,7 @@ def execute_tp_to_pco_plan(plan, apply=False):
                       'detail': safe_str(item.get('detail', ''))[:300],
                       'sent': safe_str(sent), 'observed': safe_str(out.get('observed', '')),
                       'agreed': bool(agreed),
+                      'confirmed': safe_str(note)[:300],
                       'by': safe_str(model.UserName) if hasattr(model, 'UserName') else ''})
         res['items'].append(out)
     return res
@@ -3823,7 +3845,17 @@ def _bgc_retry_people(ids):
 def run_background_check_sync(trigger='schedule'):
     """One scheduled (or manual "Run now") pass step. Writes to PCO.
 
-    Returns a result dict shaped for the scheduler summary and email."""
+    A run that stops before doing anything is logged too, with the reason.
+    Otherwise "I clicked Run now" and "nothing happened" look the same."""
+    res = _run_background_check_sync(trigger)
+    if res.get('skippedReason'):
+        append_audit({'action': 'sync_background_checks', 'trigger': trigger,
+                      'skipped': safe_str(res['skippedReason'])[:300]})
+    return res
+
+
+def _run_background_check_sync(trigger='schedule'):
+    """Returns a result dict shaped for the scheduler summary and email."""
     now = datetime.datetime.now()
     now_iso = now.strftime('%Y-%m-%dT%H:%M:%S')
     res = {'kind': 'background_checks', 'mappingLabel': 'Background checks',
@@ -3899,7 +3931,8 @@ def run_background_check_sync(trigger='schedule'):
                     res['created'] += 1
                 res['changes'].append({'name': name, 'tpPeopleId': tp_id,
                                        'action': act, 'status': safe_str(it.get('tpValue', '')),
-                                       'reason': safe_str(it.get('reason', ''))[:200]})
+                                       'reason': safe_str(it.get('reason', ''))[:200],
+                                       'confirmed': safe_str(it.get('confirmed', ''))[:300]})
         if person_failed:
             failed_ids.add(tp_id)
             res['failed'] += 1
@@ -3974,7 +4007,10 @@ def _format_bgc_email_html(res, sch, include_issues, link_back):
             for c in res['changes'][:50]:
                 issues += ('<li>' + html_escape(c.get('name', '')) + ': '
                            + html_escape(c.get('status', '')) + ' <span style="color:#999;">'
-                           + html_escape(c.get('reason', '')) + '</span></li>')
+                           + html_escape(c.get('reason', '')) + '</span>'
+                           + (('<br><span style="color:#1f6b3a;">&#10003; ' + html_escape(c.get('confirmed', ''))
+                               + '</span>') if c.get('confirmed') else '')
+                           + '</li>')
             issues += '</ul>'
         if res.get('failures'):
             issues += '<h3 style="color:#8a2020;margin-top:18px;">Failures</h3><ul>'
@@ -4055,6 +4091,69 @@ def _bgc_type_stats():
     except Exception:
         pass
     return types, training
+
+
+def handle_bgc_person_check():
+    """Read-only side by side for one person: their TouchPoint checks, what
+    PCO has right now, and what the next sync would do. Answers "is it
+    really in PCO?" by asking PCO directly, independent of any log."""
+    try:
+        tp_id = safe_int(get_data('tp_people_id', '0'), 0)
+        if tp_id <= 0:
+            print json.dumps({'success': False, 'message': 'Pick a person first.'})
+            return
+        pco_id = ''
+        try:
+            pco_id = safe_str(model.ExtraValueText(tp_id, PCO_PERSON_ID_FIELD) or '').strip()
+        except Exception:
+            pco_id = ''
+        rules = background_check_type_rules()
+        tp_rows = []
+        for c in background_checks_for_person(tp_id):
+            why = _bgc_unpublishable_reason(c, rules)
+            tp_rows.append({
+                'id': c['id'], 'approval': c['approval'],
+                'type': background_check_type_label(c['checkType']),
+                'completed': c['updated'] or c['created'],
+                'skip': {'pending': 'Pending, not sent yet', 'abandoned': 'Abandoned, never sent',
+                         'excluded': 'Package marked Not a background check',
+                         'training': 'Training, never sent'}.get(why, why),
+            })
+        out = {'success': True, 'tpPeopleId': tp_id, 'pcoPersonId': pco_id,
+               'tpChecks': tp_rows, 'pcoChecks': [], 'pcoError': '', 'next': None}
+        if not pco_id:
+            out['pcoError'] = 'This person is not linked to PCO, so nothing is sent for them.'
+            print json.dumps(out)
+            return
+        checks, err = pco_person_background_checks(pco_id)
+        if err:
+            out['pcoError'] = 'Could not read PCO: ' + safe_str(err)
+            if '403' in safe_str(err):
+                out['pcoError'] = ('PCO refused: the PCO user who created your App ID and Secret cannot see '
+                                   'background checks. In PCO People, make that user a background check '
+                                   'administrator, then try again. (' + safe_str(err)[:160] + ')')
+            print json.dumps(out)
+            return
+        for c in checks:
+            tag = _bgc_tp_id_in_note(c.get('note', ''))
+            out['pcoChecks'].append({
+                'id': safe_str(c.get('id', '')), 'status': safe_str(c.get('status', '')),
+                'completed': _norm_date(c.get('completed_at', '') or ''),
+                'expires': _norm_date(c.get('expires_on', '') or ''),
+                'hasReport': bool(c.get('report_url')),
+                'fromTouchPoint': tag, 'note': safe_str(c.get('note', ''))[:200],
+            })
+        dec = background_check_sync_decision(tp_id, pco_id)
+        p = dec.get('payload') or {}
+        out['next'] = {
+            'action': dec.get('action', 'none'), 'reason': safe_str(dec.get('reason', '')),
+            'repairs': len(dec.get('repairs') or []),
+            'status': safe_str(p.get('status', '')), 'expires': safe_str(p.get('expires_on', '')),
+            'tpCheckId': dec.get('tpCheckId', 0),
+        }
+        print json.dumps(out)
+    except Exception as e:
+        print json.dumps({'success': False, 'message': 'Could not check this person: ' + safe_str(e)})
 
 
 def handle_load_bgc_rules():
@@ -4262,6 +4361,9 @@ def _audit_summary(e):
     act = safe_str(e.get('action', ''))
     def n(k):
         return safe_int(e.get(k, 0), 0)
+    if act == 'sync_background_checks' and e.get('skipped'):
+        return ('%s run: NOTHING SENT. %s'
+                % (safe_str(e.get('trigger', '')).capitalize() or 'A', safe_str(e.get('skipped'))))
     if act == 'sync_background_checks':
         txt = ('%s run: %d checked, %d new, %d updated, %d repaired, %d failed'
                % (safe_str(e.get('trigger', '')).capitalize() or 'A', n('checked'), n('created'),
@@ -4298,6 +4400,8 @@ def _audit_summary(e):
         if n('subgroupDrops'):
             txt += ', %d subgroup removals' % n('subgroupDrops')
         return txt
+    if act == 'pco_write' and e.get('confirmed'):
+        return safe_str(e.get('confirmed'))
     if act in ('email_sent', 'email_failed'):
         kind = safe_str(e.get('kind', ''))
         txt = (AUDIT_EMAIL_KINDS.get(kind, kind.replace('_', ' ')) + ' report').strip().capitalize()
@@ -7999,7 +8103,7 @@ def _format_sync_email_html(result, sch, include_issues, link_back):
             issues_html += '<p><strong>Unmatched PCO records (' + str(len(unm)) + '):</strong> these PCO people had no TP match. Use the Proposed Matches review in PCO Sync.</p>'
             issues_html += '<ul>'
             for u in unm[:50]:
-                issues_html += '<li>' + html_escape(u.get('name', '') or '(unknown)') + (' &mdash; ' + html_escape(u.get('email', '')) if u.get('email') else '') + ' <span style="color:#999;">PCO #' + html_escape(u.get('pcoPersonId', '')) + '</span></li>'
+                issues_html += '<li>' + html_escape(u.get('name', '') or '(unknown)') + (', ' + html_escape(u.get('email', '')) if u.get('email') else '') + ' <span style="color:#999;">PCO #' + html_escape(u.get('pcoPersonId', '')) + '</span></li>'
             issues_html += '</ul>'
             if len(unm) > 50:
                 issues_html += '<p style="color:#999;font-size:12px;">...and ' + str(len(unm) - 50) + ' more.</p>'
@@ -8007,7 +8111,7 @@ def _format_sync_email_html(result, sch, include_issues, link_back):
             issues_html += '<p><strong>Ambiguous email matches (' + str(len(amb)) + '):</strong> email matches multiple TP people. Use the Verify Person Link tool.</p>'
             issues_html += '<ul>'
             for a in amb[:25]:
-                issues_html += '<li>' + html_escape(a.get('name', '')) + ' &mdash; ' + html_escape(a.get('email', '')) + '</li>'
+                issues_html += '<li>' + html_escape(a.get('name', '')) + ', ' + html_escape(a.get('email', '')) + '</li>'
             issues_html += '</ul>'
 
     # Deep link straight at the mapping this email is about. Both forms are
@@ -8022,7 +8126,7 @@ def _format_sync_email_html(result, sch, include_issues, link_back):
     _people_link = link_back + '?tab=people#people'
 
     return ('<div style="font-family:Segoe UI,Arial,sans-serif;color:#333;">'
-            + '<h2 style="color:#1f4e79;margin-bottom:4px;">PCO Sync &mdash; ' + html_escape(title) + '</h2>'
+            + '<h2 style="color:#1f4e79;margin-bottom:4px;">PCO Sync: ' + html_escape(title) + '</h2>'
             + '<p style="color:#666;font-size:13px;margin-top:0;">Scheduled run &middot; ' + _format_schedule_label(sch or {}) + '</p>'
             + counts_html
             + skipped_html
@@ -10817,6 +10921,8 @@ elif model.HttpMethod == 'post':
         handle_run_scheduled_syncs()
     elif action == 'load_bgc_rules':
         handle_load_bgc_rules()
+    elif action == 'bgc_person_check':
+        handle_bgc_person_check()
     elif action == 'save_bgc_rules':
         handle_save_bgc_rules()
     elif action == 'run_bgc_sync_now':
@@ -11157,7 +11263,7 @@ else:
       // a short answer (shown in the popover) and a full body (shown on the
       // Help tab), so the two can never drift apart.
       var PCO_HELP_ORDER = ['about', 'safety', 'start', 'owners', 'dashboard', 'mappings', 'removal', 'preview',
-        'matching', 'verify', 'reviews', 'fields', 'schedule', 'bgc', 'bgcvalid', 'bgcauto',
+        'matching', 'verify', 'reviews', 'fields', 'schedule', 'bgc', 'bgcvalid', 'bgcauto', 'bgccheck',
         'bgcperm', 'log', 'diag', 'token', 'trouble'];
       var PCO_HELP = {
         about: {
@@ -11307,6 +11413,15 @@ else:
             + '<li><strong>Run a full pass now</strong> rechecks everyone. Use it after fixing data in TouchPoint.</li></ul>'
             + '<p>The line under the buttons says what the last run did. "Nothing was sent" comes with the reason. To see each person\'s check, open the Activity Log with the <strong>Background checks</strong> filter.</p>'
             + '<p>The Background Check field must be set to <strong>TouchPoint to PCO</strong> in Person Data Sync, or nothing is sent.</p>'
+        },
+        bgccheck: {
+          title: 'Proving a check reached PCO',
+          short: 'Check one person asks PCO directly what it has, next to the TouchPoint checks. It is the surest way to know.',
+          body: '<p>There are three places to see it, from quickest to most certain:</p>'
+            + '<ol><li><strong>Run now results.</strong> Each person sent shows a green line starting with &#10003; Confirmed in PCO, with the status, dates and PCO record number PCO returned when the record was read back.</li>'
+            + '<li><strong>Activity Log</strong> with the Background checks filter. Each Sent to PCO row shows the same confirmation. A row that did not match shows as Sent, not confirmed, in red, with what was different.</li>'
+            + '<li><strong>Check one person</strong> on the Background Checks card. It asks PCO live, so it does not depend on any log. Checks this tool sent say <strong>TouchPoint #</strong> and the check number. It also tells you what the next sync would do for that person.</li></ol>'
+            + '<p>You can also open the person in PCO, go to their background checks, and look for a note that starts with <code>TPBC:</code>.</p>'
         },
         bgcperm: {
           title: 'PCO permission for background checks',
@@ -11628,6 +11743,14 @@ else:
           + '  <span class="pco-muted" id="pcoBgcRunStatus" style="font-size:12px;"></span>'
           + '</div>'
           + '<div id="pcoBgcRunResult" style="margin-top:8px;font-size:12px;"></div>'
+          + '<h4 style="margin:18px 0 4px;">Check one person' + hq('bgccheck') + '</h4>'
+          + '<div class="pco-help">Asks PCO directly what it has for one person, next to their TouchPoint checks. Nothing is written.</div>'
+          + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">'
+          + '  <input type="text" id="pcoBgcPersonSearch" class="pco-input" placeholder="Name, email or People ID" style="max-width:280px;">'
+          + '  <button class="pco-btn pco-secondary" id="pcoBgcPersonSearchBtn" style="font-size:12px;padding:4px 10px;">Find</button>'
+          + '</div>'
+          + '<div id="pcoBgcPersonPick" style="margin-top:6px;font-size:13px;"></div>'
+          + '<div id="pcoBgcPersonResult" style="margin-top:8px;font-size:13px;"></div>'
           + '</div>'
           // ----- Activity log ----------------------------------------
           // Writes were being recorded and never shown. A tool that
@@ -11638,7 +11761,7 @@ else:
           + '<div class="pco-help">'
           + 'What this tool has actually done, newest first, from the last few months of logs. '
           + '<strong>Changes only</strong> hides routine sync records and leaves the entries that '
-          + 'altered data &mdash; writes to PCO, person links made or removed, auto-applied field updates.'
+          + 'altered data: writes to PCO, person links made or removed, auto-applied field updates.'
           + '</div>'
           + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">'
           + '<button class="pco-btn pco-secondary" id="pcoAuditLoadBtn" style="font-size:13px;padding:5px 12px;">Load activity</button>'
@@ -11681,8 +11804,8 @@ else:
           + 'It exists for a first-time setup. TouchPoint cannot send PATCH at all (its REST helpers hardcode '
           + 'GET/POST/DELETE) and PCO needs PATCH to change an existing record, so outbound sync depends on '
           + 'PCO honoring a <code>X-HTTP-Method-Override: PATCH</code> header. That behavior is <em>undocumented</em> '
-          + '&mdash; it works against our account, but a new church has no way to know it works against theirs '
-          + 'without either this or configuring field rules and writing to real people to find out. '
+          + '(it works against our account, but a new church has no way to know it works against theirs '
+          + 'without either this or configuring field rules and writing to real people to find out.) '
           + '<strong>This one does write.</strong> It reads the person first and writes back the exact first '
           + 'name it just read, so it is a no-op by construction, then re-reads to prove nothing moved.'
           + '</div>'
@@ -12447,7 +12570,9 @@ else:
             var ch = d.changes || [];
             for (var i = 0; i < ch.length && i < 30; i++) {
               h += '<div style="color:#1f6b3a;">&middot; ' + escHtml(ch[i].name) + ': ' + escHtml(ch[i].status)
-                + ' <span class="pco-muted">' + escHtml(ch[i].reason) + '</span></div>';
+                + ' <span class="pco-muted">' + escHtml(ch[i].reason) + '</span>'
+                + (ch[i].confirmed ? '<div style="margin-left:12px;">&#10003; ' + escHtml(ch[i].confirmed) + '</div>' : '')
+                + '</div>';
             }
             var fl = d.failures || [];
             for (var k = 0; k < fl.length && k < 30; k++) {
@@ -12458,6 +12583,78 @@ else:
           loadBgcRules();
         });
       }
+      function bgcPersonFind() {
+        var term = ($('pcoBgcPersonSearch').value || '').replace(/^\s+|\s+$/g, '');
+        var pick = $('pcoBgcPersonPick');
+        $('pcoBgcPersonResult').innerHTML = '';
+        if (term.length < 2) { pick.textContent = 'Type at least two letters.'; return; }
+        pick.textContent = 'Searching...';
+        ajax('search_tp_people', {search_term: term}, function(err, d){
+          var ppl = (d && d.people) || [];
+          if (err || !ppl.length) { pick.textContent = err ? err : 'No one matched.'; return; }
+          var h = '';
+          for (var i = 0; i < ppl.length && i < 10; i++) {
+            var p = ppl[i];
+            h += '<button type="button" class="pco-btn pco-secondary pco-bgc-pick" data-pid="' + escHtml(String(p.peopleId || p.PeopleId || '')) + '"'
+              + ' style="font-size:12px;padding:3px 8px;margin:0 6px 6px 0;">' + escHtml(p.name || p.Name || '')
+              + (p.age ? ' (' + escHtml(String(p.age)) + ')' : '')
+              + (p.pcoPersonId ? '' : ' <span class="pco-muted">not linked</span>') + '</button>';
+          }
+          pick.innerHTML = h;
+        });
+      }
+      function bgcPersonShow(pid) {
+        var res = $('pcoBgcPersonResult');
+        res.innerHTML = '<span class="pco-muted">Asking PCO...</span>';
+        ajax('bgc_person_check', {tp_people_id: pid}, function(err, d){
+          if (err || !d || !d.success) { res.innerHTML = '<span class="pco-pill pco-err">Error</span> ' + escHtml((d && d.message) || err); return; }
+          var h = '<div style="display:flex;gap:16px;flex-wrap:wrap;">';
+          h += '<div style="flex:1;min-width:260px;"><strong>TouchPoint</strong>';
+          if (!d.tpChecks.length) h += '<div class="pco-muted">No background checks.</div>';
+          else {
+            h += '<table class="pco-table" style="font-size:12px;"><thead><tr><th>#</th><th>Result</th><th>Package</th><th>Date</th></tr></thead><tbody>';
+            for (var i = 0; i < d.tpChecks.length; i++) {
+              var c = d.tpChecks[i];
+              h += '<tr' + (c.skip ? ' style="color:#888;"' : '') + '><td>' + c.id + '</td><td>' + escHtml(c.approval)
+                + (c.skip ? '<div style="font-size:11px;">' + escHtml(c.skip) + '</div>' : '') + '</td><td>'
+                + escHtml(c.type) + '</td><td>' + escHtml(c.completed) + '</td></tr>';
+            }
+            h += '</tbody></table>';
+          }
+          h += '</div><div style="flex:1;min-width:260px;"><strong>Planning Center, right now</strong>';
+          if (d.pcoError) h += '<div style="color:#a00;">' + escHtml(d.pcoError) + '</div>';
+          else if (!d.pcoChecks.length) h += '<div class="pco-muted">No background checks in PCO.</div>';
+          else {
+            h += '<table class="pco-table" style="font-size:12px;"><thead><tr><th>Status</th><th>Completed</th><th>Expires</th><th>From</th></tr></thead><tbody>';
+            for (var k = 0; k < d.pcoChecks.length; k++) {
+              var pc = d.pcoChecks[k];
+              h += '<tr><td>' + escHtml(pc.status) + '</td><td>' + escHtml(pc.completed || '') + '</td><td>'
+                + escHtml(pc.expires || '') + '</td><td>'
+                + (pc.fromTouchPoint ? 'TouchPoint #' + pc.fromTouchPoint : 'PCO') + (pc.hasReport ? ', report link' : '') + '</td></tr>';
+            }
+            h += '</tbody></table>';
+          }
+          h += '</div></div>';
+          if (d.next) {
+            var a = d.next.action;
+            var line = a === 'none' ? 'Next sync: nothing to send. ' : ('Next sync: will ' + (a === 'create' ? 'add' : 'update')
+              + ' TouchPoint #' + d.next.tpCheckId + ' as ' + d.next.status + (d.next.expires ? ', expiring ' + d.next.expires : '') + '. ');
+            if (d.next.repairs) line += d.next.repairs + ' old record(s) will be corrected. ';
+            h += '<div style="margin-top:8px;padding:8px 10px;background:' + (a === 'none' ? '#eef7f0' : '#fff6e5') + ';border-radius:4px;">'
+              + escHtml(line) + '<span class="pco-muted">' + escHtml(d.next.reason) + '</span></div>';
+          }
+          res.innerHTML = h;
+        });
+      }
+      document.addEventListener('keydown', function(ev){
+        if (ev.key === 'Enter' && ev.target && ev.target.id === 'pcoBgcPersonSearch') { ev.preventDefault(); bgcPersonFind(); }
+      });
+      document.addEventListener('click', function(ev){
+        var t = ev.target;
+        if (t && t.className && String(t.className).indexOf('pco-bgc-pick') >= 0) { bgcPersonShow(t.getAttribute('data-pid')); return; }
+        if (t && t.parentNode && t.parentNode.className && String(t.parentNode.className).indexOf('pco-bgc-pick') >= 0) { bgcPersonShow(t.parentNode.getAttribute('data-pid')); return; }
+        if (t && t.id === 'pcoBgcPersonSearchBtn') { bgcPersonFind(); return; }
+      });
       document.addEventListener('click', function(ev){
         var t = ev.target;
         if (!t || !t.id) return;
@@ -13175,7 +13372,7 @@ else:
         var primary = s.planInfo.serviceTypeName || s.planInfo.title || 'Plan';
         var datePart = s.planInfo.shortDates || s.planInfo.planDateIso || '';
         var planSub = (s.planInfo.planTitle && s.planInfo.planTitle !== primary) ? s.planInfo.planTitle : '';
-        var titleText = primary + (datePart ? ' — ' + datePart : '');
+        var titleText = primary + (datePart ? ', ' + datePart : '');
         if (planSub) titleText += ' (' + planSub + ')';
         $('pcoModalTitle').textContent = titleText;
         var summary = s.summary;
@@ -13218,7 +13415,7 @@ else:
             diagMsg = '<strong>' + pc + ' position(s) defined but no one is assigned</strong> to any of them in PCO. The roster will sync but no subgroups will be written. Assign people to positions in PCO to enable subgroup sync.';
           } else if (pwpc === 0) {
             diagStyle = 'background:#fff7e6;border-left:3px solid #f0c36d;color:#8a6d3b;';
-            diagMsg = '<strong>' + pc + ' position(s), ' + pac + ' assignment(s)</strong> &mdash; but none of them matched a person on this team\'s roster. (Possible PCO data drift.)';
+            diagMsg = '<strong>' + pc + ' position(s), ' + pac + ' assignment(s)</strong>, but none of them matched a person on this team\'s roster. (Possible PCO data drift.)';
           } else {
             diagStyle = 'background:#e6f7e6;border-left:3px solid #1f6b3a;color:#1f6b3a;';
             diagMsg = '<strong>' + pc + ' position(s), ' + pac + ' assignment(s)</strong> across ' + pwpc + ' person/people. Subgroups will sync.';
@@ -14154,7 +14351,7 @@ else:
             renderPlanPreviewModal('<div class="pco-pill pco-err">Error</div><div>' + escHtml((d && d.message) || err) + '</div>');
             return;
           }
-          $('pcoModalTitle').textContent = 'All People Sync — ' + (d.totalPco || 0) + ' PCO record(s)';
+          $('pcoModalTitle').textContent = 'All People Sync: ' + (d.totalPco || 0) + ' PCO record(s)';
           var body = $('pcoModalBody');
           var sample = d.unmatchedSample || [];
           var sampleHtml = '';
@@ -15330,7 +15527,7 @@ else:
           + '<div id="pcoPeopleSyncSummary" class="pco-muted" style="margin-bottom:10px;font-size:13px;"></div>'
           // PROPOSED MATCHES section -- the main matching tool.
           + '<div class="pco-day-header" style="margin:8px 0 6px 0;padding:8px 12px;background:#0f7c84;color:#fff;border-radius:4px;font-size:14px;font-weight:700;letter-spacing:0.5px;">PROPOSED MATCHES' + hq('matching') + ' <span style="font-weight:400;font-size:12px;opacity:0.85;">(score-based, supports bulk Apply)</span></div>'
-          + '<div id="pcoProposedMatches" class="pco-empty" style="margin-bottom:14px;">Click <strong>Load proposed matches</strong> to score TP candidates for every unmatched PCO record. Walks the entire PCO People directory (takes a few seconds), unless you opened this from a specific preview &mdash; then it scopes to those records only.</div>'
+          + '<div id="pcoProposedMatches" class="pco-empty" style="margin-bottom:14px;">Click <strong>Load proposed matches</strong> to score TP candidates for every unmatched PCO record. Walks the entire PCO People directory (takes a few seconds), unless you opened this from a specific preview, in which case it scopes to those records only.</div>'
           + '<div style="margin-top:8px;margin-bottom:18px;display:flex;gap:8px;align-items:center;">'
           + '  <button class="pco-btn" id="pcoLoadProposedBtn" style="font-size:13px;padding:5px 12px;">Load proposed matches</button>'
           + '  <span class="pco-muted" id="pcoProposedHint" style="font-size:12px;">Walks PCO + scores name/email/birthdate signals against TP.</span>'
@@ -16091,7 +16288,7 @@ else:
                  + '<span class="pco-muted">TP #' + escHtml(p.peopleId || '') + '</span>'
                  + (bits.length ? '<div class="pco-muted">' + bits.join(' &middot; ') + '</div>' : '')
                  + (taken ? '<div style="color:#8a6d3b;">Already linked to PCO #'
-                            + escHtml(p.pcoPersonId) + ' &mdash; linking here replaces that.</div>' : '')
+                            + escHtml(p.pcoPersonId) + '. Linking here replaces that.</div>' : '')
                  + '</div>'
                  + '<button class="pco-btn' + (taken ? ' pco-secondary' : '') + ' pco-manual-link"'
                  + ' data-pco-id="' + escAttr(pcoId) + '"'
