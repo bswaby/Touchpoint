@@ -64,8 +64,6 @@ Everything configurable sits in the CONFIGURATION blocks below. Check:
   * ALLOWED_ROLES       who can open the page (default Finance, Admin,
                         ManageApplication). Someone with only FinanceAdmin,
                         for example, will be turned away until you add it.
-  * CONTACT_API_PREFIX  your Fortis contact prefix (how to find it is in
-                        the comment next to it).
   * UTC_OFFSET_HOURS    your time zone, so times read correctly.
 Email alerts are optional; the "Setup and email alerts" checklist at the
 bottom of the Health & flow tab walks through them with the code ready to
@@ -126,10 +124,15 @@ or your phone. No tab switching, no lost context.
 https://tpxigo.com
 ----------------------------------------------------------------
 
-Version: 2.5
+Version: 2.5.1
 
 RELEASE NOTES
 -------------
+2.5.1 (November 2026)
+  * Removed the CONTACT_API_PREFIX setting. The page never used it: people
+    are matched from the number at the end of contact_api_id, whatever
+    your site's prefix is. Nothing to set.
+
 2.5 (November 2026)
   * Timeline on each IP's page: everything TouchPoint logged from that
     address, plus what the same people did anywhere else in the window.
@@ -241,15 +244,6 @@ ACH_SETTLE_WARN_DAYS = 5
 # webhook, so its rows legitimately have no SettleDate. Only ACH is tracked
 # through the pipeline.
 SETTLED_STATUS = 134
-
-# Fortis stores each synced contact with a contact_api_id built from a site
-# prefix plus the TouchPoint PeopleId, e.g. "MYCHURCH12345". TouchPoint sets
-# the prefix per site, so CHANGE THIS to match yours or contact-sync denials
-# will not resolve back to a person.
-#
-# To find it: open the Denials tab, look at a Street Length or Last Name
-# denial, and read the contact_api_id out of the request body.
-CONTACT_API_PREFIX = "MYCHURCH"
 
 DEFAULT_DAYS = 90
 MAX_DETAIL_ROWS = 1000  # safety cap on the detail table
@@ -461,10 +455,8 @@ def last4_from_account(acct):
 
 
 def people_id_from_contact_api(body):
-    """Contacts carry contact_api_id '<CONTACT_API_PREFIX><PeopleId>'.
-
-    Returns the PeopleId, or empty if the prefix does not match -- which
-    usually means CONTACT_API_PREFIX is still set to the default.
+    """Contacts carry contact_api_id '<site prefix><PeopleId>'. The prefix
+    differs per site, so take the trailing digits and ignore it.
     """
     if not body:
         return None
