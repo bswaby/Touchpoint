@@ -91,6 +91,51 @@
 #       workflow with no lookup table. Updated is the completion date.
 #
 # Changelog:
+#   1.0.8  (2026-11-05)  Settings sub-pages.
+#                          - Settings has a menu on the left, grouped as
+#                            Connection, Sync, Background checks and Records.
+#                            One section shows at a time, and each has its own
+#                            link (#settings/bgc-check). Background checks is
+#                            split into Overview, How long valid, Automatic
+#                            sync and Check one person. Narrow screens get a
+#                            dropdown instead of the menu.
+#                          - The menu shows whether Planning Center is
+#                            connected and how many person fields are on.
+#                          - Sync Mappings: a summary strip on top (All
+#                            People, service types, teams, conflicts; each
+#                            jumps to its place), one "+ Add mapping" that
+#                            asks what you want to sync, the "Which mapping"
+#                            guide folded to one line, a one-line direction
+#                            note, and sections that fold and remember it.
+#                          - Sync Dashboard: a status line first (what needs
+#                            attention, the last scheduled run). Plans start
+#                            at today; earlier days fold under "Earlier
+#                            plans". Filter by service type, or to plans
+#                            never synced.
+#                          - Settings, Planning Center: "What this connection
+#                            can do". One harmless read per right (People,
+#                            Services, background checks), next to what this
+#                            site uses it for, with the fix in PCO when it is
+#                            refused. A token carries the PCO permissions of
+#                            the person who made it, so most "it won't sync"
+#                            problems are fixed in PCO, not here.
+#                          - The PCO App ID and Secret are kept in TouchPoint
+#                            settings. Moved automatically on first use.
+#                          - People Matching: a summary strip (linked, data
+#                            changes waiting, PCO people not matched as of the
+#                            last load), data changes waiting first, then
+#                            proposed matches, then Check one person's link.
+#   1.0.7  (2026-11-05)  Send one person.
+#                          - Check one person: "Send this person to PCO now"
+#                            writes just that person's background check, reads
+#                            it back, and shows the check again. A safe first
+#                            live write before a full run.
+#                          - The tables on that card had no space between
+#                            columns.
+#                          - The PCO note no longer says "issues: 1" on
+#                            MinistrySafe checks. TouchPoint marks every
+#                            completed MinistrySafe check that way to force a
+#                            review; it is not a finding.
 #   1.0.6  (2026-11-04)  Help.
 #                          - Help tab: the plain-language overview, then a
 #                            topic for each part of the tool, searchable.
@@ -472,7 +517,7 @@ import base64
 model.Header = 'PCO Sync'
 
 # --- Version / Auto-update -------------------------------------------
-APP_VERSION = '1.0.6'
+APP_VERSION = '1.0.8'
 DC_SCRIPT_ID = 'TPxi_PCOSync'
 
 # v3.3.1: scheduler install (matches ProspectBuilder pattern). We
@@ -1407,8 +1452,11 @@ def background_check_pco_payload(c, validity_months=None, rules=None):
         bits.append('approval: ' + safe_str(c['approval']))
     if c.get('checkType'):
         bits.append('type: ' + background_check_type_label(c['checkType']))
-    if int(c.get('issueCount', 0) or 0) > 0:
-        bits.append('issues: %d' % int(c['issueCount']))
+    # MinistrySafe sets IssueCount = 1 on EVERY completed check (TouchPoint
+    # uses it to force a manual review), so it says nothing there. Protect My
+    # Ministry sets it only when the result came back other than SUCCESS.
+    if int(c.get('issueCount', 0) or 0) > 0 and int(c.get('reportType', 0) or 0) != 2:
+        bits.append('flagged for review in TouchPoint')
 
     out = {'status': status, 'note': ' | '.join(bits)}
     if completed:
@@ -2338,13 +2386,49 @@ def get_data(name, default=''):
 # PCOSync_Settings; we don't take it from the request, so a stolen request
 # can't leak it.
 
+# 1.0.8: the App ID and Secret live in TouchPoint settings.
+CRED_SETTING_APP = 'PCOSync_AppId'
+CRED_SETTING_SECRET = 'PCOSync_Secret'
+
+
+def _cred_read():
+    try:
+        return (safe_str(model.Setting(CRED_SETTING_APP, '') or '').strip(),
+                safe_str(model.Setting(CRED_SETTING_SECRET, '') or '').strip())
+    except Exception:
+        return '', ''
+
+
+def _cred_write(app_id, secret):
+    model.SetSetting(CRED_SETTING_APP, app_id or '')
+    model.SetSetting(CRED_SETTING_SECRET, secret or '')
+
+
+def _cred_migrate():
+    """Move credentials saved by 1.0.7 and earlier into settings. Runs
+    whenever they are looked up, so an upgrade moves them on its first page
+    load or scheduled run."""
+    s = load_json(SETTINGS_KEY, {})
+    if not isinstance(s, dict) or not (s.get('pco_app_id') or s.get('pco_secret')):
+        return
+    app_id, secret = _cred_read()
+    if not app_id and not secret:
+        _cred_write((s.get('pco_app_id') or '').strip(), (s.get('pco_secret') or '').strip())
+        app_id, secret = _cred_read()
+        if not app_id or not secret:
+            return  # the write did not stick; leave the old copy in place
+    s.pop('pco_app_id', None)
+    s.pop('pco_secret', None)
+    save_json(SETTINGS_KEY, s)
+
+
 def _get_pco_credentials():
     """Return (app_id, secret) or (None, None) if not configured."""
-    s = load_json(SETTINGS_KEY, {})
-    if not isinstance(s, dict):
-        return None, None
-    app_id = (s.get('pco_app_id') or '').strip()
-    secret = (s.get('pco_secret') or '').strip()
+    try:
+        _cred_migrate()
+    except Exception:
+        pass
+    app_id, secret = _cred_read()
     if not app_id or not secret:
         return None, None
     return app_id, secret
@@ -4244,6 +4328,143 @@ def handle_save_bgc_rules():
         print json.dumps({'success': False, 'message': 'Save failed: ' + safe_str(e)})
 
 
+def handle_bgc_send_one():
+    """Writes ONE person's background check to PCO, the same way a run does,
+    so the first live write can be someone you know. Logged like a run."""
+    try:
+        if safe_str(get_data('confirm', '')) != 'WRITE':
+            print json.dumps({'success': False, 'message': 'Confirmation missing.'})
+            return
+        tp_id = safe_int(get_data('tp_people_id', '0'), 0)
+        pco_id = ''
+        try:
+            pco_id = safe_str(model.ExtraValueText(tp_id, PCO_PERSON_ID_FIELD) or '').strip()
+        except Exception:
+            pco_id = ''
+        if tp_id <= 0 or not pco_id:
+            print json.dumps({'success': False, 'message': 'This person is not linked to PCO.'})
+            return
+        rules = normalize_person_sync_rules(load_json(PERSON_SYNC_RULES_KEY, {}))
+        if person_field_direction(rules, 'background_check') != 'tp_to_pco':
+            print json.dumps({'success': False, 'message': 'The Background Check field is not set to '
+                              'TouchPoint -> PCO (People Sync tab, field rules), so nothing was sent.'})
+            return
+        if not PCO_WRITE_ENABLED:
+            print json.dumps({'success': False, 'message': 'TouchPoint -> PCO writing is switched off in this build.'})
+            return
+        reset_pco_retry_budget(60)
+        caps = pco_run_capabilities()
+        if not caps.get('backgroundChecks', True):
+            print json.dumps({'success': False, 'message': caps.get('backgroundChecksReason', 'Background checks unavailable.')})
+            return
+        plan = plan_tp_to_pco_for_person(tp_id, pco_id, rules, caps, only_fields=('background_check',))
+        out = execute_tp_to_pco_plan(plan, apply=True)
+        items = []
+        for it in out.get('items') or []:
+            items.append({'action': safe_str(it.get('action', '')), 'result': safe_str(it.get('result', '')),
+                          'status': safe_str(it.get('tpValue', '')),
+                          'reason': safe_str(it.get('reason', ''))[:200],
+                          'confirmed': safe_str(it.get('confirmed', ''))[:300]})
+        errors = [safe_str(e)[:300] for e in (out.get('errors') or [])]
+        written = len([i for i in items if i['result'] in ('written', 'written_mismatch')])
+        append_audit({'action': 'sync_background_checks', 'trigger': 'one person',
+                      'tpPeopleId': tp_id, 'checked': 1, 'created': written,
+                      'failed': 1 if (errors or out.get('failed', 0)) else 0})
+        print json.dumps({'success': True, 'items': items, 'errors': errors,
+                          'failed': out.get('failed', 0), 'stuck': out.get('stuck', 0)})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': 'Send failed: ' + safe_str(e)})
+
+
+def _rights_probe(path):
+    """(ok, detail) for one read. ok is True, False (refused) or None
+    (could not tell, e.g. PCO was busy)."""
+    data, err = pco_get(path)
+    if not err:
+        return True, ''
+    low = safe_str(err).lower()
+    if '403' in err or 'forbidden' in low or 'not have access' in low:
+        return False, 'PCO refused (403).'
+    if '401' in err or 'unauthorized' in low:
+        return False, 'PCO did not accept the App ID and Secret (401).'
+    return None, safe_str(err)[:200]
+
+
+def handle_check_pco_rights():
+    """What the PCO user behind this token may do, one harmless read per
+    right, next to what this site uses it for. A personal access token
+    carries the PCO permissions of the person who created it, so a refusal
+    is fixed in PCO (that person's permissions), never in this tool. Read
+    only: rights that need a write are reported as not tested."""
+    try:
+        rules = normalize_person_sync_rules(load_json(PERSON_SYNC_RULES_KEY, {}))
+        uses_bgc = person_field_direction(rules, 'background_check') == 'tp_to_pco'
+        uses_out = False
+        for f in PERSON_SYNC_FIELDS:
+            if f['key'] != 'background_check' and person_field_direction(rules, f['key']) == 'tp_to_pco':
+                uses_out = True
+        pm = load_json(PEOPLE_MAPPINGS_KEY, {})
+        tm = load_json(TEAM_MAPPINGS_KEY, {})
+        uses_services = bool(pm) or bool(tm)
+
+        who, admin_bits = '', []
+        me, err = pco_get('/people/v2/me')
+        if not err and isinstance(me, dict):
+            a = (me.get('data') or {}).get('attributes') or {}
+            who = safe_str(a.get('name') or (safe_str(a.get('first_name', '')) + ' ' + safe_str(a.get('last_name', ''))).strip())
+            if a.get('site_administrator') is True:
+                admin_bits.append('Organization Administrator')
+            if a.get('people_permissions'):
+                admin_bits.append('People: ' + safe_str(a.get('people_permissions')))
+        person = who or 'the PCO user who created this App ID and Secret'
+
+        checks = []
+        ok, detail = _rights_probe('/people/v2/people?per_page=1')
+        checks.append({'key': 'people', 'label': 'Read People', 'needed': True,
+                       'usedFor': 'Matching people, All People, and every person field.',
+                       'ok': ok, 'detail': detail,
+                       'fix': 'In PCO, give ' + person + ' access to the People app (Viewer or higher).'})
+        ok, detail = _rights_probe('/services/v2/service_types?per_page=1')
+        checks.append({'key': 'services', 'label': 'Read Services', 'needed': uses_services,
+                       'usedFor': 'Service type and team mappings, plans and attendance.',
+                       'ok': ok, 'detail': detail,
+                       'fix': 'In PCO, give ' + person + ' access to the Services app for the service types you sync.'})
+        ok, detail = _rights_probe('/people/v2/background_checks?per_page=1')
+        checks.append({'key': 'bgc', 'label': 'Background checks', 'needed': uses_bgc,
+                       'usedFor': 'Sending background checks to PCO. The sync reads first so it never adds a duplicate.',
+                       'ok': ok, 'detail': detail,
+                       'fix': 'In PCO People, open ' + person + ', then Permissions, and make them an Organization '
+                              'Administrator or give them background check access. The same App ID and Secret '
+                              'work once that is saved.'})
+        checks.append({'key': 'write', 'label': 'Change people in PCO', 'needed': uses_out,
+                       'usedFor': 'Person fields you set to TouchPoint to PCO.',
+                       'ok': None, 'detail': 'Not tested here, because testing it means writing.',
+                       'fix': 'Needs People permission of Editor or higher. Settings, Diagnostics has a write '
+                              'probe that writes a name back unchanged.'})
+        print json.dumps({'success': True, 'who': who, 'roles': admin_bits, 'checks': checks,
+                          'problem': any(c['needed'] and c['ok'] is False for c in checks)})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': 'Could not check permissions: ' + safe_str(e)})
+
+
+def handle_people_match_summary():
+    """Counts for the People Matching strip. Cheap: one SQL count, no PCO
+    call. Unmatched PCO people need the full PCO walk, so the page shows the
+    number from the last time Proposed Matches was loaded instead."""
+    try:
+        n = 0
+        for r in q.QuerySql("""
+            SELECT COUNT(*) AS N FROM PeopleExtra pe WITH (NOLOCK)
+            JOIN People p WITH (NOLOCK) ON p.PeopleId = pe.PeopleId
+            WHERE pe.Field = '%s'
+              AND COALESCE(NULLIF(pe.Data, ''), pe.StrValue, '') <> ''
+              AND p.IsDeceased = 0 AND p.ArchivedFlag = 0""" % PCO_PERSON_ID_FIELD):
+            n = int(r.N or 0)
+        print json.dumps({'success': True, 'linked': n})
+    except Exception as e:
+        print json.dumps({'success': False, 'message': safe_str(e)})
+
+
 def handle_run_bgc_sync_now():
     """Manual run of the same step the schedule runs. It writes to PCO."""
     try:
@@ -4728,13 +4949,14 @@ def handle_load_settings():
         s = {}
     out = {
         'success': True,
-        'hasCredentials': bool(s.get('pco_app_id') and s.get('pco_secret')),
+        'hasCredentials': bool(_get_pco_credentials()[0]),
         'appIdMasked': '',
         'lastSyncAt': s.get('lastSyncAt', ''),
         'backgroundCheckValidityMonths': background_check_validity_months(),
     }
-    if s.get('pco_app_id'):
-        aid = str(s['pco_app_id'])
+    _aid = _cred_read()[0]
+    if _aid:
+        aid = str(_aid)
         if len(aid) > 8:
             out['appIdMasked'] = aid[:4] + '...' + aid[-4:]
         else:
@@ -4749,14 +4971,14 @@ def handle_save_settings():
         s = load_json(SETTINGS_KEY, {})
         if not isinstance(s, dict):
             s = {}
-        if app_id:
-            s['pco_app_id'] = app_id
-        elif get_data('clear_credentials', '') == 'true':
-            s.pop('pco_app_id', None)
-        if secret:
-            s['pco_secret'] = secret
-        elif get_data('clear_credentials', '') == 'true':
-            s.pop('pco_secret', None)
+        cur_app, cur_secret = _cred_read()
+        if get_data('clear_credentials', '') == 'true':
+            _cred_write('', '')
+        elif app_id or secret:
+            _cred_write(app_id or cur_app, secret or cur_secret)
+        # Older versions kept them here; drop any copy.
+        s.pop('pco_app_id', None)
+        s.pop('pco_secret', None)
         # Background check validity window, in months. Absent field leaves
         # the stored value alone; an explicit empty string clears it back to
         # "let PCO's own expiration policy decide".
@@ -6388,8 +6610,24 @@ def handle_list_recent_plans():
                 'nextRunIso': nxt.strftime('%Y-%m-%dT%H:%M:%S') if nxt else '',
             }
 
+        # 1.0.8: for the status line. Each mapping keeps its own schedule.
+        last_sched, n_sched = '', 0
+        for store in (people_map_raw, team_map_raw, {'ap': all_people_raw}):
+            if not isinstance(store, dict):
+                continue
+            for v in store.values():
+                sch_raw = v.get('schedule') if isinstance(v, dict) else None
+                if not isinstance(sch_raw, dict):
+                    continue
+                if sch_raw.get('enabled'):
+                    n_sched += 1
+                ls = safe_str(sch_raw.get('lastScheduledRunAt', ''))
+                if ls > last_sched:
+                    last_sched = ls
         resp = {
             'success': True,
+            'lastScheduledRunAt': last_sched,
+            'scheduledCount': n_sched,
             'plans': per_plan_plans,
             'planCount': len(per_plan_plans),
             'rosterRollups': rollup_list,
@@ -10927,6 +11165,8 @@ elif model.HttpMethod == 'post':
         handle_save_bgc_rules()
     elif action == 'run_bgc_sync_now':
         handle_run_bgc_sync_now()
+    elif action == 'bgc_send_one':
+        handle_bgc_send_one()
     # v3.3.1: scheduler install (auto-add to ScheduledTasks)
     elif action == 'check_scheduler_install':
         handle_check_scheduler_install()
@@ -11001,6 +11241,10 @@ elif model.HttpMethod == 'post':
         handle_save_person_sync_rules()
     elif action == 'list_pending_person_changes':
         handle_list_pending_person_changes()
+    elif action == 'people_match_summary':
+        handle_people_match_summary()
+    elif action == 'check_pco_rights':
+        handle_check_pco_rights()
     elif action == 'apply_person_change':
         handle_apply_person_change()
     elif action == 'skip_person_change':
@@ -11069,6 +11313,49 @@ else:
 
     .pco-card { background: #fff; border: 1px solid #e1e4e8; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
     .pco-card h3 { margin: 0 0 10px 0; font-size: 16px; color: #1f4e79; }
+    .pco-map-strip { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+    .pco-map-chip { display: inline-flex; gap: 6px; align-items: center; padding: 5px 12px; border-radius: 999px; border: 1px solid #e1e4e8; background: #fff; color: #333; text-decoration: none; font-size: 13px; }
+    .pco-map-chip:hover { border-color: #0f7c84; }
+    .pco-map-chip.bad { border-color: #c0392b; color: #c0392b; background: #fdf3f2; }
+    .pco-map-chip.warn { border-color: #d98324; color: #8a5300; background: #fff6e5; }
+    .pco-map-chooser { border: 1px solid #0f7c84; border-radius: 8px; padding: 14px; margin-bottom: 12px; background: #fff; }
+    .pco-map-kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 8px 0; }
+    .pco-map-kind { text-align: left; border: 1px solid #e1e4e8; border-radius: 8px; padding: 10px 12px; background: #fff; cursor: pointer; font: inherit; }
+    .pco-map-kind:hover { border-color: #0f7c84; }
+    .pco-map-kind b { display: block; font-size: 14px; color: #1f4e79; margin-bottom: 2px; }
+    .pco-map-kind span { font-size: 12px; color: #777; }
+    .pco-map-kind[disabled] { opacity: .55; cursor: default; }
+    details.pco-map-guide { margin-bottom: 12px; font-size: 13px; }
+    details.pco-map-guide > summary { cursor: pointer; color: #0f7c84; }
+    details.pco-map-sec > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    details.pco-map-sec > summary::-webkit-details-marker { display: none; }
+    details.pco-map-sec > summary h3 { margin: 0; }
+    .pco-map-car { color: #888; font-size: 11px; width: 10px; display: inline-block; transition: transform .12s; }
+    details.pco-map-sec[open] .pco-map-car { transform: rotate(90deg); }
+    details.pco-map-sec[open] > summary { margin-bottom: 10px; }
+    .pco-map-count { margin-left: auto; font-size: 12px; color: #888; }
+    .pco-set-shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 20px; align-items: start; }
+    .pco-set-nav { position: sticky; top: 10px; }
+    .pco-set-grp { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #888; font-weight: 700; margin: 14px 10px 4px; }
+    .pco-set-grp:first-child { margin-top: 0; }
+    .pco-set-nav a { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; color: #333; text-decoration: none; font-size: 14px; }
+    .pco-set-nav a:hover { background: #f0f3f6; }
+    .pco-set-nav a.on { background: #e3f2f3; color: #0f7c84; font-weight: 600; }
+    .pco-set-nav .pco-set-st { margin-left: auto; font-size: 11px; color: #888; font-weight: 400; }
+    .pco-set-dot { width: 8px; height: 8px; border-radius: 50%; background: #d5dade; flex: none; }
+    .pco-set-dot.ok { background: #1f7a46; } .pco-set-dot.bad { background: #b3261e; }
+    .pco-set-pick { display: none; margin-bottom: 12px; }
+    .pco-set-main { min-width: 0; }
+    .pco-set-crumb { font-size: 12px; color: #888; margin-bottom: 2px; }
+    .pco-set-ov { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 10px; }
+    .pco-set-ov a { border: 1px solid #e1e4e8; border-radius: 8px; padding: 12px; text-decoration: none; color: #333; display: block; }
+    .pco-set-ov a:hover { border-color: #0f7c84; }
+    .pco-set-ov b { display: block; font-size: 14px; margin-bottom: 4px; color: #0f7c84; }
+    @media (max-width: 760px) {
+      .pco-set-shell { grid-template-columns: minmax(0, 1fr); }
+      .pco-set-nav { display: none; }
+      .pco-set-pick { display: block; }
+    }
     .pco-help { font-size: 12px; color: #777; margin: 6px 0; line-height: 1.5; }
     .pco-hq { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: 6px; padding: 0; border: 1px solid #9fb3c8; border-radius: 50%; background: #fff; color: #1f4e79; font-size: 11px; font-weight: 700; line-height: 1; cursor: pointer; vertical-align: middle; }
     .pco-hq:hover, .pco-hq:focus { background: #1f4e79; color: #fff; border-color: #1f4e79; outline: none; }
@@ -11112,6 +11399,8 @@ else:
 
     .pco-empty { text-align: center; color: #888; padding: 40px 20px; font-size: 14px; }
     .pco-muted { color: #888; font-size: 12px; }
+    .pco-table { border-collapse: collapse; }
+    .pco-table th, .pco-table td { padding: 3px 12px 3px 0; text-align: left; vertical-align: top; }
 
     /* Loading spinner -- used by the Proposed Matches walk + similar
        multi-second waits where users otherwise think the page froze. */
@@ -11233,7 +11522,8 @@ else:
         var focus = '';
         if (parts[1] === 'org' && parts[2]) focus = String(parts[2]).replace(/[^0-9]/g, '');
         var helpKey = (tab === 'help' && parts[1]) ? String(parts[1]).replace(/[^a-z]/g, '') : '';
-        return {tab: tab, focusOrg: focus, helpKey: helpKey};
+        var setSec = (tab === 'settings' && parts[1]) ? String(parts[1]).replace(/[^a-z-]/g, '') : '';
+        return {tab: tab, focusOrg: focus, helpKey: helpKey, setSec: setSec};
       }
 
       // Scroll to and flash a mapping row. The list loads async, so this is
@@ -11623,6 +11913,183 @@ else:
 
       // ---- Settings tab (the only working tab in v1.0.0) ---------
 
+      // ---- Settings sub-pages (1.0.8) ----------------------------
+      // The cards are built exactly as before, then moved (not copied) into
+      // one section each, so every id and handler still works. Background
+      // Checks is split at its <h4> headings. Each card is found by the key
+      // of its help button, not by position.
+      var PCO_SET_SEC = '';
+      var PCO_SET_MENU = [
+        ['Connection', [['pco', 'Planning Center', 'token']]],
+        ['Sync', [['fields', 'Person fields', 'fields'], ['schedule', 'Schedule', 'schedule']]],
+        ['Background checks', [['bgc', 'Overview', 'bgc'], ['bgc-valid', 'How long valid', 'bgcvalid'],
+                               ['bgc-auto', 'Automatic sync', 'bgcauto'], ['bgc-check', 'Check one person', 'bgccheck']]],
+        ['Records', [['log', 'Activity log', 'log'], ['diag', 'Diagnostics', 'diag']]]
+      ];
+
+      function pcoSettingsLayout(host) {
+        var byHelp = {};
+        var cards = [];
+        for (var i = 0; i < host.children.length; i++) {
+          var c = host.children[i];
+          if (!c.classList || !c.classList.contains('pco-card')) continue;
+          cards.push(c);
+          var hb = c.querySelector('h3 .pco-hq');
+          if (hb) byHelp[hb.getAttribute('data-help')] = c;
+        }
+        var secs = {};
+        function wrap(key, group, nodes) {
+          var d = document.createElement('div');
+          d.className = 'pco-set-sec';
+          d.setAttribute('data-sec', key);
+          var cr = document.createElement('div');
+          cr.className = 'pco-set-crumb';
+          cr.textContent = group;
+          d.appendChild(cr);
+          for (var n = 0; n < nodes.length; n++) d.appendChild(nodes[n]);
+          secs[key] = d;
+        }
+        function groupOf(key) {
+          for (var g = 0; g < PCO_SET_MENU.length; g++)
+            for (var k = 0; k < PCO_SET_MENU[g][1].length; k++)
+              if (PCO_SET_MENU[g][1][k][0] === key) return PCO_SET_MENU[g][0];
+          return '';
+        }
+        // Background Checks: split at each <h4> into its own card.
+        var bgc = byHelp.bgc;
+        if (bgc) {
+          var parts = {bgcvalid: [], bgcauto: [], bgccheck: []}, cur = null;
+          var kids = Array.prototype.slice.call(bgc.childNodes);
+          for (var j = 0; j < kids.length; j++) {
+            var el = kids[j];
+            if (el.tagName === 'H4') {
+              var hk = el.querySelector('.pco-hq');
+              cur = hk ? hk.getAttribute('data-help') : null;
+              if (cur && parts[cur]) {
+                var h3 = document.createElement('h3');
+                while (el.firstChild) h3.appendChild(el.firstChild);
+                parts[cur].push(h3);
+                bgc.removeChild(el);
+                continue;
+              }
+            }
+            if (cur && parts[cur]) { bgc.removeChild(el); parts[cur].push(el); }
+          }
+          var map = {bgcvalid: 'bgc-valid', bgcauto: 'bgc-auto', bgccheck: 'bgc-check'};
+          for (var pk in map) {
+            var card = document.createElement('div');
+            card.className = 'pco-card';
+            for (var q = 0; q < parts[pk].length; q++) card.appendChild(parts[pk][q]);
+            wrap(map[pk], 'Background checks', [card]);
+          }
+          var ov = document.createElement('div');
+          ov.className = 'pco-set-ov';
+          ov.innerHTML = '<a href="#settings/bgc-valid"><b>How long valid</b><span class="pco-muted">How long an approved check counts, per package.</span></a>'
+            + '<a href="#settings/bgc-auto"><b>Automatic sync</b><span class="pco-muted">Run now, and the schedule that sends changes to PCO.</span></a>'
+            + '<a href="#settings/bgc-check"><b>Check one person</b><span class="pco-muted">TouchPoint and PCO side by side, and send one person.</span></a>';
+          bgc.appendChild(ov);
+          wrap('bgc', 'Background checks', [bgc]);
+        }
+        var plain = {token: 'pco', fields: 'fields', schedule: 'schedule', log: 'log', diag: 'diag'};
+        for (var hkey in plain) {
+          if (byHelp[hkey]) wrap(plain[hkey], groupOf(plain[hkey]), [byHelp[hkey]]);
+        }
+        // Anything not recognized still shows, under Records, never lost.
+        var extra = [];
+        for (var e = 0; e < cards.length; e++) if (!cards[e].parentNode || cards[e].parentNode === host) extra.push(cards[e]);
+
+        var nav = '<nav class="pco-set-nav" aria-label="Settings sections">';
+        var pick = '<div class="pco-set-pick"><label class="pco-label" for="pcoSetPick">Settings section</label><select id="pcoSetPick" class="pco-input">';
+        for (var g2 = 0; g2 < PCO_SET_MENU.length; g2++) {
+          nav += '<div class="pco-set-grp">' + escHtml(PCO_SET_MENU[g2][0]) + '</div>';
+          pick += '<optgroup label="' + escAttr(PCO_SET_MENU[g2][0]) + '">';
+          for (var k2 = 0; k2 < PCO_SET_MENU[g2][1].length; k2++) {
+            var it = PCO_SET_MENU[g2][1][k2];
+            if (!secs[it[0]]) continue;
+            nav += '<a href="#settings/' + it[0] + '" data-sec="' + it[0] + '">'
+              + (it[0] === 'pco' ? '<span class="pco-set-dot" id="pcoSetDotPco"></span>' : '')
+              + escHtml(it[1]) + '<span class="pco-set-st" id="pcoSetSt-' + it[0] + '"></span></a>';
+            pick += '<option value="' + it[0] + '">' + escHtml(it[1]) + '</option>';
+          }
+          pick += '</optgroup>';
+        }
+        nav += '</nav>';
+        pick += '</select></div>';
+
+        var shell = document.createElement('div');
+        shell.className = 'pco-set-shell';
+        shell.innerHTML = nav + '<div class="pco-set-main">' + pick + '</div>';
+        var main = shell.querySelector('.pco-set-main');
+        for (var g3 = 0; g3 < PCO_SET_MENU.length; g3++)
+          for (var k3 = 0; k3 < PCO_SET_MENU[g3][1].length; k3++) {
+            var key3 = PCO_SET_MENU[g3][1][k3][0];
+            if (secs[key3]) main.appendChild(secs[key3]);
+          }
+        if (extra.length) {
+          var rest = document.createElement('div');
+          rest.className = 'pco-set-sec';
+          rest.setAttribute('data-sec', 'diag-more');
+          for (var x = 0; x < extra.length; x++) rest.appendChild(extra[x]);
+          main.appendChild(rest);
+        }
+        host.appendChild(shell);
+        $('pcoSetPick').onchange = function(){ window.location.hash = 'settings/' + this.value; };
+        pcoShowSettingsSec(PCO_SET_SEC);
+      }
+
+      function pcoShowSettingsSec(key) {
+        var secs = document.querySelectorAll('.pco-set-sec');
+        if (!secs.length) return;
+        var found = false;
+        for (var i = 0; i < secs.length; i++) if (secs[i].getAttribute('data-sec') === key) found = true;
+        if (!found) key = 'pco';
+        PCO_SET_SEC = key;
+        for (var j = 0; j < secs.length; j++) {
+          var k = secs[j].getAttribute('data-sec');
+          secs[j].style.display = (k === key || k === 'diag-more' && key === 'diag') ? '' : 'none';
+        }
+        var links = document.querySelectorAll('.pco-set-nav a');
+        for (var n = 0; n < links.length; n++)
+          links[n].className = links[n].getAttribute('data-sec') === key ? 'on' : '';
+        var pk = $('pcoSetPick');
+        if (pk) pk.value = key;
+      }
+
+      function pcoCheckRights() {
+        var host = $('pcoRights');
+        if (!host) return;
+        host.innerHTML = 'Checking...';
+        ajax('check_pco_rights', {}, function(err, d){
+          if (err || !d || !d.success) { host.innerHTML = '<span style="color:#a00;">' + escHtml((d && d.message) || err) + '</span>'; return; }
+          var h = '';
+          if (d.who) h += '<div style="margin-bottom:6px;">Connected as <strong>' + escHtml(d.who) + '</strong>'
+            + (d.roles && d.roles.length ? ' <span class="pco-muted">(' + escHtml(d.roles.join(', ')) + ')</span>' : '') + '</div>';
+          h += '<table class="pco-table" style="font-size:13px;"><thead><tr><th>Right</th><th>Used for</th><th>Result</th></tr></thead><tbody>';
+          for (var i = 0; i < d.checks.length; i++) {
+            var c = d.checks[i];
+            var res = c.ok === true ? '<span style="color:#1f7a46;font-weight:600;">Allowed</span>'
+                    : c.ok === false ? '<span style="color:#c0392b;font-weight:600;">Refused</span>'
+                    : '<span class="pco-muted">Not tested</span>';
+            if (!c.needed) res += ' <span class="pco-muted">(not used yet)</span>';
+            var fix = (c.ok === false || (c.ok === null && c.needed))
+              ? '<div style="font-size:12px;margin-top:3px;color:' + (c.ok === false && c.needed ? '#c0392b' : '#666') + ';">'
+                + escHtml(c.detail ? c.detail + ' ' : '') + escHtml(c.fix) + '</div>' : '';
+            h += '<tr' + (c.needed ? '' : ' style="color:#888;"') + '><td><strong>' + escHtml(c.label) + '</strong></td><td>'
+              + escHtml(c.usedFor) + '</td><td>' + res + fix + '</td></tr>';
+          }
+          h += '</tbody></table>';
+          host.className = '';
+          host.innerHTML = h;
+          pcoSetMark('pco', d.problem ? 'fix in PCO' : '', d.problem ? 'bad' : 'ok');
+        });
+      }
+
+      function pcoSetMark(key, text, dot) {
+        var st = $('pcoSetSt-' + key);
+        if (st) st.textContent = text || '';
+        if (key === 'pco' && $('pcoSetDotPco')) $('pcoSetDotPco').className = 'pco-set-dot' + (dot ? ' ' + dot : '');
+      }
+
       function renderSettingsTab() {
         var host = $('pcoContent');
         host.innerHTML = ''
@@ -11630,8 +12097,8 @@ else:
           + '<h3>Planning Center Personal Access Token' + hq('token') + '</h3>'
           + '<div class="pco-help">'
           + 'Generate a PAT in PCO under <strong>My Account &rarr; Applications &rarr; Personal Access Tokens</strong>. '
-          + 'Paste the App ID + Secret here. They are stored in TouchPoint Special Content and are only used server-side '
-          + 'to call the PCO API on your behalf.'
+          + 'Paste the App ID + Secret here. They are only used server-side to call the PCO API on your behalf. '
+          + 'Create them with a PCO login that has only the access this tool needs; the table below shows what that is.'
           + '</div>'
           + '<div id="pcoSettingsStatus" class="pco-help"></div>'
           + '<div class="pco-form-row">'
@@ -11643,6 +12110,11 @@ else:
           + '  <button class="pco-btn pco-secondary" id="pcoTestBtn">Test Connection</button>'
           + '  <button class="pco-btn pco-secondary" id="pcoClearBtn" style="margin-left:auto;color:#a00;border-color:#a00;">Clear Credentials</button>'
           + '</div>'
+          + '<h4 style="margin:18px 0 4px;">What this connection can do</h4>'
+          + '<div class="pco-help">The App ID and Secret carry the PCO permissions of the person who created them. '
+          + 'Each line is one harmless read. When PCO refuses one you use, the fix is in that person&#39;s permissions in PCO.</div>'
+          + '<div style="margin:6px 0;"><button class="pco-btn pco-secondary" id="pcoRightsBtn" style="font-size:12px;padding:4px 10px;">Check again</button></div>'
+          + '<div id="pcoRights" class="pco-muted" style="font-size:13px;">Checking...</div>'
           + '</div>'
           // Person Data Sync rules
           + '<div class="pco-card" style="margin-top:14px;">'
@@ -11744,7 +12216,7 @@ else:
           + '</div>'
           + '<div id="pcoBgcRunResult" style="margin-top:8px;font-size:12px;"></div>'
           + '<h4 style="margin:18px 0 4px;">Check one person' + hq('bgccheck') + '</h4>'
-          + '<div class="pco-help">Asks PCO directly what it has for one person, next to their TouchPoint checks. Nothing is written.</div>'
+          + '<div class="pco-help">Asks PCO directly what it has for one person, next to their TouchPoint checks. Nothing is written unless you click Send.</div>'
           + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">'
           + '  <input type="text" id="pcoBgcPersonSearch" class="pco-input" placeholder="Name, email or People ID" style="max-width:280px;">'
           + '  <button class="pco-btn pco-secondary" id="pcoBgcPersonSearchBtn" style="font-size:12px;padding:4px 10px;">Find</button>'
@@ -11817,6 +12289,9 @@ else:
           + '<div id="pcoProbeResult" style="margin-top:8px;font-size:13px;"></div>'
           + '</div>'
           + '</div>';
+        pcoSettingsLayout(host);
+        $('pcoRightsBtn').onclick = pcoCheckRights;
+        pcoCheckRights();
 
         $('pcoSaveBtn').onclick = function(){
           var aid = $('pcoAppId').value.trim();
@@ -11839,6 +12314,7 @@ else:
             btn.disabled = false; btn.textContent = 'Test Connection';
             if (err || !d || !d.success) { toast('Connection failed: ' + ((d && d.message) || err), 'err'); return; }
             toast(d.message || 'Connection OK', 'ok');
+            pcoCheckRights();
           });
         };
 
@@ -12360,6 +12836,9 @@ else:
           }
           var fields = d.fields || [];
           var rules = d.rules || {};
+          var nOn = 0;
+          for (var fk in rules) if (rules[fk] && rules[fk].direction && rules[fk].direction !== 'none') nOn++;
+          pcoSetMark('fields', nOn ? nOn + ' on' : 'all off');
           var html = ''
             + '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
             + '<thead><tr style="background:#f0f3f6;text-align:left;">'
@@ -12603,6 +13082,31 @@ else:
           pick.innerHTML = h;
         });
       }
+      var pcoBgcSent = '';
+      function bgcSendOne(pid) {
+        if (!confirm('This writes to PCO for real, for this one person only.\n\nThe check is read back from PCO afterwards to confirm it.\n\nContinue?')) return;
+        var b = $('pcoBgcSendOne'); if (b) { b.disabled = true; b.textContent = 'Sending...'; }
+        ajax('bgc_send_one', {confirm: 'WRITE', tp_people_id: pid}, function(err, d){
+          var h = '';
+          if (err || !d || !d.success) {
+            h = '<div style="color:#a00;margin-bottom:8px;"><strong>Not sent.</strong> ' + escHtml((d && d.message) || err) + '</div>';
+          } else {
+            var its = d.items || [];
+            for (var i = 0; i < its.length; i++) {
+              var it = its[i], ok = it.result === 'written' || it.result === 'written_mismatch';
+              h += '<div style="color:' + (ok ? '#1f6b3a' : '#8a6d3b') + ';">' + (ok ? 'Sent: ' : escHtml(it.result) + ': ')
+                + escHtml(it.status) + ' <span class="pco-muted">' + escHtml(it.reason) + '</span>'
+                + (it.confirmed ? '<div style="margin-left:12px;">&#10003; ' + escHtml(it.confirmed) + '</div>' : '') + '</div>';
+            }
+            for (var k = 0; k < (d.errors || []).length; k++) h += '<div style="color:#a00;">' + escHtml(d.errors[k]) + '</div>';
+            if (!its.length && !(d.errors || []).length) h = '<div class="pco-muted">Nothing needed sending.</div>';
+            h = '<div style="margin-bottom:10px;padding:8px 10px;border:1px solid #ddd;border-radius:4px;">' + h
+              + '<div class="pco-muted" style="margin-top:4px;">Below is PCO asked again, after the send.</div></div>';
+          }
+          pcoBgcSent = h;
+          bgcPersonShow(pid);
+        });
+      }
       function bgcPersonShow(pid) {
         var res = $('pcoBgcPersonResult');
         res.innerHTML = '<span class="pco-muted">Asking PCO...</span>';
@@ -12641,8 +13145,13 @@ else:
               + ' TouchPoint #' + d.next.tpCheckId + ' as ' + d.next.status + (d.next.expires ? ', expiring ' + d.next.expires : '') + '. ');
             if (d.next.repairs) line += d.next.repairs + ' old record(s) will be corrected. ';
             h += '<div style="margin-top:8px;padding:8px 10px;background:' + (a === 'none' ? '#eef7f0' : '#fff6e5') + ';border-radius:4px;">'
-              + escHtml(line) + '<span class="pco-muted">' + escHtml(d.next.reason) + '</span></div>';
+              + escHtml(line) + '<span class="pco-muted">' + escHtml(d.next.reason) + '</span>'
+              + (a !== 'none' && !d.pcoError ? '<div style="margin-top:6px;"><button type="button" class="pco-btn" id="pcoBgcSendOne" data-pid="'
+                + escHtml(String(d.tpPeopleId)) + '" style="font-size:12px;padding:4px 10px;">Send this person to PCO now</button>'
+                + ' <span class="pco-muted">Writes only this person, then reads it back.</span></div>' : '')
+              + '</div>';
           }
+          if (pcoBgcSent) { h = pcoBgcSent + h; pcoBgcSent = ''; }
           res.innerHTML = h;
         });
       }
@@ -12654,6 +13163,7 @@ else:
         if (t && t.className && String(t.className).indexOf('pco-bgc-pick') >= 0) { bgcPersonShow(t.getAttribute('data-pid')); return; }
         if (t && t.parentNode && t.parentNode.className && String(t.parentNode.className).indexOf('pco-bgc-pick') >= 0) { bgcPersonShow(t.parentNode.getAttribute('data-pid')); return; }
         if (t && t.id === 'pcoBgcPersonSearchBtn') { bgcPersonFind(); return; }
+        if (t && t.id === 'pcoBgcSendOne') { bgcSendOne(t.getAttribute('data-pid')); return; }
       });
       document.addEventListener('click', function(ev){
         var t = ev.target;
@@ -12683,6 +13193,7 @@ else:
       function loadAndRenderSettingsStatus() {
         ajax('load_settings', {}, function(err, d){
           if (err || !d) { $('pcoSettingsStatus').innerHTML = '<span class="pco-pill pco-err">Error loading settings</span>'; return; }
+          if (!d.hasCredentials) pcoSetMark('pco', 'not set up', 'bad');
           if (d.hasCredentials) {
             $('pcoSettingsStatus').innerHTML = '<span class="pco-pill pco-ok">Configured</span> '
               + '<span class="pco-muted">App ID: ' + (d.appIdMasked || '?') + '</span>';
@@ -12696,7 +13207,9 @@ else:
       // ---- Placeholder tabs (built in upcoming versions) ---------
 
       function renderSyncTab() {
+        PCO_DASH = {issues: null, plans: null};
         $('pcoContent').innerHTML = ''
+          + '<div id="pcoDashStatus"></div>'
           + '<div id="pcoHealthPanel"></div>'
           + '<div class="pco-card">'
           + '<h3>Sync Dashboard' + hq('dashboard') + ' <span style="background:#0f7c84;color:#fff;font-size:10px;font-weight:700;letter-spacing:0.5px;padding:2px 6px;border-radius:3px;margin-left:6px;">PCO &rarr; TP</span></h3>'
@@ -12723,6 +13236,33 @@ else:
       // Health panel sits above the Sync Dashboard card. Renders only
       // when there's at least one issue so a healthy install gets no
       // extra clutter.
+      // 1.0.8: one line on top that answers "is it working?", built once
+      // both the health check and the plan list have answered.
+      var PCO_DASH = {issues: null, plans: null};
+      function pcoDashStatus() {
+        var host = $('pcoDashStatus');
+        if (!host || PCO_DASH.issues === null || PCO_DASH.plans === null) return;
+        var iss = PCO_DASH.issues, d = PCO_DASH.plans;
+        var bad = iss.errors > 0, attn = iss.count > 0;
+        var color = bad ? '#c0392b' : (attn ? '#b9770e' : '#1f7a46');
+        var bg = bad ? '#fdf3f2' : (attn ? '#fff6e5' : '#f2f9f4');
+        var head = bad ? (iss.count + (iss.count === 1 ? ' mapping needs' : ' mappings need') + ' attention')
+                 : attn ? (iss.count + ' mapping warning' + (iss.count === 1 ? '' : 's'))
+                 : 'Everything is in order';
+        var bits = [];
+        if (d.lastScheduledRunAt) bits.push('Last scheduled run ' + relativeFromIso(d.lastScheduledRunAt));
+        else if (d.scheduledCount) bits.push('No scheduled run yet');
+        else bits.push('No mappings on a schedule');
+        var nMap = (d.peopleMappings || []).length + (d.teamMappings || []).length + (d.allPeopleMapping ? 1 : 0);
+        if (nMap) bits.push(nMap + ' mapping' + (nMap === 1 ? '' : 's') + (d.scheduledCount ? ', ' + d.scheduledCount + ' on a schedule' : ''));
+        host.innerHTML = '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;'
+          + 'border:1px solid ' + color + ';background:' + bg + ';border-radius:8px;">'
+          + '<span style="width:10px;height:10px;border-radius:50%;background:' + color + ';flex:none;"></span>'
+          + '<strong style="color:' + color + ';">' + escHtml(head) + '</strong>'
+          + '<span class="pco-muted" style="font-size:13px;">' + escHtml(bits.join(' \u00b7 ')) + '</span>'
+          + '</div>';
+      }
+
       function loadSyncMappingsHealth() {
         var host = $('pcoHealthPanel');
         if (!host) return;
@@ -12731,9 +13271,13 @@ else:
           if (err || !d || !d.success) {
             // Silent fail -- the dashboard itself still works; we just
             // don't surface health.
+            PCO_DASH.issues = {count: 0, errors: 0};
+            pcoDashStatus();
             return;
           }
           var issues = (d && d.issues) || [];
+          PCO_DASH.issues = {count: issues.length, errors: d.hasErrors ? issues.length : 0};
+          pcoDashStatus();
           if (!issues.length) return;
           var color = d.hasErrors ? '#a00' : '#a85a00';
           var headerLabel = d.hasErrors ? (issues.length + ' mapping issue(s) need attention') : (issues.length + ' mapping warning(s)');
@@ -12804,6 +13348,8 @@ else:
             host.innerHTML = '<span class="pco-pill pco-err">Error</span> ' + ((d && d.message) || err);
             return;
           }
+          PCO_DASH.plans = d;
+          pcoDashStatus();
           var plans = d.plans || [];
           var rosterRollups = d.rosterRollups || [];
           var peopleMappings = d.peopleMappings || [];
@@ -12905,12 +13451,33 @@ else:
           html += '<div style="margin-bottom:18px;border:1px solid #e1e4e8;border-left:3px solid #0f7c84;border-radius:6px;background:#fafbfc;">'
                + '<div class="pco-day-header" style="margin:0;padding:6px 10px;background:#0f7c84;color:#fff;border-radius:5px 5px 0 0;font-size:13px;font-weight:700;letter-spacing:0.5px;">ATTENDANCE SYNC (per-plan, by date)</div>'
                + '<div style="padding:8px 12px 10px 12px;display:flex;flex-direction:column;gap:0;">';
-          var scrollTarget = pickScrollTargetDay(dayKeys);
-          for (var k = 0; k < dayKeys.length; k++) {
-            var dk = dayKeys[k];
+          // 1.0.8: today and upcoming open, newest first is not how a week
+          // reads, so they run forward from today; earlier days fold away.
+          var todayKey = todayIsoLocal();
+          var upcoming = [], earlier = [];
+          for (var kk = 0; kk < dayKeys.length; kk++) (dayKeys[kk] >= todayKey ? upcoming : earlier).push(dayKeys[kk]);
+          earlier.reverse();
+          var stNames = {};
+          for (var sn = 0; sn < plans.length; sn++) if (plans[sn].serviceTypeName) stNames[plans[sn].serviceTypeName] = 1;
+          var stOpts = '<option value="">All service types</option>';
+          var stList = Object.keys(stNames).sort();
+          for (var so = 0; so < stList.length; so++) stOpts += '<option value="' + escAttr(stList[so]) + '">' + escHtml(stList[so]) + '</option>';
+          html += '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:13px;">'
+               + (stList.length > 1 ? '<select id="pcoPlanStFilter" style="padding:4px 6px;">' + stOpts + '</select>' : '')
+               + '<label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="pcoPlanNeverFilter"> Only plans never synced</label>'
+               + '</div>';
+          if (!upcoming.length) html += '<div class="pco-muted" style="font-size:13px;margin-bottom:6px;">No plans from today on.</div>';
+          var ordered = upcoming.concat(earlier);
+          for (var k = 0; k < ordered.length; k++) {
+            var dk = ordered[k];
+            var isEarlier = dk < todayKey;
+            if (isEarlier && dk === earlier[0]) {
+              html += '<details id="pcoEarlierPlans" style="margin-top:10px;"><summary style="cursor:pointer;color:#0f7c84;font-size:13px;">'
+                   + 'Earlier plans, last 30 days (' + earlier.length + ' day' + (earlier.length === 1 ? '' : 's') + ')</summary>';
+            }
             var dayPlans = groups[dk];
             dayPlans.sort(function(a, b){ return (a.sortDate || '').localeCompare(b.sortDate || ''); });
-            var expanded = (dk === scrollTarget);
+            var expanded = !isEarlier;
             var toggleChar = expanded ? '▼' : '▶';
             html += '<div class="pco-day-section" data-date="' + escAttr(dk) + '" style="margin-top:' + (k === 0 ? '0' : '6px') + ';">'
                  + '<div class="pco-day-header pco-day-toggle-header" style="cursor:pointer;margin:0 0 4px 0;padding:5px 10px;background:#eef2f5;color:#1f4e79;border:1px solid #d8dee3;border-radius:4px;font-size:13px;font-weight:600;display:flex;justify-content:space-between;align-items:center;">'
@@ -12919,13 +13486,31 @@ else:
                  + '</div>'
                  + '<div class="pco-day-body" style="display:' + (expanded ? 'flex' : 'none') + ';flex-direction:column;gap:6px;padding-left:14px;">';
             for (var i = 0; i < dayPlans.length; i++) {
-              html += renderPlanCard(dayPlans[i]);
+              html += '<div class="pco-plan-wrap" data-st="' + escAttr(dayPlans[i].serviceTypeName || '') + '" data-never="'
+                + (dayPlans[i].lastSyncedAt ? '0' : '1') + '">' + renderPlanCard(dayPlans[i]) + '</div>';
             }
             html += '</div></div>';
+            if (isEarlier && k === ordered.length - 1) html += '</details>';
           }
           html += '</div></div>';
         }
         host.innerHTML = html;
+        var applyPlanFilter = function(){
+          var st = $('pcoPlanStFilter') ? $('pcoPlanStFilter').value : '';
+          var never = $('pcoPlanNeverFilter') && $('pcoPlanNeverFilter').checked;
+          var secs = host.querySelectorAll('.pco-day-section');
+          for (var a = 0; a < secs.length; a++) {
+            var wraps = secs[a].querySelectorAll('.pco-plan-wrap'), shown = 0;
+            for (var b = 0; b < wraps.length; b++) {
+              var ok = (!st || wraps[b].getAttribute('data-st') === st) && (!never || wraps[b].getAttribute('data-never') === '1');
+              wraps[b].style.display = ok ? '' : 'none';
+              if (ok) shown++;
+            }
+            secs[a].style.display = (shown || !wraps.length) ? '' : 'none';
+          }
+        };
+        if ($('pcoPlanStFilter')) $('pcoPlanStFilter').onchange = applyPlanFilter;
+        if ($('pcoPlanNeverFilter')) $('pcoPlanNeverFilter').onchange = applyPlanFilter;
         host.addEventListener('click', function(ev){
           var dayToggle = ev.target.closest && ev.target.closest('.pco-day-toggle-header');
           if (dayToggle) {
@@ -12965,7 +13550,8 @@ else:
         // Auto-scroll to today (or nearest upcoming day, or most recent
         // past if everything is past). Lets staff land on the current day
         // and scroll up for history -- same pattern as the PCO mobile app.
-        setTimeout(function(){ scrollToTodayOrNext(host, dayKeys); }, 50);
+        // 1.0.8: no auto-scroll. Today is now first in the list, and
+        // scrolling would hide the status line at the top.
       }
 
       function todayIsoLocal() {
@@ -13976,6 +14562,7 @@ else:
           if (byOrg.hasOwnProperty(oid) && byOrg[oid].length > 1) bad.push(oid);
         }
         pcoApplyPendingFocus();
+        pcoMapUpdateStrip(bad.length);
         if (!bad.length) { host.innerHTML = ''; return; }
         var items = '';
         for (var b = 0; b < bad.length; b++) {
@@ -14009,11 +14596,27 @@ else:
           // Direction indicator banner -- v2.6+ makes the one-way nature
           // unmistakable. Every mapping pushes PCO state into TouchPoint;
           // TP changes never flow back to PCO (that's v3.x territory).
-          + '<div style="margin-bottom:12px;padding:8px 12px;background:#0f7c840d;border-left:3px solid #0f7c84;border-radius:4px;font-size:13px;">'
-          + '<strong>Direction:</strong> everything on this tab is <strong>PCO &rarr; TouchPoint</strong>. '
-          + 'Rosters, teams and attendance flow one way: PCO is the source of truth and TouchPoint follows. '
-          + 'Sending data the other way is configured separately, per field, under '
-          + '<strong>Settings &rarr; person data sync</strong>, and every field there starts switched off.'
+          + '<div class="pco-muted" style="margin-bottom:10px;font-size:13px;">'
+          + '<strong style="color:#333;">PCO &rarr; TouchPoint.</strong> Rosters, teams and attendance flow one way here. '
+          + 'Sending data back is per field, under <a href="#settings/fields">Settings, Person fields</a>.'
+          + '</div>'
+          + '<div class="pco-map-strip" id="pcoMapStrip">'
+          + '<span class="pco-muted" id="pcoMapChips">Loading mappings...</span>'
+          + '<span style="flex:1 1 auto;"></span>'
+          + '<button class="pco-btn" id="pcoMapAddBtn" style="font-size:13px;padding:6px 14px;">+ Add mapping</button>'
+          + '</div>'
+          + '<div class="pco-map-chooser" id="pcoMapChooser" style="display:none;">'
+          + '<strong>What do you want to sync?</strong>'
+          + '<div class="pco-map-kinds">'
+          + '<button type="button" class="pco-map-kind" id="pcoMapKindSt"><b>Everyone who serves in a service type</b>'
+          + '<span>Service Type Sync. One involvement for all its teams. Teams can become subgroups; attendance per plan is optional.</span></button>'
+          + '<button type="button" class="pco-map-kind" id="pcoMapKindTeam"><b>One team on its own</b>'
+          + '<span>Team Sync. One team kept in step with its own involvement. Positions can become subgroups.</span></button>'
+          + '<button type="button" class="pco-map-kind" id="pcoMapKindAll"><b>Your whole PCO directory</b>'
+          + '<span>All People. One involvement that mirrors everyone PCO knows about. There is only one.</span></button>'
+          + '</div>'
+          + '<div class="pco-help" style="margin:0 0 8px;">Give every mapping its own involvement. Two mappings sharing one keep removing each other&#39;s people.</div>'
+          + '<button class="pco-btn pco-secondary" id="pcoMapChooserCancel" style="font-size:12px;padding:4px 10px;">Cancel</button>'
           + '</div>'
           // Conflict banner. Populated by pcoFlagOrgConflicts() once the
           // three loaders below report which involvement each mapping targets.
@@ -14022,8 +14625,9 @@ else:
           // Three sections that each explain themselves in isolation left a
           // newcomer to hold all three in their head to compare. This answers
           // the actual first question: which one do I want?
-          + '<div class="pco-card" style="margin-bottom:14px;">'
-          + '<h3 style="margin-top:0;">Which mapping should I use?' + hq('mappings') + '</h3>'
+          + '<details class="pco-map-guide">'
+          + '<summary>Which mapping should I use?</summary>'
+          + '<div class="pco-card" style="margin-top:8px;">'
           + '<div style="overflow-x:auto;">'
           + '<table style="width:100%;border-collapse:collapse;font-size:13px;min-width:620px;">'
           + '<thead><tr style="text-align:left;border-bottom:2px solid #e1e4e8;">'
@@ -14065,6 +14669,7 @@ else:
           + 'single team needs its own involvement, not to subdivide one you already sync.'
           + '</div>'
           + '</div>'
+          + '</details>'
           // ----- All People Mapping (v2.2) -- singleton, broadest scope -----
           + '<div class="pco-card">'
           + '<h3>All People' + hq('mappings') + ' <span style="background:#0f7c84;color:#fff;font-size:10px;font-weight:700;letter-spacing:0.5px;padding:2px 6px;border-radius:3px;margin-left:6px;">PCO &rarr; TP</span> <span class="pco-muted" style="font-size:13px;font-weight:400;">(entire PCO directory &rarr; one TP involvement)</span></h3>'
@@ -14117,9 +14722,94 @@ else:
         $('pcoAddTeamMappingBtn').onclick = openTeamMappingPicker;
         $('pcoPeopleMappingsRefresh').onclick = function(ev){ ev.preventDefault(); loadPeopleMappings(); };
         $('pcoAddPeopleMappingBtn').onclick = openPeopleMappingPicker;
+        pcoMapFoldSections();
+        $('pcoMapAddBtn').onclick = function(){
+          var c = $('pcoMapChooser');
+          c.style.display = c.style.display === 'none' ? '' : 'none';
+        };
+        $('pcoMapChooserCancel').onclick = function(){ $('pcoMapChooser').style.display = 'none'; };
+        function pick(secId, fn) {
+          $('pcoMapChooser').style.display = 'none';
+          var d = $(secId); if (d) { d.open = true; try { d.scrollIntoView({behavior: 'smooth', block: 'start'}); } catch (e) { d.scrollIntoView(); } }
+          if (fn) fn();
+        }
+        $('pcoMapKindSt').onclick = function(){ pick('pcoMapSecSt', openPeopleMappingPicker); };
+        $('pcoMapKindTeam').onclick = function(){ pick('pcoMapSecTeam', openTeamMappingPicker); };
+        $('pcoMapKindAll').onclick = function(){ pick('pcoMapSecAll', null); };
         loadAllPeopleMapping();
         loadPeopleMappings();
         loadTeamMappings();
+      }
+
+      // 1.0.8: each mapping card becomes a section that folds. Built from
+      // the cards above and moved (not copied), so every id still works.
+      // Whether a section is open is remembered in this browser.
+      function pcoMapFoldSections() {
+        var defs = [['pcoAllPeopleMapping', 'pcoMapSecAll'], ['pcoPeopleMappingsList', 'pcoMapSecSt'],
+                    ['pcoTeamMappingsList', 'pcoMapSecTeam']];
+        for (var i = 0; i < defs.length; i++) {
+          var inner = $(defs[i][0]);
+          var card = inner && inner.closest ? inner.closest('.pco-card') : null;
+          if (!card) continue;
+          var h3 = card.querySelector('h3');
+          var det = document.createElement('details');
+          det.className = 'pco-card pco-map-sec';
+          det.id = defs[i][1];
+          if (card.style.marginTop) det.style.marginTop = card.style.marginTop;
+          var sum = document.createElement('summary');
+          sum.innerHTML = '<span class="pco-map-car">&#9654;</span>';
+          if (h3) sum.appendChild(h3);
+          var cnt = document.createElement('span');
+          cnt.className = 'pco-map-count';
+          cnt.id = defs[i][1] + 'Count';
+          sum.appendChild(cnt);
+          det.appendChild(sum);
+          while (card.firstChild) det.appendChild(card.firstChild);
+          card.parentNode.replaceChild(det, card);
+          var open = true;
+          try { var v = localStorage.getItem('pcoMapOpen:' + det.id); if (v !== null) open = v === '1'; } catch (e) {}
+          det.open = open;
+          det.addEventListener('toggle', function(){
+            try { localStorage.setItem('pcoMapOpen:' + this.id, this.open ? '1' : '0'); } catch (e) {}
+          });
+        }
+        // Per-section add buttons are reached through "+ Add mapping" now.
+        var olds = ['pcoAddPeopleMappingBtn', 'pcoAddTeamMappingBtn'];
+        for (var o = 0; o < olds.length; o++) if ($(olds[o])) $(olds[o]).style.display = 'none';
+      }
+
+      // Summary chips, rebuilt each time a loader reports (pcoFlagOrgConflicts
+      // runs after every one), from the same PCO_ORG_USE the conflict check uses.
+      function pcoMapUpdateStrip(nConflicts) {
+        var host = $('pcoMapChips');
+        if (!host) return;
+        function n(kind) {
+          var m = PCO_ORG_USE[kind] || {}, c = 0;
+          for (var k in m) if (m.hasOwnProperty(k)) c += (m[k].length || 1);
+          return c;
+        }
+        var all = n('allpeople'), st = n('servicetype'), tm = n('team');
+        var h = '<a class="pco-map-chip" href="#" data-open="pcoMapSecAll">All People <b>' + (all ? 'on' : 'off') + '</b></a>'
+          + '<a class="pco-map-chip" href="#" data-open="pcoMapSecSt"><b>' + st + '</b> service type' + (st === 1 ? '' : 's') + '</a>'
+          + '<a class="pco-map-chip" href="#" data-open="pcoMapSecTeam"><b>' + tm + '</b> team' + (tm === 1 ? '' : 's') + '</a>'
+          + (nConflicts ? '<a class="pco-map-chip bad" href="#" data-open="conflict"><b>' + nConflicts + '</b> conflict' + (nConflicts === 1 ? '' : 's') + '</a>' : '');
+        host.className = '';
+        host.style.display = 'flex'; host.style.gap = '8px'; host.style.flexWrap = 'wrap';
+        host.innerHTML = h;
+        var counts = {pcoMapSecAllCount: all ? '' : 'not set up', pcoMapSecStCount: st + ' mapping' + (st === 1 ? '' : 's'),
+                      pcoMapSecTeamCount: tm + ' mapping' + (tm === 1 ? '' : 's')};
+        for (var id in counts) if ($(id)) $(id).textContent = counts[id];
+        var chips = host.querySelectorAll('.pco-map-chip');
+        for (var i = 0; i < chips.length; i++) chips[i].onclick = function(ev){
+          ev.preventDefault();
+          var target = this.getAttribute('data-open'), el;
+          if (target === 'conflict') {
+            el = document.querySelector('[data-pco-conflict="1"]') || $('pcoMappingConflicts');
+          } else el = $(target);
+          var d = el && el.closest ? el.closest('details') : null;
+          if (d) d.open = true;
+          if (el) { try { el.scrollIntoView({behavior: 'smooth', block: 'center'}); } catch (e) { el.scrollIntoView(); } }
+        };
       }
 
       // Add-mapping picker for Service Type Mappings. Mirrors the Team /
@@ -15516,35 +16206,44 @@ else:
       function renderPeopleSyncTab() {
         var host = $('pcoContent');
         host.innerHTML = ''
-          + '<div class="pco-card">'
-          + '<h3>People Matching' + hq('matching') + '</h3>'
-          + '<div class="pco-help">'
-          + 'Two review queues for resolving PCO &harr; TP people links. '
-          + '<strong>Proposed Matches</strong> (below) is the main tool -- it scores TP candidates for unmatched PCO records using name + email + birthdate, with per-row Apply / Skip Forever and bulk Apply for high-confidence matches. '
-          + '<strong>Pending Data Reviews</strong> handles field diffs (email changes, name corrections) flagged by your Person Data Sync rules.'
-          + ' <a href="#" id="pcoPeopleRefresh">Refresh</a>'
+          // 1.0.8: summary strip, then what waits on a decision, then the
+          // matching tools. Same ids as before, so every loader still works.
+          + '<div class="pco-map-strip" id="pcoPeopleSyncSummary"><span class="pco-muted">Loading...</span></div>'
+          + '<div class="pco-help" style="margin:0 0 12px;">TouchPoint stays the record of who exists. A PCO person is never added '
+          + 'to TouchPoint here; they are linked to someone already in it. '
+          + '<a href="#help/matching" data-help-goto="matching">How matching works</a> &middot; '
+          + '<a href="#" id="pcoPeopleRefresh">Refresh</a></div>'
+          + '<div class="pco-card" id="pcoPmReviewsCard">'
+          + '<h3>Data changes waiting for you' + hq('reviews') + '</h3>'
+          + '<div class="pco-help">PCO has a different value than TouchPoint for a field you set to hold for review. '
+          + 'Approve to update TouchPoint, or keep TouchPoint&#39;s value.</div>'
+          + '<div id="pcoReviewsList" class="pco-empty">Loading pending changes...</div>'
           + '</div>'
-          + '<div id="pcoPeopleSyncSummary" class="pco-muted" style="margin-bottom:10px;font-size:13px;"></div>'
-          // PROPOSED MATCHES section -- the main matching tool.
-          + '<div class="pco-day-header" style="margin:8px 0 6px 0;padding:8px 12px;background:#0f7c84;color:#fff;border-radius:4px;font-size:14px;font-weight:700;letter-spacing:0.5px;">PROPOSED MATCHES' + hq('matching') + ' <span style="font-weight:400;font-size:12px;opacity:0.85;">(score-based, supports bulk Apply)</span></div>'
+          + '<div class="pco-card" id="pcoPmProposedCard">'
+          + '<h3>PCO people not matched yet' + hq('matching') + '</h3>'
+          + '<div class="pco-help">Scored by name, email and birthday against TouchPoint. Strong matches can be applied together.</div>'
           + '<div id="pcoProposedMatches" class="pco-empty" style="margin-bottom:14px;">Click <strong>Load proposed matches</strong> to score TP candidates for every unmatched PCO record. Walks the entire PCO People directory (takes a few seconds), unless you opened this from a specific preview, in which case it scopes to those records only.</div>'
-          + '<div style="margin-top:8px;margin-bottom:18px;display:flex;gap:8px;align-items:center;">'
+          + '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
           + '  <button class="pco-btn" id="pcoLoadProposedBtn" style="font-size:13px;padding:5px 12px;">Load proposed matches</button>'
-          + '  <span class="pco-muted" id="pcoProposedHint" style="font-size:12px;">Walks PCO + scores name/email/birthdate signals against TP.</span>'
+          + '  <span class="pco-muted" id="pcoProposedHint" style="font-size:12px;">Walks your PCO directory and scores each unmatched person. Takes a few seconds.</span>'
+          + '</div>'
           + '</div>'
           // VERIFY LINK section (v3.1) -- reactive tool. Search a TP person ->
           // see their current PCO link side-by-side -> Unlink or Replace it.
-          + '<div class="pco-day-header" style="margin:8px 0 6px 0;padding:6px 10px;background:#5a3e7a;color:#fff;border-radius:4px;font-size:13px;font-weight:700;letter-spacing:0.5px;">VERIFY PERSON LINK' + hq('verify') + ' <span style="font-weight:400;font-size:12px;opacity:0.85;">(check or repair a specific TP &harr; PCO match)</span></div>'
-          + '<div class="pco-help" style="margin-bottom:6px;">Use this when something looks off ("why is Alice\'s phone wrong?"). Find the TP person, compare their stored PCO link side-by-side, then Unlink or Replace.</div>'
+          + '<div class="pco-card" id="pcoPmVerifyCard">'
+          + '<h3>Check one person&#39;s link' + hq('verify') + '</h3>'
+          + '<div class="pco-help" style="margin-bottom:6px;">Look someone up to see whether they are linked to PCO, and to whom. Unlink or replace a wrong link here.</div>'
           + '<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
           + '  <input type="text" id="pcoVerifyTpSearch" placeholder="Search TP person by name or email..." style="flex:1;min-width:240px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;">'
           + '  <button class="pco-btn" id="pcoVerifyTpSearchBtn" style="font-size:13px;padding:5px 12px;">Search</button>'
           + '</div>'
           + '<div id="pcoVerifyTpResults" style="margin-bottom:10px;"></div>'
-          + '<div id="pcoVerifyPanel" style="margin-bottom:18px;"></div>'
-          + '<div class="pco-day-header" style="margin:8px 0 6px 0;padding:6px 10px;background:#1f4e79;color:#fff;border-radius:4px;font-size:13px;font-weight:700;letter-spacing:0.5px;">PENDING DATA REVIEWS (matched people, field diffs)' + hq('reviews') + '</div>'
-          + '<div id="pcoReviewsList" class="pco-empty">Loading pending changes...</div>'
+          + '<div id="pcoVerifyPanel"></div>'
           + '</div>';
+        ajax('people_match_summary', {}, function(err, d){
+          PCO_PM.linked = (!err && d && d.success) ? d.linked : null;
+          refreshPeopleSyncSummary();
+        });
         $('pcoPeopleRefresh').onclick = function(ev){
           ev.preventDefault();
           loadPendingReviews();
@@ -15950,6 +16649,15 @@ else:
             unmatchedCount: d.unmatchedCount || 0,
             scoped: !!d.scoped,
           };
+          // A scoped load covers only some records, so it is not the count.
+          if (!d.scoped) {
+            try {
+              localStorage.setItem('pcoPmUnmatched', JSON.stringify({
+                n: Math.max(0, (d.unmatchedCount || 0) - ((d.counts || {}).skipped || 0)),
+                at: (function(t){ return new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 19); })(new Date())}));
+            } catch (e) {}
+            refreshPeopleSyncSummary();
+          }
           _proposedState.page = 1;
           rerenderProposedFromCache();
         });
@@ -16484,12 +17192,32 @@ else:
       }
 
       // Updates the count line at the top after each loader finishes.
+      // 1.0.8: strip of counts. Unmatched needs the full PCO walk, so it is
+      // the number from the last Load, kept in this browser with its time.
+      var PCO_PM = {linked: null};
       function refreshPeopleSyncSummary() {
         var r = $('pcoReviewsList');
         var summary = $('pcoPeopleSyncSummary');
         if (!summary) return;
         var reviewCount = r && r.dataset && r.dataset.count ? parseInt(r.dataset.count, 10) || 0 : 0;
-        summary.textContent = reviewCount + ' pending data review(s)';
+        var last = null;
+        try { last = JSON.parse(localStorage.getItem('pcoPmUnmatched') || 'null'); } catch (e) {}
+        var chip = function(target, inner, cls){
+          return '<a class="pco-map-chip' + (cls ? ' ' + cls : '') + '" href="#" data-go="' + target + '">' + inner + '</a>';
+        };
+        var h = '';
+        if (PCO_PM.linked !== null) h += chip('', '<b>' + PCO_PM.linked + '</b> linked');
+        h += chip('pcoPmReviewsCard', '<b>' + reviewCount + '</b> data change' + (reviewCount === 1 ? '' : 's') + ' waiting', reviewCount ? 'warn' : '');
+        h += chip('pcoPmProposedCard', last ? ('<b>' + last.n + '</b> PCO people not matched <span class="pco-muted">as of ' + escHtml(relativeFromIso(last.at)) + '</span>')
+                                           : 'PCO people not matched: <b>load to count</b>');
+        h += chip('pcoPmVerifyCard', 'Check one person&#39;s link');
+        summary.innerHTML = h;
+        var chips = summary.querySelectorAll('.pco-map-chip');
+        for (var i = 0; i < chips.length; i++) chips[i].onclick = function(ev){
+          ev.preventDefault();
+          var t = $(this.getAttribute('data-go'));
+          if (t) { try { t.scrollIntoView({behavior: 'smooth', block: 'start'}); } catch (e) { t.scrollIntoView(); } }
+        };
       }
 
       function loadPendingReviews() {
@@ -16778,8 +17506,9 @@ else:
           var r = pcoParseRoute();
           PCO_PENDING_FOCUS = r.focusOrg;
           if (r.helpKey) PCO_PENDING_HELP = r.helpKey;
+          PCO_SET_SEC = r.setSec || PCO_SET_SEC;
           if (r.tab !== state.tab) selectTab(r.tab, {fromRoute: true});
-          else { pcoApplyPendingFocus(); pcoApplyPendingHelp(); }
+          else { pcoApplyPendingFocus(); pcoApplyPendingHelp(); if (r.tab === 'settings') pcoShowSettingsSec(PCO_SET_SEC); }
         });
       }
 
@@ -16790,6 +17519,7 @@ else:
       var _pcoRoute = pcoParseRoute();
       PCO_PENDING_FOCUS = _pcoRoute.focusOrg;
       PCO_PENDING_HELP = _pcoRoute.helpKey;
+      PCO_SET_SEC = _pcoRoute.setSec || '';
       selectTab(_pcoRoute.tab, {fromRoute: true});
     })();
     </script>
