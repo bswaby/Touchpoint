@@ -132,6 +132,32 @@ RELEASE NOTES
   * Removed the CONTACT_API_PREFIX setting. The page never used it: people
     are matched from the number at the end of contact_api_id, whatever
     your site's prefix is. Nothing to set.
+  * Past attempts are judged by the limit in force at the time. Raising
+    FraudScoreMaximumGiving, or setting it to 100, used to wipe every earlier
+    block from the page. The page now reads the setting's change history
+    (TouchPoint logs each edit made on the Settings page) and marks those
+    attempts WAS BLOCKED. Changes made outside the Settings page are not
+    logged, so they cannot be seen.
+  * Each scored IP says when it was blocked: BLOCKED since a date, WAS
+    BLOCKED from one date to another, or allowed and never blocked. Only
+    limits in force after the IP was scored count.
+  * Denials: new Event column. Fortis is never told the involvement, so the
+    page matches each card or ACH refusal to the registration or pay link the
+    same last name opened just before, and shows whether that involvement
+    requires a login and whether the person was signed in. No match usually
+    means online giving.
+  * Denials: "Last 7 days compared with usual" table. Each category against
+    its usual week, flagged when it doubles, with how many different people
+    it was, a daily strip for four weeks, and which events they came from.
+  * The Denials date column was labeled UTC; it is church time.
+  * Network in plain language under each IP, in the scored list and on
+    each IP's page: iCloud Private Relay, Cloudflare WARP, VPN or Tor, a
+    cell network, a data center, an organization's own line (a school, a
+    business, another church), or ordinary home internet, with the city.
+    Looked up through ip-api.com, the service the Account Security Monitor
+    uses, and kept 30 days in Special Content. Also "looks like a church
+    building's wifi" (10+ people, mostly Sunday mornings) and "looks like an
+    office", worked out from your own sign-ins.
 
 2.5 (November 2026)
   * Timeline on each IP's page: everything TouchPoint logged from that
@@ -574,6 +600,213 @@ def build_record(row):
         "people_id": people_id,
         "detail": detail,
     }
+
+
+#####################################################################
+#### WHICH EVENT A DENIAL CAME FROM
+#####################################################################
+# Fortis is never told the involvement: a sale carries the amount, the
+# cardholder, the address and the card, and nothing else. So the event is
+# matched from TouchPoint's own steps just before the refusal, by time AND
+# cardholder last name. Classic registrations and pay links log an
+# "OnlineReg ..." step with the involvement; new forms log nothing there but
+# start a Registration row. Without a name match nothing is claimed, since a
+# busy evening has several people paying at once. No match on a sale usually
+# means online giving, which logs no step at all.
+
+CLASSIC_MATCH_MINUTES = 30
+NEWFORM_MATCH_MINUTES = 60
+
+
+def _name_words(name):
+    return set(w for w in re.split(r"[^a-z']+", (name or "").lower()) if len(w) > 1)
+
+
+def _event_rows(start_dt, end_dt):
+    lo = (start_dt - datetime.timedelta(minutes=NEWFORM_MATCH_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
+    hi = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+    out = []
+    for r in q.QuerySql("""
+        SELECT a.ActivityDate AS At, a.OrgId, a.Activity, a.UserId, p.LastName
+        FROM dbo.ActivityLog a WITH (NOLOCK)
+        JOIN dbo.People p ON p.PeopleId = a.PeopleId
+        WHERE a.ActivityDate >= '{0}' AND a.ActivityDate < '{1}'
+          AND a.OrgId IS NOT NULL AND a.Activity LIKE 'OnlineReg%'
+    """.format(lo, hi)):
+        out.append({"at": to_pydt_safe(r.At), "org": int(r.OrgId), "new": False,
+                    "step": str(r.Activity or "").replace("OnlineReg ", ""),
+                    "signed_in": r.UserId is not None, "last": (r.LastName or "").lower()})
+    for r in q.QuerySql("""
+        SELECT r.CreatedDate AS At, r.OrganizationId AS OrgId, p.LastName
+        FROM dbo.Registration r WITH (NOLOCK)
+        JOIN dbo.People p ON p.PeopleId = r.PeopleId
+        WHERE r.CreatedDate >= '{0}' AND r.CreatedDate < '{1}'
+        UNION
+        SELECT r.CreatedDate, r.OrganizationId, rp.LastName
+        FROM dbo.Registration r WITH (NOLOCK)
+        JOIN dbo.RegPeople rp ON rp.RegistrationId = r.RegistrationId
+        WHERE r.CreatedDate >= '{0}' AND r.CreatedDate < '{1}'
+    """.format(lo, hi)):
+        out.append({"at": to_pydt_safe(r.At), "org": int(r.OrgId), "new": True,
+                    "step": "", "signed_in": None, "last": (r.LastName or "").lower()})
+    return out
+
+
+def _org_login_info(org_ids):
+    """OrgId -> (name, login rule). Classic forms keep "Disallow anonymous" in
+    the registration settings; new forms have Sign In = 1 for Required."""
+    if not org_ids:
+        return {}
+    out = {}
+    for r in q.QuerySql("""
+        SELECT OrganizationId, OrganizationName, RegistrationTypeId, RegSignIn,
+               CASE WHEN CAST(RegSettingXml AS nvarchar(max))
+                         LIKE '%<DisallowAnonymous>True</DisallowAnonymous>%'
+                    THEN 1 ELSE 0 END AS Disallow
+        FROM dbo.Organizations WHERE OrganizationId IN ({0})
+    """.format(",".join(str(int(o)) for o in org_ids))):
+        if int(r.RegistrationTypeId or 0) == 26:
+            rule = {1: "login required", 0: "sign-in hidden"}.get(int(r.RegSignIn or 0), "login optional")
+        else:
+            rule = "login required" if int(r.Disallow or 0) else "login optional"
+        out[int(r.OrganizationId)] = (r.OrganizationName or "", rule)
+    return out
+
+
+def attach_events(records, start_dt, end_dt):
+    """Sets rec["event"] on each card or ACH denial: the involvement, the step,
+    its login rule and whether they were signed in. None when nothing matched."""
+    sales = [r for r in records if r.get("type") != "Contact Sync" and r.get("dt") is not None]
+    if not sales:
+        return
+    try:
+        steps = _event_rows(start_dt, end_dt)
+    except Exception:
+        return
+    used = set()
+    for rec in sales:
+        at = to_pydt_safe(rec["dt"])
+        words = _name_words(rec.get("name"))
+        best = None
+        for e in steps:
+            if not e["last"] or e["at"] is None or e["at"] > at or e["last"] not in words:
+                continue
+            mins = NEWFORM_MATCH_MINUTES if e["new"] else CLASSIC_MATCH_MINUTES
+            if (at - e["at"]).total_seconds() > mins * 60:
+                continue
+            if best is None or e["at"] > best["at"]:
+                best = e
+        rec["event"] = best
+        if best:
+            used.add(best["org"])
+    try:
+        info = _org_login_info(sorted(used))
+    except Exception:
+        info = {}
+    for rec in sales:
+        e = rec.get("event")
+        if e:
+            e["name"], e["rule"] = info.get(e["org"], ("Involvement %d" % e["org"], ""))
+
+
+def render_event_cell(rec):
+    if rec.get("type") == "Contact Sync":
+        return '<span class="muted">contact update</span>'
+    e = rec.get("event")
+    if not e:
+        return '<span class="muted">no registration step found; likely online giving</span>'
+    if e["new"]:
+        how = "new form"
+    elif e["step"] == "PayDueStart":
+        how = "pay link (never asks for a login)"
+    else:
+        how = "registration, " + e["step"]
+    bits = [how]
+    if e["rule"] and e["step"] != "PayDueStart":
+        bits.append(e["rule"])
+    if e["signed_in"] is not None:
+        bits.append("signed in" if e["signed_in"] else "not signed in")
+    return ('<a href="/Org/{0}" target="_blank">{1}</a><div class="muted" style="font-size:11px">'
+            '{2}</div>').format(e["org"], h_escape(e["name"]), h_escape(", ".join(bits)))
+
+
+#####################################################################
+#### UPTICK BY CATEGORY
+#####################################################################
+# Compares the last week with the weekly average of the eight weeks before
+# it, per category, regardless of the date filter above. A category is
+# flagged as up when it has at least SPIKE_MIN_COUNT this week and at least
+# SPIKE_RATIO times its usual week.
+
+SPIKE_RECENT_DAYS = 7
+SPIKE_BASELINE_WEEKS = 8
+SPIKE_MIN_COUNT = 3
+SPIKE_RATIO = 2.0
+
+
+def render_upticks():
+    now = datetime.datetime.now()
+    recent_from = now - datetime.timedelta(days=SPIKE_RECENT_DAYS)
+    base_from = recent_from - datetime.timedelta(weeks=SPIKE_BASELINE_WEEKS)
+    recs = []
+    for row in get_rows(base_from, now + datetime.timedelta(days=1), None):
+        try:
+            recs.append(build_record(row))
+        except Exception:
+            continue
+    for r in recs:
+        r["at"] = to_pydt_safe(r["dt"])
+    recent = [r for r in recs if r["at"] and r["at"] >= recent_from]
+    attach_events(recent, recent_from, now + datetime.timedelta(days=1))
+
+    rows = []
+    for key, lbl in CATEGORIES:
+        mine = [r for r in recent if r["category"] == key]
+        base = len([r for r in recs if r["category"] == key and r["at"] and r["at"] < recent_from])
+        usual = float(base) / SPIKE_BASELINE_WEEKS
+        if not mine and not base:
+            continue
+        up = len(mine) >= SPIKE_MIN_COUNT and len(mine) >= SPIKE_RATIO * max(usual, 0.5)
+        people = len(set((r["name"] or "").strip().lower() for r in mine if r["name"]))
+        events = {}
+        for r in mine:
+            e = r.get("event")
+            k = e["name"] if e else ("contact updates" if r["type"] == "Contact Sync" else "no event (likely giving)")
+            events[k] = events.get(k, 0) + 1
+        top = ", ".join("{0} ({1})".format(h_escape(k), n)
+                        for k, n in sorted(events.items(), key=lambda kv: -kv[1])[:3])
+        # one bar per day, last 28 days
+        days = []
+        for i in range(27, -1, -1):
+            d0 = (now - datetime.timedelta(days=i)).date()
+            days.append(len([r for r in recs if r["category"] == key and r["at"]
+                             and r["at"].date() == d0]))
+        peak = max(days) or 1
+        spark = "".join('<span title="{0}" style="display:inline-block;width:4px;margin-right:1px;'
+                        'height:{1}px;background:{2};vertical-align:bottom"></span>'.format(
+                            n, max(1, int(18.0 * n / peak)) if n else 1,
+                            "#c0392b" if (j >= 28 - SPIKE_RECENT_DAYS and n) else ("#8fa8c8" if n else "#eee"))
+                        for j, n in enumerate(days))
+        verdict = ('<b style="color:#c0392b">up {0:.0f}x</b>'.format(len(mine) / max(usual, 0.5))
+                   if up else '<span class="muted">normal</span>')
+        rows.append('<tr{0}><td>{1}</td><td class="num"><b>{2}</b></td><td class="num">{3:.1f}</td>'
+                    '<td>{4}</td><td class="num">{5}</td><td style="white-space:nowrap">{6}</td>'
+                    '<td class="wrap">{7}</td></tr>'.format(
+                        ' style="background:#fdecea"' if up else '', h_escape(lbl), len(mine),
+                        usual, verdict, people, spark, top))
+    if not rows:
+        return ""
+    return ('<h3 style="margin-top:18px">Last {0} days compared with usual</h3>'
+            '<p style="font-size:12px;color:#666;margin:2px 0 6px">Usual is the weekly average of '
+            'the {1} weeks before. People counts distinct cardholder names: one person retrying '
+            'a mistyped card many times looks very different from many people failing at once, '
+            'which points at a form or the gateway. Events are matched by name and time and are '
+            'a strong guess, not a record.</p>'
+            '<div class="ft-scroll"><table class="ft-tbl"><thead><tr><th>Category</th>'
+            '<th class="num">Last {0} days</th><th class="num">Usual week</th><th>Change</th>'
+            '<th class="num">People</th><th>Daily, last 4 weeks</th><th>Where from</th></tr>'
+            '</thead><tbody>{2}</tbody></table></div>').format(
+                SPIKE_RECENT_DAYS, SPIKE_BASELINE_WEEKS, "".join(rows))
 
 
 #####################################################################
@@ -1246,7 +1479,7 @@ def render_table(records):
                  "routing": "b-routing", "lastname": "b-lastname",
                  "datavalidation": "b-datavalidation", "other": "b-other"}
     html = '<table class="ft-tbl" id="ftTable"><thead><tr>'
-    cols = ["Date (UTC)", "Type", "Category", "HTTP", "Name / Person",
+    cols = ["Date", "Type", "Category", "HTTP", "Name / Person", "Event",
             "Last 4", "Offending Value", "Len", "Amount", "Exp", "Fortis Message"]
     for c in cols:
         html += "<th>{0}</th>".format(c)
@@ -1281,6 +1514,7 @@ def render_table(records):
         html += "<td>{0}</td>".format(badge)
         html += "<td>{0}</td>".format(h_escape(r["status"]))
         html += "<td>{0}</td>".format(person)
+        html += "<td class='wrap'>{0}</td>".format(render_event_cell(r))
         html += "<td class='mono'>{0}</td>".format(last4)
         html += "<td class='mono'>{0}</td>".format(h_escape(r["value"]))
         html += "<td>{0}</td>".format(len_html)
@@ -1411,6 +1645,99 @@ def ip_blocked(score, limit):
     return limit != 100 and score is not None and int(score) > limit
 
 
+_limit_history = None
+
+
+def fraud_limit_history():
+    """[(when, limit)], oldest first. The Settings page logs every edit as
+    "Edit Setting FraudScoreMaximumGiving to N", and a delete puts back
+    TouchPoint's default of 100. Without this, raising the limit (or setting
+    100) makes every past refusal look as if it was never blocked, because
+    past attempts were judged by today's limit. Changes made outside the
+    Settings page (SQL, a script) are not logged and cannot be seen."""
+    global _limit_history
+    if _limit_history is not None:
+        return _limit_history
+    _limit_history = []
+    try:
+        rows = q.QuerySql("""
+            SELECT ActivityDate, Activity FROM dbo.ActivityLog WITH (NOLOCK)
+            WHERE ActivityDate >= DATEADD(year, -3, GETDATE())
+              AND (Activity LIKE 'Edit Setting FraudScoreMaximumGiving to %'
+                   OR Activity = 'Delete Setting FraudScoreMaximumGiving')
+            ORDER BY ActivityDate""")
+        for r in rows:
+            m = re.search(r" to (.*)$", str(r.Activity or ""))
+            _limit_history.append((to_pydt_safe(r.ActivityDate),
+                                   _int(m.group(1), 100) if m else 100))
+    except Exception:
+        pass
+    return _limit_history
+
+
+def limit_at(when, current):
+    """The limit in force at `when`. After the last logged change the live
+    setting wins. Before the first one the old value is unknown, so use the
+    strictest value the log shows: a church that later raised the limit or
+    turned the check off was running the lower one before."""
+    hist = [h for h in fraud_limit_history() if h[0] is not None]
+    if when is None or not hist or when >= hist[-1][0]:
+        return current
+    val = None
+    for at, v in hist:
+        if at > when:
+            break
+        val = v
+    if val is not None:
+        return val
+    on = [v for _, v in hist if v != 100]
+    return min(on) if on else current
+
+
+def blocked_spans(score, start, current):
+    """[(from, until)] periods from `start` (when the score was saved) to now
+    in which the limit refused this score. `until` is None while it still
+    does. Limit changes before the score existed do not count."""
+    if score is None:
+        return []
+    cuts = [at for at, _ in fraud_limit_history()
+            if at is not None and (start is None or at > start)]
+    bounds = [start] + cuts
+    spans = []
+    for i, frm in enumerate(bounds):
+        if not ip_blocked(score, limit_at(frm, current)):
+            continue
+        until = bounds[i + 1] if i + 1 < len(bounds) else None
+        if spans and spans[-1][1] == frm:
+            spans[-1] = (spans[-1][0], until)
+        else:
+            spans.append((frm, until))
+    return spans
+
+
+def _short_dt(dt):
+    return fmt_dt(dt, "%b %d %H:%M", "MMM dd HH:mm") if dt else "before the log"
+
+
+def block_status(score, start, current):
+    """Score cell: blocked now (since when), blocked earlier (when to when),
+    or never blocked since it was scored."""
+    if score is None:
+        return '<span class="muted">not scored</span>'
+    spans = blocked_spans(score, start, current)
+    if spans and spans[-1][1] is None:
+        return ('<span style="background:#c0392b;color:#fff;padding:2px 8px;'
+                'border-radius:3px">{0} BLOCKED</span><div class="muted" style="font-size:11px">'
+                'since {1}</div>'.format(int(score), _short_dt(spans[-1][0])))
+    if spans:
+        return ('<span style="background:#e59866;color:#fff;padding:2px 8px;'
+                'border-radius:3px">{0} WAS BLOCKED</span><div class="muted" style="font-size:11px">'
+                '{1}</div>'.format(int(score), "; ".join(
+                    "{0} to {1}".format(_short_dt(a), _short_dt(b)) for a, b in spans)))
+    return ('<span style="color:#27ae60"><b>{0}</b> allowed</span><div class="muted" '
+            'style="font-size:11px">never blocked</div>'.format(int(score)))
+
+
 def _sql_in(values):
     return ",".join("'%s'" % sql_escape(v) for v in values) or "''"
 
@@ -1448,6 +1775,45 @@ def shared_ip_counts(ips):
     """.format(_sql_in(ips))
     for r in q.QuerySql(sql):
         out[str(r.ClientIp)] = int(r.Users or 0)
+    return out
+
+
+BUILDING_MIN_USERS = 10
+
+
+def ip_usage_pattern(ips, days=28):
+    """IP -> plain label when the address is clearly a building rather than a
+    household: many signed-in users, mostly on Sunday mornings (a church's
+    guest wifi) or mostly in weekday office hours (an office). Relays are
+    left out: their users also cluster on Sunday mornings, during the service."""
+    out = {}
+    ips = [i for i in ips if i and not (network_label(i) or ("",))[0].startswith("iCloud")]
+    if not ips:
+        return out
+    for r in q.QuerySql("""
+        SELECT ClientIp, COUNT(DISTINCT UserId) AS Users, COUNT(*) AS N,
+               SUM(CASE WHEN DATENAME(weekday, ActivityDate) = 'Sunday'
+                         AND DATEPART(hour, ActivityDate) BETWEEN 7 AND 12 THEN 1 ELSE 0 END) AS Sun,
+               SUM(CASE WHEN DATENAME(weekday, ActivityDate) NOT IN ('Saturday', 'Sunday')
+                         AND DATEPART(hour, ActivityDate) BETWEEN 8 AND 16 THEN 1 ELSE 0 END) AS Office
+        FROM dbo.ActivityLog WITH (NOLOCK)
+        WHERE ActivityDate >= DATEADD(day, -{0}, GETDATE()) AND ClientIp IN ({1})
+        GROUP BY ClientIp
+    """.format(int(days), _sql_in(ips))):
+        users, n = int(r.Users or 0), float(r.N or 0)
+        if users < BUILDING_MIN_USERS or not n:
+            continue
+        if r.Sun / n >= 0.30:
+            out[str(r.ClientIp)] = ("looks like a church building's wifi",
+                                    "{0} different people signed in from it in {1} days, {2:.0f}% of "
+                                    "it on Sunday mornings. Usually your own guest wifi, so one "
+                                    "high score here refuses everyone in the building.".format(
+                                        users, days, 100 * r.Sun / n))
+        elif r.Office / n >= 0.60:
+            out[str(r.ClientIp)] = ("looks like an office",
+                                    "{0} different people signed in from it in {1} days, {2:.0f}% "
+                                    "of it in weekday office hours. Often your own staff network."
+                                    .format(users, days, 100 * r.Office / n))
     return out
 
 
@@ -2404,7 +2770,6 @@ def render_ip_timeline(ip, since, days, sc, limit, shared):
     other_ips = sorted(set([e["ip"] for e in events if e["ip"] and not e["here"]] +
                            [e["guess_ip"] for e in events if e.get("guess_ip")]))
     other_scores = ip_scores(other_ips) if other_ips else {}
-    blocked = sc is not None and ip_blocked(sc.Score, limit)
     cutoff = scored_at - datetime.timedelta(hours=6) if scored_at else None
 
     out = []
@@ -2468,13 +2833,14 @@ def render_ip_timeline(ip, since, days, sc, limit, shared):
             elif e["ip"]:
                 osc = other_scores.get(e["ip"])
                 where = _ip_link(e["ip"], days) + '<br>' + \
-                    _score_badge(osc.Score if osc else None, limit)
+                    _score_badge(osc.Score if osc else None, limit, limit_at(e["at"], limit))
             else:
                 where = '<span class="muted">no IP recorded</span>'
             hot = ''
             if e["kind"] == "bad":
                 hot = ' style="background:#fdecea"'
-            elif e["here"] and blocked and e["step"] in PAY_STEPS and \
+            elif e["here"] and sc is not None and e["step"] in PAY_STEPS and \
+                    ip_blocked(sc.Score, limit_at(e["at"], limit)) and \
                     (cutoff is None or e["at"] is None or e["at"] >= cutoff):
                 hot = ' style="background:#fdecea"'
             elif e["kind"] == "score":
@@ -2502,9 +2868,15 @@ def render_ip_drill(ip, since, days, settings):
     a('<h3 style="margin-top:22px">Activity from {0}</h3>'.format(h_escape(ip)))
     a('<p>Score: {0}{1}. Signed-in users on it this week: <b>{2}</b>{3}. '
       '<a href="?tab=gates&amp;gdays={4}">Back to all IPs</a></p>'.format(
-          _score_badge(sc.Score if sc else None, limit),
+          block_status(sc.Score, to_pydt_safe(sc.LastUpdated), limit) if sc else
+          _score_badge(None, limit),
           (", saved " + fmt_dt(sc.LastUpdated)) if sc else "",
           users, " (shared network)" if users >= GATES_SHARED_IP_USERS else "", days))
+    try:
+        usage = ip_usage_pattern([ip])
+    except Exception:
+        usage = {}
+    a(render_owner_lookup(ip, usage))
     a(score_clock_note(days, ip))
     if sc is not None:
         a(render_ipqs_compare_slot(ip, ip_blocked(sc.Score, limit)))
@@ -2527,7 +2899,6 @@ def render_ip_drill(ip, since, days, settings):
 
     # A block happens from the moment the score is saved. LastUpdated is
     # church time on the first save but UTC on a refresh, so allow for both.
-    blocked_ip = sc is not None and ip_blocked(sc.Score, limit)
     scored_at = to_pydt_safe(sc.LastUpdated) if sc else None
     cutoff = scored_at - datetime.timedelta(hours=6) if scored_at else None
 
@@ -2559,7 +2930,8 @@ def render_ip_drill(ip, since, days, settings):
             elif g["done"]:
                 status = '<span style="color:#27ae60">Completed</span>'
                 counts["paid"] += 1
-            elif g["pay"] and blocked_ip and not g["skips_check"] and \
+            elif g["pay"] and sc is not None and not g["skips_check"] and \
+                    ip_blocked(sc.Score, limit_at(g["last"], limit)) and \
                     (cutoff is None or g["last"] is None or g["last"] >= cutoff):
                 status = ('<span style="background:#c0392b;color:#fff;padding:2px 8px;'
                           'border-radius:3px">Likely blocked</span>')
@@ -3102,17 +3474,248 @@ def render_second_opinion_results(ip, sc, limit, key):
     return "".join(out)
 
 
+# Address blocks that hold Apple's iCloud Private Relay exits. Apple
+# publishes the exact list (mask-api.icloud.com/egress-ip-ranges.csv, 12 MB);
+# every IPv4 entry in it sits in these six blocks, and a visitor arriving
+# from Fastly, Akamai or Cloudflare address space is a relay, not a home
+# connection. Many unrelated iPhone and Mac Safari users share each exit,
+# and IPQS scores them as a proxy, so a strict limit refuses ordinary people.
+RELAY_PREFIXES = [
+    ("146.75.", "Fastly"), ("140.248.", "Fastly"), ("2a04:4e41:", "Fastly"),
+    ("172.224.", "Akamai"), ("172.225.", "Akamai"), ("172.226.", "Akamai"),
+    ("2a02:26f7:", "Akamai"), ("2606:54c0:", "Akamai"), ("2606:54c3:", "Akamai"),
+    ("104.28.", "Cloudflare"), ("2a09:bac2:", "Cloudflare"), ("2a09:bac3:", "Cloudflare"),
+]
+
+
+def network_label(ip):
+    """(short, explanation) for networks recognized without any outside
+    lookup, else None."""
+    ip = (ip or "").strip().lower()
+    for pre, op in RELAY_PREFIXES:
+        if ip.startswith(pre):
+            extra = " or Cloudflare WARP" if op == "Cloudflare" else ""
+            return ("iCloud Private Relay" + extra,
+                    "Apple iCloud Private Relay{0} (run by {1}). Safari on iPhones and Macs with "
+                    "iCloud+ hides the real address behind a shared exit, so many unrelated "
+                    "people arrive from it and IPQS scores it as a proxy. This is not one "
+                    "person, and not their home internet provider.".format(extra, op))
+    m = re.match(r"^(\d+)\.(\d+)\.", ip)
+    if ip.startswith("10.") or ip.startswith("192.168.") or \
+            (m and m.group(1) == "172" and 16 <= int(m.group(2)) <= 31):
+        return ("internal network", "A private address: the request came from inside a "
+                "building's own network, usually your own.")
+    return None
+
+
+IP_INFO_KEY = "TPxi_FortisTroubleshooter_IpInfo"
+IP_INFO_DAYS = 30
+IP_INFO_FIELDS = "status,query,city,regionName,countryCode,isp,org,as,mobile,proxy,hosting"
+
+# Same networks the Account Security Monitor flags. ASN -> plain label.
+KNOWN_ABUSE_NETWORKS = {
+    "AS36352": "Colocrossing / Hostwinds hosting", "AS9009": "M247 residential proxy",
+    "AS197695": "REG.RU hosting", "AS207996": "Quadranet hosting", "AS46261": "Quadranet hosting",
+    "AS22612": "Namecheap / Privacy.net", "AS199524": "G-Core Labs hosting",
+    "AS49453": "Global Layer hosting", "AS210644": "AEZA Group hosting",
+    "AS60729": "Tor exit", "AS198093": "Tor exit", "AS53667": "FranTech / BuyVM hosting",
+    "AS4224": "Tor exit", "AS208294": "Tor exit", "AS51396": "Tor exit",
+    "AS51167": "Contabo hosting", "AS14061": "DigitalOcean hosting",
+    "AS40021": "Clouvider hosting",
+}
+
+
+def _js(v):
+    """ASCII-only JSON for the cache. json.dumps breaks on non-ASCII (city
+    names) at the IronPython interop boundary."""
+    if v is None:
+        return "null"
+    if v is True:
+        return "true"
+    if v is False:
+        return "false"
+    if isinstance(v, dict):
+        return "{" + ",".join(_js(unicode(k)) + ":" + _js(x) for k, x in v.items()) + "}"
+    out = ['"']
+    for ch in unicode(v):
+        c = ord(ch)
+        if c == 0x22 or c == 0x5C:
+            out.append("\\" + chr(c))
+        elif c < 0x20 or c >= 0x7F:
+            out.append("\\u%04x" % c)
+        else:
+            out.append(chr(c))
+    out.append('"')
+    return "".join(out)
+
+
+def _is_private(ip):
+    n = network_label(ip)
+    return bool(n and n[0] == "internal network")
+
+
+def ip_info(ips):
+    """IP -> what ip-api.com knows (provider, organization, city, and whether
+    it is a phone network, a proxy/VPN/Tor, or a data center). The same free
+    service the Account Security Monitor uses: no key, up to 100 addresses
+    per call. Answers are kept 30 days in Special Content, so a page load
+    normally sends nothing. Internal addresses are never sent."""
+    try:
+        raw = model.TextContent(IP_INFO_KEY)
+        cache = json.loads(raw) if raw else {}
+    except Exception:
+        cache = {}
+    today = datetime.datetime.now()
+    cutoff = (today - datetime.timedelta(days=IP_INFO_DAYS)).strftime("%Y-%m-%d")
+    out, need = {}, []
+    for ip in set(i for i in ips if i):
+        if _is_private(ip) or not re.match(r"^[0-9a-fA-F\.:]{3,45}$", ip):
+            continue
+        e = cache.get(ip)
+        if e and str(e.get("t", "")) >= cutoff:
+            out[ip] = e
+        else:
+            need.append(ip)
+    changed = False
+    for k in range(0, min(len(need), 300), 100):
+        chunk = need[k:k + 100]
+        try:
+            resp = model.RestPost("http://ip-api.com/batch?fields=" + IP_INFO_FIELDS,
+                                  {"Content-Type": "application/json"},
+                                  "[" + ",".join('"%s"' % i for i in chunk) + "]")
+            for d in json.loads(resp):
+                if d.get("status") != "success":
+                    continue
+                e = dict((f, d.get(f)) for f in ("city", "regionName", "countryCode", "isp",
+                                                  "org", "as", "mobile", "proxy", "hosting"))
+                e["t"] = today.strftime("%Y-%m-%d")
+                cache[str(d.get("query"))] = e
+                out[str(d.get("query"))] = e
+                changed = True
+        except Exception:
+            break
+    if changed:
+        try:
+            keep = dict((i, e) for i, e in cache.items() if str(e.get("t", "")) >= cutoff)
+            model.WriteContentText(IP_INFO_KEY, _js(keep), "")
+        except Exception:
+            pass
+    return out
+
+
+def _short_isp(name):
+    n = re.sub(r",?\s+(LLC|L\.L\.C\.|Inc\.?|Corporation|Corp\.?|Ltd\.?|Co\.)$", "",
+               (name or "").strip(), flags=re.I)
+    n = re.sub(r"\s+(Cable )?Communications$", "", n, flags=re.I)
+    low = n.lower()
+    if low.startswith("comcast"):
+        return "Comcast (Xfinity)"
+    if low.startswith("charter") or "spectrum" in low:
+        return "Spectrum"
+    if low.startswith("at&t"):
+        return "AT&T"
+    if low.startswith("verizon"):
+        return "Verizon"
+    if low.startswith("t-mobile"):
+        return "T-Mobile"
+    return n
+
+
+def describe_ip(ip, info):
+    """(label, explanation) in plain words, or None when nothing is known."""
+    info = info or {}
+    org, isp = info.get("org") or "", info.get("isp") or ""
+    low = (org + " " + isp).lower()
+    m = re.match(r"^(AS\d+)", info.get("as") or "")
+    asn = m.group(1) if m else None
+    shared = " Many unrelated people share it, so its score says nothing about one person."
+    known = network_label(ip)
+    if "private relay" in low or (known and known[0] == "iCloud Private Relay"):
+        return ("iCloud Private Relay", "Apple's privacy relay: Safari on iPhones and Macs with "
+                "iCloud+ hides the real address behind it, and IPQS scores it as a proxy." + shared)
+    if "warp" in low or (known and "WARP" in known[0]):
+        return ("Cloudflare WARP", "A free VPN app from Cloudflare (or Apple's relay through "
+                "Cloudflare); it hides the real address." + shared)
+    if asn and asn in KNOWN_ABUSE_NETWORKS:
+        return (KNOWN_ABUSE_NETWORKS[asn], "A network known for Tor, bot farms or rented "
+                "servers. Not a member at home; worth a close look.")
+    if info.get("proxy"):
+        return ("VPN, proxy or Tor", "Hides who is behind it (" + (org or isp) + ").")
+    if known:
+        return known
+    if not info:
+        return None
+    if info.get("mobile"):
+        return (_short_isp(isp) + " cell network", "A phone carrier: many customers share "
+                "each address." + shared)
+    if info.get("hosting"):
+        return ("data center: " + _short_isp(org or isp), "A cloud or hosting server, not a home "
+                "connection. Usually a VPN, a bot or a company network.")
+    first = (org.split() or [""])[0].lower()
+    if org and first and first not in isp.lower():
+        return (org, "This address is registered to that organization, on a business line "
+                "from " + _short_isp(isp) + ". Everyone in that building shares it.")
+    return (_short_isp(isp) + " internet", "Ordinary home or business internet.")
+
+
+def _where(info):
+    if not info:
+        return ""
+    region = info.get("regionName") if info.get("countryCode") == "US" else info.get("countryCode")
+    return ", ".join(x for x in (info.get("city"), region) if x)
+
+
+def _net_tag(ip, usage=None, infos=None):
+    """Purple lines under an IP: provider in plain words, where it is, and
+    whether the address behaves like a building."""
+    info = (infos or {}).get(ip)
+    out = ""
+    for n in (describe_ip(ip, info), (usage or {}).get(ip)):
+        if n:
+            out += ('<div style="font-size:11px;color:#7d3c98" title="{1}">{0}</div>'
+                    .format(h_escape(n[0]), h_escape(n[1])))
+    w = _where(info)
+    if w:
+        out += '<div class="muted" style="font-size:11px">{0}</div>'.format(h_escape(w))
+    return out
+
+
+def render_owner_lookup(ip, usage=None):
+    """Network line on an IP's page."""
+    try:
+        info = ip_info([ip]).get(ip)
+    except Exception:
+        info = None
+    bits = []
+    for n in (describe_ip(ip, info), (usage or {}).get(ip)):
+        if n:
+            bits.append('<b>{0}</b>. {1}'.format(h_escape(n[0]), h_escape(n[1])))
+    if info:
+        bits.append('<span class="muted">Provider {0}{1}{2}.</span>'.format(
+            h_escape(info.get("isp") or ""), (", registered to " + h_escape(info["org"]))
+            if info.get("org") and info.get("org") != info.get("isp") else "",
+            (", near " + h_escape(_where(info))) if _where(info) else ""))
+    return '<p style="font-size:13px">Network: ' + (" ".join(bits) or
+                                                     '<span class="muted">unknown</span>') + '</p>'
+
+
 def _ip_link(ip, days):
     return '<a href="?tab=gates&amp;gdays={0}&amp;ip={1}">{2}</a>'.format(
         days, h_escape(ip), h_escape(ip))
 
 
-def _score_badge(score, limit):
+def _score_badge(score, limit, then=None):
+    """`then` is the limit at the time of the attempt (or the strictest in
+    the window). Blocked then but not now reads WAS BLOCKED."""
     if score is None:
         return '<span class="muted">not scored</span>'
     if ip_blocked(score, limit):
         return ('<span style="background:#c0392b;color:#fff;padding:2px 8px;'
                 'border-radius:3px">{0} BLOCKED</span>'.format(int(score)))
+    if then is not None and ip_blocked(score, then):
+        return ('<span style="background:#e59866;color:#fff;padding:2px 8px;'
+                'border-radius:3px" title="Refused under the earlier limit of {1}; '
+                'allowed under today\'s setting">{0} WAS BLOCKED</span>'.format(int(score), then))
     return '<span style="color:#27ae60"><b>{0}</b> allowed</span>'.format(int(score))
 
 
@@ -3346,7 +3949,8 @@ def render_family_visits(people_id, since, days, limit):
                 rows.append((v, sc, fee, match_payment(g, txs, fee)))
             else:
                 other_family += 1
-        elif sc is not None and ip_blocked(sc.Score, limit) and family_owed_staff(g):
+        elif sc is not None and ip_blocked(sc.Score, limit_at(g["first"], limit)) \
+                and family_owed_staff(g):
             rows.append((v, sc, None, None))
         else:
             uncertain_hidden += 1
@@ -3361,7 +3965,8 @@ def render_family_visits(people_id, since, days, limit):
            '</tr></thead><tbody>']
     for v, sc, fee, paid in rows:
         ip = str(v.ClientIp or "")
-        blocked = sc is not None and ip_blocked(sc.Score, limit)
+        then = limit_at(to_pydt_safe(v.ActivityDate), limit)
+        blocked = sc is not None and ip_blocked(sc.Score, then)
         staff_link = '<a href="/Person2/{0}" target="_blank">{1}</a>'.format(
             int(v.PeopleId), h_escape(v.Name or ""))
         if int(v.IsFamily or 0):
@@ -3371,8 +3976,8 @@ def render_family_visits(people_id, since, days, limit):
                 result = '<span style="color:#27ae60">paid {0}at {1}</span>'.format(
                     _amt(paid["amt"]), fmt_dt(paid["raw_at"]))
             elif blocked:
-                result = ('<b style="color:#c0392b">no payment followed; this IP is blocked, '
-                          'so this is very likely the refused payment</b>')
+                result = ('<b style="color:#c0392b">no payment followed; this IP was blocked '
+                          'then, so this is very likely the refused payment</b>')
             else:
                 result = 'no payment followed'
             who = ('<b>Theirs.</b> {0} billed <a href="/Person2/{1}" target="_blank">{2}</a> '
@@ -3388,7 +3993,7 @@ def render_family_visits(people_id, since, days, limit):
                    '<td class="wrap">{6}</td></tr>'.format(
                        hot, fmt_dt(v.ActivityDate),
                        (_ip_link(ip, days) + (_why_link(ip, days) if blocked else '')) if ip else "",
-                       _score_badge(sc.Score if sc else None, limit),
+                       _score_badge(sc.Score if sc else None, limit, then),
                        h_escape(v.OrganizationName or ""),
                        h_escape((v.Activity or "").replace("OnlineReg ", "")), who))
     out.append('</tbody></table>')
@@ -3575,9 +4180,25 @@ def render_gates():
         who = ip_people(ips, since)
         shared = shared_ip_counts(ips)
         nblocked = len([r for r in scored if ip_blocked(r.Score, limit)])
+        spans = dict((str(r.Evidence), blocked_spans(r.Score, to_pydt_safe(r.LastUpdated), limit))
+                     for r in scored)
+        nwas = len([r for r in scored
+                    if spans[str(r.Evidence)] and not ip_blocked(r.Score, limit)])
         a('<p>{0} IP(s) scored, <b>{1}</b> over the current limit. A score is saved the first '
           'time an IP reaches the payment step and refreshed after 30 days, so the time shown '
           'is the first attempt, not every one.</p>'.format(len(scored), nblocked))
+        if nwas:
+            a('<p><b>{0}</b> more were blocked after they were scored, under an earlier, '
+              'stricter limit, and are allowed now. They show as WAS BLOCKED with the dates.</p>'
+              .format(nwas))
+        try:
+            usage = ip_usage_pattern(ips)
+        except Exception:
+            usage = {}
+        try:
+            infos = ip_info(ips)
+        except Exception:
+            infos = {}
         a('<div class="ft-scroll"><table class="ft-tbl"><thead><tr><th>IP</th><th>Score</th>'
           '<th>Scored</th><th class="num">Users this week</th><th>Signed in on this IP</th>'
           '</tr></thead><tbody>')
@@ -3586,14 +4207,21 @@ def render_gates():
             users = shared.get(ip, 0)
             tag = (' <span class="muted">shared network</span>'
                    if users >= GATES_SHARED_IP_USERS else '')
-            hot = ' style="background:#fdecea"' if ip_blocked(r.Score, limit) else ''
+            was = bool(spans[ip])
+            hot = ' style="background:#fdecea"' if was else ''
             a('<tr{0}><td>{1}{2}</td><td>{3}</td><td>{4}</td><td class="num">{5}</td>'
               '<td class="wrap">{6}</td></tr>'.format(
-                  hot, _ip_link(ip, days) + (_why_link(ip, days) if ip_blocked(r.Score, limit) else
-                                              _why_link(ip, days, "check") if users >= GATES_SHARED_IP_USERS else ''),
-                  tag, _score_badge(r.Score, limit),
+                  hot, _ip_link(ip, days) + (_why_link(ip, days) if was else
+                                              _why_link(ip, days, "check") if users >= GATES_SHARED_IP_USERS else '')
+                  + _net_tag(ip, usage, infos),
+                  tag, block_status(r.Score, to_pydt_safe(r.LastUpdated), limit),
                   fmt_dt(r.LastUpdated), users, _names(who.get(ip, []))))
         a('</tbody></table></div>')
+        a('<p style="font-size:11px;color:#777">The network under each IP comes from ip-api.com '
+          '(the same free lookup the Account Security Monitor uses; only the address is sent, '
+          'and answers are kept 30 days). A cell network, a relay, a VPN or a building means '
+          'many people share that address. Hover a label for what it means. The city is the '
+          'provider\'s best guess and can be off by an hour\'s drive or more.</p>')
         a('<p style="font-size:11px;color:#777">&ldquo;Signed in on this IP&rdquo; is anyone '
           'who used TouchPoint from that address in the window. It shows who was there, not '
           'who tried to pay. A guest payment leaves no name.</p>')
@@ -4054,6 +4682,12 @@ def main():
         html.append(render_rate_trend(denial_rate_trend()))
     except Exception:
         pass
+    try:
+        html.append(render_upticks())
+    except Exception as e:
+        html.append('<p class="muted">The last-week comparison could not be built: ' +
+                    h_escape(str(e)) + '</p>')
+    attach_events(detail_records, start_dt, end_dt)
     html.append('<p style="font-size:12px;color:#666;">Showing <b>{0}</b> of {1} denial(s) in range{2}.</p>'.format(
         len(detail_records), len(all_records),
         (" matching category '%s'" % CATEGORY_LABELS.get(category, category)) if category else ""))
