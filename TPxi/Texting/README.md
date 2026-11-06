@@ -51,4 +51,4 @@ When a new version is out, admins see a notice at the top of the page. **Update 
 
 <summary><strong>On your phone</strong></summary>
 
-The page works in a phone browser. [TPxi Go](https://tpxigo.com), an app for TouchPoint, brings texting to your phone, with an alert when someone texts in.
+The page works in a phone browser. [TPxi Go](https://tpxigo.com), an app for TouchPoint, brings texting to your phone.
