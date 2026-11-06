@@ -71,6 +71,7 @@ For a searchable version with a longer write-up on each one, see the
 | [Duplicate Involvements](TPxi/Duplicate%20Involvements) | People sitting in more than one involvement |
 | &#9733; [Roll Sheet](TPxi/Roll%20Sheet) `new` | Printable roll sheets built the way teachers want them |
 | [Emergency List](TPxi/Emergency%20List) | Emergency contacts and medical info for a group |
+| [Texting](TPxi/Texting) | Easily communicate within text threads and understand text usage
 | [Anniversaries Widget](TPxi/Anniversaries) | Birthdays and membership milestones on the home page |
 | [New Member Report](TPxi/New%20Member%20Report) | Track new members through onboarding |
 
