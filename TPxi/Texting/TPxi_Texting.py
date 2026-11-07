@@ -32,6 +32,15 @@
 # OPEN IT AT /PyScriptForm/TPxi_Texting (not /PyScript/).
 #
 # VERSION HISTORY
+#   1.0.4  Admin tools > PoweredByText setup: each org unit with its numbers,
+#          the groups in it with their keywords, the TouchPoint group and staff
+#          each one is connected to, webhooks, subscriber counts, templates and
+#          every auto reply (PoweredByText's account, org unit, group, keyword,
+#          HELP, STOP and opt-in messages, and TouchPoint's reply words),
+#          subscriber counts in PoweredByText next to TouchPoint's,
+#          plus a list of things to look at (a keyword two groups share on one
+#          number, a group TouchPoint points to that is gone, replies or
+#          delivery results not reaching TouchPoint). Read only.
 #   1.0.3  Conversations list newest first, like a phone (New ones are marked,
 #          not moved to the top), and it opens on All. The New count shows on
 #          the New button. A reply that a later group text went out after is
@@ -44,7 +53,7 @@ import json
 import re
 import datetime
 
-TEXTING_VERSION = '1.0.3'
+TEXTING_VERSION = '1.0.4'
 # Updates come from the same TPxi script service as the other TPxi tools:
 # the page asks DC_API_BASE which version is newest, and an admin's Update
 # pulls the new code from DC_API_WORKER and saves it over this script.
@@ -3306,6 +3315,236 @@ def pbt_check_links():
             'PoweredByText settings; until then links go out as typed.' % ((res or {}).get('appCode') or '', (res or {}).get('message') or '')}
 
 
+# ---------------------------------------------------------------- setup map (read only)
+# How PoweredByText is laid out for this church, next to TouchPoint's texting
+# groups: org units (each with its own numbers), the groups in them, each
+# group's keywords, staff, webhooks and templates. Admin only, reads only.
+# Webhook passwords and secrets are never read out to the page.
+
+def pbt_pages(path, limit=20):
+    """Every row of a paged PBT list. Raises with PBT's message on a refusal."""
+    out, page = [], 1
+    while page <= limit:
+        res = pbt_get('%s%spageNumber=%d&pageSize=%d' % (path, '&' if '?' in path else '?', page, PAGE_SIZE))
+        if res.get('isError'):
+            raise Exception(('%s %s' % (res.get('appCode') or '', res.get('message') or 'PoweredByText said no')).strip())
+        data = res.get('data')
+        rows = data.get('data') if isinstance(data, dict) else data
+        rows = [x for x in (rows or []) if isinstance(x, dict)]
+        out.extend(rows)
+        pages = data.get('totalPages') if isinstance(data, dict) else 1
+        total = (data.get('totalCount') or data.get('filterCount')) if isinstance(data, dict) else None
+        if not rows or (pages and page >= pages) or (not pages and (total is None or len(out) >= total)):
+            break
+        page += 1
+    return out
+
+
+def tp_text_groups():
+    """TouchPoint's PoweredByText groups by PBT group id (lower case), with the
+    staff listed in each on TouchPoint's SMS settings."""
+    staff = {}
+    for r in q.QuerySql("""
+            SELECT m.GroupID, p.Name, ISNULL(m.ReceiveNotifications, 0) Notify
+            FROM SMSGroupMembers m
+            JOIN Users u ON u.UserId = m.UserID
+            JOIN People p ON p.PeopleId = u.PeopleId
+            ORDER BY p.Name"""):
+        staff.setdefault(r.GroupID, []).append({'name': r.Name, 'notify': bool(r.Notify)})
+    # Counted by number, as PoweredByText counts, with the Subscribers page's rules.
+    subs = {}
+    for r in q.QuerySql("""
+            SELECT s.FromGroup,
+                   COUNT(DISTINCT CASE WHEN ISNULL(s.IsOptedOut, 0) = 0 AND s.IsSubscribed = 1 THEN p.CellPhone END) Sub,
+                   COUNT(DISTINCT CASE WHEN s.IsOptedOut = 1 THEN p.CellPhone END) Opt
+            FROM SMSGroupSubscriptions s WITH (NOLOCK)
+            JOIN People p WITH (NOLOCK) ON p.PeopleId = s.ToPeopleId
+            WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 AND LEN(ISNULL(p.CellPhone, '')) >= 10
+            GROUP BY s.FromGroup"""):
+        subs[r.FromGroup] = {'sub': r.Sub or 0, 'opt': r.Opt or 0}
+    out = {}
+    for r in q.QuerySql("""
+            SELECT ID, Name, ExternalId, ExternalId2, ISNULL(IsDeleted, 0) Del, ISNULL(isDisabled, 0) Dis,
+                   ISNULL(OneTimeCodeFlag, 0) Otc, ISNULL(SystemFlag, 0) Sys, ReplyWords
+            FROM SMSGroups WHERE GroupType = 'PoweredByText' AND ExternalId IS NOT NULL"""):
+        state = 'deleted' if r.Del else 'off' if r.Dis else 'on'
+        g = {'id': r.ID, 'name': r.Name, 'orgunitId': unicode(r.ExternalId2 or ''), 'groupId': unicode(r.ExternalId),
+             'state': state, 'oneTimeCode': bool(r.Otc), 'system': bool(r.Sys), 'staff': staff.get(r.ID, []),
+             'replyWords': reply_words(r.ReplyWords), 'subs': subs.get(r.ID, {'sub': 0, 'opt': 0})}
+        key = unicode(r.ExternalId).lower()
+        # A deleted copy never hides the live one.
+        if key not in out or out[key]['state'] == 'deleted':
+            out[key] = g
+    return out
+
+
+# TouchPoint's reply word actions (SmsReplyWordsActionModel.StandardActions).
+REPLY_ACTIONS = {'optout': 'Opt out of this group', 'optin': 'Opt in to this group', 'attending': 'Mark attending',
+                 'regrets': 'Mark regrets', 'recordattend': 'Record attendance', 'addtoorg': 'Add to an involvement',
+                 'addtoorgsg': 'Add to a small group', 'sendreplyonly': 'Send a reply only', 'runscript': 'Run a Python script',
+                 'stopall': 'Opt out of all groups', 'stop all': 'Opt out of all groups', 'start': 'Opt in (START)',
+                 'stop': 'Opt out (STOP)', 'unstop': 'Undo an opt out (UNSTOP)'}
+
+
+def reply_words(raw):
+    """TouchPoint's reply words for a group: [{word, action, args, reply, unknown}]."""
+    if not raw or not unicode(raw).strip():
+        return []
+    try:
+        rows = json.loads(re.sub(r'[\r\n\t]+', ' ', unicode(raw)))
+    except Exception:
+        return [{'word': '?', 'action': 'Could not read the reply words', 'args': '', 'reply': '', 'unknown': ''}]
+    out = []
+    for x in rows if isinstance(rows, list) else []:
+        if not isinstance(x, dict):
+            continue
+        act = unicode(x.get('Action') or '')
+        args = ', '.join('%s %s' % (k, x[k]) for k in sorted(x.keys())
+                         if k not in ('Word', 'Action', 'ReplyMessage', 'ReplyMessageForUnknown') and x[k] not in (None, ''))
+        out.append({'word': unicode(x.get('Word') or ''), 'action': REPLY_ACTIONS.get(act.lower(), act), 'args': args,
+                    'reply': unicode(x.get('ReplyMessage') or ''), 'unknown': unicode(x.get('ReplyMessageForUnknown') or '')})
+    return out
+
+
+def _strs(v):
+    return [unicode(x) for x in (v or []) if x not in (None, '')] if isinstance(v, list) else []
+
+
+def _templates(rows):
+    return [{'name': t.get('name') or '', 'message': t.get('message') or '', 'status': t.get('status') or '',
+             'type': t.get('type') or ''} for t in rows]
+
+
+def pbt_setup():
+    tp = tp_text_groups()
+    units = pbt_pages('/orgunit')
+    seen, out_units, accounts = set(), [], []
+    for u in units:
+        uid = unicode(u.get('id') or '')
+        if u.get('accountId') and u.get('accountId') not in accounts:
+            accounts.append(u.get('accountId'))
+        unit = {'id': uid, 'name': u.get('name') or '', 'shortName': u.get('shortName') or '',
+                'numbers': _strs((u.get('communicationCodes') or {}).get('commCode')),
+                'default': bool(u.get('defaultCampus')), 'shorten': bool(u.get('shortenEnabled')),
+                'autoReply': u.get('autoResponseMessage') or '', 'groups': [], 'templates': [], 'error': ''}
+        try:
+            groups = pbt_pages('/orgunit/%s/groups' % uid)
+        except Exception as e:
+            groups, unit['error'] = [], unicode(e)
+        try:
+            unit['templates'] = _templates(pbt_pages('/orgunit/%s/templates' % uid))
+        except Exception:
+            pass
+        for g in groups:
+            gid = unicode(g.get('id') or '')
+            seen.add(gid.lower())
+            users = []
+            for x in g.get('users') or []:
+                if isinstance(x, dict) and not x.get('hidden'):
+                    nm = (('%s %s' % (x.get('firstName') or '', x.get('lastName') or '')).strip()
+                          or x.get('shortName') or x.get('email') or '')
+                    users.append({'name': nm, 'role': x.get('role') or '', 'active': x.get('active') is not False})
+            unit['groups'].append({
+                'id': gid, 'name': g.get('name') or '', 'description': g.get('description') or '',
+                'status': g.get('status') or '', 'tags': _strs(g.get('tags')), 'private': bool(g.get('private')),
+                'chat': bool(g.get('chatEnabled')),
+                'autoReply': bool(g.get('autoReponse') or g.get('autoResponse')),
+                'autoReplyText': g.get('autoResponseMessage') or '',
+                'keywords': [{'name': k.get('name') or '', 'onContact': k.get('onContact') or '',
+                              'emails': _strs(k.get('notificationEmails')), 'phones': _strs(k.get('notificationMobileNos'))}
+                             for k in g.get('keywords') or [] if isinstance(k, dict)],
+                'users': users,
+                'notifyEmails': _strs(g.get('notificationEmails')), 'notifyPhones': _strs(g.get('notificationMobileNos')),
+                'tp': tp.get(gid.lower())})
+        unit['groups'].sort(key=lambda x: x['name'].lower())
+        out_units.append(unit)
+    listed = set(x['id'] for x in out_units if not x['error'])
+    tp_only = [g for k, g in tp.items() if k not in seen and g['state'] != 'deleted'
+               and (g['orgunitId'] in listed or g['orgunitId'] not in [x['id'] for x in out_units])]
+    acct, acct_reply = [], ''
+    for a in accounts[:3]:
+        try:
+            acct.extend(_templates(pbt_pages('/accounts/%s/templates' % a)))
+        except Exception:
+            pass
+        try:
+            # Only the auto reply is kept: this record also holds the account's sign-in details.
+            res = pbt_get('/accounts/%s' % a)
+            if not res.get('isError') and isinstance(res.get('data'), dict):
+                acct_reply = acct_reply or (res['data'].get('autoResponseMessage') or '')
+        except Exception:
+            pass
+    return {'units': out_units, 'tpOnly': sorted(tp_only, key=lambda g: g['name'].lower()), 'accountTemplates': acct,
+            'accountAutoReply': acct_reply}
+
+
+def _hooks(d, list_key, url_key, on_key):
+    urls = []
+    for x in d.get(list_key) or []:
+        url = ((x or {}).get(url_key) or '').strip()
+        if not url:
+            continue
+        url = re.sub(r'^(https?://)[^/@]*@', r'\1', url).split('?')[0]
+        bare = re.sub(r'^https?://', '', url)
+        host, path = (bare.split('/', 1) + [''])[:2]
+        low = path.lower()
+        who = ('TouchPoint' if low.startswith('webhook/mbt') else
+               'TPxi Go' if host.lower().endswith('tpxigo.com') else 'Something else')
+        # Only the start of the path: the rest can work like a password.
+        shown = host + ('/' + path if who == 'TouchPoint' else ('/' + path.split('/')[0] + '/...' if path else ''))
+        urls.append({'url': shown, 'who': who, 'auth': (x.get('authenticationType') or 'none'),
+                     'user': x.get('userName') or ''})
+    return {'on': bool(d.get(on_key)), 'urls': urls}
+
+
+def pbt_setup_group(o, g):
+    """The slower per-group facts, read one group at a time."""
+    if not re.match(r'^[A-Za-z0-9\-]+$', o or '') or not re.match(r'^[A-Za-z0-9\-]+$', g or ''):
+        raise Exception('Bad group.')
+    out, base = {}, '/orgunit/%s/groups/%s' % (o, g)
+    try:
+        res = pbt_get(base + '/communicationCode')
+        out['numbers'] = _strs(res.get('data')) if not res.get('isError') else []
+    except Exception as e:
+        out['numbersError'] = unicode(e)
+    try:
+        res = pbt_get(base + '/notification-url')
+        d = res.get('data') if not res.get('isError') else None
+        if isinstance(d, dict):
+            out['hooks'] = {'replies': _hooks(d, 'callbackUrlSettings', 'callBackUrl', 'callbackUrlEnabled'),
+                            'status': _hooks(d, 'statusUrlSettings', 'statusUrl', 'statusUrlEnabled')}
+        else:
+            out['hooksError'] = (res.get('message') or 'No webhook settings.')
+    except Exception as e:
+        out['hooksError'] = unicode(e)
+    try:
+        # The whole list, so only people still getting texts are counted.
+        nums, active = set(), set()
+        for x in pbt_group_subscribers({'orgunitId': o, 'groupId': g}):
+            n = digits10(x.get('mobileNo'))
+            if len(n) == 10:
+                nums.add(n)
+                if (x.get('status') or '').strip().lower() == 'active':
+                    active.add(n)
+        out['subscribers'] = len(active)
+        out['subscribersAll'] = len(nums)
+    except Exception as e:
+        out['subscribersError'] = unicode(e)
+    try:
+        out['templates'] = _templates(pbt_pages(base + '/templates'))
+    except Exception:
+        out['templates'] = []
+    try:
+        res = pbt_get(base)
+        d = res.get('data') if not res.get('isError') else None
+        if isinstance(d, dict):
+            out['messages'] = {'optin': d.get('optinMessage') or '', 'help': d.get('helpMessage') or '',
+                               'stop': d.get('stopMessage') or ''}
+    except Exception:
+        pass
+    return out
+
+
 # ---------------------------------------------------------------- usage saved by day
 # Each refresh reads PBT only from the last good refresh (less a few days, so
 # a late carrier answer or a repeat that crosses the line is still counted
@@ -3605,6 +3844,14 @@ def admin_post():
             print safe_json(apply_update())
         elif action == 'pbt_check':
             print safe_json({'success': True, 'checks': pbt_check()})
+        elif action == 'pbt_setup':
+            r = pbt_setup()
+            r['success'] = True
+            print safe_json(r)
+        elif action == 'pbt_setup_group':
+            r = pbt_setup_group(_param('o'), _param('g'))
+            r['success'] = True
+            print safe_json(r)
         elif action == 'pbt_check_links':
             r = pbt_check_links()
             r['success'] = True
@@ -4737,7 +4984,7 @@ def admin_page():
     body = """
 <div id="pbt" data-writes="__WRITES__">
   __WARN__
-  <div class="tabs"><a href="#" data-tab="sync" class="on">Names</a><a href="#" data-tab="history">Change log</a><a href="#" data-tab="delivery">Delivery</a><a href="#" data-tab="usage">Usage</a><a href="#" data-tab="settings">Settings</a><a href="#" data-tab="check">Connection check</a></div>
+  <div class="tabs"><a href="#" data-tab="sync" class="on">Names</a><a href="#" data-tab="history">Change log</a><a href="#" data-tab="delivery">Delivery</a><a href="#" data-tab="usage">Usage</a><a href="#" data-tab="settings">Settings</a><a href="#" data-tab="setup">PoweredByText setup</a><a href="#" data-tab="check">Connection check</a></div>
 
   <div id="tab-sync">
   <p class="lede writes-only">Gives each texting number in PoweredByText the name of the person it belongs to in TouchPoint.
@@ -4919,6 +5166,31 @@ def admin_page():
     <p><button id="ucostsave">Save settings</button> <span class="status" id="ustatus"></span></p>
   </div>
 
+  <div id="tab-setup" style="display:none">
+    <p class="note">How PoweredByText is set up for your church, next to TouchPoint's texting groups. It only reads: nothing
+    is changed here, and webhook passwords are never shown.</p>
+    <details class="how"><summary>What org units, groups, keywords and templates are</summary>
+      <p><b>Org unit</b> is PoweredByText's word for a church or campus. Each has its own texting numbers (a short code
+      like 84727, or a regular phone number), its own auto reply and its own link shortening setting.</p>
+      <p><b>Group</b> is a list of people who signed up for texts. TouchPoint connects one of its texting groups to one
+      PoweredByText group, and only connected groups can be texted from TouchPoint or show their replies in TouchPoint.</p>
+      <p><b>Keyword</b> is a word people text in to reach a group, such as JOIN or YOUTH. On a number several groups share,
+      the keyword decides which group gets the text, so the same keyword in two groups on one number is a problem.</p>
+      <p><b>Webhooks</b> are where PoweredByText sends each new text (replies) and each delivery result (status).
+      TouchPoint needs both, and TPxi Go uses them for phone alerts.</p>
+      <p><b>Templates</b> are saved messages in PoweredByText.</p>
+    </details>
+    <div class="bar"><button id="surun">Load the setup</button>
+      <span class="status" id="sustatus"></span></div>
+    <div id="suprog" style="display:none;margin:6px 0 10px">
+      <div style="height:8px;background:#e6e9ee;border-radius:4px;overflow:hidden"><div id="subar" style="height:100%;width:0;background:#1e3a5f;transition:width .3s"></div></div>
+      <div class="note" id="suprogtxt"></div>
+    </div>
+    <div id="suissues"></div>
+    <div id="suout"><p class="note">Press <b>Load the setup</b>. It reads PoweredByText and TouchPoint, then each group's
+    numbers, webhooks and subscribers one group at a time, so it takes a little while with many groups.</p></div>
+  </div>
+
   <div id="tab-check" style="display:none">
     <p class="note">Checks each step between TouchPoint and PoweredByText, so you can tell where a problem is. It only reads.</p>
     <div class="bar"><button id="ckrun">Run the check</button>
@@ -5022,6 +5294,7 @@ def admin_page():
       $('tab-usage').style.display = t == 'usage' ? '' : 'none';
       $('tab-settings').style.display = t == 'settings' ? '' : 'none';
       $('tab-check').style.display = t == 'check' ? '' : 'none';
+      $('tab-setup').style.display = t == 'setup' ? '' : 'none';
       if (t == 'usage' && !momData && !$('mbuild').disabled) build('saved');
       if (t == 'history') loadHistory();
     };
@@ -5241,6 +5514,265 @@ def admin_page():
     var a = document.querySelector('#txnav a[data-p="settings"]');
     if (a) a.click(); else document.querySelector('#pbt .tabs a[data-tab="settings"]').click();
   };
+  // ---- PoweredByText setup (read only)
+  var SU = null;
+  function suYes(b){ return b ? 'On' : 'Off'; }
+  function suList(a){ return (a || []).map(esc).join(', '); }
+  function suTp(g){
+    var t = g.tp;
+    if (!t) return '<span class="k-failed">Not connected</span>';
+    var s = esc(t.name) + (t.state == 'off' ? ' <span class="late">(turned off)</span>' : t.state == 'deleted' ? ' <span class="k-failed">(deleted)</span>' : '');
+    if (t.oneTimeCode) s += ' <span class="note">(sign-in codes)</span>';
+    return s;
+  }
+  function suStaff(g){
+    var t = g.tp;
+    if (!t) return '';
+    if (!t.staff.length) return '<span class="late">No one listed</span>';
+    return t.staff.map(function(x){ return esc(x.name) + (x.notify ? ' &#128276;' : ''); }).join(', ');
+  }
+  function suKw(g){
+    return g.keywords.length ? g.keywords.map(function(k){ return '<b>' + esc(k.name) + '</b>'; }).join(', ') : '<span class="note">none</span>';
+  }
+  function suHook(h){
+    if (!h) return '';
+    var who = h.urls.map(function(u){ return u.who; });
+    var tp = who.indexOf('TouchPoint') > -1, go = who.indexOf('TPxi Go') > -1;
+    if (!h.on) return '<span class="k-failed">Off</span>' + (h.urls.length ? ' <span class="note">(' + h.urls.length + ' saved)</span>' : '');
+    return (tp ? 'TouchPoint' : '<span class="k-failed">Not TouchPoint</span>') + (go ? ', TPxi Go' : '')
+      + (h.urls.length - (tp ? 1 : 0) - (go ? 1 : 0) > 0 ? ', other' : '');
+  }
+  function suIssues(){
+    var out = [], gaps = [];
+    if (!SU) return;
+    SU.tpOnly.forEach(function(t){
+      out.push(['bad', 'TouchPoint group <b>' + esc(t.name) + '</b> points to a PoweredByText group that is not there. It may have been deleted or moved in PoweredByText.']); });
+    var byNum = {};
+    SU.units.forEach(function(u){
+      if (u.error) out.push(['warn', 'Could not read the groups in <b>' + esc(u.name) + '</b>: ' + esc(u.error)]);
+      u.groups.forEach(function(g){
+        if (!g.tp) out.push(['info', '<b>' + esc(g.name) + '</b> (' + esc(u.name) + ') is not connected to TouchPoint, so TouchPoint cannot text it or see its replies.']);
+        else if (g.tp.state == 'off') out.push(['warn', '<b>' + esc(g.name) + '</b> is turned off in TouchPoint, so its replies are not shown there.']);
+        else if (!g.tp.staff.length && !g.tp.oneTimeCode && !g.tp.system) out.push(['warn', 'No staff are listed on <b>' + esc(g.name) + '</b> in TouchPoint\\'s SMS settings, so only admins see its replies.']);
+        var nums = (g.d && g.d.numbers && g.d.numbers.length ? g.d.numbers : u.numbers);
+        g.keywords.forEach(function(k){
+          nums.forEach(function(n){
+            var key = n + '|' + (k.name || '').toUpperCase();
+            (byNum[key] = byNum[key] || []).push(g.name);
+          });
+        });
+        if (suGap(g)) gaps.push(esc(g.name));
+        if (g.d && g.d.hooks && g.tp && g.tp.state == 'on') {
+          var r = g.d.hooks.replies, st = g.d.hooks.status;
+          if (!r.on || !r.urls.some(function(x){ return x.who == 'TouchPoint'; }))
+            out.push(['bad', 'Replies to <b>' + esc(g.name) + '</b> are not sent to TouchPoint, so they will not show there.']);
+          if (!st.on || !st.urls.some(function(x){ return x.who == 'TouchPoint'; }))
+            out.push(['warn', 'Delivery results for <b>' + esc(g.name) + '</b> are not sent to TouchPoint, so sent texts can look stuck.']);
+        }
+      });
+    });
+    Object.keys(byNum).forEach(function(key){
+      var gs = byNum[key].filter(function(x, i, a){ return a.indexOf(x) == i; });
+      if (gs.length > 1) {
+        var p = key.split('|');
+        out.push(['bad', 'Keyword <b>' + esc(p[1]) + '</b> is on ' + gs.map(esc).join(' and ') + ', which share the number ' + esc(p[0])
+          + '. A text with that keyword can only go to one of them.']);
+      }
+    });
+    if (gaps.length) out.push(['info', 'PoweredByText lists more people than TouchPoint on ' + gaps.length + ' group' + (gaps.length == 1 ? '' : 's')
+      + ' (' + gaps.join(', ') + '). This is normal: TouchPoint counts only people it has texted from the group, and PoweredByText keeps '
+      + 'everyone who ever joined, including keyword sign-ups, old numbers and people since removed in TouchPoint. It only matters when '
+      + 'someone texts the whole group from inside PoweredByText. <a href="#" class="su-subs">Open Subscribers</a> to see who.']);
+    var rank = {bad: 0, warn: 1, info: 2};
+    out = out.map(function(x, i){ return [x, i]; }).sort(function(a, b){
+      return (rank[a[0][0]] - rank[b[0][0]]) || (a[1] - b[1]); }).map(function(x){ return x[0]; });
+    var M = {bad: ['&#10007;', 'k-failed'], warn: ['!', 'late'], info: ['i', 'who']};
+    $('suissues').innerHTML = out.length ? '<h4 style="margin:12px 0 6px">Things to look at (' + out.length + ')</h4><table>'
+      + out.map(function(x){ var m = M[x[0]]; return '<tr><td class="' + m[1] + '" style="font-weight:700;text-align:center;width:28px">' + m[0] + '</td><td>' + x[1] + '</td></tr>'; }).join('')
+      + '</table>' : '<p class="note" style="margin-top:10px">Nothing to look at.</p>';
+    Array.prototype.forEach.call(document.querySelectorAll('#suissues a.su-subs'), function(a){
+      a.onclick = function(e){ e.preventDefault(); var n = document.querySelector('#txnav a[data-p="subs"]'); if (n) n.click(); }; });
+  }
+  // Every automatic answer a text to this group can get, TouchPoint's first.
+  var SU_STD = ['START', 'STOP', 'UNSTOP', 'STOP ALL', 'STOPALL'];
+  function suReplies(g){
+    var rows = [], d = g.d || {}, m = d.messages || {};
+    ((g.tp && g.tp.replyWords) || []).forEach(function(w){
+      rows.push(['TouchPoint reply word <b>' + esc(w.word) + '</b>', esc(w.action) + (w.args ? ' <span class="note">(' + esc(w.args) + ')</span>' : ''),
+        esc(w.reply) + (w.unknown ? '<div class="note">To a number TouchPoint does not know: ' + esc(w.unknown) + '</div>' : '')]); });
+    g.keywords.forEach(function(k){
+      rows.push(['PoweredByText keyword <b>' + esc(k.name) + '</b>', 'Joins the group',
+        (k.onContact ? esc(k.onContact) : '<span class="note">no reply</span>')
+        + (k.emails.length || k.phones.length ? '<div class="note">Alerts ' + suList(k.emails.concat(k.phones)) + '</div>' : '')]); });
+    if (m.optin) rows.push(['PoweredByText opt-in message', 'After someone joins', esc(m.optin)]);
+    if (m.help) rows.push(['PoweredByText HELP message', 'When someone texts HELP', esc(m.help)]);
+    if (m.stop) rows.push(['PoweredByText STOP message', 'When someone texts STOP', esc(m.stop)]);
+    rows.push(['PoweredByText group auto reply', g.autoReply ? '<b>On:</b> answers texts automatically' : 'Off',
+      g.autoReply ? esc(g.autoReplyText || '(no text saved)') : '']);
+    return '<p><b>Auto replies</b> <span class="note">(what a text to this group can get back automatically)</span></p><table>'
+      + '<tr><th>Where</th><th>When / what it does</th><th>Reply</th></tr>'
+      + rows.map(function(r){ return '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td><td class="msg">' + r[2] + '</td></tr>'; }).join('')
+      + '</table>' + (g.d ? '' : '<p class="note">HELP, STOP and opt-in messages show once this group is read.</p>');
+  }
+  function suAutoSummary(){
+    var rows = [];
+    if (SU.accountAutoReply) rows.push(['PoweredByText account', 'Account default', esc(SU.accountAutoReply)]);
+    var std = 0, stdGroups = 0;
+    SU.units.forEach(function(u){
+      if (u.autoReply) rows.push(['PoweredByText org unit', esc(u.name), esc(u.autoReply)]);
+      u.groups.forEach(function(g){
+        if (g.autoReply) rows.push(['PoweredByText group auto reply', esc(g.name) + ' <span class="note">(every text in)</span>', esc(g.autoReplyText || '(no text saved)')]);
+        g.keywords.forEach(function(k){ if (k.onContact) rows.push(['PoweredByText keyword ' + esc(k.name), esc(g.name), esc(k.onContact)]); });
+        var tw = (g.tp && g.tp.state == 'on' && g.tp.replyWords) || [];
+        if (tw.length) stdGroups++;
+        tw.forEach(function(w){
+          if (SU_STD.indexOf((w.word || '').toUpperCase()) > -1) std++;
+          else rows.push(['TouchPoint reply word ' + esc(w.word), esc(g.name) + ': ' + esc(w.action) + (w.args ? ' (' + esc(w.args) + ')' : ''), esc(w.reply)]);
+        });
+      });
+    });
+    var h = '<h4 style="margin:14px 0 6px">Auto replies</h4><p class="note">Every automatic answer set up in PoweredByText or TouchPoint. '
+      + 'A text can get one from each side, so two set up for the same thing means the person gets two texts back.'
+      + (stdGroups ? ' TouchPoint\\'s standard START, STOP and UNSTOP replies are on ' + stdGroups + ' group' + (stdGroups == 1 ? '' : 's') + ' and are listed in each group\\'s details.' : '') + '</p>';
+    return h + (rows.length ? '<table><tr><th>Where</th><th>Applies to</th><th>Reply</th></tr>' + rows.map(function(r){
+      return '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td><td class="msg">' + r[2] + '</td></tr>'; }).join('') + '</table>'
+      : '<p class="note">No other auto replies are set up.</p>');
+  }
+  function suTemplates(list){
+    if (!list || !list.length) return '';
+    return '<table><tr><th>Template</th><th>Message</th><th>Status</th></tr>' + list.map(function(t){
+      return '<tr><td>' + esc(t.name) + '</td><td class="msg">' + esc(t.message) + '</td><td>' + esc(t.status) + '</td></tr>'; }).join('') + '</table>';
+  }
+  function suDetail(g){
+    var h = [];
+    if (g.description) h.push('<p><b>Description:</b> ' + esc(g.description) + '</p>');
+    if (g.tags.length) h.push('<p><b>Tags:</b> ' + suList(g.tags) + '</p>');
+    h.push('<p><b>Auto reply:</b> ' + (g.autoReply ? esc(g.autoReplyText || 'On') : 'Off')
+      + ' &middot; <b>Private:</b> ' + suYes(g.private) + ' &middot; <b>Chat:</b> ' + suYes(g.chat)
+      + (g.status ? ' &middot; <b>Status:</b> ' + esc(g.status) : '') + '</p>');
+    if (g.users.length) h.push('<p><b>PoweredByText users:</b> ' + g.users.map(function(u){
+      return esc(u.name) + (u.role ? ' (' + esc(u.role) + ')' : '') + (u.active ? '' : ' <span class="note">inactive</span>'); }).join(', ') + '</p>');
+    if (g.notifyEmails.length || g.notifyPhones.length) h.push('<p><b>PoweredByText alerts go to:</b> ' + suList(g.notifyEmails.concat(g.notifyPhones)) + '</p>');
+    h.push(suReplies(g));
+    if (g.tp && g.tp.staff.length) h.push('<p><b>Staff in TouchPoint:</b> ' + suStaff(g) + ' <span class="note">(&#128276; gets TouchPoint\\'s alert)</span></p>');
+    var d = g.d;
+    if (d) {
+      if (d.hooks) ['replies', 'status'].forEach(function(k){
+        var x = d.hooks[k];
+        h.push('<p><b>' + (k == 'replies' ? 'Replies webhook' : 'Status webhook') + ':</b> ' + (x.on ? 'On' : 'Off')
+          + (x.urls.length ? '<br>' + x.urls.map(function(u){ return esc(u.who) + ': ' + esc(u.url) + ' <span class="note">(' + esc(u.auth) + (u.user ? ', user ' + esc(u.user) : '') + ')</span>'; }).join('<br>') : ' <span class="note">(no address)</span>') + '</p>');
+      });
+      else if (d.hooksError) h.push('<p><b>Webhooks:</b> could not read: ' + esc(d.hooksError) + '</p>');
+      if (d.templates && d.templates.length) h.push('<p><b>Group templates</b></p>' + suTemplates(d.templates));
+    } else h.push('<p class="note">Still reading this group\\'s numbers, webhooks and subscribers.</p>');
+    return h.join('');
+  }
+  function suRow(u, g, i){
+    var d = g.d || {};
+    return '<tr id="su-' + esc(g.id) + '"><td><a href="#" data-su="' + i + '">' + esc(g.name) + '</a></td><td>' + suKw(g) + '</td><td>' + suTp(g)
+      + '</td><td>' + suStaff(g) + '</td><td>' + (g.autoReply ? 'On' : '<span class="note">Off</span>') + '</td><td>' + (d.numbers ? suList(d.numbers) : '')
+      + '</td><td class="num">' + suSubs(g) + '</td><td>'
+      + (d.hooks ? suHook(d.hooks.replies) : '') + '</td><td>' + (d.hooks ? suHook(d.hooks.status) : '') + '</td></tr>'
+      + '<tr class="sudet" data-for="' + i + '" style="display:none"><td colspan="9">' + suDetail(g) + '</td></tr>';
+  }
+  // PBT keeps the numbers on each group; the org unit's own list is often empty.
+  function suUnitNums(u){
+    var n = u.numbers.slice(), read = false;
+    u.groups.forEach(function(g){ if (g.d && g.d.numbers) { read = true;
+      g.d.numbers.forEach(function(x){ if (n.indexOf(x) < 0) n.push(x); }); } });
+    return n.length ? suList(n) : read ? 'none listed' : 'reading...';
+  }
+  function suGap(g){
+    var d = g.d || {};
+    if (!g.tp || g.tp.state != 'on' || g.tp.system || g.tp.oneTimeCode || d.subscribers == null) return 0;
+    var a = d.subscribers, b = g.tp.subs.sub, diff = Math.abs(a - b);
+    return diff >= 10 && diff >= 0.1 * Math.max(a, b) ? diff : 0;
+  }
+  function suSubs(g){
+    var d = g.d || {}, out = [];
+    if (d.subscribers != null) out.push('<span title="Numbers still getting texts in PoweredByText">' + Number(d.subscribers).toLocaleString() + '</span>');
+    else if (d.subscribersError) out.push('<span class="note" title="' + esc(d.subscribersError) + '">?</span>');
+    if (g.tp) out.push('<span class="note" title="Numbers TouchPoint lists as subscribed (' + g.tp.subs.opt.toLocaleString()
+      + ' opted out)">TP ' + g.tp.subs.sub.toLocaleString() + '</span>');
+    return out.join('<br>');
+  }
+  var suOpen = {};
+  function suDraw(){
+    var all = [], html = [];
+    SU.units.forEach(function(u){
+      html.push('<div class="box" style="margin:14px 0 6px"><b style="font-size:15px">' + esc(u.name) + '</b>'
+        + (u.shortName && u.shortName != u.name ? ' <span class="note">(' + esc(u.shortName) + ')</span>' : '')
+        + (u.default ? ' <span class="note">default</span>' : '')
+        + '<div class="note">Numbers: ' + suUnitNums(u) + ' &middot; Link shortening: ' + suYes(u.shorten)
+        + ' &middot; ' + u.groups.length + ' group' + (u.groups.length == 1 ? '' : 's') + '</div>'
+        + (u.autoReply ? '<div class="note">Auto reply: ' + esc(u.autoReply) + '</div>' : '')
+        + (u.error ? '<div class="k-failed">Could not read its groups: ' + esc(u.error) + '</div>' : '') + '</div>');
+      if (u.groups.length) {
+        html.push('<table><tr><th>Group</th><th>Keywords</th><th>TouchPoint group</th><th>Staff in TouchPoint</th><th>Auto reply</th>'
+          + '<th>Numbers</th><th title="PoweredByText first, then TouchPoint (TP)">Subscribers</th><th>Replies webhook</th><th>Status webhook</th></tr>');
+        u.groups.forEach(function(g){ var i = all.length; all.push(g); html.push(suRow(u, g, i)); });
+        html.push('</table>');
+      }
+      if (u.templates.length) html.push('<details class="box" style="margin-top:6px"><summary>' + esc(u.name) + ' templates (' + u.templates.length + ')</summary>' + suTemplates(u.templates) + '</details>');
+    });
+    html.push(suAutoSummary());
+    if (SU.accountTemplates.length) html.push('<details class="box" style="margin-top:10px"><summary>Account templates (' + SU.accountTemplates.length + ')</summary>' + suTemplates(SU.accountTemplates) + '</details>');
+    if (SU.tpOnly.length) html.push('<h4 style="margin:14px 0 6px">TouchPoint groups not found in PoweredByText</h4><table><tr><th>TouchPoint group</th><th>Staff</th></tr>'
+      + SU.tpOnly.map(function(t){ return '<tr><td>' + esc(t.name) + '</td><td>' + suList(t.staff.map(function(x){ return x.name; })) + '</td></tr>'; }).join('') + '</table>');
+    SU.all = all;
+    $('suout').innerHTML = html.join('');
+    Array.prototype.forEach.call(document.querySelectorAll('#suout a[data-su]'), function(a){
+      a.onclick = function(e){
+        e.preventDefault();
+        var i = this.getAttribute('data-su'), row = document.querySelector('#suout tr.sudet[data-for="' + i + '"]');
+        suOpen[i] = row.style.display == 'none';
+        row.style.display = suOpen[i] ? '' : 'none';
+      };
+      var i = a.getAttribute('data-su');
+      if (suOpen[i]) document.querySelector('#suout tr.sudet[data-for="' + i + '"]').style.display = '';
+    });
+    suIssues();
+  }
+  $('surun').onclick = function(){
+    $('sustatus').textContent = ''; $('suissues').innerHTML = ''; suOpen = {};
+    var done = waitBar('su', 'Reading PoweredByText and TouchPoint', 4, 'surun');
+    post({action:'pbt_setup'}, function(r){
+      var took = done();
+      if (!r.success) { $('sustatus').textContent = r.message; return; }
+      SU = r;
+      var n = 0; SU.units.forEach(function(u){ n += u.groups.length; });
+      $('sustatus').textContent = SU.units.length + ' org unit' + (SU.units.length == 1 ? '' : 's') + ', ' + n + ' groups.';
+      suDraw();
+      suDetails(took);
+    });
+  };
+  // Then each group's slower facts, one group at a time, redrawing as they come.
+  function suDetails(took0){
+    var list = [], t0 = Date.now();
+    SU.units.forEach(function(u){ u.groups.forEach(function(g){ list.push([u, g]); }); });
+    var i = 0;
+    $('surun').disabled = true;
+    function next(){
+      $('suprog').style.display = '';
+      if (i >= list.length) {
+        $('surun').disabled = false; $('suprog').style.display = 'none';
+        $('sustatus').textContent = SU.units.length + ' org unit' + (SU.units.length == 1 ? '' : 's') + ', ' + list.length
+          + ' groups, read in ' + (took0 + Math.round((Date.now() - t0) / 1000)) + 's.';
+        suDraw(); return;
+      }
+      var u = list[i][0], g = list[i][1];
+      $('subar').style.width = Math.round(100 * i / list.length) + '%';
+      $('suprogtxt').textContent = 'Reading ' + g.name + ' (' + (i + 1) + ' of ' + list.length + ')';
+      post({action:'pbt_setup_group', o:u.id, g:g.id}, function(r){
+        g.d = r.success ? r : {hooksError: r.message};
+        i++;
+        if (i % 5 == 0) suDraw();
+        next();
+      });
+    }
+    // The first step's bar hides itself 0.3s after it ends; start after that.
+    setTimeout(next, 400);
+  }
   // ---- Connection check
   var CK = {ok: ['&#10003;', 'k-delivered'], warn: ['!', 'late'], bad: ['&#10007;', 'k-failed'], info: ['i', 'who']};
   function ckRow(c){
@@ -5854,7 +6386,7 @@ if (window.location.pathname.indexOf('/PyScript/') > -1)
 
 # Admin tools actions. Each one checks the Admin role itself (admin_post).
 ADMIN_ACTIONS = set(['preview_group', 'apply', 'usage_history', 'usage_month', 'usage_refresh', 'usage_refresh_plan',
-                     'save_cost', 'drill', 'pbt_check', 'pbt_check_links', 'apply_update',
+                     'save_cost', 'drill', 'pbt_check', 'pbt_check_links', 'pbt_setup', 'pbt_setup_group', 'apply_update',
                      'trace', 'usage', 'log', 'save_settings'])
 
 # Admin menu: (group, [(page key, label, what it shows)]). 'people' is the
@@ -5862,7 +6394,8 @@ ADMIN_ACTIONS = set(['preview_group', 'apply', 'usage_history', 'usage_month', '
 ADMIN_MENU = [
     ('People and numbers', [('names', 'Names', 'sync'), ('subs', 'Subscribers', 'people')]),
     ('Sending', [('delivery', 'Delivery', 'delivery'), ('usage', 'Usage and cost', 'usage')]),
-    ('Records', [('log', 'Change log', 'history'), ('check', 'Connection check', 'check'), ('settings', 'Settings', 'settings')]),
+    ('Records', [('setup', 'PoweredByText setup', 'setup'), ('log', 'Change log', 'history'),
+                 ('check', 'Connection check', 'check'), ('settings', 'Settings', 'settings')]),
 ]
 
 SHELL_CSS = """
