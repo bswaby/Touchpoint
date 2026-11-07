@@ -30,13 +30,21 @@
 # The two parts are described in detail at the top of each section below.
 #
 # OPEN IT AT /PyScriptForm/TPxi_Texting (not /PyScript/).
+#
+# VERSION HISTORY
+#   1.0.3  Conversations list newest first, like a phone (New ones are marked,
+#          not moved to the top), and it opens on All. The New count shows on
+#          the New button. A reply that a later group text went out after is
+#          no longer marked Not answered. Long links are shortened again:
+#          PoweredByText's answer was not being read, so links went out long.
+#   1.0.2 and earlier  First releases of the combined tool.
 #####################################################################
 
 import json
 import re
 import datetime
 
-TEXTING_VERSION = '1.0.2'
+TEXTING_VERSION = '1.0.3'
 # Updates come from the same TPxi script service as the other TPxi tools:
 # the page asks DC_API_BASE which version is newest, and an admin's Update
 # pulls the new code from DC_API_WORKER and saves it over this script.
