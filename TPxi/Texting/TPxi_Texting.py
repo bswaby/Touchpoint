@@ -1,3 +1,4 @@
+#Roles=Admin,SendSMS,ManageSMS
 # -*- coding: utf-8 -*-
 #####################################################################
 # TPxi_Texting
@@ -35,7 +36,7 @@ import json
 import re
 import datetime
 
-TEXTING_VERSION = '1.0.1'
+TEXTING_VERSION = '1.0.2'
 # Updates come from the same TPxi script service as the other TPxi tools:
 # the page asks DC_API_BASE which version is newest, and an admin's Update
 # pulls the new code from DC_API_WORKER and saves it over this script.
@@ -643,6 +644,7 @@ def thread_facts(gid, evs, cands):
     last_in = None
     last_attn = None
     last_out = None
+    last_bc = None
     opted = False
     for e in evs:
         if e['dir'] == 'in':
@@ -653,7 +655,9 @@ def thread_facts(gid, evs, cands):
                 opted = False
             elif not e['reaction'] and not e.get('help'):
                 last_attn = e
-        elif not e.get('broadcast') and not e.get('auto'):
+        elif e.get('broadcast'):
+            last_bc = e
+        elif not e.get('auto'):
             last_out = e
     prefer = last_in['pid'] if last_in else None
     who = owner(cands, prefer)
@@ -666,7 +670,7 @@ def thread_facts(gid, evs, cands):
     target = None
     if textable:
         target = owner(textable, prefer)
-    return {'lastIn': last_in, 'lastAttn': last_attn, 'lastOut': last_out, 'opted': opted,
+    return {'lastIn': last_in, 'lastAttn': last_attn, 'lastOut': last_out, 'lastBc': last_bc, 'opted': opted,
             'who': who, 'target': target, 'blocked': why}
 
 
@@ -742,15 +746,19 @@ def check_emoji(text, is_group):
         raise Exception('Emoji are turned off for texts here. Take them out and send again.')
 
 
+def check_public_links(msg):
+    if PUBLIC_SHORTENER.search(msg or ''):
+        raise Exception('This text has a public short link (like bit.ly). Carriers block those and PoweredByText '
+                        'warns it can get the account suspended. Paste the full link instead; it will be shortened safely.')
+
+
 def shorten_links(g, msg):
     """Long links become PBT short links for this group (the same link gives
     back the same short link). Returns (text, note). If PBT will not shorten
     (its M-Click setting is off), the link goes out as typed."""
     if not msg:
         return msg, ''
-    if PUBLIC_SHORTENER.search(msg):
-        raise Exception('This text has a public short link (like bit.ly). Carriers block those and PoweredByText '
-                        'warns it can get the account suspended. Paste the full link instead; it will be shortened safely.')
+    check_public_links(msg)
     notes = []
 
     def one(m):
@@ -761,7 +769,16 @@ def shorten_links(g, msg):
             return whole
         try:
             res = pbt_post('/orgunit/%s/groups/%s/shortUrls' % (g['orgunitId'], g['groupId']), {'longUrl': url})
-            short = ((res or {}).get('data') or {}).get('url') if not (res or {}).get('isError') else None
+            short = None
+            if not (res or {}).get('isError'):
+                # The short link has come back under a few names; take the first that looks like one.
+                d = (res or {}).get('data')
+                dd = d if isinstance(d, dict) else {}
+                for c in (dd.get('url'), dd.get('shortUrl'), dd.get('shortURL'), dd.get('link'), d,
+                          (res or {}).get('shortUrl'), (res or {}).get('url')):
+                    if isinstance(c, basestring) and c.startswith('http'):
+                        short = c
+                        break
         except Exception:
             short = None
         if not short:
@@ -1104,6 +1121,10 @@ def act_threads():
             status = 'done'
         elif f['lastOut'] and (not attn or f['lastOut']['t'] >= attn['t']):
             status = 'answered'
+        elif attn and f['lastBc'] and f['lastBc']['t'] >= attn['t']:
+            # A group text has gone to them since their reply ("Yes, I can"):
+            # the conversation moved on, so it no longer waits on an answer.
+            status = 'other'
         elif attn:
             status = 'notanswered'
         else:
@@ -1119,9 +1140,9 @@ def act_threads():
             'lastDir': 'auto' if last.get('auto') else 'bc' if last.get('broadcast') else last['dir'],
             'status': status, 'isNew': new_count > 0 and not f['opted'], 'newCount': new_count,
         })
-    news = sorted([x for x in out if x['isNew']], key=lambda x: x['t'], reverse=True)
-    rest = sorted([x for x in out if not x['isNew']], key=lambda x: x['t'], reverse=True)
-    return {'success': True, 'threads': news + rest,
+    # Newest activity on top, like a phone's texting app. New ones are marked,
+    # not moved, so the list never reorders just because someone opened one.
+    return {'success': True, 'threads': sorted(out, key=lambda x: x['t'], reverse=True),
             'groups': [{'id': g['id'], 'name': g['name'], 'canSend': can_send_in(g)}
                        for g in sorted(groups.values(), key=lambda g: g['name'])]}
 
@@ -1327,9 +1348,12 @@ def act_send():
         raise Exception(quiet)
     check_emoji(msg, False)
     media = parse_media(_param('media'))
-    msg, note = shorten_links(g, msg)
     me = my_name()
+    note = ''
     if f['target'] and not media:
+        # TouchPoint's own sender replaces every link with its own short link,
+        # so shortening here first would only add a second redirect.
+        check_public_links(msg)
         # TouchPoint's own sender: logs it under this staff member and refuses
         # anyone with texts turned off or opted out of the group.
         model.SendSms(str(f['target']['pid']), gid, SEND_TITLE, msg)
@@ -1341,6 +1365,7 @@ def act_send():
         # sender is text only), so TouchPoint's texts-off rule is checked here.
         if f['target'] and not f['target'].get('receive', True):
             raise Exception('This person has texts turned off in TouchPoint.')
+        msg, note = shorten_links(g, msg)
         fb = media_fallback(g, _param('fb') or msg, media, _param('fblink') != '0') if media else None
         pbt_send(g, num, msg, media, fb)
         log_sent({'t': now, 'gid': gid, 'b': fingerprint(msg), 'pid': ME, 'by': (me.Name if me else ''),
@@ -3159,15 +3184,6 @@ def apply_update():
     if len(code) < 5000 or 'TEXTING_VERSION' not in code or 'def app_page' not in code:
         return {'success': False, 'message': 'The download did not look like TPxi Texting, so nothing was changed.'}
     m = re.search(r"TEXTING_VERSION = '([\d.]+)'", code)
-    got = m.group(1) if m else ''
-
-    def parts(v):
-        return [int(x) if x.isdigit() else 0 for x in (v or '0').split('.')]
-    if parts(got) <= parts(TEXTING_VERSION):
-        # The service lists a newer version than the file it serves. Saving it
-        # would change nothing and the notice would keep coming back.
-        return {'success': False, 'message': 'The published file still says version %s inside, so nothing was changed. '
-                'Raise TEXTING_VERSION in the published copy to match the version listed.' % (got or 'unknown')}
     model.WriteContentPython(name, code)
     return {'success': True, 'version': m.group(1) if m else '', 'message': 'Updated %s. Reloading.' % name}
 
@@ -3836,7 +3852,7 @@ def inbox_page():
   <div class="wrap" id="wrap">
     <div class="left">
       <div class="tools">
-        <div class="seg" id="seg"><a href="#" data-f="new" class="on">New</a><a href="#" data-f="notanswered">Not answered</a><a href="#" data-f="all">All</a><a href="#" data-f="done">Done</a></div>
+        <div class="seg" id="seg"><a href="#" data-f="all" class="on">All</a><a href="#" data-f="new">New</a><a href="#" data-f="notanswered">Not answered</a><a href="#" data-f="done">Done</a></div>
         <button class="ghost" id="markall" title="Mark every New conversation in this list as read for you">Mark all read</button>
         <button class="ghost" id="newbtn" title="Text someone"__NEWHIDE__>New text</button>
         <button class="ghost" id="gbtn" title="Text everyone in a group"__NEWHIDE__>Group text</button>
@@ -3868,12 +3884,12 @@ def inbox_page():
     <h4 id="h-list">The list</h4>
     <dl>
       <dt><span class="pill p-new">New</span></dt><dd>They texted since <i>you</i> last opened the conversation. It is yours alone: opening it clears it for you, not for anyone else. <b>Mark all read</b> clears every New one in the list, which helps after a group text that asked for replies.</dd>
-      <dt><span class="pill p-notanswered">Not answered</span></dt><dd>They texted last. Everyone sees the same thing.</dd>
+      <dt><span class="pill p-notanswered">Not answered</span></dt><dd>They texted and nobody has answered them yet. Everyone sees the same thing. If a group text goes to them after their text, it drops off this list, since the conversation has moved on.</dd>
       <dt><span class="pill p-answered">Answered</span></dt><dd>Someone on staff texted after their last text, from here, from TouchPoint or from PoweredByText.</dd>
       <dt><span class="pill p-done">Done</span></dt><dd>Anyone can mark a conversation handled. It comes back if they text again.</dd>
       <dt><span class="pill p-optedout">Opted out</span></dt><dd>They texted STOP. Nobody can text them from that group until they text START.</dd>
     </dl>
-    <p>Reactions (&ldquo;Liked&hellip;&rdquo;, &#128077;), STOP, START and HELP, group texts and automatic replies never make a conversation New and never count as an answer.</p>
+    <p>Reactions (&ldquo;Liked&hellip;&rdquo;, &#128077;), STOP, START and HELP, group texts and automatic replies never make a conversation New. Group texts and automatic replies never count as an answer either.</p>
     <p><b>Search</b> finds any part of a first name, goes-by name or last name, in any order: &ldquo;sar whit&rdquo; finds Sarah Whitaker. It also finds a phone number or words in the text. Use the group and day lists to narrow it down.</p>
 
     <h4 id="h-reply">Replying</h4>
@@ -3899,7 +3915,7 @@ def inbox_page():
     </ul>
 
     <h4 id="h-links">Links</h4>
-    <p>Paste the full link. Long links are sent as a short PoweredByText link, which saves characters and credits. Do not use bit.ly, Linktree or other public short links: carriers block texts that contain them, and PoweredByText can suspend the account. The page will not send one. RSVP and sign-up links that TouchPoint adds are left alone.</p>
+    <p>Paste the full link. Long links are sent as a short link, which saves characters and credits. Do not use bit.ly, Linktree or other public short links: carriers block texts that contain them, and PoweredByText can suspend the account. The page will not send one. RSVP and sign-up links that TouchPoint adds are left alone.</p>
 
     <h4 id="h-cost">What a text costs</h4>
     <ul>
@@ -3951,7 +3967,7 @@ def inbox_page():
   var POLICY = __POLICY__;     // emoji: allow | replies | none; attach: off | pictures | pictures_pdf | all
   var base = window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
   var shownRows = [];
-  var threads = [], groups = [], filt = 'new', cur = null, curData = null, busy = false;
+  var threads = [], groups = [], filt = 'all', cur = null, curData = null, busy = false;
   var curGT = {key: null, list: []};   // group texts sent in PoweredByText's app, read once per open
   // Quick replies: plain text (no curly quotes), each one credit. The emoji
   // one switches to the 70-character mode but is still a single credit.
@@ -4073,7 +4089,7 @@ def inbox_page():
       return true;
     });
     var n = threads.filter(function(t){ return t.isNew && (!g || String(t.gid) == g); }).length;
-    $('seg').firstChild.textContent = 'New' + (n ? ' (' + n + ')' : '');
+    $('seg').querySelector('[data-f=new]').textContent = 'New' + (n ? ' (' + n + ')' : '');
     $('markall').disabled = !rows.some(function(t){ return t.isNew; });
     shownRows = rows;
     if (!rows.length) {
@@ -4300,7 +4316,7 @@ def inbox_page():
       var notes = [];
       (text.match(URL_RE) || []).forEach(function(u){
         if (PUBLIC_RE.test(u)) { ok = false; notes.push('<span class="xbad">' + esc(u) + ' is a public short link. Carriers block these and PoweredByText warns it can get the account suspended. Paste the full link instead and it will be shortened safely.</span>'); }
-        else if (longLink(u)) notes.push('Link goes out as a short PoweredByText link (about 26 characters).');
+        else if (longLink(u)) notes.push('Link goes out as a short link (about 26 characters).');
       });
       if (EMOJI_RE.test(text) && !st.media) {
         if (POLICY.emoji == 'none') { ok = false; notes.push('<span class="xbad">Emoji are turned off for texts here. Take them out to send.</span>'); }
