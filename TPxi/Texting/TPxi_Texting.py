@@ -41,6 +41,8 @@
 #          plus a list of things to look at (a keyword two groups share on one
 #          number, a group TouchPoint points to that is gone, replies or
 #          delivery results not reaching TouchPoint). Read only.
+#          Picture messages are held to 905 KB (was 950), the size PoweredByText
+#          takes; photos are shrunk to 850 KB to leave room.
 #   1.0.3  Conversations list newest first, like a phone (New ones are marked,
 #          not moved to the top), and it opens on All. The New count shows on
 #          the New button. A reply that a later group text went out after is
@@ -736,12 +738,12 @@ def pbt_send(g, num, msg, media=None, fallback=None):
 
 # ---------------------------------------------------------------- pictures, links, emoji
 # PBT takes these files for a picture message (MMS). US carriers cap an MMS
-# at 950 KB; the page shrinks photos to fit before uploading.
+# at 905 KB; the page shrinks photos to fit before uploading.
 MEDIA_KINDS = {'image/jpeg': 'picture', 'image/png': 'picture', 'image/gif': 'picture',
                'application/pdf': 'pdf', 'video/mp4': 'av', 'audio/mpeg': 'av', 'audio/mp3': 'av'}
 MEDIA_ALLOWED = {'off': (), 'pictures': ('picture',), 'pictures_pdf': ('picture', 'pdf'),
                  'all': ('picture', 'pdf', 'av')}
-MEDIA_MAX = 950 * 1024
+MEDIA_MAX = 905 * 1024
 # Carriers block texts with public link shorteners, and PBT warns that
 # sending them can get the account suspended. Links PBT or TouchPoint made
 # are already short and safe.
@@ -851,7 +853,7 @@ def pbt_upload(g, name, mime, data_b64):
         raise Exception('PoweredByText takes JPG, PNG, GIF, PDF, MP4 and MP3 files.')
     raw = System.Convert.FromBase64String(data_b64)
     if raw.Length > MEDIA_MAX:
-        raise Exception('That file is %d KB. A picture message can be at most 950 KB, so send a link instead.'
+        raise Exception('That file is %d KB. A picture message can be at most 905 KB, so send a link instead.'
                         % (raw.Length // 1024))
     tok = pbt_token()
     safe_name = re.sub(r'[^\w.\-]', '_', name or 'file')[:80] or 'file'
@@ -4165,7 +4167,7 @@ def inbox_page():
     <ul>
       <li>Press <b>Attach</b>. Your administrator decides what is allowed: pictures, PDFs, or small video and audio.</li>
       <li>A picture message is <b>3 credits per person</b>, whatever is in it. Emoji and links add nothing to that.</li>
-      <li>Phones can take at most 950 KB. Photos are made smaller for you before they are sent. A file that is still too big is refused; put it on the website and send the link instead.</li>
+      <li>Phones can take at most 905 KB. Photos are made smaller for you before they are sent. A file that is still too big is refused; put it on the website and send the link instead.</li>
       <li>Some phones cannot show pictures. They get a plain text instead, with a link to the picture. Press <b>Edit</b> on the line under the box to change that text or leave the link out. A PDF, video or audio file needs the link, or they have no way to open it.</li>
     </ul>
 
@@ -4503,7 +4505,7 @@ def inbox_page():
   var EMOJI = ['👍', '🙏', '❤️', '😊', '🎉', '✅', '📅', '📍',
                '⛪', '🙌', '😀', '👋', '⏰', '📣', '☀️', '🍕',
                '🎶', '📖', '🚌', '🎈'];
-  var MEDIA_MAX = 950 * 1024, SHRINK_TO = 900 * 1024;
+  var MEDIA_MAX = 905 * 1024, SHRINK_TO = 850 * 1024;
   var ACCEPT = {off: '', pictures: 'image/jpeg,image/png,image/gif',
                 pictures_pdf: 'image/jpeg,image/png,image/gif,application/pdf',
                 all: 'image/jpeg,image/png,image/gif,application/pdf,video/mp4,audio/mpeg'};
@@ -4613,7 +4615,7 @@ def inbox_page():
       function done(blob, note){
         if (blob.size > MEDIA_MAX) {
           st.busy = false;
-          st.err = f.name + ' is ' + Math.round(blob.size / 1024) + ' KB. A picture message can be at most 950 KB. '
+          st.err = f.name + ' is ' + Math.round(blob.size / 1024) + ' KB. A picture message can be at most 905 KB. '
             + (/^image\\/gif/.test(mime) ? 'Use a still picture, or send a link.' : /^image/.test(mime) ? 'Try a smaller picture.' : 'Put it on the website and send the link.');
           onChange(); return;
         }
@@ -4634,7 +4636,7 @@ def inbox_page():
     };
     return self;
   }
-  // Phone photos are 2 to 5 MB; MMS allows 950 KB. Redraw at most 1600 px on
+  // Phone photos are 2 to 5 MB; MMS allows 905 KB. Redraw at most 1600 px on
   // the long side and step the JPEG quality down until it fits.
   function shrink(file, cb){
     var img = new Image(), url = URL.createObjectURL(file);
@@ -5161,7 +5163,7 @@ def admin_page():
         <option value="pictures">Pictures only</option>
         <option value="pictures_pdf">Pictures and PDFs</option>
         <option value="all">Pictures, PDFs, small video and audio</option></select></label>
-        <span class="who">Always 3 credits. Photos are shrunk to fit the 950 KB limit; anything bigger is refused with a tip to send a link.</span></p>
+        <span class="who">Always 3 credits. Photos are shrunk to fit the 905 KB limit; anything bigger is refused with a tip to send a link.</span></p>
     </div>
     <p><button id="ucostsave">Save settings</button> <span class="status" id="ustatus"></span></p>
   </div>
