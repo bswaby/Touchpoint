@@ -32,6 +32,14 @@
 # OPEN IT AT /PyScriptForm/TPxi_Texting (not /PyScript/).
 #
 # VERSION HISTORY
+#   1.0.5  Group texts: a new view next to the conversations lists each text
+#          that went to 3 or more people in a group, with how many got it and
+#          how many replied; opening one shows the message, the replies and
+#          everyone it went to. New text can browse everyone subscribed to a
+#          group, not only search. The list reads up to 20,000 outgoing rows
+#          (was 5,000, which PoweredByText's repeated delivery reports used up
+#          within 90 days at a busy church), and when a period still has more,
+#          it says so instead of quietly leaving the oldest out.
 #   1.0.4  Admin tools > PoweredByText setup: each org unit with its numbers,
 #          the groups in it with their keywords, the TouchPoint group and staff
 #          each one is connected to, webhooks, subscriber counts, templates and
@@ -55,7 +63,7 @@ import json
 import re
 import datetime
 
-TEXTING_VERSION = '1.0.4'
+TEXTING_VERSION = '1.0.5'
 # Updates come from the same TPxi script service as the other TPxi tools:
 # the page asks DC_API_BASE which version is newest, and an admin's Update
 # pulls the new code from DC_API_WORKER and saves it over this script.
@@ -153,6 +161,10 @@ HOSTS = [
 STATE_CONTENT = 'TPxi_TextingInboxState'
 READS_PREFIX = 'TPxi_TextingInboxReads_'
 SENT_CONTENT = 'TPxi_TextingInboxSent'
+# Conversation ids already worked out, keyed by a hash of group and number
+# (no phone numbers stored). An id never changes once given, so each is
+# looked up in the texting history only once.
+IDS_CONTENT = 'TPxi_TextingInboxIds'
 QUIET_START, QUIET_END = 21, 8      # no sends from 9 p.m. until 8 a.m.
 QUIET_GRACE_MIN = 120               # unless they texted in this recently
 SEND_TITLE = 'Inbox reply'
@@ -456,11 +468,34 @@ def log_sent(entry):
 
 def thread_ids(pairs):
     """{(gid, num): id} for conversations: 'i' + Id of the first incoming
-    text, else 'o' + Id of the first text sent to the number from the group."""
+    text, else 'o' + Id of the first text sent to the number from the group.
+    Ids found before come from IDS_CONTENT; only new conversations search
+    the whole texting history (which took over a second per load)."""
     pairs = list(set(pairs))
-    out = {}
     if not pairs:
-        return out
+        return {}
+    saved = load_json_content(IDS_CONTENT, {})
+    keys = dict((p, fingerprint('%s|%s' % p)) for p in pairs)
+    out = dict((p, saved[k]) for p, k in keys.items() if k in saved)
+    new = [p for p in pairs if p not in out]
+    if new:
+        # The lookup asks for every number in every group at once, so it can
+        # also return a number with a group it wasn't asked about: keep only
+        # the pairs asked for.
+        found = dict((p, tid) for p, tid in thread_ids_lookup(new).items() if p in keys)
+        out.update(found)
+        if found:
+            for p, tid in found.items():
+                saved[keys[p]] = tid
+            try:
+                model.WriteContentText(IDS_CONTENT, safe_json(saved), "")
+            except Exception:
+                pass   # not saved: looked up again next time
+    return out
+
+
+def thread_ids_lookup(pairs):
+    out = {}
     gids = sql_ints(set(p[0] for p in pairs))
     nums = list(set(p[1] for p in pairs))
     for i in range(0, len(nums), 500):
@@ -471,6 +506,7 @@ def thread_ids(pairs):
                 GROUP BY r.ToGroupId, %s""" % (NUM_SQL, gids, NUM_SQL, sql_strs(chunk), NUM_SQL)):
             out[(r.G, r.Num)] = 'i%d' % r.Id
     missing = [p for p in pairs if p not in out]
+    missing_set = set(missing)
     if missing:
         for r in q.QuerySql("""
                 SELECT l.SendGroupID G, i.Number Num, MIN(i.Id) Id
@@ -478,7 +514,7 @@ def thread_ids(pairs):
                 WHERE l.SendGroupID IN (%s) AND i.Number IN (%s)
                 GROUP BY l.SendGroupID, i.Number""" % (sql_ints(set(p[0] for p in missing)),
                                                        sql_strs(set(p[1] for p in missing)))):
-            if (r.G, r.Num) in missing:
+            if (r.G, r.Num) in missing_set:
                 out[(r.G, r.Num)] = 'o%d' % r.Id
     return out
 
@@ -492,18 +528,19 @@ def people_on(nums, gids):
     rows = q.QuerySql("""
         SELECT p.PeopleId, p.CellPhone, ISNULL(p.PreferredName, p.FirstName) First, p.LastName,
                p.Age, p.PositionInFamilyId Pos, p.FamilyId, f.HeadOfHouseholdId Head,
-               ISNULL(p.ReceiveSMS, 0) ReceiveSMS
+               ISNULL(p.ReceiveSMS, 0) ReceiveSMS, pic.ThumbUrl Thumb
         FROM People p WITH (NOLOCK)
         JOIN Families f ON f.FamilyId = p.FamilyId
+        LEFT JOIN Picture pic WITH (NOLOCK) ON pic.PictureId = p.PictureId
         WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 AND p.CellPhone IN (%s)""" % sql_strs(nums))
     pids = []
     for r in rows:
         pids.append(r.PeopleId)
         out.setdefault(r.CellPhone, []).append({
             'pid': r.PeopleId, 'name': ((r.First or '') + ' ' + (r.LastName or '')).strip(),
-            'first': r.First or '', 'age': r.Age, 'fam': r.FamilyId, 'head': r.Head,
-            'adult': r.Pos != 30 and (r.Age is None or r.Age >= 18),
-            'receive': bool(r.ReceiveSMS), 'subs': {}, })
+            'first': r.First or '', 'last': r.LastName or '', 'age': r.Age, 'fam': r.FamilyId, 'head': r.Head,
+            'adult': r.Pos != 30 and (r.Age is None or r.Age >= 18), 'pos': r.Pos,
+            'receive': bool(r.ReceiveSMS), 'subs': {}, 'photo': r.Thumb or ''})
     if pids and gids:
         subs = {}
         for s in q.QuerySql("""
@@ -519,11 +556,26 @@ def people_on(nums, gids):
     return out
 
 
-def owner(cands, prefer_pid=None):
-    """Who to show the thread as: the person TouchPoint matched the last text
-    to, else an adult (head of household first), else anyone."""
+def rule_owner(cands):
+    """The person a shared number belongs to by the Names tab's rules
+    (decide): adults before children, the head of household, the one teen.
+    None when the rules give no safe owner."""
     if not cands:
         return None
+    pid = decide(cands)[2]
+    return next((c for c in cands if c['pid'] == pid), None) if pid else None
+
+
+def owner(cands, prefer_pid=None):
+    """Who to show the thread as: the owner by the Names tab's rules. With no
+    safe owner (adults in different families, or only young children), the
+    person TouchPoint matched the last text to, else an adult (head of
+    household first), else anyone."""
+    if not cands:
+        return None
+    ruled = rule_owner(cands)
+    if ruled:
+        return ruled
     for c in cands:
         if c['pid'] == prefer_pid:
             return c
@@ -546,23 +598,38 @@ def broadcasts(gids, since):
     return out
 
 
+# Most rows a list read takes. Outgoing is larger: PoweredByText reports
+# each text several times (one row per delivery update), and those repeats
+# are merged after the read.
+IN_CAP, OUT_CAP = 5000, 20000
+# Set when a read hits its cap, so the list can say the oldest were left out.
+CAPPED = {'hit': False}
+
+
+def capped(rows, cap):
+    rows = list(rows)
+    if len(rows) >= cap:
+        CAPPED['hit'] = True
+    return rows
+
+
 def inbound_rows(where):
-    return q.QuerySql("""
-        SELECT TOP 5000 r.Id, CONVERT(varchar(19), r.DateReceived, 120) T, r.ToGroupId G,
+    return capped(q.QuerySql("""
+        SELECT TOP %d r.Id, CONVERT(varchar(19), r.DateReceived, 120) T, r.ToGroupId G,
                r.FromPeopleId Pid, r.Body, r.Action, %s Num
         FROM SmsReceived r WITH (NOLOCK)
         WHERE %s
-        ORDER BY r.DateReceived DESC""" % (NUM_SQL, where))
+        ORDER BY r.DateReceived DESC""" % (IN_CAP, NUM_SQL, where)), IN_CAP)
 
 
 def outbound_rows(where):
-    return q.QuerySql("""
-        SELECT TOP 5000 l.Id, CONVERT(varchar(19), l.Created, 120) T, l.SendGroupID G, l.SenderID Sender,
+    return capped(q.QuerySql("""
+        SELECT TOP %d l.Id, CONVERT(varchar(19), l.Created, 120) T, l.SendGroupID G, l.SenderID Sender,
                l.Title, l.Message, l.ReplyToId, i.Number Num, i.PeopleID Pid, i.Sent,
                i.ResultStatus Status, ISNULL(i.NoOptIn, 0) NoOptIn
         FROM SMSList l WITH (NOLOCK) JOIN SMSItems i WITH (NOLOCK) ON i.ListID = l.Id
         WHERE %s
-        ORDER BY l.Created DESC""" % where)
+        ORDER BY l.Created DESC""" % (OUT_CAP, where)), OUT_CAP)
 
 
 def collapse(events):
@@ -571,9 +638,11 @@ def collapse(events):
     events.sort(key=lambda e: e['t'])
     out = []
     for e in events:
+        if 'nb' not in e:
+            e['nb'] = norm(e['body'])
         prev = None
         for o in reversed(out[-12:]):
-            if o['dir'] == e['dir'] and norm(o['body']) == norm(e['body']):
+            if o['dir'] == e['dir'] and o['nb'] == e['nb']:
                 prev = o
                 break
         win = 10 if e['dir'] == 'out' else 2
@@ -586,13 +655,16 @@ def collapse(events):
                     prev['senderPid'], prev['staff'] = e['senderPid'], e.get('staff')
             continue
         out.append(e)
+    for e in out:
+        e.pop('nb', None)   # only for matching here; not sent to the page
     return out
 
 
-def events_for(g, nums_filter, since, bcast):
+def events_for(g, nums_filter, since, bcast, sp=None):
     """All events (in + out) for the given groups/numbers, collapsed, grouped by (gid, num)."""
     gids = sql_ints(g)
     numsql = (' AND i.Number IN (%s)' % sql_strs(nums_filter)) if nums_filter is not None else ''
+    mark = sp.mark if sp else (lambda name: None)
     inb = inbound_rows("r.DateReceived >= '%s' AND r.ToGroupId IN (%s)%s" % (
         since, gids, (' AND %s IN (%s)' % (NUM_SQL, sql_strs(nums_filter))) if nums_filter is not None else ''))
     by = {}
@@ -617,26 +689,42 @@ def events_for(g, nums_filter, since, bcast):
     # replies to numbers nobody in TouchPoint has). TouchPoint stamps them
     # late and without a sender; the log has the real time and the name.
     sent_log = [e for e in load_sent() if e.get('b') and e.get('gid') in g]
+    mark('incoming')
     outs = outbound_rows("l.SendGroupID IN (%s) AND l.Created >= '%s'%s" % (gids, since, numsql))
+    mark('outgoing read (%d rows)' % len(outs))
+    # A busy period is thousands of rows but few distinct messages (one group
+    # text is a row per person, several times over), so the work per message
+    # is done once: spacing and case, the automatic-reply check, the
+    # fingerprint. The sent log is looked up by group and fingerprint instead
+    # of read through for every row.
+    per_msg = {}
+    sent_by = {}
+    for gs in sent_log:
+        sent_by.setdefault((gs['gid'], gs['b']), []).append(gs)
     for r in outs:
         key = (r.G, r.Num)
         if key not in by:
             continue
-        b = (r.G, (r.T or '')[:10], norm((r.Message or '')[:200]))
+        body = r.Message or ''
+        pm = per_msg.get(body)
+        if pm is None:
+            pm = per_msg[body] = {'nb': norm(body), 'n200': norm(body[:200]), 'auto': bool(AUTO_OUT.search(body)), 'fp': None}
+        b = (r.G, (r.T or '')[:10], pm['n200'])
         from_pbt = (r.Title or '') == 'Text Message'
-        e = {'dir': 'out', 't': r.T, 'body': r.Message or '', 'id': r.Id,
+        e = {'dir': 'out', 't': r.T, 'body': body, 'nb': pm['nb'], 'id': r.Id,
              'broadcast': b in bcast, 'status': r.Status or '', 'noOptIn': bool(r.NoOptIn),
              'delivered': (r.Status or '').lower().startswith('deliver') or bool(r.Sent),
              'senderPid': None if from_pbt else r.Sender, 'pbt': from_pbt,
-             'auto': bool(AUTO_OUT.search(r.Message or ''))}
+             'auto': pm['auto']}
         # A group text sent from this inbox: TouchPoint only learns of it when
         # PBT's delivery report arrives, minutes later, so its time is late.
         # The inbox's own log has the real time and the sender.
-        if from_pbt and sent_log:
-            fp = fingerprint(e['body'])
-            for gs in sent_log:
+        if from_pbt and sent_by:
+            if pm['fp'] is None:
+                pm['fp'] = fingerprint(body)
+            for gs in sent_by.get((r.G, pm['fp']), ()):
                 m = minutes_between(gs['t'], e['t'])
-                if gs['gid'] == r.G and gs['b'] == fp and m is not None and -5 <= m <= 30:
+                if m is not None and -5 <= m <= 30:
                     e['staff'], e['t'], e['timeFixed'] = gs.get('by'), gs['t'], True
                     if gs.get('group'):
                         e['broadcast'] = True
@@ -644,6 +732,7 @@ def events_for(g, nums_filter, since, bcast):
         if e['senderPid']:
             senders[e['senderPid']] = None
         by[key].append(e)
+    mark('outgoing sorted')
     if senders:
         for r in q.QuerySql("SELECT PeopleId, ISNULL(PreferredName, FirstName) + ' ' + LastName N FROM People WHERE PeopleId IN (%s)"
                             % sql_ints(senders.keys())):
@@ -653,6 +742,7 @@ def events_for(g, nums_filter, since, bcast):
             if e['dir'] == 'out' and not e.get('staff') and not e.get('broadcast'):
                 e['staff'] = senders.get(e.get('senderPid')) if e.get('senderPid') else None
         by[key] = collapse(by[key])
+    mark('merged repeats')
     return by
 
 
@@ -688,9 +778,11 @@ def thread_facts(gid, evs, cands):
         why = ''
     target = None
     if textable:
-        target = owner(textable, prefer)
+        # Replies go to the number's owner when TouchPoint lets them be texted.
+        ruled = rule_owner(cands)
+        target = ruled if ruled in textable else owner(textable, prefer)
     return {'lastIn': last_in, 'lastAttn': last_attn, 'lastOut': last_out, 'lastBc': last_bc, 'opted': opted,
-            'who': who, 'target': target, 'blocked': why}
+            'who': who, 'target': target, 'blocked': why, 'clear': rule_owner(cands) is not None}
 
 
 # ---------------------------------------------------------------- PBT (numbers nobody in TouchPoint has)
@@ -1101,24 +1193,60 @@ def act_group_send():
 
 
 # ---------------------------------------------------------------- actions
+def change_mark():
+    """A short value that changes whenever the inbox could look different:
+    a text in or out (newest ids), someone marking a conversation Done
+    (the shared state), or my own reads. A refresh that sends back the mark
+    it last got, unchanged, is answered with 'same' instead of rebuilding
+    the list, which is most refreshes."""
+    r = q.QuerySqlTop1("SELECT (SELECT MAX(Id) FROM SmsReceived WITH (NOLOCK)) I, (SELECT MAX(Id) FROM SMSItems WITH (NOLOCK)) O")
+    st = model.TextContent(STATE_CONTENT) or ''
+    rd = model.TextContent(READS_PREFIX + str(int(ME))) or '' if ME else ''
+    return '%s.%s.%s' % (r.I if r else 0, r.O if r else 0, fingerprint(st + '|' + rd))
+
+
+class Steps(object):
+    """Milliseconds per step of a request, sent back so a slow load shows
+    where its time went (the page writes it to the browser console)."""
+    def __init__(self):
+        self.t = datetime.datetime.now()
+        self.ms = []
+
+    def mark(self, name):
+        now = datetime.datetime.now()
+        d = now - self.t
+        self.ms.append([name, d.seconds * 1000 + int(d.microseconds / 1000)])
+        self.t = now
+
+
 def act_threads():
+    sp = Steps()
+    mark = change_mark()
+    if mark and _param('mark') == mark:
+        return {'success': True, 'same': True, 'mark': mark}
     groups = my_groups()
+    sp.mark('groups')
     if not groups:
         return {'success': True, 'threads': [], 'groups': []}
     now = client_now()
     days = int(_param('days', '90')) if _param('days', '90').isdigit() else 90
     since = (parse_ts(now) - datetime.timedelta(days=min(days, 400))).strftime(TS)
     gids = list(groups.keys())
-    by = events_for(gids, None, since, broadcasts(gids, since))
+    bc = broadcasts(gids, since)
+    sp.mark('group texts')
+    by = events_for(gids, None, since, bc, sp)
     people = people_on(list(set(k[1] for k in by)), gids)
+    sp.mark('people')
     st = load_state()
     reads = load_reads()
+    sp.mark('state')
     if ME and not reads.get('_since'):
         # First visit: only texts from the last 7 days count as New, so a
         # new user does not start with months of old texts marked New.
         reads['_since'] = (parse_ts(now) - datetime.timedelta(days=NEW_BASELINE_DAYS)).strftime(TS)
         save_reads(reads, now)
     tids = thread_ids([k for k, v in by.items() if v])
+    sp.mark('ids')
     out = []
     for (gid, num), evs in by.items():
         if not evs:
@@ -1154,29 +1282,41 @@ def act_threads():
         out.append({
             'key': '%s|%s' % (gid, num), 'tid': tid, 'gid': gid, 'group': groups[gid]['name'], 'num': num,
             'name': f['who']['name'] if f['who'] else '', 'pid': f['who']['pid'] if f['who'] else None,
-            'others': len(cands) - 1 if cands else 0,
+            'photo': f['who']['photo'] if f['who'] else '',
+            # A number with a clear owner is shown as that one person.
+            'others': 0 if f['clear'] else (len(cands) - 1 if cands else 0),
             't': last['t'], 'preview': (last['body'] or '')[:120],
             'lastDir': 'auto' if last.get('auto') else 'bc' if last.get('broadcast') else last['dir'],
             'status': status, 'isNew': new_count > 0 and not f['opted'], 'newCount': new_count,
         })
     # Newest activity on top, like a phone's texting app. New ones are marked,
     # not moved, so the list never reorders just because someone opened one.
-    return {'success': True, 'threads': sorted(out, key=lambda x: x['t'], reverse=True),
+    sp.mark('list')
+    return {'success': True, 'threads': sorted(out, key=lambda x: x['t'], reverse=True), 'capped': CAPPED['hit'],
+            'steps': sp.ms, 'mark': mark,
             'groups': [{'id': g['id'], 'name': g['name'], 'canSend': can_send_in(g)}
                        for g in sorted(groups.values(), key=lambda g: g['name'])]}
 
 
-def thread_context(gid, num, now):
+def thread_context(gid, num, now, fix_times=True, sp=None):
+    """fix_times=False skips asking PoweredByText for the real send times, so
+    a conversation can show at once; the page asks again with them after."""
+    mark = sp.mark if sp else (lambda name: None)
     groups = my_groups()
     if gid not in groups:
         raise Exception("You don't have rights to that texting group.")
     since = (parse_ts(now) - datetime.timedelta(days=365)).strftime(TS)
-    evs = events_for([gid], [num], since, broadcasts([gid], since)).get((gid, num), [])
-    try:
-        evs = pbt_fix_times(groups[gid], num, evs, now)
-    except Exception:
-        pass    # PBT unreachable: fall back to TouchPoint's times
+    bc = broadcasts([gid], since)
+    mark('group texts')
+    evs = events_for([gid], [num], since, bc, sp).get((gid, num), [])
+    if fix_times:
+        try:
+            evs = pbt_fix_times(groups[gid], num, evs, now)
+        except Exception:
+            pass    # PBT unreachable: fall back to TouchPoint's times
+        mark('PoweredByText times')
     cands = people_on([num], [gid]).get(num, [])
+    mark('people')
     return groups[gid], evs, cands, thread_facts(gid, evs, cands)
 
 
@@ -1296,9 +1436,19 @@ def quiet_check(facts, now):
 def act_thread():
     gid = int(_param('gid', '0'))
     num = digits10(_param('num'))
+    # A refresh of the open conversation with nothing new: say so.
+    sp = Steps()
+    mark = change_mark() if _param('gt') != '1' else ''
+    if mark and _param('mark') == mark:
+        return {'success': True, 'same': True, 'mark': mark}
+    sp.mark('check')
     now = client_now()
-    g, evs, cands, f = thread_context(gid, num, now)
+    # PoweredByText's corrections (real send times, group texts sent there)
+    # come with the second request (gt=1), after the conversation is showing.
+    with_pbt = _param('gt') == '1'
+    g, evs, cands, f = thread_context(gid, num, now, with_pbt, sp)
     tid = thread_ids([(gid, num)]).get((gid, num), '') if evs else ''
+    sp.mark('id')
     if tid and ME and _param('claim') in ('1', 'read'):
         # Opening it (or staying on it while new texts arrive) marks it read for me.
         reads = load_reads()
@@ -1306,11 +1456,12 @@ def act_thread():
         save_reads(reads, now)
     st = load_state().get(tid, {}) if tid else {}
     group_texts = None
-    if _param('gt') == '1':
+    if with_pbt:
         try:
             group_texts = pbt_group_texts(g, num, now, evs)
         except Exception:
             group_texts = []    # PBT unreachable: show what TouchPoint has
+        sp.mark('PoweredByText group texts')
     reason = send_block_reason(g)
     can = not reason
     if reason:
@@ -1336,12 +1487,14 @@ def act_thread():
                         'auto': bool(e.get('auto'))} for e in evs[-200:]],
             'people': [{'pid': c['pid'], 'name': c['name'], 'age': c['age'], 'adult': c['adult'],
                         'receive': c['receive'], 'opted': c['subs'].get(gid, (False, False))[1],
-                        'target': bool(f['target'] and f['target']['pid'] == c['pid'])} for c in cands],
+                        'target': bool(f['target'] and f['target']['pid'] == c['pid'])}
+                       for c in (cands if not f['clear'] else [f['who']])],
             'who': f['who']['name'] if f['who'] else '',
+            'whoPid': f['who']['pid'] if f['who'] else None, 'whoPhoto': f['who']['photo'] if f['who'] else '',
             'canSend': can, 'reason': reason, 'quiet': quiet_check(f, now),
             'via': 'touchpoint' if f['target'] else 'pbt',
             'done': st.get('done') or '', 'doneBy': st.get('doneBy') or '', 'tid': tid,
-            'groupTexts': group_texts}
+            'groupTexts': group_texts, 'mark': mark, 'steps': sp.ms}
 
 
 def act_send():
@@ -1353,7 +1506,10 @@ def act_send():
         raise Exception('The message is empty.')
     if len(msg) > 1600:
         raise Exception('Texts can be at most 1,600 characters.')
-    g, evs, cands, f = thread_context(gid, num, now)
+    # The checks below read only incoming texts (STOP, the last reply for
+    # quiet hours); PoweredByText's time fixes touch only outgoing ones, so
+    # sending skips that call.
+    g, evs, cands, f = thread_context(gid, num, now, False)
     if send_block_reason(g):
         raise Exception(send_block_reason(g))
     if f['opted']:
@@ -1489,6 +1645,144 @@ def act_find():
          'groups': sorted(subs.get(r.PeopleId, []), key=lambda x: x['name'])}
         # Only people this staff member could actually text are listed.
         for r in rows if r.R and subs.get(r.PeopleId)]}
+
+
+def act_roster():
+    """Everyone a new text can go to in one group: subscribed in TouchPoint,
+    texts on, not opted out, with a cell; plus people who joined by texting
+    a keyword (their last STOP/START word to the group was not STOP)."""
+    gid = int(_param('gid', '0') or 0)
+    g = my_groups().get(gid)
+    if not g or not can_send_in(g):
+        raise Exception("You can't send from that group.")
+    people = {}
+    for r in q.QuerySql("""
+            SELECT p.PeopleId, ISNULL(NULLIF(p.PreferredName, ''), p.FirstName) + ' ' + p.LastName N, p.Name2, p.Age, p.CellPhone
+            FROM SMSGroupSubscriptions s WITH (NOLOCK)
+            JOIN People p WITH (NOLOCK) ON p.PeopleId = s.ToPeopleId
+            WHERE s.FromGroup = %d AND ISNULL(s.IsSubscribed, 0) = 1 AND ISNULL(s.IsOptedOut, 0) = 0
+              AND p.IsDeceased = 0 AND p.ArchivedFlag = 0 AND ISNULL(p.ReceiveSMS, 0) = 1
+              AND LEN(p.CellPhone) = 10""" % gid):
+        people[r.PeopleId] = {'pid': r.PeopleId, 'name': r.N, 'sort': r.Name2 or r.N, 'age': r.Age, 'num': r.CellPhone}
+    state = {}
+    for r in q.QuerySql("""
+            SELECT %s Num, r.Body, r.Action FROM SmsReceived r WITH (NOLOCK)
+            WHERE r.ToGroupId = %d ORDER BY r.DateReceived""" % (NUM_SQL, gid)):
+        if is_stop(r.Body) or (r.Action or '').upper() in ('STOP', 'STOPALL'):
+            state[r.Num] = False
+        elif r.Num not in state or is_start(r.Body):
+            state[r.Num] = True
+    have = set(p['num'] for p in people.values())
+    joined = [n for n, ok in state.items() if ok and n and n not in have]
+    if joined:
+        for r in q.QuerySql("""
+                SELECT p.PeopleId, ISNULL(NULLIF(p.PreferredName, ''), p.FirstName) + ' ' + p.LastName N, p.Name2, p.Age, p.CellPhone
+                FROM People p WITH (NOLOCK)
+                WHERE p.IsDeceased = 0 AND p.ArchivedFlag = 0 AND ISNULL(p.ReceiveSMS, 0) = 1
+                  AND p.CellPhone IN (%s)""" % sql_strs(joined)):
+            people.setdefault(r.PeopleId, {'pid': r.PeopleId, 'name': r.N, 'sort': r.Name2 or r.N, 'age': r.Age,
+                                           'num': r.CellPhone, 'keyword': True})
+    rows = sorted(people.values(), key=lambda p: (p['sort'] or '').lower())
+    # A cell more than one listed person has (a parent's phone on a child's record).
+    by_num = {}
+    for p in rows:
+        by_num.setdefault(p['num'], []).append(p['name'])
+    for p in rows:
+        p['shares'] = [n for n in by_num[p['num']] if n != p['name']]
+    return {'success': True, 'group': g['name'], 'people': rows}
+
+
+def act_sends():
+    """Texts that went to 3 or more numbers from one of my groups on the same
+    day (the broadcast rule), newest first, with how many replied in the
+    following 7 days."""
+    groups = my_groups()
+    if not groups:
+        return {'success': True, 'sends': []}
+    now = client_now()
+    days = int(_param('days', '90')) if _param('days', '90').isdigit() else 90
+    since = (parse_ts(now) - datetime.timedelta(days=min(days, 400))).strftime(TS)
+    gids = sql_ints(groups.keys())
+    sends = {}
+    for r in q.QuerySql("""
+            SELECT l.SendGroupID G, CONVERT(varchar(10), l.Created, 120) D, LEFT(l.Message, 200) M,
+                   MIN(CONVERT(varchar(19), l.Created, 120)) T, MAX(CAST(l.Message AS nvarchar(1600))) FullMsg,
+                   COUNT(DISTINCT i.Number) N, MIN(l.SenderID) Sender
+            FROM SMSList l WITH (NOLOCK) JOIN SMSItems i WITH (NOLOCK) ON i.ListID = l.Id
+            WHERE l.SendGroupID IN (%s) AND l.Created >= '%s'
+            GROUP BY l.SendGroupID, CONVERT(varchar(10), l.Created, 120), LEFT(l.Message, 200)
+            HAVING COUNT(DISTINCT i.Number) >= 3""" % (gids, since)):
+        sends[(r.G, r.D, norm(r.M))] = {'gid': r.G, 'group': groups[r.G]['name'], 'day': r.D, 'm': r.M or '',
+                                        't': r.T, 'msg': r.FullMsg or '', 'n': r.N, 'sender': r.Sender, 'replied': 0}
+    if not sends:
+        return {'success': True, 'sends': []}
+    # Who each went to, and who texted the group afterwards.
+    to = {}
+    for r in q.QuerySql("""
+            SELECT DISTINCT l.SendGroupID G, CONVERT(varchar(10), l.Created, 120) D, LEFT(l.Message, 200) M, i.Number Num
+            FROM SMSList l WITH (NOLOCK) JOIN SMSItems i WITH (NOLOCK) ON i.ListID = l.Id
+            WHERE l.SendGroupID IN (%s) AND l.Created >= '%s'""" % (gids, since)):
+        k = (r.G, r.D, norm(r.M))
+        if k in sends:
+            to.setdefault(k, set()).add(r.Num)
+    ins = {}
+    for r in q.QuerySql("""
+            SELECT r.ToGroupId G, %s Num, CONVERT(varchar(19), r.DateReceived, 120) T
+            FROM SmsReceived r WITH (NOLOCK)
+            WHERE r.ToGroupId IN (%s) AND r.DateReceived >= '%s'""" % (NUM_SQL, gids, since)):
+        ins.setdefault((r.G, r.Num), []).append(r.T)
+    senders = {}
+    pids = set(v['sender'] for v in sends.values() if v['sender'])
+    if pids:
+        for r in q.QuerySql("SELECT PeopleId, ISNULL(NULLIF(PreferredName, ''), FirstName) + ' ' + LastName N FROM People WHERE PeopleId IN (%s)" % sql_ints(pids)):
+            senders[r.PeopleId] = r.N
+    for k, v in sends.items():
+        end = (parse_ts(v['t']) + datetime.timedelta(days=7)).strftime(TS)
+        v['replied'] = sum(1 for num in to.get(k, ()) if any(v['t'] < t < end for t in ins.get((v['gid'], num), ())))
+        v['sender'] = senders.get(v['sender'], '')
+    return {'success': True, 'sends': sorted(sends.values(), key=lambda x: x['t'], reverse=True)}
+
+
+def act_send_detail():
+    """One group text: who it went to (named), and who replied within 7 days."""
+    gid = int(_param('gid', '0') or 0)
+    g = my_groups().get(gid)
+    if not g:
+        raise Exception("You don't have rights to that texting group.")
+    # The page sends < and > encoded, or ASP.NET refuses the request.
+    day, m = _param('day'), _param('m').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', day):
+        raise Exception('Unknown group text.')
+    nums = {}
+    for r in q.QuerySql("""
+            SELECT i.Number Num, MAX(i.PeopleID) Pid, MIN(CONVERT(varchar(19), l.Created, 120)) T
+            FROM SMSList l WITH (NOLOCK) JOIN SMSItems i WITH (NOLOCK) ON i.ListID = l.Id
+            WHERE l.SendGroupID = %d AND CONVERT(varchar(10), l.Created, 120) = '%s'
+              AND LEFT(l.Message, 200) = N'%s'
+            GROUP BY i.Number""" % (gid, day, m.replace("'", "''"))):
+        nums[r.Num] = {'num': r.Num, 'pid': r.Pid, 't': r.T}
+    if not nums:
+        raise Exception('That group text was not found.')
+    first = min(v['t'] for v in nums.values())
+    end = (parse_ts(first) + datetime.timedelta(days=7)).strftime(TS)
+    replies = {}
+    for r in q.QuerySql("""
+            SELECT %s Num, CONVERT(varchar(19), r.DateReceived, 120) T, r.Body
+            FROM SmsReceived r WITH (NOLOCK)
+            WHERE r.ToGroupId = %d AND r.DateReceived > '%s' AND r.DateReceived < '%s'
+            ORDER BY r.DateReceived""" % (NUM_SQL, gid, first, end)):
+        if r.Num in nums and r.Num not in replies and not is_reaction(r.Body):
+            replies[r.Num] = {'t': r.T, 'body': (r.Body or '')[:160]}
+    # Names the way the conversations show them: TouchPoint's owner of the number.
+    people = people_on(list(nums.keys()), [gid])
+    rows = []
+    for num, v in nums.items():
+        cands = people.get(num, [])
+        who = owner(cands, v['pid'])
+        rows.append({'num': num, 'name': who['name'] if who else '', 'pid': who['pid'] if who else None,
+                     'others': len(cands) - 1 if cands else 0, 'reply': replies.get(num)})
+    rows.sort(key=lambda x: (x['reply'] is None, (x['name'] or 'zzz').lower()))
+    return {'success': True, 'group': g['name'], 'gid': gid, 'people': rows, 'replied': len(replies)}
 
 
 # ---------------------------------------------------------------- PBT report test (read only)
@@ -3784,6 +4078,12 @@ def inbox_post():
             res = act_mark_read()
         elif action == 'find':
             res = act_find()
+        elif action == 'roster':
+            res = act_roster()
+        elif action == 'sends':
+            res = act_sends()
+        elif action == 'send_detail':
+            res = act_send_detail()
         elif action == 'group_info':
             res = act_group_info()
         elif action == 'upload_media':
@@ -3961,6 +4261,15 @@ def inbox_page():
 #tx .th .tm{font-size:11px;color:var(--muted);white-space:nowrap}
 #tx .th .pv{font-size:13px;color:#4b5563;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 #tx .th .meta{font-size:11px;color:var(--muted);margin-top:3px;display:flex;gap:6px;flex-wrap:wrap}
+#tx .th{padding-left:58px}
+#tx .av{width:36px;height:36px;border-radius:50%;background:#e5e7eb;color:#4b5563;font-size:13px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;overflow:hidden;flex:none}
+#tx .av img{width:100%;height:100%;object-fit:cover}
+#tx .th .av{position:absolute;left:12px;top:10px}
+#tx .head .wholine{display:flex;align-items:center;gap:10px}
+#tx .head .wholine .av{width:44px;height:44px;font-size:15px}
+#tx .head .wholine h3{margin:0}
+#tx .head .wholine a.prof{color:inherit;text-decoration:none}
+#tx .head .wholine a.prof:hover h3{text-decoration:underline}
 #tx .th.isnew .nm::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:#2563eb;margin-right:6px;vertical-align:middle}
 #tx .pill{display:inline-block;padding:0 6px;border-radius:9px;font-size:11px;font-weight:600}
 #tx .p-new{background:#dbeafe;color:#1e40af}
@@ -4011,6 +4320,16 @@ def inbox_page():
 #tx .find .pr{padding:8px 0;border-bottom:1px solid #f3f4f6;font-size:13px}
 #tx .find .pr button{margin:4px 6px 0 0;padding:3px 8px;font-size:12px}
 #tx .back{display:none}
+#tx .gt-stats{display:flex;gap:18px;margin:10px 0 0;font-size:13px}
+#tx .gt-stats b{font-size:18px;display:block}
+#tx .gt-sec{padding:10px 16px 4px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+#tx .gt-row{padding:8px 16px;border-bottom:1px solid #f3f4f6;font-size:13px;display:flex;justify-content:space-between;gap:10px}
+#tx .gt-row.click{cursor:pointer}
+#tx .gt-row.click:hover{background:#f9fafb}
+#tx .gt-row .r{color:#4b5563;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60%}
+#tx .seg.vsw{width:100%;display:flex}
+#tx .seg.vsw a{flex:1;text-align:center}
+#tx .capnote{padding:8px 12px;font-size:12px;background:#fffbeb;color:#92400e;border-bottom:1px solid var(--line)}
 #tx .qr{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
 #tx .qr button{padding:3px 10px;font-size:12px;border-radius:14px;background:#fff;color:var(--brand)}
 #tx .meter{font-size:12px;color:var(--muted);margin-top:6px}
@@ -4109,7 +4428,6 @@ def inbox_page():
   <div class="wrap" id="wrap">
     <div class="left">
       <div class="tools">
-        <div class="seg" id="seg"><a href="#" data-f="all" class="on">All</a><a href="#" data-f="new">New</a><a href="#" data-f="notanswered">Not answered</a><a href="#" data-f="done">Done</a></div>
         <button class="ghost" id="markall" title="Mark every New conversation in this list as read for you">Mark all read</button>
         <button class="ghost" id="newbtn" title="Text someone"__NEWHIDE__>New text</button>
         <button class="ghost" id="gbtn" title="Text everyone in a group"__NEWHIDE__>Group text</button>
@@ -4117,6 +4435,8 @@ def inbox_page():
         <select id="days"><option value="30">30 days</option><option value="90" selected>90 days</option><option value="365">1 year</option></select>
         <input id="q" placeholder="Search name, number or text">
         <a href="#" id="howlink" style="font-size:12px;align-self:center">Help</a>
+        <div class="seg" id="seg"><a href="#" data-f="all" class="on">All</a><a href="#" data-f="new">New</a><a href="#" data-f="notanswered">Not answered</a><a href="#" data-f="done">Done</a></div>
+        <div class="seg vsw" id="view"><a href="#" data-v="conv" class="on">Conversations</a><a href="#" data-v="sends" title="Texts that went to everyone in a group">Group texts</a></div>
       </div>
       <div class="list" id="list"><div class="empty">Loading...</div></div>
     </div>
@@ -4125,8 +4445,9 @@ def inbox_page():
   <div class="find" id="find"><div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <b>Text someone</b><a href="#" id="findclose">Close</a></div>
-    <input id="findq" placeholder="Name or cell phone">
-    <div style="font-size:12px;color:#6b7280;margin:6px 0">Only people subscribed to a group you can send from, with texts turned on and not opted out, are listed.</div>
+    <div style="display:flex;gap:6px"><select id="findgrp" title="Pick a group to see everyone in it"><option value="">Search all my groups</option></select>
+    <input id="findq" placeholder="Name or cell phone" style="flex:1;min-width:0"></div>
+    <div style="font-size:12px;color:#6b7280;margin:6px 0" id="findnote">Only people subscribed to a group you can send from, with texts turned on and not opted out, are listed. Pick a group to see everyone in it.</div>
     <div id="findres"></div>
   </div></div>
   <div class="find" id="howmodal"><div class="card help">
@@ -4159,6 +4480,10 @@ def inbox_page():
 
     <h4 id="h-new">Starting a new text</h4>
     <p>Press <b>New text</b>, type part of a name or a cell number, then press the group to send from. Only people subscribed to one of your groups, with texts turned on and not opted out, are listed. If they are in more than one group, you can still change the group before the first text goes out.</p>
+    <p>To see everyone in a group, pick it in the box next to the search. Type to narrow the list, then press a name.</p>
+
+    <h4 id="h-gtexts">Group texts</h4>
+    <p><b>Group texts</b> (the switch above the list) lists every text that went to 3 or more people in one of your groups on the same day, newest first, with how many got it and how many replied in the next 7 days. Press one to see the message, the replies and everyone it went to. Press a reply to open that conversation.</p>
 
     <h4 id="h-group">Group text</h4>
     <p>Sends one text to everyone subscribed to the group in PoweredByText, including people who joined by texting a keyword. The window shows how many people will get it and about how many credits it will use, and asks you to confirm. Group texts never go out during quiet hours.</p>
@@ -4225,6 +4550,17 @@ def inbox_page():
   var base = window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
   var shownRows = [];
   var threads = [], groups = [], filt = 'all', cur = null, curData = null, busy = false;
+  var capped = false, sends = null, sendsDays = '', curSend = null, view = 'conv';
+  // What the server said the inbox looked like last time; a refresh with
+  // nothing new comes back 'same' and the page keeps what it shows.
+  var listMark = '', threadMark = {};
+  function setView(v){
+    view = v;
+    Array.prototype.forEach.call(document.querySelectorAll('#view a'), function(a){ a.className = a.getAttribute('data-v') == v ? 'on' : ''; });
+    // The conversation filters mean nothing for group texts.
+    $('seg').style.display = $('markall').style.display = v == 'sends' ? 'none' : '';
+    renderList();
+  }
   var curGT = {key: null, list: []};   // group texts sent in PoweredByText's app, read once per open
   // Quick replies: plain text (no curly quotes), each one credit. The emoji
   // one switches to the 70-character mode but is still a single credit.
@@ -4233,6 +4569,12 @@ def inbox_page():
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function fmtNum(n){ return n && n.length == 10 ? '(' + n.substr(0,3) + ') ' + n.substr(3,3) + '-' + n.substr(6) : (n || ''); }
+  // A person's TouchPoint photo, or their initials (# for a bare number).
+  function avatar(name, photo){
+    var w = String(name || '').split(/ +/).filter(function(x){ return /^[A-Za-z]/.test(x); });
+    var ini = w.length ? (w[0][0] + (w.length > 1 ? w[w.length - 1][0] : '')).toUpperCase() : '#';
+    return '<span class="av">' + (photo ? '<img src="' + esc(photo) + '" alt="" loading="lazy">' : esc(ini)) + '</span>';
+  }
   function pad(n){ return (n < 10 ? '0' : '') + n; }
   function nowStr(){ var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' +
     pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
@@ -4248,11 +4590,17 @@ def inbox_page():
   }
   function post(data, cb){
     data.now = nowStr();
-    var x = new XMLHttpRequest();
+    var x = new XMLHttpRequest(), t0 = Date.now();
     x.open('POST', base, true);
     x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     x.onload = function(){ var r; try { r = JSON.parse(x.responseText); } catch(e) {
-      r = {success:false, message:'Unexpected reply from TouchPoint.'}; } cb(r); };
+      r = {success:false, message:'Unexpected reply from TouchPoint.'}; }
+      // How long each request took from the page's side, so a wait behind
+      // another request (TouchPoint runs one at a time) can be told apart
+      // from slow work.
+      if (window.console) console.log('[Texting] ' + data.action + (data.gt == '1' ? ' (with PoweredByText)' : '') + ': ' + (Date.now() - t0) + ' ms' +
+        (r && r.steps && data.action == 'thread' ? ' (' + r.steps.map(function(x){ return x[0] + ' ' + x[1]; }).join(', ') + ')' : ''));
+      cb(r); };
     x.onerror = function(){ cb({success:false, message:'Network error'}); };
     x.send(Object.keys(data).map(function(k){ return k + '=' + encodeURIComponent(data[k]); }).join('&'));
   }
@@ -4309,12 +4657,18 @@ def inbox_page():
   function store(k, v){ try { if (v === undefined) return localStorage.getItem('txinbox.' + k); localStorage.setItem('txinbox.' + k, v); } catch(e) { return null; } }
 
   // ------------------------------------------------ list
-  function loadThreads(){
-    post({action:'threads', days:$('days').value}, function(r){
+  function loadThreads(fresh){
+    if (fresh) listMark = '';
+    post({action:'threads', days:$('days').value, mark:listMark}, function(r){
       if (!r.success) { $('list').innerHTML = '<div class="empty">' + esc(r.message) + '</div>'; return; }
-      threads = r.threads;
+      if (r.same) return;
+      listMark = r.mark || '';
+      threads = r.threads; capped = !!r.capped;
+      if (r.steps && window.console) console.log('[Texting] list load (ms): ' + r.steps.map(function(x){ return x[0] + ' ' + x[1]; }).join(', '));
       if (!groups.length) {
         groups = r.groups;
+        $('findgrp').innerHTML = '<option value="">Search all my groups</option>' + groups.filter(function(g){ return g.canSend; }).map(function(g){
+          return '<option value="' + g.id + '">Everyone in ' + esc(g.name) + '</option>'; }).join('');
         $('grp').innerHTML = '<option value="">All my groups</option>' + groups.map(function(g){
           return '<option value="' + g.id + '">' + esc(g.name) + '</option>'; }).join('');
         var saved = store('grp'); if (saved) $('grp').value = saved;
@@ -4335,6 +4689,7 @@ def inbox_page():
   }
   var LBL = {notanswered:'Not answered', done:'Done', optedout:'Opted out', answered:'Answered', other:''};
   function renderList(){
+    if (view == 'sends') { renderSends(); return; }
     var g = $('grp').value, q = ($('q').value || '').toLowerCase();
     var rows = threads.filter(function(t){
       if (g && String(t.gid) != g) return false;
@@ -4354,9 +4709,10 @@ def inbox_page():
         : threads.length ? 'No conversations match.' : 'No conversations yet.<br><span class="tm">When someone texts one of your groups, it shows up here.</span>') + '</div>';
       return;
     }
-    $('list').innerHTML = rows.map(function(t){
+    var capNote = capped ? '<div class="capnote">This period has more texts than the list reads at once, so the oldest are left out. Pick a shorter period to see them all.</div>' : '';
+    $('list').innerHTML = capNote + rows.map(function(t){
       return '<div class="th' + (t.isNew ? ' isnew' : '') + (cur && cur.key == t.key ? ' on' : '') + '" data-k="' + esc(t.key) + '">' +
-        '<div class="top"><span class="nm">' + esc(t.name || fmtNum(t.num)) + (t.others > 0 ? ' <span class="tm">+' + t.others + '</span>' : '') +
+        avatar(t.name, t.photo) + '<div class="top"><span class="nm">' + esc(t.name || fmtNum(t.num)) + (t.others > 0 ? ' <span class="tm">+' + t.others + '</span>' : '') +
         '</span><span class="tm">' + when(t.t) + '</span></div>' +
         '<div class="pv">' + (t.lastDir == 'out' ? 'Staff: ' : t.lastDir == 'bc' ? 'Group text: ' : t.lastDir == 'auto' ? 'Automatic reply: ' : '') + esc(t.preview) + '</div>' +
         '<div class="meta"><span>' + esc(t.group) + '</span>' +
@@ -4372,20 +4728,98 @@ def inbox_page():
     });
   }
 
+  // ------------------------------------------------ group texts
+  function renderSends(){
+    var days = $('days').value;
+    if (sends === null || sendsDays != days) {
+      if (sendsDays != 'loading') {
+        sendsDays = 'loading';
+        $('list').innerHTML = '<div class="empty">Loading group texts...</div>';
+        post({action:'sends', days:days}, function(r){
+          sendsDays = days;
+          if (!r.success) { sends = []; $('list').innerHTML = '<div class="empty">' + esc(r.message) + '</div>'; return; }
+          sends = r.sends; renderSends();
+        });
+      }
+      return;
+    }
+    var g = $('grp').value, q = ($('q').value || '').toLowerCase();
+    var rows = sends.filter(function(x){
+      if (g && String(x.gid) != g) return false;
+      return !q || (x.msg + ' ' + x.group + ' ' + x.sender).toLowerCase().indexOf(q) >= 0;
+    });
+    if (!rows.length) { $('list').innerHTML = '<div class="empty">No group texts in this period.</div>'; return; }
+    $('list').innerHTML = rows.map(function(x, i){
+      return '<div class="th' + (curSend && curSend.gid == x.gid && curSend.day == x.day && curSend.m == x.m ? ' on' : '') + '" data-i="' + sends.indexOf(x) + '">' +
+        '<span class="av">&#9993;</span><div class="top"><span class="nm">' + esc(x.group) + ' &middot; ' + x.n + ' people</span><span class="tm">' + when(x.t) + '</span></div>' +
+        '<div class="pv">' + esc(x.msg) + '</div>' +
+        '<div class="meta">' + (x.sender ? '<span>' + esc(x.sender) + '</span>' : '') +
+        (x.replied ? '<span class="pill p-new">' + x.replied + ' replied</span>' : '<span>No replies</span>') + '</div></div>';
+    }).join('');
+    Array.prototype.forEach.call(document.querySelectorAll('#list .th'), function(el){
+      el.onclick = function(){ openSend(sends[+el.getAttribute('data-i')]); };
+    });
+  }
+  function openSend(x){
+    cur = null; tabKey(''); curSend = x;
+    $('wrap').className = 'wrap open';
+    $('right').innerHTML = '<div class="empty">Loading...</div>';
+    renderSends();
+    var enc = x.m.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    post({action:'send_detail', gid:x.gid, day:x.day, m:enc}, function(r){
+      if (curSend !== x) return;
+      if (!r.success) { $('right').innerHTML = '<div class="empty">' + esc(r.message) + '</div>'; return; }
+      var replies = r.people.filter(function(p){ return p.reply; });
+      var who = function(p){ return p.pid ? '<a href="/Person2/' + p.pid + '" target="_blank">' + esc(p.name || fmtNum(p.num)) + '</a>' : esc(p.name || fmtNum(p.num)); };
+      var html = '<div class="head"><div class="acts"><button class="ghost back" id="back">Back</button></div>' +
+        '<h3>Sent to ' + esc(r.group) + '</h3><div class="sub">' + when(x.t) + (x.sender ? ' &middot; ' + esc(x.sender) : '') + '</div>' +
+        '<div class="gt-stats"><span><b>' + r.people.length + '</b>Sent</span><span><b>' + r.replied + '</b>Replied</span></div></div>' +
+        '<div class="msgs" style="flex:none;max-height:40%"><div class="m out bc"><div class="b">' + esc(x.msg) + '</div></div></div>' +
+        '<div style="flex:1;overflow-y:auto">' +
+        '<div class="gt-sec">Replies</div>' + (replies.length ? replies.map(function(p){
+          return '<div class="gt-row click" data-n="' + esc(p.num) + '"><span>' + esc(p.name || fmtNum(p.num)) + (p.others > 0 ? ' <span class="tm">+' + p.others + '</span>' : '') +
+            '</span><span class="r">' + esc(p.reply.body) + '</span></div>'; }).join('') : '<div class="gt-row"><span class="tm">No one has replied.</span></div>') +
+        '<div class="gt-sec">Sent to ' + r.people.length + ' people</div>' + r.people.map(function(p){
+          return '<div class="gt-row"><span>' + who(p) + (p.others > 0 ? ' <span class="tm">+' + p.others + ' on this number</span>' : '') +
+            '</span><span class="tm">' + fmtNum(p.num) + '</span></div>'; }).join('') + '</div>';
+      $('right').innerHTML = html;
+      $('back').onclick = function(){ curSend = null; $('wrap').className = 'wrap'; renderList(); };
+      Array.prototype.forEach.call(document.querySelectorAll('#right .gt-row.click'), function(el){
+        el.onclick = function(){ curSend = null; view = 'conv'; setView('conv'); openThread(r.gid, el.getAttribute('data-n'), true); };
+      });
+    });
+  }
+
   // ------------------------------------------------ thread
   function openThread(gid, num, claim){
+    curSend = null;
     cur = {key: gid + '|' + num, gid: gid, num: num};
     tabKey(cur.key);
     $('wrap').className = 'wrap open';
     if (claim === true) { $('right').innerHTML = '<div class="empty">Loading...</div>'; renderList(); }
     var key = gid + '|' + num, wantGT = curGT.key != key;
-    post({action:'thread', gid:gid, num:num, claim:claim === 'read' ? 'read' : claim ? '1' : '0', gt:wantGT ? '1' : '0'}, function(r){
+    // The conversation shows from TouchPoint's own records first. Group
+    // texts sent inside PoweredByText need a call to PoweredByText, which can
+    // take seconds, so they are asked for afterwards and added when they come.
+    if (wantGT) curGT = {key: key, list: []};
+    // Only a refresh of the conversation already showing may come back 'same'.
+    var isRefresh = claim === 'read' && curData && curData.tid !== undefined && $('msgs');
+    post({action:'thread', gid:gid, num:num, claim:claim === 'read' ? 'read' : claim ? '1' : '0', gt:'0',
+          mark:isRefresh ? (threadMark[key] || '') : ''}, function(r){
       if (!cur || cur.key != key) return;
       if (!r.success) { $('right').innerHTML = '<div class="empty">' + esc(r.message) + '</div>'; return; }
-      if (r.groupTexts) curGT = {key: key, list: r.groupTexts};
+      if (r.same) return;
+      threadMark[key] = r.mark || '';
       var keep = $('msg') ? $('msg').value : '';
       var atBottom = !$('msgs') || ($('msgs').scrollHeight - $('msgs').scrollTop - $('msgs').clientHeight < 40);
       curData = r; renderThread(keep, claim === true || atBottom);
+      if (wantGT) post({action:'thread', gid:gid, num:num, claim:'read', gt:'1'}, function(r2){
+        if (!cur || cur.key != key || !r2.success) return;
+        curGT = {key: key, list: r2.groupTexts || []};
+        var keep2 = $('msg') ? $('msg').value : '';
+        var atBottom2 = !$('msgs') || ($('msgs').scrollHeight - $('msgs').scrollTop - $('msgs').clientHeight < 40);
+        curData = r2; renderThread(keep2, atBottom2);
+      });
     });
   }
   function renderThread(draft, scroll){
@@ -4397,7 +4831,11 @@ def inbox_page():
     }).join('');
     html.push('<div class="head"><div class="acts"><button class="ghost back" id="back">Back</button>' +
       (r.done ? '<button class="ghost" id="undone">Not done</button>' : '<button class="ghost" id="done">Done</button>') + '</div>' +
-      '<h3>' + esc(r.who || fmtNum(r.num)) + '</h3><div class="sub">' + fmtNum(r.num) + ' &middot; ' + esc(r.group) +
+      '<div class="wholine">' + (r.whoPid
+        ? '<a class="prof" href="/Person2/' + r.whoPid + '" target="_blank" title="Open their TouchPoint record">' + avatar(r.who, r.whoPhoto) + '</a>' +
+          '<a class="prof" href="/Person2/' + r.whoPid + '" target="_blank" title="Open their TouchPoint record"><h3>' + esc(r.who) + '</h3></a>'
+        : avatar('', '') + '<h3>' + esc(fmtNum(r.num)) + '</h3>') + '</div>' +
+      '<div class="sub">' + fmtNum(r.num) + ' &middot; ' + esc(r.group) +
       (r.done ? ' &middot; Done by ' + esc(r.doneBy) + ' ' + when(r.done) : '') +
       '</div>' +
       (r.people.length > 1 ? '<a href="#" class="pplbtn" id="pplbtn">' + r.people.length + ' people on this number</a>' : '') +
@@ -4488,13 +4926,13 @@ def inbox_page():
       busy = false;
       if (!r.success) { $('send').disabled = false; $('sendst').textContent = r.message; return; }
       $('msg').value = ''; X.clear(); $('sendst').textContent = 'Sent' + (r.note ? '. ' + r.note : '');
-      setTimeout(function(){ if (cur) openThread(cur.gid, cur.num, false); loadThreads(); }, 1200);
+      setTimeout(function(){ if (cur) openThread(cur.gid, cur.num, false); loadThreads(true); }, 1200);
     });
   }
   function markDone(undo){
     post({action:'done', gid:cur.gid, num:cur.num, undo:undo ? '1' : '0'}, function(r){
       if (!r.success) { alert(r.message); return; }
-      loadThreads(); openThread(cur.gid, cur.num, false);
+      loadThreads(true); openThread(cur.gid, cur.num, false);
     });
   }
 
@@ -4663,10 +5101,36 @@ def inbox_page():
 
   // ------------------------------------------------ new text
   var findTimer = null;
-  $('newbtn').onclick = function(){ $('find').style.display = 'flex'; $('findq').value = ''; $('findres').innerHTML = ''; $('findq').focus(); };
+  var roster = null;
+  $('newbtn').onclick = function(){ $('find').style.display = 'flex'; $('findq').value = ''; $('findres').innerHTML = ''; $('findgrp').value = ''; roster = null; $('findq').focus(); };
+  function drawRoster(){
+    var q = ($('findq').value || '').toLowerCase(), gid = +$('findgrp').value;
+    var rows = roster.people.filter(function(p){ return !q || (p.name + ' ' + p.num).toLowerCase().indexOf(q) >= 0; });
+    $('findnote').textContent = roster.people.length + ' people can be texted from ' + roster.group + '. People who texted STOP, or have texts turned off, are not listed.';
+    $('findres').innerHTML = rows.map(function(p){
+      return '<div class="pr"><a href="#" data-n="' + esc(p.num) + '"><b>' + esc(p.name) + '</b></a>' + (p.age != null ? ' (' + p.age + ')' : '') + ' &middot; ' + fmtNum(p.num) +
+        (p.keyword ? ' <span class="tm">joined by keyword</span>' : '') +
+        (p.shares.length ? '<div class="tm">Shares this cell with ' + esc(p.shares.join(', ')) + '</div>' : '') + '</div>';
+    }).join('') || '<div class="tm">No one found.</div>';
+    Array.prototype.forEach.call(document.querySelectorAll('#findres a[data-n]'), function(a){
+      a.onclick = function(e){ e.preventDefault(); $('find').style.display = 'none'; openThread(gid, a.getAttribute('data-n'), true); };
+    });
+  }
+  $('findgrp').onchange = function(){
+    roster = null; $('findres').innerHTML = '';
+    if (!this.value) { $('findnote').textContent = 'Only people subscribed to a group you can send from, with texts turned on and not opted out, are listed. Pick a group to see everyone in it.'; return; }
+    $('findres').innerHTML = '<div class="tm">Loading...</div>';
+    var gid = this.value;
+    post({action:'roster', gid:gid}, function(r){
+      if ($('findgrp').value != gid) return;
+      if (!r.success) { $('findres').textContent = r.message; return; }
+      roster = r; drawRoster();
+    });
+  };
   $('findclose').onclick = function(e){ e.preventDefault(); $('find').style.display = 'none'; };
   $('findq').oninput = function(){
     clearTimeout(findTimer);
+    if ($('findgrp').value) { if (roster) drawRoster(); return; }
     var term = this.value;
     findTimer = setTimeout(function(){
       post({action:'find', term:term}, function(r){
@@ -4726,7 +5190,7 @@ def inbox_page():
     var keys = shownRows.filter(function(t){ return t.isNew; }).map(function(t){ return t.key; });
     if (!keys.length) return;
     if (!confirm('Mark ' + keys.length + ' conversation' + (keys.length == 1 ? '' : 's') + ' as read for you?')) return;
-    post({action:'mark_read', keys:keys.join(',')}, function(r){ if (!r.success) alert(r.message); loadThreads(); });
+    post({action:'mark_read', keys:keys.join(',')}, function(r){ if (!r.success) alert(r.message); loadThreads(true); });
   };
   $('howlink').onclick = function(e){ e.preventDefault(); $('howmodal').style.display = 'flex'; };
   $('howclose').onclick = function(e){ e.preventDefault(); $('howmodal').style.display = 'none'; };
@@ -4833,7 +5297,10 @@ def inbox_page():
       renderList(); };
   });
   $('grp').onchange = function(){ store('grp', this.value); renderList(); };
-  $('days').onchange = loadThreads;
+  $('days').onchange = function(){ loadThreads(true); if (view == 'sends') renderList(); };
+  Array.prototype.forEach.call(document.querySelectorAll('#view a'), function(a){
+    a.onclick = function(e){ e.preventDefault(); setView(a.getAttribute('data-v')); };
+  });
   $('q').oninput = renderList;
   loadThreads();
   // Refresh pace: every 10 seconds while you are working in a conversation,
