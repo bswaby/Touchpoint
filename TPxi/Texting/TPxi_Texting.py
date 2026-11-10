@@ -1,23 +1,41 @@
 #Roles=Admin,SendSMS,ManageSMS
 # -*- coding: utf-8 -*-
 #####################################################################
-# TPxi_Texting
+# TPxi_Texting   (keep this line: TPxi Go's sync finds the script by it)
 #####################################################################
-# Texting for PoweredByText (PBT) inside TouchPoint, in one page.
+# Written By: Ben Swaby
+# Email: bswaby@fbchtn.org
+# GitHub: https://github.com/bswaby/Touchpoint  (40+ free tools)
+# ----------------------------------------------------------------
+# These tools are free because they should be.
+# If they've saved you time or helped your team, and you want to
+# support continued development, check out:
+#
+# DisplayCache: church digital signage that integrates with TouchPoint
+# https://displaycache.com
+#
+# TPxi Go: your church contacts, wherever you work.
+# Look up anyone in TouchPoint, log calls and emails from Outlook
+# or your phone. No tab switching, no lost context.
+# https://tpxigo.com
+# ----------------------------------------------------------------
+#
+# Texting for PoweredByText (PBT) and Twilio groups inside TouchPoint, in one page.
 #
 # HOME, for staff: the conversations from the PBT groups you are listed in
 # on SMS Management. Read, reply, text someone new, or text a whole group,
 # without signing in to PBT. (This was TPxi_TextingInbox.)
 #
 # ADMIN TOOLS, for the Admin role only (checked on the server for every
-# admin action, not just hidden on the page):
+# admin action, not just hidden on the page). PoweredByText setup can also
+# change groups, by the same rights the person has in PoweredByText:
 #   Names        who each texting number belongs to in TouchPoint, and which
 #                records need fixing. Changing names in PBT is on hold until
 #                PBT allows it (NAME_WRITES).
 #   Subscribers  TouchPoint's subscriber list next to PBT's, by cell number.
 #   Delivery     when each group text went out and how long it took.
 #   Usage        credits, plan used, waste, and what is behind each number.
-#   Change log   every name change made in PBT.
+#   Changes      every name change and group change made in PBT from here.
 # (These were TPxi_PBTNameSync.)
 #
 # Data saved by the two older scripts keeps its Special Content names
@@ -32,6 +50,74 @@
 # OPEN IT AT /PyScriptForm/TPxi_Texting (not /PyScript/).
 #
 # VERSION HISTORY
+#   1.0.8  Change and add PoweredByText groups from Admin tools >
+#          PoweredByText setup, without signing in to PoweredByText.
+#          WHO: TouchPoint Admins, by their rights in PoweredByText.
+#          Account Admins can change and add any group, Division Admins
+#          the groups in their divisions, Group Admins only the groups
+#          they are assigned. You are matched by the email you sign in
+#          with and tied to that PoweredByText user the first time, so
+#          changing your email to match someone else's gets you turned
+#          away (and listed for an Account Admin to see).
+#          EDIT THIS GROUP opens under the group: name, description,
+#          tags, and keywords with their replies (add, change, rename,
+#          remove). Each save reads the group fresh, refuses if someone
+#          changed it since you opened it, sends every setting back
+#          (PoweredByText wipes what is left out, tags included), then
+#          reads it again to check. A rename adds the new keyword before
+#          removing the old one, so a refused word never leaves the group
+#          without one. Webhooks, leaders and subscribers are never touched.
+#          KEYWORDS are checked as you leave the box: a word used by another group
+#          on the number, or STOP, HELP and the like, is flagged before
+#          saving. Another church's word on a shared short code (84727) is
+#          only known when PoweredByText refuses it, and the page says so.
+#          NEW POWEREDBYTEXT GROUP: pick the division, name, tags and an
+#          optional keyword. Afterward a checklist walks through linking
+#          it in TouchPoint's SMS Management (Add New Group, Campus,
+#          Select Group, Sync PBT, Users) with a link there, and offers
+#          another keyword right away if the first was taken.
+#          AUTO REPLY and INBOX are shown grayed out with a note:
+#          PoweredByText does not save them from outside its website,
+#          though its documentation says it should (reported to them).
+#          New groups start with AutoResponse on and the standard message;
+#          change it on PoweredByText's website, the gear, then Direct Chat.
+#          REMOVING a group cannot be done from here; the Setup page
+#          explains the steps (SMS Management first, then PoweredByText).
+#          Tags you type are remembered, since PoweredByText does not share
+#          its tag list. Tags are up to 15 letters and numbers, keywords
+#          up to 12.
+#          Admin tools "Name changes" is now "Changes": every name and
+#          group change made from here, with who, when, and Before and
+#          After for each setting. CSV download.
+#   1.0.7  Quiet hours are a setting: admins set the hours, how long after
+#          someone texts in a reply may still go out, or turn them off, and
+#          whether staff are warned (Send anyway, the default, for a church
+#          that starts early) or cannot send until they end. Sends made
+#          anyway are marked in the sent log. Nothing is ever held for later.
+#          The page checks for new texts every 30 seconds (was 10 to 15),
+#          never while its tab is hidden, and on coming back only when the
+#          last check is 30 seconds old: PoweredByText allows a church 10
+#          requests at a time across every phone and this page.
+#          TPxi Go's apps follow them too, and its dashboard shows them with
+#          a link here (its sync finds this script by the TPxi_Texting line
+#          at the top, under whatever name it is saved).
+#   1.0.6  Twilio groups: TouchPoint texting groups on Twilio show next to the
+#          PoweredByText ones. Replies and group texts to people in
+#          TouchPoint go through TouchPoint's own sender; a number nobody in
+#          TouchPoint has is texted straight from the group's Twilio number,
+#          using the TwilioSID and TwilioToken TouchPoint already has.
+#          Texts Twilio sent that TouchPoint never saw show in the
+#          conversation. Pictures from Twilio groups are not ready yet.
+#          Admin tools: Twilio usage, the Twilio bill by month (texts,
+#          picture messages, carrier fees, number rent) and each Twilio
+#          group's texts and cost. The PoweredByText usage page is renamed,
+#          and each shows only when that service is set up. Names and
+#          Delivery cover Twilio groups too (Names shows who TouchPoint
+#          texts on each number, Delivery reads Twilio's own send times).
+#          Connection check has a section per service, with plain words for
+#          Twilio's common delivery errors. The admin menu is grouped by
+#          service (Texting, PoweredByText, Twilio); a service's pages show
+#          only when it is set up. Change log is now Name changes.
 #   1.0.5  Group texts: a new view next to the conversations lists each text
 #          that went to 3 or more people in a group, with how many got it and
 #          how many replied; opening one shows the message, the replies and
@@ -63,7 +149,7 @@ import json
 import re
 import datetime
 
-TEXTING_VERSION = '1.0.5'
+TEXTING_VERSION = '1.0.8'
 # Updates come from the same TPxi script service as the other TPxi tools:
 # the page asks DC_API_BASE which version is newest, and an admin's Update
 # pulls the new code from DC_API_WORKER and saves it over this script.
@@ -114,13 +200,15 @@ model.Header = ''          # the page draws its own title; TouchPoint's is hidde
 #   * Opted out (STOP) : the reply box is locked.
 #   * New texts        : only to people subscribed to that group in
 #                        TouchPoint and not opted out.
-#   * Quiet hours      : nothing is sent before 8 a.m. or after 9 p.m.
-#                        unless the person texted in within the last 2 hours.
+#   * Quiet hours      : set under Settings (9 p.m. to 8 a.m. unless
+#                        changed). A reply to someone who texted in recently
+#                        goes out as usual; anything else is warned (Send
+#                        anyway) or refused, as the admin chose.
 #
 # GROUP TEXT: sends one text to everyone subscribed to a group in PBT
 # (including people who joined by keyword), through PBT's broadcast call
 # with autoSubscribe off. Same rights as a reply (SendSMS + group member),
-# quiet hours apply with no exceptions, and the page shows the people count
+# quiet hours warn or refuse with no reply exception, and the page shows the people count
 # and estimated credits before it asks to confirm. Logged in
 # TPxi_TextingInboxSent with who sent it.
 #
@@ -165,8 +253,6 @@ SENT_CONTENT = 'TPxi_TextingInboxSent'
 # (no phone numbers stored). An id never changes once given, so each is
 # looked up in the texting history only once.
 IDS_CONTENT = 'TPxi_TextingInboxIds'
-QUIET_START, QUIET_END = 21, 8      # no sends from 9 p.m. until 8 a.m.
-QUIET_GRACE_MIN = 120               # unless they texted in this recently
 SEND_TITLE = 'Inbox reply'
 SKIP_NAME = re.compile(r'^\(Invalid Group\)|^TouchPoint (SYSTEM|OTM)$', re.I)
 STOP_WORDS = set(['STOP', 'STOPALL', 'STOP ALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'OPTOUT', 'OPT OUT', 'REVOKE'])
@@ -388,12 +474,12 @@ def my_groups():
         return {}
     see_all = admin_sees_all()
     rows = q.QuerySql("""
-        SELECT g.ID, g.Name, g.ExternalId, g.ExternalId2,
+        SELECT g.ID, g.Name, g.ExternalId, g.ExternalId2, g.GroupType,
                CASE WHEN g.ID IN (SELECT gm.GroupID FROM SMSGroupMembers gm
                                   JOIN Users u ON u.UserId = gm.UserID
                                   WHERE u.PeopleId = %d) THEN 1 ELSE 0 END Member
         FROM SMSGroups g
-        WHERE g.GroupType = 'PoweredByText' AND g.IsDeleted = 0
+        WHERE g.GroupType IN ('PoweredByText', 'Twilio') AND g.IsDeleted = 0
           AND ISNULL(g.isDisabled, 0) = 0 AND ISNULL(g.OneTimeCodeFlag, 0) = 0
           AND ISNULL(g.SystemFlag, 0) = 0
         ORDER BY g.Name""" % int(ME))
@@ -402,7 +488,13 @@ def my_groups():
         if SKIP_NAME.search(r.Name or '') or not (r.Member or see_all):
             continue
         out[r.ID] = {'id': r.ID, 'name': r.Name, 'groupId': r.ExternalId, 'orgunitId': r.ExternalId2,
-                     'member': bool(r.Member)}
+                     'member': bool(r.Member), 'svc': 'twilio' if r.GroupType == 'Twilio' else 'pbt', 'numbers': []}
+    # A Twilio group texts from the numbers added to it on SMS Management.
+    tw = [k for k, v in out.items() if v['svc'] == 'twilio']
+    if tw:
+        for r in q.QuerySql("SELECT GroupID, Number FROM SMSNumbers WHERE GroupID IN (%s) ORDER BY Id" % sql_ints(tw)):
+            if r.Number:
+                out[r.GroupID]['numbers'].append(r.Number)
     return out
 
 
@@ -828,6 +920,191 @@ def pbt_send(g, num, msg, media=None, fallback=None):
         raise Exception(res.get('message') or res.get('appCode') or 'PoweredByText refused the text')
 
 
+# ---------------------------------------------------------------- Twilio
+# A Twilio group texts through TouchPoint's own sender for anyone in
+# TouchPoint. Numbers nobody in TouchPoint has, and texts sent outside
+# TouchPoint, use Twilio's API with the account TouchPoint already has
+# (TwilioSID and TwilioToken in Settings).
+TWILIO_API = 'https://api.twilio.com/2010-04-01'
+
+
+def is_twilio(g):
+    return (g or {}).get('svc') == 'twilio'
+
+
+def twilio_auth():
+    sid = model.Setting("TwilioSID", "")
+    token = model.Setting("TwilioToken", "")
+    if not sid or not token:
+        raise Exception("TwilioSID or TwilioToken is not set in Settings.")
+    import System
+    basic = System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(sid + ':' + token))
+    return sid, {"Authorization": "Basic " + basic, "Accept": "application/json"}
+
+
+def e164(number):
+    """Twilio's form of a number: +1 and 10 digits for US numbers."""
+    d = re.sub(r'\D', '', number or '')
+    return '+1' + d if len(d) == 10 else '+' + d
+
+
+def twilio_from(g):
+    if not g.get('numbers'):
+        raise Exception('This Twilio group has no number yet. Add one to the group on SMS Management.')
+    return e164(g['numbers'][0])
+
+
+def twilio_reply(raw, what):
+    try:
+        res = json.loads(raw) if raw and raw.strip() else {}
+    except Exception:
+        raise Exception("Twilio's reply was not understood: %s" % (raw or '(empty)')[:200])
+    if res.get('code') and res.get('message'):
+        raise Exception('Twilio %s: %s' % (what, res.get('message')))
+    return res
+
+
+def twilio_send(g, num, msg):
+    sid, h = twilio_auth()
+    h["Content-Type"] = "application/x-www-form-urlencoded"
+    body = 'To=%s&From=%s&Body=%s' % (model.UrlEncode('+1' + num), model.UrlEncode(twilio_from(g)), model.UrlEncode(msg))
+    res = twilio_reply(model.RestPost(TWILIO_API + '/Accounts/%s/Messages.json' % sid, h, body), 'refused the text')
+    if not res.get('sid'):
+        raise Exception('Twilio did not take the text.')
+
+
+def twilio_local(v):
+    """Twilio's 'Sat, 07 Nov 2026 18:03:02 +0000' (UTC) -> church time 'YYYY-MM-DD HH:MM:SS'."""
+    try:
+        utc = datetime.datetime.strptime((v or '')[5:25], '%d %b %Y %H:%M:%S')
+    except Exception:
+        return ''
+    try:
+        import System
+        name = model.Setting("LocalTimeZone", "Central Standard Time") or "Central Standard Time"
+        span = System.TimeZoneInfo.FindSystemTimeZoneById(name).GetUtcOffset(
+            System.DateTime(utc.year, utc.month, utc.day, utc.hour, utc.minute, utc.second, System.DateTimeKind.Utc))
+        return (utc + datetime.timedelta(minutes=int(span.TotalMinutes))).strftime(TS)
+    except Exception:
+        return utc.strftime(TS)
+
+
+def twilio_texts(g, num, now, evs):
+    """Texts this group's numbers sent this number in the last 30 days that
+    TouchPoint never saw (sent here to a number nobody in TouchPoint has, or
+    from Twilio's own tools). Read when a conversation is opened; nothing is
+    stored."""
+    if not g.get('numbers'):
+        return []
+    sid, h = twilio_auth()
+    since = (parse_ts(now) - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+    found = []
+    for frm in g['numbers'][:5]:
+        url = TWILIO_API + '/Accounts/%s/Messages.json?To=%s&From=%s&DateSent%%3E=%s&PageSize=200' % (
+            sid, model.UrlEncode('+1' + num), model.UrlEncode(e164(frm)), since)
+        res = twilio_reply(model.RestGet(url, h), 'message list')
+        for m in res.get('messages') or []:
+            if (m.get('status') or '') in ('failed', 'canceled'):
+                continue
+            t = twilio_local(m.get('date_sent') or m.get('date_created'))
+            if t:
+                found.append({'t': t, 'body': m.get('body') or ''})
+    return unseen(found, evs)
+
+
+def unseen(found, evs):
+    """The texts in found that the conversation does not already show (the
+    same words sent within an hour)."""
+    out = []
+    for f in sorted(found, key=lambda x: x['t']):
+        dup = False
+        for e in evs + out:
+            m = minutes_between(e['t'], f['t'])
+            if e['dir'] == 'out' and norm(e['body']) == norm(f['body']) and m is not None and abs(m) <= 60:
+                dup = True
+                break
+        if not dup:
+            out.append({'dir': 'out', 't': f['t'], 'body': f['body']})
+    return [{'t': o['t'], 'body': o['body']} for o in out]
+
+
+def tp_subscribers(gid):
+    """PeopleIds TouchPoint lists as subscribed to the group, not opted out,
+    with texts on and a cell number: who a group text from TouchPoint reaches."""
+    return [r.PeopleId for r in q.QuerySql("""
+        SELECT DISTINCT p.PeopleId FROM SMSGroupSubscriptions s WITH (NOLOCK)
+        JOIN People p ON p.PeopleId = s.ToPeopleId
+        WHERE s.FromGroup = %d AND ISNULL(s.IsSubscribed, 0) = 1 AND ISNULL(s.IsOptedOut, 0) = 0
+          AND ISNULL(p.ReceiveSMS, 0) = 1 AND ISNULL(p.CellPhone, '') <> ''
+          AND p.IsDeceased = 0 AND p.ArchivedFlag = 0""" % int(gid))]
+
+
+def tw_groups():
+    """Twilio texting groups for the admin tools, shaped like pbt_groups()."""
+    rows = list(q.QuerySql("""
+        SELECT ID, Name FROM SMSGroups
+        WHERE GroupType = 'Twilio' AND IsDeleted = 0 AND ISNULL(isDisabled, 0) = 0
+        ORDER BY Name"""))
+    nums = {}
+    if rows:
+        for r in q.QuerySql("SELECT GroupID, Number FROM SMSNumbers WHERE GroupID IN (%s) ORDER BY Id"
+                            % sql_ints([r.ID for r in rows])):
+            if r.Number:
+                nums.setdefault(r.GroupID, []).append(r.Number)
+    return [{'id': r.ID, 'name': r.Name, 'groupId': 'tw:%d' % r.ID, 'orgunitId': 'twilio', 'svc': 'twilio',
+             'numbers': nums.get(r.ID, [])} for r in rows]
+
+
+def tw_numbers(gid):
+    """The numbers a Twilio group texts, as Names reads them: people TouchPoint
+    lists as subscribed, and anyone who texted the group in the last year.
+    Twilio has no subscriber list of its own."""
+    nums = {}
+    for r in q.QuerySql("""
+            SELECT DISTINCT p.CellPhone N FROM SMSGroupSubscriptions s WITH (NOLOCK)
+            JOIN People p ON p.PeopleId = s.ToPeopleId
+            WHERE s.FromGroup = %d AND ISNULL(s.IsSubscribed, 0) = 1 AND ISNULL(s.IsOptedOut, 0) = 0
+              AND ISNULL(p.CellPhone, '') <> '' AND p.IsDeceased = 0 AND p.ArchivedFlag = 0""" % int(gid)):
+        d = digits10(r.N)
+        if len(d) == 10:
+            nums[d] = 'Subscribed in TouchPoint'
+    for r in q.QuerySql("""
+            SELECT DISTINCT %s Num FROM SmsReceived r WITH (NOLOCK)
+            WHERE r.ToGroupId = %d AND r.DateReceived >= DATEADD(day, -365, GETDATE())""" % (NUM_SQL, int(gid))):
+        if r.Num and len(r.Num) == 10 and r.Num not in nums:
+            nums[r.Num] = 'Texted in this year'
+    return [{'mobileNo': n, 'status': st} for n, st in sorted(nums.items())]
+
+
+def twilio_report_rows(groups, start, end, notes):
+    """What the groups' Twilio numbers sent in [start, end] (dates), shaped
+    like PoweredByText's report rows so Delivery reads both the same way.
+    Twilio's dates are UTC, so it is asked a day wider and trimmed to church time."""
+    groups = [g for g in groups if g.get('numbers')]
+    if not groups:
+        return []
+    sid, h = twilio_auth()
+    rng = 'DateSent%%3E=%s&DateSent%%3C=%s&PageSize=1000' % (
+        (start - datetime.timedelta(days=1)).strftime('%Y-%m-%d'), (end + datetime.timedelta(days=1)).strftime('%Y-%m-%d'))
+    lo, hi = start.strftime('%Y-%m-%d'), (end + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+    rows = []
+    for g in groups:
+        for num in g['numbers']:
+            msgs, hit = twilio_pages(TWILIO_API + '/Accounts/%s/Messages.json?From=%s&' % (sid, model.UrlEncode(e164(num))) + rng,
+                                     h, 'messages', TW_PAGE_CAP)
+            if hit:
+                notes.append('%s sent more than 20,000 texts in these dates, so only the first 20,000 are shown.' % g['name'])
+            for m in msgs:
+                t = twilio_local(m.get('date_sent') or m.get('date_created'))
+                if not t or not (lo <= t[:10] < hi):
+                    continue
+                rows.append({'direction': 'outbound', 'timestamp': t, 'groupId': g['groupId'], 'groupName': g['name'],
+                             'messageType': 'Twilio', 'message': m.get('body') or '', 'subscriberNo': m.get('to') or '',
+                             'statusCodeDescription': m.get('status') or '', 'statusCode': unicode(m.get('error_code') or ''),
+                             'mediaUrl': 'mms' if int(m.get('num_media') or 0) else ''})
+    return rows
+
+
 # ---------------------------------------------------------------- pictures, links, emoji
 # PBT takes these files for a picture message (MMS). US carriers cap an MMS
 # at 905 KB; the page shrinks photos to fit before uploading.
@@ -989,6 +1266,8 @@ def act_upload_media():
         raise Exception("You don't have rights to that texting group.")
     if send_block_reason(g):
         raise Exception(send_block_reason(g))
+    if is_twilio(g):
+        raise Exception('Pictures cannot be sent from Twilio groups yet.')
     mime = (_param('fmime') or '').lower()
     if MEDIA_KINDS.get(mime) not in MEDIA_ALLOWED[send_policy()['attach']]:
         raise Exception('That kind of attachment is turned off here.')
@@ -1051,6 +1330,9 @@ def act_group_info():
         raise Exception("You don't have rights to that texting group.")
     if send_block_reason(g):
         raise Exception(send_block_reason(g))
+    if is_twilio(g):
+        n = len(tp_subscribers(gid))
+        return {'success': True, 'gid': gid, 'active': n, 'counts': {'Active': n}, 'svc': 'twilio'}
     counts = pbt_group_counts(g)
     return {'success': True, 'gid': gid, 'active': active_count(counts), 'counts': counts}
 
@@ -1097,6 +1379,8 @@ def act_people():
     g = my_groups().get(gid)
     if not g:
         raise Exception("You don't have rights to that texting group.")
+    if is_twilio(g):
+        raise Exception('This compares subscribers with PoweredByText. %s is a Twilio group, which has no subscriber list of its own.' % g['name'])
 
     pbt = {}
     for s in pbt_group_subscribers(g):
@@ -1165,11 +1449,26 @@ def act_group_send():
         raise Exception('The message is empty.')
     if len(msg) > 1600:
         raise Exception('Texts can be at most 1,600 characters.')
-    hour = parse_ts(now).hour
-    if not (QUIET_END <= hour < QUIET_START):
-        raise Exception('Group texts cannot go out during quiet hours (9 p.m. to 8 a.m.).')
+    late = in_quiet(now)
+    if late and quiet_hours()['mode'] == 'block':
+        raise Exception('It is quiet hours (%s). Group texts can go out again at %s' % (quiet_span(), until_label(quiet_hours()['end'])))
+    if late and _param('quiet_ok') != '1':
+        raise Exception('It is quiet hours (%s). Choose Send anyway to send this group text now.' % quiet_span())
     check_emoji(msg, True)
     media = parse_media(_param('media'))
+    if is_twilio(g):
+        # Twilio has no subscriber lists: the group is the people TouchPoint
+        # lists as subscribed, sent by TouchPoint's own sender (which logs it
+        # under this staff member and shortens links itself).
+        if media:
+            raise Exception('Pictures cannot be sent from Twilio groups yet.')
+        twilio_from(g)
+        check_public_links(msg)
+        pids = tp_subscribers(gid)
+        if not pids:
+            raise Exception('Nobody in TouchPoint is subscribed to this group.')
+        model.SendSms("peopleids='%s'" % ','.join(str(x) for x in pids), gid, 'Group text', msg)
+        return {'success': True, 'note': ''}
     msg, note = shorten_links(g, msg)
     tok = pbt_token()
     body = {'groupId': [g['groupId']], 'message': msg, 'messageType': 'BroadcastMessage',
@@ -1188,7 +1487,8 @@ def act_group_send():
     me = my_name()
     people = int(_param('expected', '0')) if _param('expected', '0').isdigit() else 0
     log_sent({'t': now, 'gid': gid, 'group': True, 'b': fingerprint(msg), 'pid': ME,
-              'by': (me.Name if me else ''), 'people': people, 'credits': 3 if media else credits(msg), 'mms': bool(media)})
+              'by': (me.Name if me else ''), 'people': people, 'credits': 3 if media else credits(msg), 'mms': bool(media),
+              'quiet': late})
     return {'success': True, 'note': note}
 
 
@@ -1294,7 +1594,7 @@ def act_threads():
     sp.mark('list')
     return {'success': True, 'threads': sorted(out, key=lambda x: x['t'], reverse=True), 'capped': CAPPED['hit'],
             'steps': sp.ms, 'mark': mark,
-            'groups': [{'id': g['id'], 'name': g['name'], 'canSend': can_send_in(g)}
+            'groups': [{'id': g['id'], 'name': g['name'], 'canSend': can_send_in(g), 'svc': g['svc']}
                        for g in sorted(groups.values(), key=lambda g: g['name'])]}
 
 
@@ -1309,7 +1609,7 @@ def thread_context(gid, num, now, fix_times=True, sp=None):
     bc = broadcasts([gid], since)
     mark('group texts')
     evs = events_for([gid], [num], since, bc, sp).get((gid, num), [])
-    if fix_times:
+    if fix_times and not is_twilio(groups[gid]):
         try:
             evs = pbt_fix_times(groups[gid], num, evs, now)
         except Exception:
@@ -1408,29 +1708,22 @@ def pbt_group_texts(g, num, now, evs):
         if body['pageNumber'] >= (data.get('totalPages') or 1):
             break
         body['pageNumber'] += 1
-    out = []
-    for f in sorted(found, key=lambda x: x['t']):
-        # Skip any TouchPoint already shows (sent from this inbox or TouchPoint).
-        dup = False
-        for e in evs + out:
-            m = minutes_between(e['t'], f['t'])
-            if e['dir'] == 'out' and norm(e['body']) == norm(f['body']) and m is not None and abs(m) <= 60:
-                dup = True
-                break
-        if not dup:
-            out.append({'dir': 'out', 't': f['t'], 'body': f['body']})
-    return [{'t': o['t'], 'body': o['body']} for o in out]
+    return unseen(found, evs)
 
 
 def quiet_check(facts, now):
-    hour = parse_ts(now).hour
-    if QUIET_END <= hour < QUIET_START:
+    """Why a reply at `now` should wait, or '' when it can go out. In warn
+    mode staff can still choose Send anyway."""
+    if not in_quiet(now):
         return ''
+    q = quiet_hours()
     li = facts['lastIn']
     m = minutes_between(li['t'], now) if li else None
-    if m is not None and m <= QUIET_GRACE_MIN:
+    if q['grace'] and m is not None and m <= q['grace']:
         return ''
-    return 'It is quiet hours (9 p.m. to 8 a.m.). Texts can go out now only to someone who texted in within the last 2 hours.'
+    if q['mode'] == 'block':
+        return 'It is quiet hours (%s). Texts can go out again at %s' % (quiet_span(), until_label(q['end']))
+    return 'It is quiet hours (%s). Most people would rather not get a text now.' % quiet_span()
 
 
 def act_thread():
@@ -1458,10 +1751,10 @@ def act_thread():
     group_texts = None
     if with_pbt:
         try:
-            group_texts = pbt_group_texts(g, num, now, evs)
+            group_texts = twilio_texts(g, num, now, evs) if is_twilio(g) else pbt_group_texts(g, num, now, evs)
         except Exception:
-            group_texts = []    # PBT unreachable: show what TouchPoint has
-        sp.mark('PoweredByText group texts')
+            group_texts = []    # unreachable: show what TouchPoint has
+        sp.mark('Twilio texts' if is_twilio(g) else 'PoweredByText group texts')
     reason = send_block_reason(g)
     can = not reason
     if reason:
@@ -1492,7 +1785,7 @@ def act_thread():
             'who': f['who']['name'] if f['who'] else '',
             'whoPid': f['who']['pid'] if f['who'] else None, 'whoPhoto': f['who']['photo'] if f['who'] else '',
             'canSend': can, 'reason': reason, 'quiet': quiet_check(f, now),
-            'via': 'touchpoint' if f['target'] else 'pbt',
+            'via': 'touchpoint' if f['target'] else ('twilio' if is_twilio(g) else 'pbt'), 'svc': g['svc'],
             'done': st.get('done') or '', 'doneBy': st.get('doneBy') or '', 'tid': tid,
             'groupTexts': group_texts, 'mark': mark, 'steps': sp.ms}
 
@@ -1518,9 +1811,9 @@ def act_send():
         raise Exception(f['blocked'])
     if not evs and not (f['target'] and f['target']['subs'].get(gid, (False, False))[0]):
         raise Exception('This person is not subscribed to this group, so a new text cannot start here.')
-    quiet = quiet_check(f, now)
-    if quiet:
-        raise Exception(quiet)
+    late = bool(quiet_check(f, now))
+    if late and (quiet_hours()['mode'] == 'block' or _param('quiet_ok') != '1'):
+        raise Exception(quiet_check(f, now))
     check_emoji(msg, False)
     media = parse_media(_param('media'))
     me = my_name()
@@ -1535,6 +1828,14 @@ def act_send():
         via = 'TouchPoint'
     elif cands and not f['target']:
         raise Exception('Nobody on this number can be texted.')
+    elif is_twilio(g):
+        if media:
+            raise Exception('Pictures cannot be sent from Twilio groups yet.')
+        check_public_links(msg)
+        twilio_send(g, num, msg)
+        log_sent({'t': now, 'gid': gid, 'b': fingerprint(msg), 'pid': ME, 'by': (me.Name if me else ''), 'mms': False,
+                  'quiet': late})
+        via = 'Twilio'
     else:
         # A picture message has to go through PBT directly (TouchPoint's
         # sender is text only), so TouchPoint's texts-off rule is checked here.
@@ -1544,7 +1845,7 @@ def act_send():
         fb = media_fallback(g, _param('fb') or msg, media, _param('fblink') != '0') if media else None
         pbt_send(g, num, msg, media, fb)
         log_sent({'t': now, 'gid': gid, 'b': fingerprint(msg), 'pid': ME, 'by': (me.Name if me else ''),
-                  'mms': bool(media)})
+                  'mms': bool(media), 'quiet': late})
         via = 'PoweredByText'
     return {'success': True, 'via': via, 'note': note}
 
@@ -2302,7 +2603,8 @@ def decide(cands):
 
 
 def evaluate(g, subs):
-    """One row per subscriber with the action a sync would take."""
+    """One row per subscriber with the action a sync would take. A Twilio
+    group has no names of its own to fix, so a clear owner is just 'owner'."""
     nums = [digits10(s.get('mobileNo')) for s in subs]
     people = tp_people_by_cell(nums)
     rows = []
@@ -2316,6 +2618,8 @@ def evaluate(g, subs):
             action = 'notfound'
         elif review:
             action = 'review'
+        elif is_twilio(g):
+            action = 'owner'
         elif not cur:
             action = 'set'
         elif cur == norm(first + ' ' + last):
@@ -2416,14 +2720,60 @@ EMOJI_POLICIES = ('allow', 'replies', 'none')
 ATTACH_POLICIES = ('off', 'pictures', 'pictures_pdf', 'all')
 
 
+QUIET_GRACES = (0, 30, 60, 120, 240)    # minutes a reply may still go out
+QUIET_MODES = ('warn', 'block')         # warn: Send anyway; block: no sending
+
+
+def quiet_hours():
+    """Quiet hours from Settings: on, start and end (whole hours, church
+    time), grace (minutes after someone texts in that a reply may still go
+    out without asking) and mode (warn, so staff can choose Send anyway, or
+    block). Defaults 9 p.m. to 8 a.m., 2 hours, warn: US texting rules
+    expect business texts only from 8 a.m. to 9 p.m."""
+    st = load_settings()
+    def hour(k, d):
+        v = st.get(k)
+        return v if isinstance(v, int) and 0 <= v <= 23 else d
+    g = st.get('quiet_grace')
+    return {'on': st.get('quiet_on') is not False, 'start': hour('quiet_start', 21), 'end': hour('quiet_end', 8),
+            'grace': g if g in QUIET_GRACES else 120,
+            'mode': st.get('quiet_mode') if st.get('quiet_mode') in QUIET_MODES else 'warn'}
+
+
+def in_quiet(now):
+    q = quiet_hours()
+    if not q['on'] or q['start'] == q['end']:
+        return False
+    h = parse_ts(now).hour
+    if q['start'] > q['end']:
+        return h >= q['start'] or h < q['end']
+    return q['start'] <= h < q['end']
+
+
+def hour_label(h):
+    return {0: 'midnight', 12: 'noon'}.get(h) or '%d %s' % (h % 12 or 12, 'a.m.' if h < 12 else 'p.m.')
+
+
+def until_label(h):
+    """An hour that ends a sentence: '8 a.m.' already has its period."""
+    t = hour_label(h)
+    return t if t.endswith('.') else t + '.'
+
+
+def quiet_span():
+    q = quiet_hours()
+    return '%s to %s' % (hour_label(q['start']), hour_label(q['end']))
+
+
 def send_policy():
     """What staff may put in a text, set by an admin under Settings.
     emoji: allow | replies (allowed, warned in group texts) | none
-    attach: off | pictures | pictures_pdf | all (adds small video and audio)"""
+    attach: off | pictures | pictures_pdf | all (adds small video and audio)
+    quiet: quiet_hours()"""
     st = load_settings()
     e = st.get('emoji_policy') if st.get('emoji_policy') in EMOJI_POLICIES else 'replies'
     a = st.get('attach_policy') if st.get('attach_policy') in ATTACH_POLICIES else 'pictures_pdf'
-    return {'emoji': e, 'attach': a}
+    return {'emoji': e, 'attach': a, 'quiet': quiet_hours()}
 
 
 def mb_read():
@@ -2527,6 +2877,7 @@ TYPE_LABEL = {
     # group. TouchPoint sends every group text this way, with the numbers
     # it chose, so it is most of the volume, not one-to-one texting.
     'TwoWay': 'Reply', 'Twoway': 'Reply', 'Unicast': 'Sent to chosen people (how TouchPoint sends)', 'AutoResponse': 'Auto reply',
+    'Twilio': 'Sent through Twilio',
     'KeywordResponse': 'Keyword reply', 'Keyword': 'Keyword', 'ReservedKeyword': 'Keyword',
     'OptInResponse': 'Opt-in reply', 'StopResponse': 'Stop reply', 'StopAllResponse': 'Stop reply',
     'HelpResponse': 'Help reply', 'SystemMessage': 'System', 'Notification': 'Notification', 'Deact': 'Deactivated',
@@ -2771,14 +3122,17 @@ def tp_match_list(lists, gid_tp, key_text, first):
 
 
 def trace(gid, start, end):
-    groups = pbt_groups(include_system=True)
+    groups = (pbt_groups(include_system=True) if pbt_configured() else []) + tw_groups()
     by_ext = dict((g['groupId'], g) for g in groups)
     chosen = [g for g in groups if g['id'] == gid] if gid else []
     if gid and not chosen:
         raise Exception('Unknown group %d' % gid)
     types = [t for t in ALL_TYPES if t not in ('TwoWay', 'Twoway')]
     # PBT refuses the report without group ids (re.1010), so "all" is every group.
-    rows, notes = report_rows([g['groupId'] for g in (chosen or groups)], start, end, types)
+    pbt_ids = [g['groupId'] for g in (chosen or groups) if not is_twilio(g)]
+    rows, notes = report_rows(pbt_ids, start, end, types) if pbt_ids else ([], [])
+    # Twilio's own record of what each Twilio group's numbers sent, in the same shape.
+    rows = rows + twilio_report_rows([g for g in (chosen or groups) if is_twilio(g)], start, end, notes)
     sends = {}
     refs = set()
     for r in rows:
@@ -3502,6 +3856,118 @@ def apply_update():
 
 
 # ---------------------------------------------------------------- connection check
+def connection_check():
+    """A section per texting service set up here (both when neither is, so
+    the empty settings are named), then TouchPoint's own time zone. Read only."""
+    pbt_on, tw_on = pbt_configured(), twilio_configured()
+    sections = []
+    if pbt_on or not tw_on:
+        sections.append({'name': 'PoweredByText', 'checks': pbt_check()})
+    if tw_on or not pbt_on:
+        sections.append({'name': 'Twilio', 'checks': twilio_check()})
+    name, off = church_offset()
+    sections.append({'name': 'TouchPoint', 'checks': [{
+        'name': 'Time zone', 'state': 'ok' if off else 'warn',
+        'detail': 'TouchPoint is set to %s%s.' % (name, ' (%s right now)' % off if off else ', which could not be read')}]})
+    return sections
+
+
+# What a Twilio error code on a recent text means, in plain words.
+TW_ERRORS = {
+    '30034': 'the number is not registered for texting (A2P 10DLC), so carriers block it. Finish registration in Twilio under Messaging, Regulatory compliance.',
+    '30007': 'the carrier filtered it as spam.',
+    '30003': 'the phone was off or out of service.',
+    '30005': 'the number does not exist.',
+    '30006': 'the number cannot get texts (often a landline).',
+    '21610': 'the person texted STOP to this number.',
+    '21608': 'a trial account can text only phone numbers verified in Twilio.',
+    '30032': 'the number was turned off for texting by the carrier (toll-free not verified).',
+}
+
+
+def twilio_check():
+    """Each step between TouchPoint and Twilio, in order. Read only."""
+    checks = []
+
+    def add(name, state, detail):
+        checks.append({'name': name, 'state': state, 'detail': detail})
+    if not twilio_configured():
+        add('Twilio keys', 'bad', 'TwilioSID or TwilioToken is empty in TouchPoint Settings. Nothing can reach Twilio until both are filled in.')
+        return checks
+    add('Twilio keys', 'ok', 'Both are filled in under TouchPoint Settings.')
+    try:
+        sid, h = twilio_auth()
+        acct = twilio_reply(model.RestGet(TWILIO_API + '/Accounts/%s.json' % sid, h), 'sign in')
+    except Exception as e:
+        add('Sign in to Twilio', 'bad', unicode(e) + ' Check that TwilioSID and TwilioToken match the account in Twilio.')
+        return checks
+    status, kind = (acct.get('status') or '').lower(), (acct.get('type') or '')
+    if status != 'active':
+        add('Sign in to Twilio', 'bad', 'Signed in, but the account is %s. Twilio sends nothing until it is active.' % (status or 'not active'))
+    elif kind.lower() == 'trial':
+        add('Sign in to Twilio', 'warn', 'Signed in to %s, a trial account. Trial accounts can text only numbers verified in Twilio, '
+            'and every text starts with "Sent from your Twilio trial account".' % (acct.get('friendly_name') or 'the account'))
+    else:
+        add('Sign in to Twilio', 'ok', 'Signed in to %s.' % (acct.get('friendly_name') or 'the account'))
+    groups = tw_groups()
+    if not groups:
+        add('Texting groups', 'bad', 'TouchPoint has no Twilio texting groups. Add one on SMS Management.')
+        return checks
+    try:
+        owned, _ = twilio_pages(TWILIO_API + '/Accounts/%s/IncomingPhoneNumbers.json?PageSize=1000' % sid, h, 'incoming_phone_numbers', 5)
+    except Exception as e:
+        add('Texting numbers', 'warn', 'Could not read the numbers from Twilio: %s' % e)
+        owned = None
+    no_number = [g['name'] for g in groups if not g['numbers']]
+    if owned is not None:
+        have = dict((digits10(n.get('phone_number')), n) for n in owned)
+        missing = ['%s (%s)' % (num, g['name']) for g in groups for num in g['numbers'] if digits10(num) not in have]
+        if missing:
+            add('Texting numbers', 'bad', 'These numbers are on a TouchPoint group but not in this Twilio account: %s.' % ', '.join(missing[:10]))
+        elif no_number:
+            add('Texting numbers', 'warn', 'No number is added to %s yet, so it cannot send. Add one on SMS Management.' % ', '.join(no_number))
+        else:
+            add('Texting numbers', 'ok', 'Every number on a Twilio group is in this Twilio account.')
+        host = (model.Setting('DefaultHost', '') or '').split('//')[-1].strip('/').lower()
+        wrong = []
+        for g in groups:
+            for num in g['numbers']:
+                n = have.get(digits10(num))
+                url = ((n or {}).get('sms_url') or '').lower()
+                if n and (not url or (host and host not in url)):
+                    wrong.append('%s goes to %s' % (num, url or 'nowhere'))
+        if wrong:
+            add('Replies reaching TouchPoint', 'bad', 'Texts people send to these numbers do not go to TouchPoint: %s. '
+                'In Twilio, set the number\'s incoming message address to TouchPoint.' % '; '.join(wrong[:5]))
+        else:
+            add('Replies reaching TouchPoint', 'ok', 'Each number sends incoming texts to TouchPoint (%s).' % (host or 'TouchPoint'))
+    nums = [num for g in groups for num in g['numbers']]
+    if nums:
+        since = (datetime.datetime.utcnow() - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
+        total, bad, codes = 0, 0, {}
+        for num in nums[:10]:
+            try:
+                msgs, _ = twilio_pages(TWILIO_API + '/Accounts/%s/Messages.json?From=%s&DateSent%%3E=%s&PageSize=200' % (
+                    sid, model.UrlEncode(e164(num)), since), h, 'messages', 1)
+            except Exception:
+                continue
+            for m in msgs:
+                total += 1
+                if (m.get('status') or '') in ('failed', 'undelivered'):
+                    bad += 1
+                    c = unicode(m.get('error_code') or '')
+                    codes[c] = codes.get(c, 0) + 1
+        if not total:
+            add('Recent texts', 'info', 'The Twilio numbers sent nothing in the last 7 days, so there is nothing to check.')
+        else:
+            top = sorted(codes.items(), key=lambda x: -x[1])[0][0] if codes else ''
+            why = (' Most often error %s: %s' % (top, TW_ERRORS[top])) if top in TW_ERRORS else (' Most often error %s.' % top if top else '')
+            share = 100.0 * bad / total
+            add('Recent texts', 'ok' if share < 5 else 'warn' if share < 25 else 'bad',
+                '%d of the last %d texts (%.0f%%) did not reach the phone.%s' % (bad, total, share, why if bad else ''))
+    return checks
+
+
 def pbt_check():
     """Each step between TouchPoint and PBT, in order, as
     {name, state: ok | warn | bad | info, detail}. Read only."""
@@ -3586,8 +4052,6 @@ def pbt_check():
         add('Delivery results', 'ok' if share < 10 else 'warn' if share < 40 else 'bad',
             '%d of %d texts TouchPoint sent in the last 3 days (%.0f%%) are still waiting for a result after an hour.%s' % (
                 waiting, n, share, '' if share < 10 else ' PoweredByText may not be sending delivery results back to TouchPoint.'))
-    name, off = church_offset()
-    add('Time zone', 'ok' if off else 'warn', 'TouchPoint is set to %s%s.' % (name, ' (%s right now)' % off if off else ', which could not be read'))
     st = load_settings()
     if not st.get('plan_credits') or not st.get('plan_price') or not st.get('cycle_day'):
         add('Plan and billing', 'warn', 'Not filled in under Settings, so plan use and dollars are not shown.')
@@ -3841,6 +4305,513 @@ def pbt_setup_group(o, g):
     return out
 
 
+# ---------------------------------------------------------------- changing groups
+# Admin tools > PoweredByText setup can change a group: name, description,
+# tags and keywords.
+#
+# WHO: the Admin role, AND in PoweredByText an Account Admin (church_admin,
+# every group) or a Division Admin (campus_admin): every group in their
+# divisions, plus any group they lead; or a Group Admin (activity_group_leader):
+# only the groups they are assigned. A division is a PBT org unit, and its
+# users list is PBT's Divisions column. The same rules PBT itself uses.
+# PBT is matched by
+# the TouchPoint sign-in email (Users.EmailAddress). That email is copied from
+# the person's record, which anyone who can edit people can change, so the
+# first match is pinned: PBT user id -> PeopleId. After that, someone else
+# whose email matches the same PBT user is refused, and the attempt is listed
+# on the page. The PBT role is read fresh every time, never stored.
+#
+# PBT's group edit IGNORES chatEnabled, autoReponse and autoResponseMessage
+# (tested 2026-11-10: "Updated successfully", nothing changed; their docs say
+# it should work, reported as a bug). A new group comes out with AutoResponse
+# ON and the standard message whatever is sent. So nothing here tries to set
+# them: the page shows the choices grayed out with a note, and saves resend
+# what PBT already has.
+#
+# HOW: PBT's group edit replaces the whole group, and fields left out are
+# wiped (an edit without tags cleared a tag in testing). So every save reads
+# the group fresh, changes only what was edited, sends every field back, then
+# reads it again and checks. Webhooks, leaders, HELP/STOP/opt-in texts and
+# subscribers are never sent. PBT refuses a keyword already used on the same
+# number ("Keyword already exists"), including another church's on 84727.
+EDITORS_CONTENT = 'TPxi_TextingGroupEditors'
+# PBT keeps a church tag list (/orgunit/{o}/tags), but it answers 403 to the
+# API key, so the pick list is the tags on groups plus every tag ever saved
+# from here, remembered in this Special Content.
+TAGS_CONTENT = 'TPxi_TextingTags'
+GROUP_CHANGES_CONTENT = 'TPxi_TextingGroupChanges'
+EDIT_ROLE = 'church_admin'          # every group
+DIVISION_EDIT_ROLE = 'campus_admin'  # the groups in their divisions
+GROUP_EDIT_ROLE = 'activity_group_leader'   # the groups they are assigned
+# What PBT's own screens call each role.
+PBT_ROLE_NAMES = {'church_admin': 'Account Admin', 'campus_admin': 'Division Admin',
+                  'activity_group_leader': 'Group Admin'}
+PBT_ID = re.compile(r'^[A-Za-z0-9\-]+$')
+
+
+def pbt_send_json(method, path, obj):
+    """PUT, PATCH or DELETE with a JSON body. TouchPoint's model has only
+    RestGet, RestPost and a body-less RestDelete, so this uses urllib2 (the
+    way TPxi_TimeOffSync writes to Microsoft 365)."""
+    import urllib2
+    tok = pbt_token()
+    req = urllib2.Request(_conn['api'] + path, safe_json(obj) if obj is not None else None)
+    req.add_header('Authorization', 'Bearer ' + tok)
+    req.add_header('Accept', 'application/json')
+    req.add_header('Content-Type', 'application/json')
+    req.get_method = lambda: method
+    try:
+        raw = urllib2.urlopen(req, timeout=60).read()
+    except urllib2.HTTPError as e:
+        try:
+            raw = e.read()
+        except Exception:
+            raw = ''
+        if not raw:
+            return {'isError': True, 'message': 'PoweredByText answered %s' % e.code}
+    try:
+        return json.loads(raw) if raw and raw.strip() else {}
+    except Exception:
+        return {'isError': True, 'message': 'Reply not understood: %s' % (raw or '')[:200]}
+
+
+def pbt_refused(res):
+    """PBT's own words when it said no, else ''."""
+    if not isinstance(res, dict):
+        return 'No reply.'
+    if res.get('isError'):
+        return unicode(res.get('message') or res.get('appCode') or 'PoweredByText said no.')
+    return ''
+
+
+def my_signin_emails():
+    if not ME:
+        return []
+    rows = q.QuerySql("SELECT DISTINCT LOWER(LTRIM(RTRIM(EmailAddress))) E FROM Users WHERE PeopleId = %d" % int(ME))
+    return [unicode(r.E) for r in rows if r.E]
+
+
+def pbt_people():
+    """PBT users, by PBT user id, with the groups each may be given: every
+    group in an org unit (division) they are listed on, and every group they
+    lead. Someone with no division (allowed in PBT) still has their groups."""
+    out = {}
+
+    def person(x):
+        return out.setdefault(unicode(x['id']), {
+            'id': unicode(x['id']), 'email': unicode(x.get('email') or '').strip().lower(),
+            'role': unicode(x.get('role') or ''), 'active': x.get('active') is not False,
+            'name': (u'%s %s' % (x.get('firstName') or '', x.get('lastName') or '')).strip(),
+            'divisions': [], 'divisionIds': [], 'divGroups': {}, 'groups': {}})
+    for u in pbt_pages('/orgunit'):
+        groups = pbt_pages('/orgunit/%s/groups' % u.get('id'))
+        names = dict((unicode(g.get('id') or '').lower(), g.get('name') or '') for g in groups)
+        for x in u.get('users') or []:
+            if isinstance(x, dict) and x.get('id'):
+                p = person(x)
+                p['divisions'].append(u.get('name') or '')
+                p['divisionIds'].append(unicode(u.get('id') or '').lower())
+                p['divGroups'].update(names)
+        for g in groups:
+            for x in g.get('users') or []:
+                if isinstance(x, dict) and x.get('id'):
+                    person(x)['groups'][unicode(g.get('id') or '').lower()] = g.get('name') or ''
+    return out
+
+
+def load_editors():
+    d = load_json_content(EDITORS_CONTENT, {})
+    if not isinstance(d, dict):
+        d = {}
+    d.setdefault('pins', {})
+    d.setdefault('refused', [])
+    return d
+
+
+def group_editor():
+    """Whether the signed-in person may change PBT groups, and why not."""
+    out = {'ok': False, 'reason': '', 'pbtName': '', 'role': '', 'all': False, 'groups': [], 'groupNames': [], 'divisions': [],
+           'divisionIds': []}
+    if not model.UserIsInRole('Admin'):
+        out['reason'] = 'Changing groups needs the Admin role in TouchPoint.'
+        return out
+    emails = my_signin_emails()
+    if not emails:
+        out['reason'] = 'Your TouchPoint sign-in has no email, so it cannot be matched to PoweredByText.'
+        return out
+    found = [p for p in pbt_people().values() if p['email'] in emails and p['active']]
+    if not found:
+        out['reason'] = ('Your TouchPoint sign-in email (%s) is not a PoweredByText user. '
+                         'Only PoweredByText Account Admins and Division Admins can change groups here.' % ', '.join(emails))
+        return out
+    admins = [p for p in found if p['role'] in (EDIT_ROLE, DIVISION_EDIT_ROLE, GROUP_EDIT_ROLE)]
+    if not admins:
+        out['reason'] = ('In PoweredByText you are a %s, which cannot change groups.'
+                         % ' and '.join(sorted(set(PBT_ROLE_NAMES.get(p['role'], p['role']) for p in found))))
+        return out
+    ed = load_editors()
+    now = now_str()
+    for p in admins:
+        pin = ed['pins'].get(p['id'])
+        if pin and int(pin.get('pid') or 0) != int(ME):
+            last = ed['refused'][0] if ed['refused'] else {}
+            # One line per person per day, not one per page load.
+            if not (last.get('pid') == int(ME) and last.get('pbtUser') == p['id'] and (last.get('when') or '')[:10] == now[:10]):
+                ed['refused'] = ([{'when': now, 'pid': int(ME), 'email': p['email'],
+                                   'pbtUser': p['id'], 'pinnedTo': pin.get('pid')}] + ed['refused'])[:50]
+                model.WriteContentText(EDITORS_CONTENT, safe_json(ed), "")
+            out['reason'] = ('Your email matches a PoweredByText user who is already tied to someone else in '
+                             'TouchPoint, so changes are turned off for you. The attempt is listed on this page for '
+                             'the Account Admins. If the list itself is wrong, an admin can delete the Special Content '
+                             'named %s to start it over.' % EDITORS_CONTENT)
+            return out
+    for p in admins:
+        if p['id'] not in ed['pins']:
+            ed['pins'][p['id']] = {'pid': int(ME), 'email': p['email'], 'pbtName': p['name'], 'on': now,
+                                   'role': PBT_ROLE_NAMES.get(p['role'], p['role'])}
+            model.WriteContentText(EDITORS_CONTENT, safe_json(ed), "")
+    every = [p for p in admins if p['role'] == EDIT_ROLE]
+    mine, divisions, division_ids = {}, [], []
+    for p in admins:
+        if p['role'] == DIVISION_EDIT_ROLE:
+            mine.update(p['divGroups'])
+            divisions.extend(d for d in p['divisions'] if d not in divisions)
+            division_ids.extend(d for d in p['divisionIds'] if d not in division_ids)
+        mine.update(p['groups'])
+    if not every and not mine:
+        out['reason'] = 'PoweredByText has not given you any groups yet.'
+        return out
+    top = every or [p for p in admins if p['role'] == DIVISION_EDIT_ROLE] or admins
+    out.update({'ok': True, 'pbtName': top[0]['name'], 'all': bool(every),
+                'role': PBT_ROLE_NAMES.get(top[0]['role'], top[0]['role']),
+                'groups': sorted(mine.keys()), 'groupNames': sorted(mine.values(), key=lambda x: x.lower()),
+                'divisions': divisions, 'divisionIds': division_ids})
+    return out
+
+
+def may_edit(ed, g):
+    return ed['ok'] and (ed['all'] or unicode(g or '').lower() in ed['groups'])
+
+
+def may_create(ed, o):
+    """Account Admins anywhere, Division Admins in their divisions (as in PBT)."""
+    return ed['ok'] and (ed['all'] or unicode(o or '').lower() in ed['divisionIds'])
+
+
+def act_grp_create(o, want):
+    """Make a subscription group in PBT, with its tags and keyword. PBT adds
+    the Account Admin as leader, the account-wide webhooks and the division's
+    numbers, and turns AutoResponse ON (it ignores off, on create and edit).
+    Linking it to TouchPoint is done in SMS Management; the page walks
+    through it."""
+    if not PBT_ID.match(o or ''):
+        raise Exception('Bad division.')
+    name = unicode(want.get('name') or '').strip()
+    if not name:
+        raise Exception('The group needs a name.')
+    tags = []
+    for t in want.get('tags') or []:
+        t = unicode(t or '').strip().upper()
+        if t and not re.match(r'^[A-Z0-9]{1,15}$', t):
+            raise Exception('"%s" cannot be a tag: use up to 15 letters and numbers, no spaces.' % t)
+        if t and t not in tags:
+            tags.append(t)
+    kw = clean_keyword(want.get('keyword')) if unicode(want.get('keyword') or '').strip() else ''
+    if kw in RESERVED_KEYWORDS:
+        raise Exception('%s cannot be a keyword (STOP, HELP and the like are answered by the carriers).' % kw)
+    for x in pbt_pages('/orgunit/%s/groups' % o):
+        if (x.get('name') or '').strip().lower() == name.lower():
+            raise Exception('There is already a group named %s in this division.' % name)
+    steps = []
+    res = pbt_post('/orgunit/%s/groups' % o, {
+        'name': name, 'description': unicode(want.get('description') or '').strip(), 'info': False, 'whatsapp': False,
+        'notificationMobileNos': [], 'notificationEmails': [], 'chatEnabled': True,
+        # What PBT does anyway (see above): AutoResponse on, standard message.
+        'autoReponse': True, 'autoResponseMessage': '', 'tags': tags})
+    why = pbt_refused(res)
+    gid = unicode(((res.get('data') or {}) if isinstance(res.get('data'), dict) else {}).get('groupId') or '')
+    steps.append({'step': 'Create %s in PoweredByText' % name, 'ok': not why and bool(gid), 'msg': why or ('Created' if gid else 'No group id came back')})
+    if why or not gid:
+        return {'steps': steps, 'created': False}
+    remember_tags(tags)
+    base = '/orgunit/%s/groups/%s' % (o, gid)
+    if kw:
+        why = pbt_refused(pbt_post(base + '/keywords', {'name': kw, 'onContact': unicode(want.get('reply') or '').strip(),
+                                                        'notificationEmails': [], 'notificationMobileNos': []}))
+        if why and 'already exists' in why.lower():
+            why = ('%s is already taken on this number, by another group or another church sharing it. '
+                   'Add a different keyword with Edit.' % kw)
+        steps.append({'step': 'Add keyword %s' % kw, 'ok': not why, 'msg': why or 'Saved'})
+    d = fresh_group(base)
+    numbers = []
+    try:
+        r = pbt_get(base + '/communicationCode')
+        numbers = _strs(r.get('data')) if not r.get('isError') else []
+    except Exception:
+        pass
+    view = group_view(d, fresh_keywords(base))
+    log = load_json_content(GROUP_CHANGES_CONTENT, [])
+    me = my_name()
+    log = [{'when': now_str(), 'by': (me.Name if me else '') or model.UserName or '', 'pid': int(ME), 'group': name, 'was': '',
+            'o': o, 'g': gid, 'changes': [u'Group: (none) -> %s (created)' % name]
+            + ([u'Keyword: (none) -> %s' % kw] if kw and all(s2['ok'] for s2 in steps) else []),
+            'ok': all(s2['ok'] for s2 in steps)}] + (log if isinstance(log, list) else [])
+    model.WriteContentText(GROUP_CHANGES_CONTENT, safe_json(log[:300]), "")
+    return {'steps': steps, 'created': True, 'groupId': gid, 'orgunitId': o, 'group': view, 'numbers': numbers}
+
+
+def editors_list():
+    ed = load_editors()
+    pids = [int(v.get('pid') or 0) for v in ed['pins'].values()] + [int(r.get('pid') or 0) for r in ed['refused']]
+    names = {}
+    if pids:
+        for r in q.QuerySql("SELECT PeopleId, Name FROM People WHERE PeopleId IN (%s)" % sql_ints(pids)):
+            names[r.PeopleId] = r.Name
+    pins = [{'pbtUser': k, 'pbtName': v.get('pbtName') or '', 'email': v.get('email') or '', 'pid': v.get('pid'), 'role': v.get('role') or '',
+             'name': names.get(int(v.get('pid') or 0), ''), 'on': v.get('on') or ''} for k, v in ed['pins'].items()]
+    refused = [dict(r, tpName=names.get(int(r.get('pid') or 0), '')) for r in ed['refused']]
+    return {'pins': sorted(pins, key=lambda x: x['name']), 'refused': refused}
+
+
+def check_group_ids(o, g):
+    if not PBT_ID.match(o or '') or not PBT_ID.match(g or ''):
+        raise Exception('Bad group.')
+    return '/orgunit/%s/groups/%s' % (o, g)
+
+
+def fresh_group(base):
+    res = pbt_get(base)
+    d = res.get('data') if not res.get('isError') else None
+    if not isinstance(d, dict):
+        raise Exception('Could not read the group: %s' % (pbt_refused(res) or 'no data'))
+    return d
+
+
+def fresh_keywords(base):
+    return [{'name': unicode(k.get('name') or ''), 'reply': unicode(k.get('onContact') or ''),
+             'emails': _strs(k.get('notificationEmails')), 'phones': _strs(k.get('notificationMobileNos'))}
+            for k in pbt_pages(base + '/keywords')]
+
+
+def group_view(d, kws):
+    return {'name': d.get('name') or '', 'description': d.get('description') or '', 'tags': _strs(d.get('tags')),
+            'chat': bool(d.get('chatEnabled')), 'autoReply': bool(d.get('autoReponse')),
+            'autoReplyText': d.get('autoResponseMessage') or '', 'info': bool(d.get('info')),
+            'whatsapp': bool(d.get('whatsapp')), 'modifiedOn': unicode(d.get('modifiedOn') or ''),
+            'leaders': [(u'%s %s' % (x.get('firstName') or '', x.get('lastName') or '')).strip()
+                        for x in d.get('users') or [] if isinstance(x, dict) and not x.get('hidden')],
+            'keywords': [{'name': k['name'], 'reply': k['reply']} for k in kws]}
+
+
+def act_grp_get(o, g):
+    base = check_group_ids(o, g)
+    d = fresh_group(base)
+    # PBT's tag list is account wide (one org unit's picker shows another's
+    # tags), so gather tags from the groups in every org unit.
+    tags = set(t.upper() for t in _strs(load_json_content(TAGS_CONTENT, [])))
+    for u in pbt_pages('/orgunit'):
+        for x in pbt_pages('/orgunit/%s/groups' % u.get('id')):
+            tags.update(t.upper() for t in _strs(x.get('tags')))
+    return {'group': group_view(d, fresh_keywords(base)), 'tagChoices': sorted(tags)}
+
+
+def remember_tags(tags):
+    known = [t.upper() for t in _strs(load_json_content(TAGS_CONTENT, []))]
+    add = [t for t in tags if t not in known]
+    if add:
+        model.WriteContentText(TAGS_CONTENT, safe_json(sorted(known + add)), "")
+
+
+def clean_keyword(k):
+    # PBT's limit (error ge.1120): 12 letters and numbers.
+    k = re.sub(r'\s+', '', unicode(k or '')).upper()
+    if not re.match(r'^[A-Z0-9]{2,12}$', k):
+        raise Exception('"%s" cannot be a keyword: use 2 to 12 letters and numbers, no spaces.' % k)
+    return k
+
+
+# Words carriers and PBT answer themselves; never a group keyword.
+RESERVED_KEYWORDS = set(w.replace(' ', '') for w in STOP_WORDS | START_WORDS) | set(['HELP', 'INFO'])
+
+
+def keyword_check(word, group_id=''):
+    """Is a keyword free in this PBT account? PBT has no availability call,
+    so this looks at every group's keywords in every division. Another
+    church on a shared short code (84727) cannot be seen; PBT refuses that
+    on save."""
+    try:
+        kw = clean_keyword(word)
+    except Exception as e:
+        return {'free': False, 'word': unicode(word or ''), 'why': unicode(e)}
+    if kw in RESERVED_KEYWORDS:
+        return {'free': False, 'word': kw, 'why': '%s is answered by the phone carriers and PoweredByText (STOP, HELP and the like), so it cannot be a keyword.' % kw}
+    used = []
+    for u in pbt_pages('/orgunit'):
+        for g in pbt_pages('/orgunit/%s/groups' % u.get('id')):
+            if unicode(g.get('id') or '').lower() == unicode(group_id or '').lower():
+                continue
+            for k in g.get('keywords') or []:
+                if isinstance(k, dict) and unicode(k.get('name') or '').upper() == kw:
+                    used.append('%s (%s)' % (g.get('name') or '', u.get('name') or ''))
+    if used:
+        return {'free': False, 'word': kw, 'why': '%s is already used by %s.' % (kw, ', '.join(used))}
+    return {'free': True, 'word': kw, 'why': ''}
+
+
+def act_kw_add(o, g, word, reply):
+    """One keyword on a group (used right after adding a group)."""
+    base = check_group_ids(o, g)
+    kw = clean_keyword(word)
+    why = pbt_refused(pbt_post(base + '/keywords', {'name': kw, 'onContact': unicode(reply or '').strip(),
+                                                    'notificationEmails': [], 'notificationMobileNos': []}))
+    if why and 'already exists' in why.lower():
+        why = ('%s is already taken on this number, by another group or another church sharing it. '
+               'Pick a different word.' % kw)
+    if not why:
+        d = fresh_group(base)
+        log = load_json_content(GROUP_CHANGES_CONTENT, [])
+        me = my_name()
+        log = [{'when': now_str(), 'by': (me.Name if me else '') or model.UserName or '', 'pid': int(ME),
+                'group': d.get('name') or '', 'was': '', 'o': o, 'g': g, 'changes': [u'Keyword: (none) -> %s' % kw], 'ok': True}] + (log if isinstance(log, list) else [])
+        model.WriteContentText(GROUP_CHANGES_CONTENT, safe_json(log[:300]), "")
+    return {'ok': not why, 'word': kw, 'msg': why or 'Saved'}
+
+
+def hooks_count(d):
+    w = (d.get('notificationSettings') or {}).get('webHook') or {}
+    return len(w.get('callbackUrlSettings') or []), len(w.get('statusUrlSettings') or [])
+
+
+def act_grp_save(o, g, want):
+    """want: {modifiedOn, name, description, tags,
+    keywords: [{name, reply, orig}]} (orig = name when
+    opened, blank for a new one; a keyword missing from the list is removed)."""
+    base = check_group_ids(o, g)
+    d = fresh_group(base)
+    if unicode(want.get('modifiedOn') or '') != unicode(d.get('modifiedOn') or ''):
+        raise Exception('Someone changed this group in PoweredByText after you opened it. Nothing was saved. '
+                        'Close and open it again to see the latest.')
+    name = unicode(want.get('name') or '').strip()
+    if not name:
+        raise Exception('The group needs a name.')
+    tags = []
+    for t in want.get('tags') or []:
+        t = unicode(t or '').strip().upper()
+        # PBT's limit (error ge.1119): 15 letters and numbers.
+        if t and not re.match(r'^[A-Z0-9]{1,15}$', t):
+            raise Exception('"%s" cannot be a tag: use up to 15 letters and numbers, no spaces.' % t)
+        if t and t not in tags:
+            tags.append(t)
+    old_kw = fresh_keywords(base)
+    old_by = dict((k['name'].upper(), k) for k in old_kw)
+    new_kw, seen = [], set()
+    for k in want.get('keywords') or []:
+        nm = clean_keyword(k.get('name'))
+        if nm in RESERVED_KEYWORDS:
+            raise Exception('%s cannot be a keyword (STOP, HELP and the like are answered by the carriers).' % nm)
+        if nm in seen:
+            raise Exception('%s is listed twice.' % nm)
+        seen.add(nm)
+        orig = unicode(k.get('orig') or '').upper()
+        if orig and orig not in old_by:
+            raise Exception('The keyword %s is no longer in PoweredByText. Close and open the group again.' % orig)
+        new_kw.append({'name': nm, 'reply': unicode(k.get('reply') or '').strip(), 'orig': orig})
+    # A row with the same word as one the group already has IS that keyword,
+    # whatever the page said: otherwise the add is refused ("already exists")
+    # and the existing one is then removed as missing from the list.
+    claimed = set(k['orig'] for k in new_kw if k['orig'])
+    for k in new_kw:
+        if not k['orig'] and k['name'] in old_by and k['name'] not in claimed:
+            k['orig'] = k['name']
+            claimed.add(k['name'])
+
+    steps, changes = [], []
+    before = group_view(d, old_kw)
+    payload = {'name': name, 'description': unicode(want.get('description') or '').strip(),
+               'info': bool(d.get('info')), 'whatsapp': bool(d.get('whatsapp')),
+               'notificationMobileNos': _strs(d.get('notificationMobileNos')),
+               'notificationEmails': _strs(d.get('notificationEmails')),
+               'chatEnabled': bool(d.get('chatEnabled')), 'autoReponse': bool(d.get('autoReponse')),
+               'autoResponseMessage': d.get('autoResponseMessage') or '',
+               'tags': tags, 'groupTrackingCode': d.get('groupTrackingCode') or ''}
+    for key, label, old, new in (('name', 'Name', before['name'], payload['name']),
+                                 ('description', 'Description', before['description'], payload['description']),
+                                 ('tags', 'Tags', ', '.join(before['tags']), ', '.join(tags))):
+        if old != new:
+            changes.append(u'%s: %s -> %s' % (label, old if old not in ('', None) else '(blank)', new if new not in ('', None) else '(blank)'))
+    group_changed = bool(changes)
+    if group_changed:
+        why = pbt_refused(pbt_send_json('PUT', base, payload))
+        steps.append({'step': 'Group settings', 'ok': not why, 'msg': why or 'Saved'})
+        if why:
+            return {'steps': steps, 'saved': False}
+        remember_tags(tags)
+
+    # Keywords: add new words (a rename adds the new word) before removing
+    # any, so a refused new word never leaves the group without its old one.
+    kpath = base + '/keywords'
+    remove = set(old_by) - set(k['orig'] for k in new_kw if k['orig'])
+    for k in new_kw:
+        old = old_by.get(k['orig']) if k['orig'] else None
+        if old and k['orig'] == k['name']:
+            if old['reply'] != k['reply']:
+                why = pbt_refused(pbt_send_json('PUT', kpath, {'name': old['name'], 'onContact': k['reply'],
+                                                               'notificationEmails': old['emails'], 'notificationMobileNos': old['phones']}))
+                steps.append({'step': 'Keyword %s reply' % k['name'], 'ok': not why, 'msg': why or 'Saved'})
+                if not why:
+                    changes.append(u'Keyword %s reply: %s -> %s' % (k['name'], old['reply'] or '(blank)', k['reply'] or '(blank)'))
+            continue
+        why = pbt_refused(pbt_post(kpath, {'name': k['name'], 'onContact': k['reply'],
+                                           'notificationEmails': old['emails'] if old else [],
+                                           'notificationMobileNos': old['phones'] if old else []}))
+        if why and 'already exists' in why.lower():
+            why = ('%s is already taken on this number, by another group or another church sharing it. '
+                   'Pick a different word.' % k['name'])
+        steps.append({'step': ('Rename keyword %s to %s' % (old['name'], k['name'])) if old else 'Add keyword %s' % k['name'],
+                      'ok': not why, 'msg': why or 'Saved'})
+        if not why:
+            changes.append((u'Keyword: %s -> %s' % (old['name'], k['name'])) if old else u'Keyword: (none) -> %s' % k['name'])
+            if old:
+                remove.add(k['orig'])
+    for nm in sorted(remove):
+        why = pbt_refused(pbt_send_json('DELETE', kpath, [{'name': old_by[nm]['name']}]))
+        renamed = any(k['orig'] == nm for k in new_kw)
+        steps.append({'step': ('Remove old keyword %s' if renamed else 'Remove keyword %s') % old_by[nm]['name'],
+                      'ok': not why, 'msg': why or 'Removed'})
+        if not why and not renamed:
+            changes.append(u'Keyword: %s -> (removed)' % old_by[nm]['name'])
+
+    # Read it back and check nothing else moved.
+    after_d = fresh_group(base)
+    after = group_view(after_d, fresh_keywords(base))
+    problems = []
+    if group_changed:
+        if after['name'] != payload['name'] or after['description'] != payload['description']:
+            problems.append('the name or description did not save as typed')
+        if sorted(t.upper() for t in after['tags']) != sorted(tags):
+            problems.append('the tags are %s' % (', '.join(after['tags']) or 'none'))
+        if after['chat'] != before['chat']:
+            problems.append('Inbox changed')
+        if after['autoReply'] != before['autoReply'] or after['autoReplyText'] != before['autoReplyText']:
+            problems.append('AutoResponse changed')
+    if len(after_d.get('userIds') or []) != len(d.get('userIds') or []):
+        problems.append('the number of leaders changed')
+    if hooks_count(after_d) != hooks_count(d):
+        problems.append('the webhook list changed')
+    steps.append({'step': 'Read back and check', 'ok': not problems,
+                  'msg': 'Everything matches.' if not problems else 'Look in PoweredByText: ' + '; '.join(problems) + '.'})
+
+    if changes:
+        log = load_json_content(GROUP_CHANGES_CONTENT, [])
+        me = my_name()
+        log = [{'when': now_str(), 'by': (me.Name if me else '') or model.UserName or '', 'pid': int(ME),
+                'group': after['name'], 'was': before['name'],
+                'o': o, 'g': g, 'changes': changes, 'ok': all(s['ok'] for s in steps)}] + (log if isinstance(log, list) else [])
+        model.WriteContentText(GROUP_CHANGES_CONTENT, safe_json(log[:300]), "")
+    return {'steps': steps, 'saved': True, 'changes': changes, 'group': after,
+            'tpName': (tp_text_groups().get(g.lower()) or {}).get('name') or ''}
+
+
 # ---------------------------------------------------------------- usage saved by day
 # Each refresh reads PBT only from the last good refresh (less a few days, so
 # a late carrier answer or a repeat that crosses the line is still counted
@@ -4058,6 +5029,117 @@ def save_month(rec, complete):
 
 
 
+# ---------------------------------------------------------------- Twilio usage
+# Read only. What Twilio billed for a calendar month, from the account's own
+# usage report, and what each Twilio texting group sent and received. Months
+# that have ended are saved (amounts and group names only) after the first look.
+TW_USAGE_CONTENT = 'TPxi_TextingTwilioUsage'
+TW_USAGE_VERSION = 1
+TW_PAGE_CAP = 20        # pages of 1,000 messages read per number and direction
+# Bill lines named on the page; the rest of the bill is shown as one line.
+TW_LINES = [
+    ('sms-outbound', 'Texts sent'),
+    ('sms-inbound', 'Texts received'),
+    ('mms-outbound', 'Picture messages sent'),
+    ('mms-inbound', 'Picture messages received'),
+    ('sms-messages-carrierfees', 'Carrier fees for texts'),
+    ('mms-messages-carrierfees', 'Carrier fees for picture messages'),
+    ('phonenumbers', 'Phone numbers (monthly rent)'),
+]
+
+
+def twilio_configured():
+    return bool(model.Setting("TwilioSID", "") and model.Setting("TwilioToken", ""))
+
+
+def pbt_configured():
+    return bool(model.Setting("PBTClientID", ""))
+
+
+def money(v):
+    """Twilio gives prices as negative strings ('-0.00790'); a charge is its size."""
+    try:
+        return abs(float(v or 0))
+    except Exception:
+        return 0.0
+
+
+def twilio_pages(url, h, key, cap):
+    """Every row of a Twilio list, following its next page, up to cap pages.
+    Returns (rows, True when the cap stopped it)."""
+    out = []
+    for _ in range(cap):
+        res = twilio_reply(model.RestGet(url, h), 'usage')
+        out.extend(res.get(key) or [])
+        nxt = res.get('next_page_uri')
+        if not nxt:
+            return out, False
+        url = 'https://api.twilio.com' + nxt
+    return out, True
+
+
+def twilio_usage(month, refresh=False):
+    m = re.match(r'^(\d{4})-(\d{2})$', month or '')
+    if not m:
+        raise Exception('Pick a month.')
+    y, mo = int(m.group(1)), int(m.group(2))
+    start = datetime.date(y, mo, 1)
+    nxt = datetime.date(y + 1, 1, 1) if mo == 12 else datetime.date(y, mo + 1, 1)
+    end = nxt - datetime.timedelta(days=1)
+    today = datetime.date.today()
+    complete = nxt <= today
+    saved = load_json_content(TW_USAGE_CONTENT, {})
+    rec = saved.get(month)
+    if rec and complete and not refresh and rec.get('v') == TW_USAGE_VERSION:
+        rec['saved'] = True
+        return rec
+    sid, h = twilio_auth()
+    base = TWILIO_API + '/Accounts/%s' % sid
+    recs, _ = twilio_pages(base + '/Usage/Records.json?StartDate=%s&EndDate=%s&PageSize=1000' % (
+        start.strftime('%Y-%m-%d'), min(end, today).strftime('%Y-%m-%d')), h, 'usage_records', 5)
+    by = dict((r.get('category'), r) for r in recs)
+    total = money((by.get('totalprice') or {}).get('price'))
+    lines, named = [], 0.0
+    for cat, label in TW_LINES:
+        r = by.get(cat)
+        if not r:
+            continue
+        price, count = money(r.get('price')), int(float(r.get('count') or 0))
+        if price or count:
+            lines.append({'label': label, 'count': count, 'parts': int(float(r.get('usage') or 0)), 'price': round(price, 2)})
+            named += price
+    per, capped = {}, False
+    rng = 'DateSent%%3E=%s&DateSent%%3C=%s&PageSize=1000' % (start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
+    for r in q.QuerySql("""
+            SELECT g.Id, g.Name, n.Number FROM SMSGroups g JOIN SMSNumbers n ON n.GroupID = g.Id
+            WHERE g.GroupType = 'Twilio' AND g.IsDeleted = 0 ORDER BY g.Name"""):
+        gr = per.setdefault(r.Id, {'group': r.Name, 'numbers': 0, 'sent': 0, 'parts': 0, 'received': 0, 'cost': 0.0})
+        gr['numbers'] += 1
+        num = model.UrlEncode(e164(r.Number))
+        for direction, key in (('From', 'sent'), ('To', 'received')):
+            msgs, hit = twilio_pages(base + '/Messages.json?%s=%s&' % (direction, num) + rng, h, 'messages', TW_PAGE_CAP)
+            capped = capped or hit
+            for x in msgs:
+                gr[key] += 1
+                if key == 'sent':
+                    gr['parts'] += int(x.get('num_segments') or 1)
+                gr['cost'] += money(x.get('price'))
+    groups = sorted(per.values(), key=lambda g: -g['cost'])
+    for g in groups:
+        g['cost'] = round(g['cost'], 2)
+    rec = {'v': TW_USAGE_VERSION, 'month': month, 'total': round(total, 2), 'lines': lines,
+           'other': round(max(total - named, 0), 2), 'groups': groups, 'capped': capped,
+           'complete': complete, 'asOf': now_str()}
+    if complete:
+        saved[month] = rec
+        for k in sorted(saved.keys())[:-24]:
+            del saved[k]
+        model.WriteContentText(TW_USAGE_CONTENT, safe_json(saved), "")
+    rec = dict(rec)
+    rec['saved'] = False
+    return rec
+
+
 # ================================================================ pages and actions
 def inbox_post():
     action = _param('action')
@@ -4110,12 +5192,15 @@ def admin_post():
             raise Exception("Admin only.")
         if action in ('preview_group', 'apply'):
             gid = int(_param('gid', '0'))
-            g = [x for x in pbt_groups() if x['id'] == gid]
+            g = [x for x in pbt_groups() + tw_groups() if x['id'] == gid]
             if not g:
                 raise Exception("Unknown group %d" % gid)
             g = g[0]
+            if action == 'apply' and is_twilio(g):
+                raise Exception('%s is a Twilio group. Twilio has no names to change.' % g['name'])
         if action == 'preview_group':
-            rows = evaluate(g, pbt_subscribers(g['orgunitId'], g['groupId']))
+            subs = tw_numbers(gid) if is_twilio(g) else pbt_subscribers(g['orgunitId'], g['groupId'])
+            rows = evaluate(g, subs)
             print safe_json({'success': True, 'group': g['name'], 'orgunitId': g['orgunitId'], 'rows': rows})
         elif action == 'apply':
             if not NAME_WRITES:
@@ -4145,13 +5230,84 @@ def admin_post():
         elif action == 'apply_update':
             print safe_json(apply_update())
         elif action == 'pbt_check':
-            print safe_json({'success': True, 'checks': pbt_check()})
+            print safe_json({'success': True, 'sections': connection_check()})
         elif action == 'pbt_setup':
             r = pbt_setup()
             r['success'] = True
             print safe_json(r)
         elif action == 'pbt_setup_group':
             r = pbt_setup_group(_param('o'), _param('g'))
+            r['success'] = True
+            print safe_json(r)
+        elif action == 'grp_me':
+            r = group_editor()
+            r.update(editors_list())
+            r['success'] = True
+            print safe_json(r)
+        elif action in ('grp_get', 'grp_save'):
+            ed = group_editor()
+            if not ed['ok']:
+                raise Exception(ed['reason'])
+            if not may_edit(ed, _param('g')):
+                raise Exception('PoweredByText does not give you this group. You can change: %s.'
+                                % (', '.join(ed['groupNames']) or 'none'))
+            if action == 'grp_get':
+                r = act_grp_get(_param('o'), _param('g'))
+            else:
+                try:
+                    want = json.loads(_param('gdata') or '{}')
+                except Exception:
+                    raise Exception('The changes could not be read.')
+                r = act_grp_save(_param('o'), _param('g'), want)
+            r['success'] = True
+            print safe_json(r)
+        elif action == 'grp_create':
+            ed = group_editor()
+            if not may_create(ed, _param('o')):
+                raise Exception(ed['reason'] or 'Only Account Admins, and Division Admins in their own divisions, can add groups.')
+            try:
+                want = json.loads(_param('gdata') or '{}')
+            except Exception:
+                raise Exception('The new group could not be read.')
+            r = act_grp_create(_param('o'), want)
+            r['success'] = True
+            print safe_json(r)
+        elif action == 'grp_kw_check':
+            ed = group_editor()
+            if not ed['ok']:
+                raise Exception(ed['reason'])
+            r = keyword_check(_param('word'), _param('g'))
+            r['success'] = True
+            print safe_json(r)
+        elif action == 'grp_kw_add':
+            ed = group_editor()
+            if not may_edit(ed, _param('g')):
+                raise Exception(ed['reason'] or 'PoweredByText does not give you this group.')
+            r = act_kw_add(_param('o'), _param('g'), _param('word'), _param('reply'))
+            r['success'] = True
+            print safe_json(r)
+        elif action == 'grp_tag_add':
+            ed = group_editor()
+            if not ed['ok']:
+                raise Exception(ed['reason'])
+            t = _param('tag').strip().upper()
+            if not re.match(r'^[A-Z0-9]{1,15}$', t):
+                raise Exception('A tag is up to 15 letters and numbers, no spaces.')
+            remember_tags([t])
+            print safe_json({'success': True})
+        elif action == 'grp_unpin':
+            ed = group_editor()
+            if not ed['ok'] or not ed['all']:
+                raise Exception('Only a PoweredByText Account Admin can remove someone from this list.')
+            d = load_editors()
+            key = _param('pbtuser')
+            if key not in d['pins']:
+                raise Exception('That person is not on the list.')
+            if int(d['pins'][key].get('pid') or 0) == int(ME):
+                raise Exception('You cannot remove yourself.')
+            del d['pins'][key]
+            model.WriteContentText(EDITORS_CONTENT, safe_json(d), "")
+            r = editors_list()
             r['success'] = True
             print safe_json(r)
         elif action == 'pbt_check_links':
@@ -4184,6 +5340,16 @@ def admin_post():
                 st['emoji_policy'] = _param('emoji_policy')
             if _param('attach_policy') in ATTACH_POLICIES:
                 st['attach_policy'] = _param('attach_policy')
+            if _param('quiet_on') in ('0', '1'):
+                st['quiet_on'] = _param('quiet_on') == '1'
+            for key in ('quiet_start', 'quiet_end'):
+                v = _param(key)
+                if v.isdigit() and 0 <= int(v) <= 23:
+                    st[key] = int(v)
+            if _param('quiet_mode') in QUIET_MODES:
+                st['quiet_mode'] = _param('quiet_mode')
+            if _param('quiet_grace').isdigit() and int(_param('quiet_grace')) in QUIET_GRACES:
+                st['quiet_grace'] = int(_param('quiet_grace'))
             day = _param('cycle_day')
             if day:
                 if not day.isdigit() or not 1 <= int(day) <= 28:
@@ -4200,15 +5366,38 @@ def admin_post():
             if end < start:
                 start, end = end, start
             if (end - start).days > 61:
-                raise Exception('PBT reports cover at most 2 months at a time.')
+                raise Exception('Reports cover at most 2 months at a time.')
             gid = int(_param('gid', '0') or 0)
             res = trace(gid, start, end) if action == 'trace' else usage(gid, start, end)
             res['success'] = True
             res['creditCost'] = load_settings().get('credit_cost')
             print safe_json(res)
+        elif action == 'twilio_usage':
+            res = twilio_usage(_param('month'), _param('refresh') == '1')
+            res['success'] = True
+            print safe_json(res)
         elif action == 'log':
+            # Changes: name changes and group changes made in PBT from here, newest first.
             log = load_json_content(LOG_CONTENT, [])
-            print safe_json({'success': True, 'log': log if isinstance(log, list) else []})
+            rows = [dict(e, kind='name') for e in (log if isinstance(log, list) else []) if isinstance(e, dict)]
+            glog = load_json_content(GROUP_CHANGES_CONTENT, [])
+            for e in glog if isinstance(glog, list) else []:
+                if isinstance(e, dict):
+                    by = unicode(e.get('by') or '')
+                    # 1.0.8 test saves stored the whole name row; show just the name.
+                    m = re.search(r"Name = '([^']*)'", by)
+                    if m:
+                        by = m.group(1)
+                    # Each change is "What: before -> after"; one row per change.
+                    for c in e.get('changes') or ['']:
+                        c = unicode(c)
+                        m = re.match(r'^(.*?): (.*?) -> (.*)$', c, re.S)
+                        what, old, new, note = (m.group(1), m.group(2), m.group(3), '') if m else ('Group settings', '', '', c)
+                        rows.append({'kind': 'group', 'what': what, 'when': e.get('when') or '', 'by': by, 'source': 'Setup',
+                                     'num': '', 'group': e.get('group') or '', 'before': old, 'after': new, 'pid': None,
+                                     'result': 'changed' if e.get('ok') else 'unconfirmed', 'msg': note})
+            rows.sort(key=lambda e: e.get('when') or '', reverse=True)
+            print safe_json({'success': True, 'log': rows})
         elif action == 'save_settings':
             s = load_settings()
             s['auto'] = _param('auto') == '1' and NAME_WRITES
@@ -4312,6 +5501,7 @@ def inbox_page():
 #tx button{padding:6px 12px;border-radius:6px;border:1px solid var(--brand);background:var(--brand);color:#fff;cursor:pointer;font-size:13px}
 #tx button.ghost{background:#fff;color:var(--brand)}
 #tx button:disabled{opacity:.5;cursor:default}
+#tx button.anyway{background:#b45309;border-color:#b45309}
 #tx .empty{color:var(--muted);text-align:center;margin-top:80px}
 #tx .kid{color:#991b1b}
 #tx .find{position:absolute;inset:0;background:rgba(17,24,39,.35);display:none;align-items:flex-start;justify-content:center;padding-top:80px;z-index:50}
@@ -4395,6 +5585,12 @@ def inbox_page():
   #tx .head .acts #done,#tx .head .acts #undone{position:absolute;right:8px;top:8px;padding:4px 10px}
   #tx .head h3,#tx .head .sub{margin:0 64px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #tx .head h3{font-size:16px}
+  /* Photo and name sit between Back and Done (or the wider Not done). */
+  #tx .head .wholine{justify-content:center;margin:0 92px;min-width:0;gap:8px}
+  #tx .head .wholine h3{margin:0;min-width:0}
+  #tx .head .wholine a.prof{min-width:0}
+  #tx .head .wholine a.prof:first-child{flex:none}
+  #tx .head .wholine .av{width:32px;height:32px;font-size:12px;flex:none}
   #tx .head .sub{font-size:11px}
   #tx .head .ppl{display:none;margin-top:6px}
   #tx .head.showppl .ppl{display:block}
@@ -4475,7 +5671,7 @@ def inbox_page():
       <li>The reply goes to the person TouchPoint matched the number to, marked &#10003;. When several people share a phone, they all get it on that phone.</li>
       <li>A reply always goes <b>from the group they texted</b>, so it lands in the same conversation on their phone. The line under the box shows the group and any others they are in.</li>
       <li><b>Quick replies</b> fill the box; nothing goes out until you press <b>Send</b>. On a computer, Ctrl+Enter (Cmd+Enter on a Mac) sends too.</li>
-      <li><b>Quiet hours:</b> nothing goes out from 9 p.m. to 8 a.m., unless they texted in within the last 2 hours.</li>
+      <li><b>Quiet hours</b> (<span class="qspan"></span>, set by your administrator): a reply to someone who just texted in goes out as usual. Anything else waits until morning, or, if your administrator allows it, the button becomes <b>Send anyway</b> and sends it now.</li>
     </ul>
 
     <h4 id="h-new">Starting a new text</h4>
@@ -4486,7 +5682,7 @@ def inbox_page():
     <p><b>Group texts</b> (the switch above the list) lists every text that went to 3 or more people in one of your groups on the same day, newest first, with how many got it and how many replied in the next 7 days. Press one to see the message, the replies and everyone it went to. Press a reply to open that conversation.</p>
 
     <h4 id="h-group">Group text</h4>
-    <p>Sends one text to everyone subscribed to the group in PoweredByText, including people who joined by texting a keyword. The window shows how many people will get it and about how many credits it will use, and asks you to confirm. Group texts never go out during quiet hours.</p>
+    <p>Sends one text to everyone subscribed to the group in PoweredByText, including people who joined by texting a keyword. The window shows how many people will get it and about how many credits it will use, and asks you to confirm. During quiet hours it waits until morning, or offers <b>Send anyway</b> if your administrator allows it.</p>
 
     <h4 id="h-pics">Pictures and files</h4>
     <ul>
@@ -4522,7 +5718,7 @@ def inbox_page():
       <dt>Opted out</dt><dd>They texted STOP to this group. Only they can undo it, by texting START.</dd>
       <dt>Texts turned off</dt><dd>Their TouchPoint record says not to text them.</dd>
       <dt>Not subscribed to this group</dt><dd>A new conversation can only start with people subscribed to the group. Pick another group, or ask them to text the group first.</dd>
-      <dt>Quiet hours</dt><dd>Wait until 8 a.m., or reply soon after they text in.</dd>
+      <dt>Quiet hours</dt><dd>Wait until morning, or press <b>Send anyway</b> if it can't wait and your administrator allows it.</dd>
       <dt>Public short link</dt><dd>Replace the bit.ly (or similar) link with the full link.</dd>
       <dt>Emoji are turned off</dt><dd>Your administrator turned emoji off. Take them out.</dd>
       <dt>File too big</dt><dd>Use a smaller picture, or send a link.</dd>
@@ -4536,7 +5732,8 @@ def inbox_page():
     <div id="gxtools"></div>
     <div id="gmeter" class="meter"></div>
     <div id="gxpanels"></div>
-    <div id="gquiet" class="note" style="display:none;margin-top:8px">It is quiet hours (9 p.m. to 8 a.m.). Group texts can't go out until 8 a.m.</div>
+    <div id="gquiet" class="note" style="display:none;margin-top:8px">It is quiet hours (<span class="qspan"></span>).
+      <span id="gquietwhy"></span></div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
       <span id="gst" style="font-size:12px;color:#6b7280">Goes to everyone subscribed to the group in PoweredByText, including people who joined by keyword.</span>
       <button id="gsend" disabled>Send to group</button></div>
@@ -4547,6 +5744,14 @@ def inbox_page():
 (function(){
   var ME_FIRST = __FIRST__;
   var POLICY = __POLICY__;     // emoji: allow | replies | none; attach: off | pictures | pictures_pdf | all
+  // Quiet hours as words ("9 p.m. to 8 a.m.") wherever the page names them.
+  function hourWords(h){ return h == 0 ? 'midnight' : h == 12 ? 'noon' : (h % 12) + ' ' + (h < 12 ? 'a.m.' : 'p.m.'); }
+  function quietBlock(){ return (POLICY.quiet || {}).mode == 'block'; }
+  function fillQuiet(){
+    var q = POLICY.quiet || {}, t = q.on ? hourWords(q.start) + ' to ' + hourWords(q.end) : 'turned off';
+    Array.prototype.forEach.call(document.querySelectorAll('.qspan'), function(el){ el.textContent = t; });
+  }
+  if (document.readyState == 'loading') document.addEventListener('DOMContentLoaded', fillQuiet); else setTimeout(fillQuiet, 0);
   var base = window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
   var shownRows = [];
   var threads = [], groups = [], filt = 'all', cur = null, curData = null, busy = false;
@@ -4862,10 +6067,12 @@ def inbox_page():
     } else {
       if (r.quiet) html.push('<div class="note">' + esc(r.quiet) + '</div>');
       if (r.via == 'pbt') html.push('<div class="note">No one in TouchPoint has this number, so this goes out through PoweredByText directly.</div>');
+      if (r.via == 'twilio') html.push('<div class="note">No one in TouchPoint has this number, so this goes out through Twilio directly.</div>');
       html.push('<div class="compose"><div class="qr" id="qr">' + QUICK.map(function(q, i){
         return '<button type="button" data-i="' + i + '" title="Put this in the box. Nothing is sent until you press Send.">' + esc(q) + '</button>'; }).join('') + '</div>' +
         '<div class="crow"><textarea id="msg" rows="1" placeholder="Text ' + esc(r.who || fmtNum(r.num)) + '"></textarea>' +
-        '<button id="send"' + (r.quiet ? ' disabled' : '') + '>Send</button></div>' + curX().toolbar() +
+        (!r.quiet ? '<button id="send">Send</button>' : quietBlock() ? '<button id="send" disabled>Send</button>'
+          : '<button id="send" class="anyway" title="Sends now, during quiet hours">Send anyway</button>') + '</div>' + curX().toolbar() +
         '<div class="row"><span id="sendst"></span></div>' +
         '<div class="meter" id="count"></div>' + curX().panels() + '</div>');
     }
@@ -4898,7 +6105,7 @@ def inbox_page():
     var ok = X.draw($('msg').value, false);
     if (!X.meter($('count'), full, null))
       renderMeter($('count'), asSent(full), $('msg').value, null, function(plain){ $('msg').value = plain; count(); });
-    if ($('send')) $('send').disabled = !ok || !!(curData && curData.quiet);
+    if ($('send')) $('send').disabled = !ok || !!(curData && curData.quiet && quietBlock());
   }
   // Replies go from the group they texted, so the answer lands in the same
   // conversation on their phone. A new conversation can switch groups.
@@ -4919,8 +6126,10 @@ def inbox_page():
     var t = fullText(), X = curX();
     if (!t && !X.st.media) return;
     if (!X.draw($('msg').value, false)) return;
+    if (curData && curData.quiet && quietBlock()) return;
     busy = true; $('send').disabled = true; $('sendst').textContent = 'Sending...';
     var data = {action:'send', gid:cur.gid, num:cur.num, msg:t}, pl = X.payload(t);
+    if (curData && curData.quiet) data.quiet_ok = '1';
     Object.keys(pl).forEach(function(k){ data[k] = pl[k]; });
     post(data, function(r){
       busy = false;
@@ -5048,6 +6257,8 @@ def inbox_page():
     self.attach = function(f){
       st.err = ''; st.media = null;
       var mime = (f.type || '').toLowerCase();
+      var grp = groups.filter(function(x){ return x.id == gidFn(); })[0];
+      if (grp && grp.svc == 'twilio') { st.err = 'Pictures cannot be sent from Twilio groups yet.'; onChange(); return; }
       if ((ACCEPT[POLICY.attach] || '').split(',').indexOf(mime) < 0) { st.err = 'That kind of file cannot be sent here.'; onChange(); return; }
       st.name = f.name; st.mime = mime; st.busy = true; onChange();
       function done(blob, note){
@@ -5154,13 +6365,24 @@ def inbox_page():
     var t = ($('gmsg').value || '').trim();
     return t;
   }
-  function isQuiet(){ var h = new Date().getHours(); return h < 8 || h >= 21; }
+  // Quiet hours from Settings, by this computer's clock (church time).
+  function isQuiet(){
+    var q = POLICY.quiet || {}, h = new Date().getHours();
+    if (!q.on || q.start == q.end) return false;
+    return q.start > q.end ? (h >= q.start || h < q.end) : (h >= q.start && h < q.end);
+  }
   function gUpdate(){
     var ok = !$('gxtools').innerHTML || groupX.draw($('gmsg').value, true);
     var c = groupX.meter($('gmeter'), gFull(), gActive) ||
       renderMeter($('gmeter'), asSent(gFull()), $('gmsg').value, gActive, function(plain){ $('gmsg').value = plain; gUpdate(); });
-    $('gquiet').style.display = isQuiet() ? '' : 'none';
-    $('gsend').disabled = busy || !ok || !(c || groupX.st.media) || !gActive || isQuiet() || gFull().length > 1600;
+    var q = isQuiet();
+    $('gquiet').style.display = q ? '' : 'none';
+    var until = hourWords(POLICY.quiet.end);
+    $('gquietwhy').textContent = quietBlock() ? 'Group texts can go out again at ' + until + (/\.$/.test(until) ? '' : '.')
+      : 'Most people would rather not get a text now.';
+    $('gsend').textContent = q && !quietBlock() ? 'Send anyway' : 'Send to group';
+    $('gsend').className = q && !quietBlock() ? 'anyway' : '';
+    $('gsend').disabled = busy || !ok || !(c || groupX.st.media) || !gActive || (q && quietBlock()) || gFull().length > 1600;
   }
   function gLoad(){
     gActive = null; $('gcount').textContent = 'Counting subscribers...'; gUpdate();
@@ -5209,6 +6431,7 @@ def inbox_page():
         ' each, about ' + (c.segs * gActive).toLocaleString() + ' credits in all.\\n\\nThis cannot be undone.')) return;
     busy = true; $('gsend').disabled = true; $('gst').textContent = 'Sending...';
     var data = {action:'group_send', gid:$('gsel').value, msg:t, expected:gActive}, pl = groupX.payload(t);
+    if (isQuiet()) data.quiet_ok = '1';
     Object.keys(pl).forEach(function(k){ data[k] = pl[k]; });
     post(data, function(r){
       busy = false;
@@ -5303,33 +6526,44 @@ def inbox_page():
   });
   $('q').oninput = renderList;
   loadThreads();
-  // Refresh pace: every 10 seconds while you are working in a conversation,
-  // 15 while you are on the page, 60 after 5 minutes with no clicks or
-  // typing. Coming back (a click after idling, or returning to the tab)
-  // refreshes right away. Nothing refreshes while the tab is hidden.
-  var lastAct = Date.now(), pollTimer = null;
+  // Refresh pace: every 30 seconds while you are on the page, 60 after 5
+  // minutes with no clicks or typing. Nothing refreshes while the tab is
+  // hidden. Coming back (returning to the tab, or a click after idling)
+  // refreshes right away, but never sooner than 30 seconds after the last
+  // refresh, so switching tabs back and forth does not ask over and over.
+  // PoweredByText allows the whole church 10 requests at a time, shared by
+  // every phone, this page and TouchPoint.
+  var lastAct = Date.now(), lastPoll = Date.now(), pollTimer = null, MIN_POLL = 30000;
   function pollDelay(){
-    var idle = Date.now() - lastAct;
-    if (idle > 5 * 60000) return 60000;
-    return cur && idle < 2 * 60000 ? 10000 : 15000;
+    return Date.now() - lastAct > 5 * 60000 ? 60000 : MIN_POLL;
   }
   function poll(){
     clearTimeout(pollTimer);
     var app = document.getElementById('txapp');
     if (!document.hidden && !busy && $('pp').style.display != 'block' && !(app && app.className.indexOf('admin') >= 0)) {
+      lastPoll = Date.now();
       loadThreads();
       if (cur) openThread(cur.gid, cur.num, 'read');
     }
     pollTimer = setTimeout(poll, pollDelay());
   }
+  // Right away if the last refresh is 30 seconds old; otherwise when it is.
+  function pollSoon(){
+    clearTimeout(pollTimer);
+    var wait = MIN_POLL - (Date.now() - lastPoll);
+    if (wait <= 0) poll(); else pollTimer = setTimeout(poll, wait);
+  }
   ['click', 'keydown', 'touchstart'].forEach(function(ev){
     document.addEventListener(ev, function(){
       var wasIdle = Date.now() - lastAct > 5 * 60000;
       lastAct = Date.now();
-      if (wasIdle) poll();
+      if (wasIdle) pollSoon();
     }, true);
   });
-  document.addEventListener('visibilitychange', function(){ if (!document.hidden) { lastAct = Date.now(); poll(); } });
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) { clearTimeout(pollTimer); return; }
+    lastAct = Date.now(); pollSoon();
+  });
   pollTimer = setTimeout(poll, pollDelay());
 })();
 </script>"""
@@ -5338,7 +6572,9 @@ def inbox_page():
 
 
 def admin_page():
-    groups = pbt_groups()
+    pbt_list = pbt_groups()
+    tw_list = tw_groups()
+    groups = pbt_list + tw_list
     settings = load_settings()
     saved_groups = set(settings.get('groups') or [])
     configured = bool(model.Setting("PBTClientID", "")) and bool(model.Setting("PBTClientSecret", ""))
@@ -5346,9 +6582,9 @@ def admin_page():
     opts = ''.join(
         '<label class="g"><input type="checkbox" value="%d"%s> %s</label>' % (
             g['id'], '' if saved_groups and g['id'] not in saved_groups else ' checked',
-            (g['name'] or '').replace('&', '&amp;').replace('<', '&lt;'))
+            (g['name'] or '').replace('&', '&amp;').replace('<', '&lt;') + (' (Twilio)' if is_twilio(g) else ''))
         for g in groups)
-    warn = '' if configured else \
+    warn = '' if configured or twilio_configured() else \
         '<div class="warn">PBTClientID or PBTClientSecret is missing in Settings, so this cannot reach PoweredByText.</div>'
     # Settings an admin has to fill in before usage numbers mean anything.
     need = []
@@ -5399,6 +6635,7 @@ def admin_page():
 #pbt .t-set{background:#e3f2e6;color:#1d6b2c}
 #pbt .t-fix{background:#fff1d6;color:#8a5a00}
 #pbt .t-same{background:#eee;color:#555}
+#pbt .t-owner{background:#e6edf6;color:#1e3a5f}
 #pbt .t-keep{background:#e8eefc;color:#2d4c9c}
 #pbt .t-review{background:#fdecea;color:#a12a22}
 #pbt .t-notfound{background:#f3f3f3;color:#888}
@@ -5430,6 +6667,20 @@ def admin_page():
 #pbt .msg{max-width:420px;color:#444}
 #pbt .num{text-align:right;font-variant-numeric:tabular-nums}
 #pbt .note{font-size:12px;color:#666;margin:4px 0}
+#pbt .ged{border:2px solid #1e3a5f;border-radius:10px;padding:14px 16px;margin:10px 0 16px;background:#fff;max-width:760px}
+#pbt .ged h4{margin:0 0 8px;font-size:16px}
+#pbt .ged label.f{display:block;font-weight:600;margin:12px 0 4px}
+#pbt .ged input.t,#pbt .ged textarea{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #ccc;border-radius:6px;font:inherit}
+#pbt .ged textarea{min-height:60px}
+#pbt .ged .chk{display:block;margin:6px 0;font-weight:400}
+#pbt .ged .off{opacity:.55}
+#pbt .ged .chip{display:inline-block;background:#e6edf6;color:#1e3a5f;border-radius:12px;padding:3px 6px 3px 10px;margin:2px 4px 2px 0;font-size:13px}
+#pbt .ged .chip button{background:none;border:0;color:#1e3a5f;padding:0 4px;font-size:15px;line-height:1;cursor:pointer}
+#pbt .ged .kw{display:grid;grid-template-columns:minmax(110px,180px) 1fr auto;gap:8px;align-items:start;margin:6px 0}
+#pbt .ged .kw button.x{background:#fff;color:#9b1c1c;border-color:#e5b4b4;padding:6px 10px}
+@media (max-width:600px){#pbt .ged .kw{grid-template-columns:1fr auto}#pbt .ged .kw textarea{grid-column:1 / -1}}
+#pbt .ged .steps div{margin:3px 0}
+#pbt .ged .ok{color:#1d6b2c}#pbt .ged .bad{color:#9b1c1c}
 #pbt .k-delivered{color:#1d6b2c}
 #pbt .k-failed{color:#a12a22;font-weight:600}
 #pbt .k-other{color:#8a5a00}
@@ -5453,7 +6704,7 @@ def admin_page():
     body = """
 <div id="pbt" data-writes="__WRITES__">
   __WARN__
-  <div class="tabs"><a href="#" data-tab="sync" class="on">Names</a><a href="#" data-tab="history">Change log</a><a href="#" data-tab="delivery">Delivery</a><a href="#" data-tab="usage">Usage</a><a href="#" data-tab="settings">Settings</a><a href="#" data-tab="setup">PoweredByText setup</a><a href="#" data-tab="check">Connection check</a></div>
+  <div class="tabs"><a href="#" data-tab="sync" class="on">Names</a><a href="#" data-tab="history">Changes</a><a href="#" data-tab="delivery">Delivery</a><a href="#" data-tab="usage">Usage</a><a href="#" data-tab="twusage">Twilio usage</a><a href="#" data-tab="settings">Settings</a><a href="#" data-tab="setup">PoweredByText setup</a><a href="#" data-tab="check">Connection check</a></div>
 
   <div id="tab-sync">
   <p class="lede writes-only">Gives each texting number in PoweredByText the name of the person it belongs to in TouchPoint.
@@ -5540,7 +6791,8 @@ def admin_page():
   <div id="tab-delivery" style="display:none">
     <p class="note">When each group text actually went out, how long it took to reach everyone, and how it went.
     Texts sent from TouchPoint show the time TouchPoint was asked to send them. PBT does not report the
-    scheduled time of a text scheduled inside PBT, only when it went out. Read only.</p>
+    scheduled time of a text scheduled inside PBT, only when it went out. For Twilio groups, the time is when
+    Twilio handed each text to the carrier. Read only.</p>
     <div class="bar">
       <select id="dgroup"><option value="0">All groups</option>__GROUPOPTS__</select>
       <input type="date" id="dfrom"> to <input type="date" id="dto">
@@ -5587,7 +6839,7 @@ def admin_page():
       <summary>Look closer at a date range</summary>
     <p class="note">Estimated credits and where they go, counted from PBT's message report. Read only.</p>
     <div class="bar">
-      <select id="ugroup"><option value="0">All groups</option>__GROUPOPTS__</select>
+      <select id="ugroup"><option value="0">All groups</option>__PBTGROUPOPTS__</select>
       <input type="date" id="ufrom"> to <input type="date" id="uto">
       <button id="uload">Count</button>
       <span class="status" id="ucstatus">Plan, cost and billing cycle are under Settings.</span>
@@ -5632,12 +6884,29 @@ def admin_page():
         <option value="all">Pictures, PDFs, small video and audio</option></select></label>
         <span class="who">Always 3 credits. Photos are shrunk to fit the 905 KB limit; anything bigger is refused with a tip to send a link.</span></p>
     </div>
+    <div class="box">
+      <p><b>Quiet hours</b></p>
+      <p><label><input type="checkbox" id="setquiet"__QUIETON__> Use quiet hours</label></p>
+      <p><label>From <select id="setqstart" data-v="__QSTART__"></select></label>
+        <label>to <select id="setqend" data-v="__QEND__"></select></label></p>
+      <p><label>When someone texts in during quiet hours, they can be answered for <select id="setqgrace" data-v="__QGRACE__">
+        <option value="0">no time (treat it like any other text)</option><option value="30">30 minutes</option><option value="60">1 hour</option>
+        <option value="120">2 hours</option><option value="240">4 hours</option></select> with no warning</label>
+        <span class="who">They started the conversation and are clearly awake, so a quick reply is welcome. After that, the quiet hours rule applies again.</span></p>
+      <p><label>Other texts during quiet hours <select id="setqmode" data-v="__QMODE__">
+        <option value="warn">Warn, but allow sending anyway</option>
+        <option value="block">Do not allow</option></select></label>
+        <span class="who">US texting rules expect business texts between 8 a.m. and 9 p.m. in the recipient&rsquo;s time zone.
+        Warn shows a notice and turns the button into Send anyway, for times like an event that starts early; those
+        sends are marked in the sent log. Do not allow keeps the button off until quiet hours end. Nothing is held and
+        sent later. The phone apps follow these settings too.</span></p>
+    </div>
     <p><button id="ucostsave">Save settings</button> <span class="status" id="ustatus"></span></p>
   </div>
 
   <div id="tab-setup" style="display:none">
-    <p class="note">How PoweredByText is set up for your church, next to TouchPoint's texting groups. It only reads: nothing
-    is changed here, and webhook passwords are never shown.</p>
+    <p class="note">How PoweredByText is set up for your church, next to TouchPoint's texting groups. Webhook passwords are
+    never shown. A PoweredByText Account, Division or Group Admin can change their groups here (open a group, then Edit); everyone else can only look.</p>
     <details class="how"><summary>What org units, groups, keywords and templates are</summary>
       <p><b>Org unit</b> is PoweredByText's word for a church or campus. Each has its own texting numbers (a short code
       like 84727, or a regular phone number), its own auto reply and its own link shortening setting.</p>
@@ -5649,19 +6918,42 @@ def admin_page():
       TouchPoint needs both, and TPxi Go uses them for phone alerts.</p>
       <p><b>Templates</b> are saved messages in PoweredByText.</p>
     </details>
+    <details class="how"><summary>Changing, adding and removing groups</summary>
+      <p><b>Who can.</b> Admins in TouchPoint, with the rights they have in PoweredByText: an Account Admin can change any
+      group and add groups anywhere, a Division Admin the groups in their divisions (and add groups there), a Group Admin only
+      the groups they are assigned. People are matched by the email they sign in to TouchPoint with.</p>
+      <p><b>Changing a group</b> (open it, then Edit): name, description, tags, and keywords with the reply each one sends.
+      Each save reads the group fresh from PoweredByText, changes only what you edited, then reads it again to check, and is
+      listed on the Changes page. Not here, because PoweredByText does not allow it from outside: Inbox and AutoResponse
+      (the gear on the group in PoweredByText, then Direct Chat), leaders (PoweredByText's Users page), and webhooks.
+      Renaming changes PoweredByText's name only; TouchPoint keeps its own name in
+      <a href="/SMSManagement" target="_blank">SMS Management</a>.</p>
+      <p><b>Adding a group</b> (New PoweredByText group, then pick the division): this makes it in PoweredByText, with its tags and keyword. PoweredByText
+      gives it the division's numbers, makes the Account Admin its leader and turns AutoResponse on. Then, in TouchPoint:
+      open <a href="/SMSManagement" target="_blank">SMS Management</a>, Add New Group, pick the Campus (the division) and
+      Select Group, then add the Users who should read and send from it. Until then TouchPoint cannot text from it or show its
+      replies. The page lists these steps again after you add one.</p>
+      <p><b>Removing a group</b> cannot be done from here: PoweredByText does not allow it from outside. In order:
+      (1) in <a href="/SMSManagement" target="_blank">SMS Management</a>, mark the group Disabled (or Remove it) so nobody
+      texts from it in TouchPoint; (2) delete it on PoweredByText's website. Deleting in PoweredByText ends everyone's
+      subscription and cannot be undone. Texts already sent stay in TouchPoint's history. If TouchPoint still points to a
+      deleted group, it shows under Things to look at below.</p>
+    </details>
     <div class="bar"><button id="surun">Load the setup</button>
       <span class="status" id="sustatus"></span></div>
     <div id="suprog" style="display:none;margin:6px 0 10px">
       <div style="height:8px;background:#e6e9ee;border-radius:4px;overflow:hidden"><div id="subar" style="height:100%;width:0;background:#1e3a5f;transition:width .3s"></div></div>
       <div class="note" id="suprogtxt"></div>
     </div>
+    <div id="sume"></div>
+    <div id="suedithome"><div id="suedit"></div></div>
     <div id="suissues"></div>
     <div id="suout"><p class="note">Press <b>Load the setup</b>. It reads PoweredByText and TouchPoint, then each group's
     numbers, webhooks and subscribers one group at a time, so it takes a little while with many groups.</p></div>
   </div>
 
   <div id="tab-check" style="display:none">
-    <p class="note">Checks each step between TouchPoint and PoweredByText, so you can tell where a problem is. It only reads.</p>
+    <p class="note">Checks each step between TouchPoint and each texting service set up here, so you can tell where a problem is. It only reads.</p>
     <div class="bar"><button id="ckrun">Run the check</button>
       <button id="cklinks" class="ghost" title="Adds one short link to the first group's short link list in PoweredByText">Test short links</button>
       <span class="status" id="ckstatus"></span></div>
@@ -5677,6 +6969,18 @@ def admin_page():
     </details>
   </div>
 
+  <div id="tab-twusage" style="display:none">
+    <p class="lede">What Twilio billed for texting each calendar month, read from your Twilio account, and what each
+    Twilio texting group sent and received. Read only. A month that has ended is saved after the first look.</p>
+    <div class="bar">
+      <select id="twmonth" aria-label="Month"></select>
+      <button id="twload">Show</button>
+      <button id="twrefresh" class="ghost">Read again from Twilio</button>
+      <span class="status" id="twstatus"></span>
+    </div>
+    <div id="twout"></div>
+  </div>
+
   <div id="tab-history" style="display:none">
     <div class="bar">
       <input class="filter" id="hq" placeholder="Filter the log">
@@ -5684,12 +6988,15 @@ def admin_page():
       <span class="status" id="hstatus"></span>
     </div>
     <table><thead><tr>
-      <th>When</th><th>By</th><th>Number</th><th>Group</th><th>Before</th><th>After</th><th>Result</th><th>Note</th>
+      <th>When</th><th>By</th><th>What</th><th>Number</th><th>Group</th><th>Before</th><th>After</th><th>Result</th><th>Note</th>
     </tr></thead><tbody id="hrows"></tbody></table>
   </div>
 </div>"""
-    gopts = ''.join('<option value="%d">%s</option>' % (g['id'], (g['name'] or '').replace('&', '&amp;').replace('<', '&lt;'))
-                    for g in groups)
+    def group_opts(gs):
+        return ''.join('<option value="%d">%s</option>' % (
+            g['id'], (g['name'] or '').replace('&', '&amp;').replace('<', '&lt;') + (' (Twilio)' if is_twilio(g) and pbt_list else ''))
+            for g in gs)
+    gopts = group_opts(groups)
     cc = settings.get('credit_cost')
     body = (body.replace('__WARN__', warn)
                 .replace('__CREDITCOST__', ('%g' % cc) if cc else '')
@@ -5700,8 +7007,14 @@ def admin_page():
                 .replace('__EMOJIPOL__', send_policy()['emoji'])
                 .replace('__ADMINALL__', ' checked' if settings.get('admin_all_groups') else '')
                 .replace('__ATTACHPOL__', send_policy()['attach'])
+                .replace('__QUIETON__', ' checked' if quiet_hours()['on'] else '')
+                .replace('__QSTART__', str(quiet_hours()['start']))
+                .replace('__QEND__', str(quiet_hours()['end']))
+                .replace('__QGRACE__', str(quiet_hours()['grace']))
+                .replace('__QMODE__', quiet_hours()['mode'])
+                .replace('__PBTGROUPOPTS__', group_opts(pbt_list))
                 .replace('__GROUPOPTS__', gopts)
-                .replace('__OPTS__', opts or '<i>No PoweredByText groups found.</i>')
+                .replace('__OPTS__', opts or '<i>No texting groups found.</i>')
                 .replace('__AUTO__', ' checked' if settings.get('auto') else '')
                 .replace('__WRITES__', 'on' if NAME_WRITES else 'off')
                 .replace('__AUTOMAX__', str(AUTO_MAX))
@@ -5711,9 +7024,10 @@ def admin_page():
     js = """
 <script>
 (function(){
-  var LABEL = {set:'Will set', fix:'Will fix', same:'Already right', keep:'Keep', review:'Review', notfound:'Not found'};
+  var LABEL = {set:'Will set', fix:'Will fix', same:'Already right', keep:'Keep', review:'Review', notfound:'Not found', owner:'Owner found (Twilio)'};
   var HELP = {set:'PBT has no name', fix:'PBT has another family member\\'s name', same:'Nothing to change',
-              keep:'Typed in PBT; never overwritten', review:'Clean up in TouchPoint first', notfound:'Not in TouchPoint'};
+              keep:'Typed in PBT; never overwritten', review:'Clean up in TouchPoint first', notfound:'Not in TouchPoint',
+              owner:'Twilio has no names; this is who TouchPoint texts'};
   var RESULT = {changed:'Changed', unconfirmed:'Not confirmed', error:'Error', skipped:'Skipped', stopped:'Stopped'};
   var ORDER = ['set','fix','review','keep','same','notfound'];
   var WRITES = document.getElementById('pbt').getAttribute('data-writes') == 'on';
@@ -5761,6 +7075,8 @@ def admin_page():
       $('tab-history').style.display = t == 'history' ? '' : 'none';
       $('tab-delivery').style.display = t == 'delivery' ? '' : 'none';
       $('tab-usage').style.display = t == 'usage' ? '' : 'none';
+      $('tab-twusage').style.display = t == 'twusage' ? '' : 'none';
+      if (t == 'twusage' && !twShown) loadTwilio(false);
       $('tab-settings').style.display = t == 'settings' ? '' : 'none';
       $('tab-check').style.display = t == 'check' ? '' : 'none';
       $('tab-setup').style.display = t == 'setup' ? '' : 'none';
@@ -5768,6 +7084,51 @@ def admin_page():
       if (t == 'history') loadHistory();
     };
   });
+
+  // ---- Twilio usage (read only)
+  var twShown = false;
+  (function(){
+    var t = new Date(), opts = [];
+    for (var i = 0; i < 12; i++){
+      var d = new Date(t.getFullYear(), t.getMonth() - i, 1);
+      var v = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
+      opts.push('<option value="' + v + '">' + d.toLocaleDateString('en-US', {month: 'long', year: 'numeric'}) + (i == 0 ? ' (so far)' : '') + '</option>');
+    }
+    $('twmonth').innerHTML = opts.join('');
+  })();
+  function usd(x){ return '$' + (x || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+  function loadTwilio(refresh){
+    twShown = true;
+    $('twstatus').textContent = 'Reading Twilio...'; $('twout').innerHTML = '';
+    post({action:'twilio_usage', month:$('twmonth').value, refresh:refresh ? '1' : '0'}, function(r){
+      if (!r.success) { $('twstatus').textContent = r.message; return; }
+      $('twstatus').textContent = (r.saved ? 'Saved ' : 'Read ') + r.asOf + '.' + (r.complete ? '' : ' This month is not over, so it is read fresh each time.');
+      var R = ' style="text-align:right"';
+      var h = '<h3>Twilio bill: ' + usd(r.total) + '</h3><table><thead><tr><th>What</th><th' + R + '>Count</th><th' + R + '>Message parts</th><th' + R + '>Cost</th></tr></thead><tbody>';
+      r.lines.forEach(function(l){
+        h += '<tr><td>' + esc(l.label) + '</td><td' + R + '>' + n(l.count) + '</td><td' + R + '>' + (l.parts ? n(l.parts) : '') + '</td><td' + R + '>' + usd(l.price) + '</td></tr>';
+      });
+      if (r.other) h += '<tr><td>Everything else (registration fees, number lookups, other Twilio services)</td><td></td><td></td><td' + R + '>' + usd(r.other) + '</td></tr>';
+      if (!r.lines.length && !r.other) h += '<tr><td colspan="4">Nothing billed this month.</td></tr>';
+      h += '</tbody></table><h3>By texting group</h3>';
+      if (!r.groups.length) h += '<p>No Twilio texting group has a number yet.</p>';
+      else {
+        h += '<table><thead><tr><th>Group</th><th' + R + '>Sent</th><th' + R + '>Message parts sent</th><th' + R + '>Received</th><th' + R + '>Cost</th></tr></thead><tbody>';
+        r.groups.forEach(function(g){
+          h += '<tr><td>' + esc(g.group) + (g.numbers > 1 ? ' <span class="tm">(' + g.numbers + ' numbers)</span>' : '') + '</td><td' + R + '>' + n(g.sent) + '</td><td' + R + '>' + n(g.parts) +
+            '</td><td' + R + '>' + n(g.received) + '</td><td' + R + '>' + usd(g.cost) + '</td></tr>';
+        });
+        h += '</tbody></table>';
+      }
+      h += '<p class="lede">A text over 160 characters (70 with emoji) goes out in several parts, and Twilio charges each part. ' +
+        'Group costs are what Twilio charged for each message. Carrier fees and number rent are charged to the account, so they show only in the bill.</p>';
+      if (r.capped) h += '<p class="lede">A group sent or received more than 20,000 texts this month, so its counts stop there.</p>';
+      $('twout').innerHTML = h;
+    });
+  }
+  $('twload').onclick = function(){ loadTwilio(false); };
+  $('twrefresh').onclick = function(){ loadTwilio(true); };
+  $('twmonth').onchange = function(){ loadTwilio(false); };
 
   // ---- Delivery and Usage (read only)
   function day(d){ return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
@@ -5971,7 +7332,9 @@ def admin_page():
     post({action:'save_cost', cost:$('ucost').value.replace(/[^0-9.]/g, ''), cycle_day:$('ucycle').value.replace(/[^0-9]/g, ''),
           plan_credits:$('uplan').value.replace(/[^0-9]/g, ''), plan_price:$('uprice').value.replace(/[^0-9.]/g, ''),
           overage_cost:$('uover').value.replace(/[^0-9.]/g, ''),
-          emoji_policy:$('setemoji').value, attach_policy:$('setattach').value, admin_all:$('setadminall').checked ? '1' : '0'}, function(r){
+          emoji_policy:$('setemoji').value, attach_policy:$('setattach').value, admin_all:$('setadminall').checked ? '1' : '0',
+          quiet_on:$('setquiet').checked ? '1' : '0', quiet_start:$('setqstart').value, quiet_end:$('setqend').value,
+          quiet_grace:$('setqgrace').value, quiet_mode:$('setqmode').value}, function(r){
       $('ustatus').textContent = r.success ? 'Saved.' : r.message;
       if (r.success && $('setupwarn') && r.planCredits && r.planPrice && $('ucycle').value) $('setupwarn').style.display = 'none';
       if (r.success && momData) $('mstatus').textContent = 'Press Show to count by the saved billing cycle.';
@@ -6114,6 +7477,7 @@ def admin_page():
   }
   function suDetail(g){
     var h = [];
+    if (ME_ED && ME_ED.ok && (ME_ED.all || ME_ED.groups.indexOf(String(g.id).toLowerCase()) > -1)) h.push('<p><button type="button" data-ged="' + esc(g.id) + '">Edit this group</button></p><div data-slot="' + esc(g.id) + '"></div>');
     if (g.description) h.push('<p><b>Description:</b> ' + esc(g.description) + '</p>');
     if (g.tags.length) h.push('<p><b>Tags:</b> ' + suList(g.tags) + '</p>');
     h.push('<p><b>Auto reply:</b> ' + (g.autoReply ? esc(g.autoReplyText || 'On') : 'Off')
@@ -6168,6 +7532,9 @@ def admin_page():
   var suOpen = {};
   function suDraw(){
     var all = [], html = [];
+    // The editor sits inside a group's row; park it while the rows are rebuilt.
+    $('suedithome').appendChild($('suedit'));
+    if (SU.units.some(gedCanCreate)) html.push('<div class="bar"><button type="button" class="ghost" id="gnewbtn">New PoweredByText group</button></div><div data-slot="new"></div>');
     SU.units.forEach(function(u){
       html.push('<div class="box" style="margin:14px 0 6px"><b style="font-size:15px">' + esc(u.name) + '</b>'
         + (u.shortName && u.shortName != u.name ? ' <span class="note">(' + esc(u.shortName) + ')</span>' : '')
@@ -6175,11 +7542,12 @@ def admin_page():
         + '<div class="note">Numbers: ' + suUnitNums(u) + ' &middot; Link shortening: ' + suYes(u.shorten)
         + ' &middot; ' + u.groups.length + ' group' + (u.groups.length == 1 ? '' : 's') + '</div>'
         + (u.autoReply ? '<div class="note">Auto reply: ' + esc(u.autoReply) + '</div>' : '')
-        + (u.error ? '<div class="k-failed">Could not read its groups: ' + esc(u.error) + '</div>' : '') + '</div>');
+        + (u.error ? '<div class="k-failed">Could not read its groups: ' + esc(u.error) + '</div>' : '')
+        + '</div>');
       if (u.groups.length) {
         html.push('<table><tr><th>Group</th><th>Keywords</th><th>TouchPoint group</th><th>Staff in TouchPoint</th><th>Auto reply</th>'
           + '<th>Numbers</th><th title="PoweredByText first, then TouchPoint (TP)">Subscribers</th><th>Replies webhook</th><th>Status webhook</th></tr>');
-        u.groups.forEach(function(g){ var i = all.length; all.push(g); html.push(suRow(u, g, i)); });
+        u.groups.forEach(function(g){ var i = all.length; g.o = u.id; all.push(g); html.push(suRow(u, g, i)); });
         html.push('</table>');
       }
       if (u.templates.length) html.push('<details class="box" style="margin-top:6px"><summary>' + esc(u.name) + ' templates (' + u.templates.length + ')</summary>' + suTemplates(u.templates) + '</details>');
@@ -6190,6 +7558,12 @@ def admin_page():
       + SU.tpOnly.map(function(t){ return '<tr><td>' + esc(t.name) + '</td><td>' + suList(t.staff.map(function(x){ return x.name; })) + '</td></tr>'; }).join('') + '</table>');
     SU.all = all;
     $('suout').innerHTML = html.join('');
+    if (GED) gedPlace();
+    if ($('gnewbtn')) $('gnewbtn').onclick = function(){ gnewOpen(); };
+    Array.prototype.forEach.call(document.querySelectorAll('#suout button[data-ged]'), function(b){
+      b.onclick = function(){ var id = this.getAttribute('data-ged');
+        all.forEach(function(g){ if (g.id == id) gedOpen(g); }); };
+    });
     Array.prototype.forEach.call(document.querySelectorAll('#suout a[data-su]'), function(a){
       a.onclick = function(e){
         e.preventDefault();
@@ -6202,9 +7576,291 @@ def admin_page():
     });
     suIssues();
   }
+  // ---- Is a keyword free? (PBT has no check; this looks at every group in the account)
+  function kwCheck(input, out, gid, orig){
+    var v = input.value.trim();
+    if (!v || (orig && v.toUpperCase() == orig.toUpperCase())) { out.innerHTML = ''; return; }
+    out.innerHTML = 'Checking ' + esc(v.toUpperCase()) + '...';
+    post({action:'grp_kw_check', word:v, g:gid || ''}, function(r){
+      if (input.value.trim() != v) return;
+      if (!r.success) { out.innerHTML = ''; return; }
+      out.innerHTML = r.free
+        ? '<span class="ok">&#10003; ' + esc(r.word) + ' is not used by any group in your account.</span> On a shared number like 84727, PoweredByText also checks other churches when it saves.'
+        : '<span class="bad">&#10007; ' + esc(r.why) + '</span>';
+    });
+  }
+  // ---- Adding a group
+  function gnewOpen(){
+    var u = SU.units.filter(gedCanCreate)[0];
+    if (!u) return;
+    var choices = [];
+    SU.units.forEach(function(x){ x.groups.forEach(function(g){ g.tags.forEach(function(t){ t = String(t).toUpperCase(); if (choices.indexOf(t) < 0) choices.push(t); }); }); });
+    GED = {unit: u, tags: [], choices: choices.sort(), name: '', description: '', keyword: '', reply: ''};
+    gnewDraw(); gedPlace();
+  }
+  function gnewKeep(){
+    if (!GED || !GED.unit || !$('gnname')) return;
+    GED.name = gedVal('gnname'); GED.description = gedVal('gndesc'); GED.keyword = gedVal('gnkw'); GED.reply = gedVal('gnreply');
+    SU.units.forEach(function(x){ if (x.id == gedVal('gndiv')) GED.unit = x; });
+  }
+  function gnewDraw(){
+    var h = [];
+    var divs = SU.units.filter(gedCanCreate);
+    h.push('<div class="ged"><h4>New PoweredByText group</h4>');
+    h.push('<p class="note">A subscription group: people join it and get its texts.</p>');
+    h.push('<label class="f" for="gndiv">Division</label><select id="gndiv">' + divs.map(function(x){
+      return '<option value="' + esc(x.id) + '"' + (x.id == GED.unit.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select>'
+      + '<p class="note">The group texts from this division\\'s numbers: ' + esc(suUnitNums(GED.unit).replace(/<[^>]*>/g, '')) + '.'
+      + (divs.length < SU.units.length ? ' Only the divisions you can add to are listed.' : '') + '</p>');
+    h.push('<label class="f" for="gnname">Name</label><input class="t" id="gnname" value="' + esc(GED.name) + '">');
+    h.push('<label class="f" for="gndesc">Description</label><textarea id="gndesc">' + esc(GED.description) + '</textarea>');
+    h.push('<label class="f">Tags</label><div>' + (GED.tags.length ? GED.tags.map(function(t, i){
+      return '<span class="chip">' + esc(t) + '<button type="button" data-gnuntag="' + i + '" aria-label="Remove ' + esc(t) + '">&times;</button></span>'; }).join('') : '<span class="note">No tags.</span>') + '</div>');
+    var left = GED.choices.filter(function(t){ return GED.tags.indexOf(t) < 0; });
+    h.push('<div class="bar"><select id="gntagpick"><option value="">Add a tag...</option>' + left.map(function(t){ return '<option>' + esc(t) + '</option>'; }).join('')
+      + '<option value="*">A new tag...</option></select><input class="t" id="gntagnew" placeholder="New tag, then Enter" maxlength="15" style="display:none;width:200px"></div>');
+    h.push('<label class="f" for="gnkw">Keyword (optional)</label><p class="note">The word people text to join. Up to 12 letters and numbers. '
+      + 'Shared with everyone on the same number, so a word already in use is turned away. You can add more later with Edit.</p>');
+    h.push('<div class="kw"><input class="t" id="gnkw" maxlength="12" value="' + esc(GED.keyword) + '" aria-label="Keyword">'
+      + '<textarea id="gnreply" placeholder="Reply when someone texts this word" aria-label="Reply">' + esc(GED.reply) + '</textarea><span></span></div>'
+      + '<div class="note" id="gnkwst"></div>');
+    h.push(gedAutoBlock('std', '', true));
+    h.push('<div class="bar" style="margin-top:14px"><button type="button" class="go" id="gnsave">Add the group in PoweredByText</button>'
+      + '<button type="button" class="ghost" id="gncancel">Close</button><span class="status" id="gnstatus"></span></div>');
+    h.push('<div class="steps" id="gnsteps"></div></div>');
+    $('suedit').innerHTML = h.join('');
+    Array.prototype.forEach.call(document.querySelectorAll('#suedit [data-gnuntag]'), function(b){
+      b.onclick = function(){ gnewKeep(); GED.tags.splice(+this.getAttribute('data-gnuntag'), 1); gnewDraw(); }; });
+    $('gntagpick').onchange = function(){
+      if (this.value == '*') { $('gntagnew').style.display = ''; $('gntagnew').focus(); return; }
+      if (this.value) { gnewKeep(); GED.tags.push(this.value); gnewDraw(); }
+    };
+    $('gntagnew').onkeydown = function(e){
+      if (e.key != 'Enter') return;
+      e.preventDefault();
+      var t = this.value.trim().toUpperCase();
+      if (t && !/^[A-Z0-9]{1,15}$/.test(t)) { $('gnstatus').textContent = 'A tag is up to 15 letters and numbers, no spaces.'; return; }
+      if (t && GED.choices.indexOf(t) < 0) { GED.choices.push(t); GED.choices.sort(); post({action:'grp_tag_add', tag:t}, function(){}); }
+      if (t && GED.tags.indexOf(t) < 0) { gnewKeep(); GED.tags.push(t); }
+      gnewDraw();
+    };
+    $('gndiv').onchange = function(){ gnewKeep(); gnewDraw(); };
+    $('gnkw').onchange = function(){ kwCheck(this, $('gnkwst'), ''); };
+    if (GED.keyword) kwCheck($('gnkw'), $('gnkwst'), '');
+    $('gncancel').onclick = function(){ $('suedit').innerHTML = ''; GED = null; $('suedithome').appendChild($('suedit')); };
+    $('gnsave').onclick = gnewSave;
+  }
+  function gnewSave(){
+    gnewKeep();
+    var btn = $('gnsave');
+    if (!GED.name.trim()) { $('gnstatus').textContent = 'The group needs a name.'; return; }
+    if (GED.keyword.trim() && !/^[A-Za-z0-9]{2,12}$/.test(GED.keyword.trim())) { $('gnstatus').textContent = 'A keyword is 2 to 12 letters and numbers, no spaces.'; return; }
+    if ($('gntagnew').style.display == '' && $('gntagnew').value.trim()) { $('gnstatus').textContent = 'Press Enter in the new tag box to add it, or clear it.'; return; }
+    btn.disabled = true; $('gnstatus').textContent = 'Adding...'; $('gnsteps').innerHTML = '';
+    var u = GED.unit;
+    post({action:'grp_create', o:u.id, gdata: JSON.stringify({name: GED.name, description: GED.description, tags: GED.tags,
+          keyword: GED.keyword, reply: GED.reply})}, function(r){
+      btn.disabled = false;
+      if (!r.success) { $('gnstatus').textContent = ''; $('gnsteps').innerHTML = '<div class="bad">' + esc(r.message) + '</div>'; return; }
+      var steps = r.steps.map(function(x){ return '<div class="' + (x.ok ? 'ok' : 'bad') + '">' + (x.ok ? '&#10003; ' : '&#10007; ')
+        + esc(x.step) + ': ' + esc(x.msg) + '</div>'; }).join('');
+      if (!r.created) { $('gnstatus').textContent = 'Not added.'; $('gnsteps').innerHTML = steps; return; }
+      var g = r.group, kwFailed = r.steps.some(function(x){ return !x.ok && /keyword/i.test(x.step); });
+      $('suedit').innerHTML = '<div class="ged"><h4>' + esc(g.name) + ' is in PoweredByText</h4>' + '<div class="steps">' + steps + '</div>'
+        + (kwFailed ? '<div class="box"><b>Try another keyword</b><div class="kw"><input class="t" id="gnkw2" maxlength="12" aria-label="Keyword">'
+          + '<textarea id="gnreply2" aria-label="Reply">' + esc(GED.reply) + '</textarea><button type="button" id="gnkwgo">Add it</button></div>'
+          + '<div class="note" id="gnkwst2"></div></div>' : '')
+        + '<p>Numbers: <b>' + esc((r.numbers || []).join(', ') || 'none yet') + '</b>' + (g.leaders.length ? ' &middot; Leader in PoweredByText: ' + esc(g.leaders.join(', ')) : '') + '</p>'
+        + '<p><b>Still to do</b> (the group cannot be texted from TouchPoint until 1 and 2 are done):</p><ol>'
+        + '<li><b>Link it in TouchPoint.</b> Open <a href="/SMSManagement" target="_blank">SMS Management</a>, press <b>Add New Group</b>, '
+        + 'choose PoweredByText, pick the Campus <b>' + esc(u.name) + '</b> and Select Group <b>' + esc(g.name) + '</b>, then save. '
+        + 'If it is not in the list yet, press <b>Sync PBT</b> first. Linking also points the group\\'s replies at TouchPoint.</li>'
+        + '<li><b>Give people access.</b> In the same group on SMS Management, add the <b>Users</b> who should read its replies and send from it '
+        + '(sending also needs the SendSMS role).</li>'
+        + (g.autoReply ? '<li><b>Auto reply.</b> The group starts with AutoResponse on and PoweredByText\\'s standard message. '
+          + 'To turn it off or use your own message: on PoweredByText\\'s website, open the group, the gear, then Direct Chat.</li>' : '')
+        + '<li><b>Leaders in PoweredByText</b>, if anyone besides the Account Admin should manage it there: PoweredByText\\'s Users page.</li>'
+        + '<li><b>Check it.</b> Press <b>Load the setup</b> again: the group should show its TouchPoint group, staff and the TouchPoint webhook.</li></ol>'
+        + '<div class="bar"><button type="button" class="ghost" id="gndone">Close</button></div></div>';
+      $('gndone').onclick = function(){ $('suedit').innerHTML = ''; GED = null; $('suedithome').appendChild($('suedit')); };
+      if ($('gnkw2')) {
+        $('gnkw2').onchange = function(){ kwCheck(this, $('gnkwst2'), r.groupId); };
+        $('gnkwgo').onclick = function(){
+          var b = this, w2 = $('gnkw2').value.trim();
+          if (!/^[A-Za-z0-9]{2,12}$/.test(w2)) { $('gnkwst2').textContent = 'A keyword is 2 to 12 letters and numbers, no spaces.'; return; }
+          b.disabled = true; $('gnkwst2').textContent = 'Adding...';
+          post({action:'grp_kw_add', o:r.orgunitId, g:r.groupId, word:w2, reply:$('gnreply2').value}, function(x){
+            b.disabled = false;
+            if (!x.success) { $('gnkwst2').innerHTML = '<span class="bad">' + esc(x.message) + '</span>'; return; }
+            $('gnkwst2').innerHTML = x.ok ? '<span class="ok">&#10003; ' + esc(x.word) + ' added.</span>' : '<span class="bad">&#10007; ' + esc(x.msg) + '</span>';
+            if (x.ok) { $('gnkw2').disabled = $('gnreply2').disabled = b.disabled = true; }
+          });
+        };
+      }
+    });
+  }
+  // Auto reply and Inbox, grayed out: PBT's API ignores them (see the server
+  // notes), so they are shown, not sent. pick: 'off', 'std' or 'own'.
+  function gedAutoBlock(pick, text, isNew){
+    var h = ['<label class="f">Auto reply</label><div class="off">'];
+    [['off', 'Off: replies come to the inbox for someone to answer'], ['std', 'On, with PoweredByText\\'s standard message'],
+     ['own', 'On, with a message of our own']].forEach(function(o){
+      h.push('<label class="chk"><input type="radio" disabled' + (pick == o[0] ? ' checked' : '') + '> ' + esc(o[1]) + '</label>'); });
+    if (pick != 'off' && text) h.push('<div class="box" style="margin:6px 0">' + esc(text) + '</div>');
+    h.push('</div><p class="note">Grayed out because PoweredByText does not save this from outside its website right now, even though its '
+      + 'documentation says it should. We have reported it to them. ' + (isNew ? 'Every new group starts with AutoResponse on and the standard message. ' : '')
+      + 'To change it, open the group on PoweredByText\\'s website, the gear, then Direct Chat.</p>');
+    return h.join('');
+  }
+  // ---- Changing a group (by the person's PBT rights; the server checks too)
+  var ME_ED = null, GED = null;
+  function gedMe(){
+    post({action:'grp_me'}, function(r){
+      if (!r.success) { $('sume').innerHTML = '<p class="note">' + esc(r.message) + '</p>'; return; }
+      ME_ED = r;
+      var h = '<div class="box"><b>Changing groups:</b> ' + (r.ok
+        ? (r.all ? 'you can change any group here. PoweredByText knows you as ' + esc(r.pbtName) + ', an Account Admin.'
+           : 'you can change ' + (r.divisions.length ? 'the groups in ' + esc(r.divisions.join(', ')) + ', '
+               : 'the groups PoweredByText gives you, ') + r.groupNames.length + ' group' + (r.groupNames.length == 1 ? '' : 's')
+             + (r.groupNames.length && r.groupNames.length <= 5 ? ' (' + esc(r.groupNames.join(', ')) + ')' : '')
+             + '. PoweredByText knows you as ' + esc(r.pbtName) + ', a ' + esc(r.role) + '.')
+        : esc(r.reason));
+      h += '<details style="margin-top:6px"><summary>Who can change groups (' + r.pins.length + ')</summary>'
+        + '<p class="note">Admins in TouchPoint who are, in PoweredByText, an Account Admin (any group), a Division Admin (the groups in their divisions) or a Group Admin (the groups they are assigned), the same as in PoweredByText. They are matched by the email they sign in to '
+        + 'TouchPoint with. The first person to match a PoweredByText user is tied to that account, so if someone '
+        + 'later changes their email to match, they are turned away and listed below.</p>'
+        + (r.pins.length ? '<table><tr><th>In TouchPoint</th><th>In PoweredByText</th><th>Since</th><th></th></tr>'
+          + r.pins.map(function(p){ return '<tr><td>' + (p.pid ? '<a href="/Person2/' + p.pid + '" target="_blank">' + esc(p.name || p.pid) + '</a>' : '')
+            + '</td><td>' + esc(p.pbtName) + ' <span class="note">' + esc(p.email) + (p.role ? ', ' + esc(p.role) : '') + '</span></td><td>' + esc(p.on) + '</td><td>'
+            + (r.ok && r.all ? '<button type="button" class="ghost" data-unpin="' + esc(p.pbtUser) + '">Remove</button>' : '') + '</td></tr>'; }).join('') + '</table>'
+          : '<p class="note">Nobody yet. Each admin is added the first time they open this page.</p>')
+        + (r.refused.length ? '<p><b class="k-failed">Turned away</b></p><table><tr><th>When</th><th>Who</th><th>Email they had</th></tr>'
+          + r.refused.map(function(x){ return '<tr><td>' + esc(x.when) + '</td><td><a href="/Person2/' + x.pid + '" target="_blank">'
+            + esc(x.tpName || x.pid) + '</a></td><td>' + esc(x.email) + '</td></tr>'; }).join('') + '</table>' : '')
+        + '</details></div>';
+      $('sume').innerHTML = h;
+      Array.prototype.forEach.call(document.querySelectorAll('#sume button[data-unpin]'), function(b){
+        b.onclick = function(){
+          var btn = this; btn.disabled = true;
+          post({action:'grp_unpin', pbtuser: btn.getAttribute('data-unpin')}, function(x){
+            if (!x.success) { btn.disabled = false; alert(x.message); return; }
+            gedMe();
+          });
+        };
+      });
+      if (SU) suDraw();
+    });
+  }
+  // Put the editor right under the group's Edit button (so the page does not jump).
+  function gedCanCreate(u){
+    return ME_ED && ME_ED.ok && (ME_ED.all || (ME_ED.divisionIds || []).indexOf(String(u.id).toLowerCase()) > -1);
+  }
+  function gedPlace(){
+    var slot = GED && document.querySelector('#suout [data-slot="' + (GED.unit ? 'new' : GED.src.id) + '"]');
+    if (slot) slot.appendChild($('suedit')); else $('suedithome').appendChild($('suedit'));
+  }
+  function gedOpen(g){
+    GED = {src: g, opening: true};
+    $('suedit').innerHTML = '<div class="ged"><p class="note">Opening ' + esc(g.name) + ' fresh from PoweredByText...</p></div>';
+    gedPlace();
+    post({action:'grp_get', o:g.o, g:g.id}, function(r){
+      if (!r.success) { $('suedit').innerHTML = '<div class="ged"><p class="bad">' + esc(r.message) + '</p></div>'; return; }
+      GED = {src: g, cur: r.group, tags: r.group.tags.slice(), choices: r.tagChoices,
+             kws: r.group.keywords.map(function(k){ return {name: k.name, reply: k.reply, orig: k.name}; })};
+      gedDraw();
+    });
+  }
+  function gedVal(id){ var e = $(id); return e ? e.value : ''; }
+  function gedKeep(){
+    // Copy what is typed back into GED before redrawing.
+    if (!GED || !$('gename')) return;
+    GED.cur.name = gedVal('gename'); GED.cur.description = gedVal('gedesc');
+    GED.kws.forEach(function(k, i){ k.name = gedVal('gekn' + i); k.reply = gedVal('gekr' + i); });
+  }
+  function gedDraw(){
+    var c = GED.cur, h = [];
+    h.push('<div class="ged"><h4>Edit ' + esc(GED.src.name) + '</h4>');
+    h.push('<p class="note">' + (c.info ? 'Info group' : c.whatsapp ? 'WhatsApp group' : 'Subscription group')
+      + (c.leaders.length ? ' &middot; Leaders in PoweredByText: ' + esc(c.leaders.join(', ')) + ' (change leaders in PoweredByText)' : '') + '</p>');
+    h.push('<label class="f" for="gename">Name</label><input class="t" id="gename" value="' + esc(c.name) + '">');
+    h.push('<p class="note">Renaming here changes the name in PoweredByText only. TouchPoint keeps its own name for the group in SMS Management.</p>');
+    h.push('<label class="f" for="gedesc">Description</label><textarea id="gedesc">' + esc(c.description) + '</textarea>');
+    h.push('<label class="f">Tags</label><div>' + (GED.tags.length ? GED.tags.map(function(t, i){
+      return '<span class="chip">' + esc(t) + '<button type="button" data-untag="' + i + '" aria-label="Remove ' + esc(t) + '">&times;</button></span>'; }).join('') : '<span class="note">No tags.</span>') + '</div>');
+    var left = GED.choices.filter(function(t){ return GED.tags.indexOf(t) < 0; });
+    h.push('<div class="bar"><select id="getagpick"><option value="">Add a tag...</option>' + left.map(function(t){ return '<option>' + esc(t) + '</option>'; }).join('')
+      + '<option value="*">A new tag...</option></select><input class="t" id="getagnew" placeholder="New tag, then Enter" maxlength="15" style="display:none;width:200px"></div>'
+      + '<p class="note">PoweredByText does not share its tag list, so this list is the tags on any of your groups plus every tag typed here. A tag PoweredByText has that no group uses yet will not show until you type it once; after that it stays.</p>');
+    h.push(gedAutoBlock(c.autoReply ? (/sorry, but we don.t monitor/i.test(c.autoReplyText || '') ? 'std' : 'own') : 'off', c.autoReplyText, false));
+    h.push('<p class="note">Inbox (two way texting) is <b>' + (c.chat ? 'on' : 'off') + '</b>, and can also only be changed on PoweredByText\\'s website.</p>');
+    h.push('<label class="f">Keywords</label><p class="note">A word people text in to join this group, with the reply they get. '
+      + 'Keywords are shared with everyone on the same number (on 84727, other churches too), so PoweredByText turns away a word already in use.</p>');
+    h.push(GED.kws.map(function(k, i){
+      return '<div class="kw"><div><input class="t" id="gekn' + i + '" value="' + esc(k.name) + '" maxlength="12" aria-label="Keyword"><div class="note" id="geks' + i + '"></div></div>'
+        + '<textarea id="gekr' + i + '" placeholder="Reply when someone texts this word" aria-label="Reply">' + esc(k.reply) + '</textarea>'
+        + '<button type="button" class="x" data-kwx="' + i + '">Remove</button></div>'; }).join('') || '<p class="note">No keywords.</p>');
+    h.push('<p><button type="button" class="ghost" id="gekwadd">Add a keyword</button></p>');
+    h.push('<div class="bar" style="margin-top:14px"><button type="button" class="go" id="gesave">Save to PoweredByText</button>'
+      + '<button type="button" class="ghost" id="gecancel">Close</button><span class="status" id="gestatus"></span></div>');
+    h.push('<div class="steps" id="gesteps"></div></div>');
+    $('suedit').innerHTML = h.join('');
+    Array.prototype.forEach.call(document.querySelectorAll('#suedit [data-untag]'), function(b){
+      b.onclick = function(){ gedKeep(); GED.tags.splice(+this.getAttribute('data-untag'), 1); gedDraw(); }; });
+    Array.prototype.forEach.call(document.querySelectorAll('#suedit [data-kwx]'), function(b){
+      b.onclick = function(){ gedKeep(); GED.kws.splice(+this.getAttribute('data-kwx'), 1); gedDraw(); }; });
+    $('getagpick').onchange = function(){
+      if (this.value == '*') { $('getagnew').style.display = ''; $('getagnew').focus(); return; }
+      if (this.value) { gedKeep(); GED.tags.push(this.value); gedDraw(); }
+    };
+    $('getagnew').onkeydown = function(e){
+      if (e.key != 'Enter') return;
+      e.preventDefault();
+      var t = this.value.trim().toUpperCase();
+      if (t && !/^[A-Z0-9]{1,15}$/.test(t)) { $('gestatus').textContent = 'A tag is up to 15 letters and numbers, no spaces.'; return; }
+      if (t && GED.choices.indexOf(t) < 0) { GED.choices.push(t); GED.choices.sort(); post({action:'grp_tag_add', tag:t}, function(){}); }
+      if (t && GED.tags.indexOf(t) < 0) { gedKeep(); GED.tags.push(t); }
+      gedDraw();
+    };
+    GED.kws.forEach(function(k, i){ $('gekn' + i).onchange = function(){ kwCheck(this, $('geks' + i), GED.src.id, k.orig); }; });
+    $('gekwadd').onclick = function(){ gedKeep(); GED.kws.push({name: '', reply: '', orig: ''}); gedDraw(); $('gekn' + (GED.kws.length - 1)).focus(); };
+    $('gecancel').onclick = function(){ $('suedit').innerHTML = ''; GED = null; $('suedithome').appendChild($('suedit')); };
+    $('gesave').onclick = gedSave;
+  }
+  function gedSave(){
+    gedKeep();
+    var c = GED.cur, btn = $('gesave');
+    var pending = $('getagnew') && $('getagnew').style.display == '' && $('getagnew').value.trim();
+    if (pending) { $('gestatus').textContent = 'Press Enter in the new tag box to add it, or clear it.'; return; }
+    if (!c.name.trim()) { $('gestatus').textContent = 'The group needs a name.'; return; }
+    var kws = GED.kws.filter(function(k){ return k.name.trim() || k.orig; });
+    btn.disabled = true; $('gestatus').textContent = 'Saving...'; $('gesteps').innerHTML = '';
+    var data = {modifiedOn: c.modifiedOn, name: c.name, description: c.description, tags: GED.tags, keywords: kws};
+    post({action:'grp_save', o:GED.src.o, g:GED.src.id, gdata: JSON.stringify(data)}, function(r){
+      btn.disabled = false;
+      if (!r.success) { $('gestatus').textContent = ''; $('gesteps').innerHTML = '<div class="bad">' + esc(r.message) + '</div>'; return; }
+      var bad = r.steps.filter(function(x){ return !x.ok; }).length;
+      $('gestatus').textContent = bad ? bad + ' step' + (bad == 1 ? '' : 's') + ' did not work. Each is below.'
+        : !r.changes.length ? 'Nothing to change.' : 'Saved and checked.';
+      $('gesteps').innerHTML = r.steps.map(function(x){ return '<div class="' + (x.ok ? 'ok' : 'bad') + '">' + (x.ok ? '&#10003; ' : '&#10007; ')
+        + esc(x.step) + ': ' + esc(x.msg) + '</div>'; }).join('')
+        + (r.tpName && r.group && r.tpName != r.group.name ? '<div class="note">TouchPoint still calls this group ' + esc(r.tpName)
+          + '. Rename it in SMS Management if it should match.</div>' : '');
+      if (r.group) {
+        var g = GED.src, a = r.group;
+        g.name = a.name; g.description = a.description; g.tags = a.tags; g.chat = a.chat; g.autoReply = a.autoReply;
+        g.autoReplyText = a.autoReplyText; g.keywords = a.keywords.map(function(k){ return {name: k.name, onContact: k.reply, emails: [], phones: []}; });
+        GED.cur = a; GED.tags = a.tags.slice();
+        GED.kws = a.keywords.map(function(k){ return {name: k.name, reply: k.reply, orig: k.name}; });
+        var keep = $('gesteps').innerHTML, st = $('gestatus').textContent;
+        suDraw(); gedDraw();
+        $('gesteps').innerHTML = keep; $('gestatus').textContent = st;
+      }
+    });
+  }
   $('surun').onclick = function(){
     $('sustatus').textContent = ''; $('suissues').innerHTML = ''; suOpen = {};
     var done = waitBar('su', 'Reading PoweredByText and TouchPoint', 4, 'surun');
+    gedMe();
     post({action:'pbt_setup'}, function(r){
       var took = done();
       if (!r.success) { $('sustatus').textContent = r.message; return; }
@@ -6251,13 +7907,16 @@ def admin_page():
   }
   $('ckrun').onclick = function(){
     $('ckout').innerHTML = ''; $('ckstatus').textContent = '';
-    var done = waitBar('ck', 'Checking TouchPoint and PoweredByText', 6, 'ckrun');
+    var done = waitBar('ck', 'Checking TouchPoint and your texting services', 8, 'ckrun');
     post({action:'pbt_check'}, function(r){
       var took = done();
       if (!r.success) { $('ckstatus').textContent = r.message; return; }
-      var bad = r.checks.filter(function(c){ return c.state == 'bad'; }).length, warn = r.checks.filter(function(c){ return c.state == 'warn'; }).length;
+      var all = [];
+      r.sections.forEach(function(s){ all = all.concat(s.checks); });
+      var bad = all.filter(function(c){ return c.state == 'bad'; }).length, warn = all.filter(function(c){ return c.state == 'warn'; }).length;
       $('ckstatus').textContent = (bad ? bad + ' problem' + (bad == 1 ? '' : 's') : warn ? warn + ' to look at' : 'Everything checks out') + ', in ' + took + 's.';
-      $('ckout').innerHTML = '<table>' + r.checks.map(ckRow).join('') + '</table>';
+      $('ckout').innerHTML = r.sections.map(function(s){
+        return '<h4 style="margin:14px 0 6px">' + esc(s.name) + '</h4><table>' + s.checks.map(ckRow).join('') + '</table>'; }).join('');
     });
   };
   $('cklinks').onclick = function(){
@@ -6271,6 +7930,19 @@ def admin_page():
   };
   $('setemoji').value = $('setemoji').getAttribute('data-v') || 'replies';
   $('setattach').value = $('setattach').getAttribute('data-v') || 'pictures_pdf';
+  ['setqstart', 'setqend'].forEach(function(id){
+    var sel = $(id);
+    for (var h = 0; h < 24; h++) {
+      var o = document.createElement('option');
+      o.value = h; o.textContent = h == 0 ? 'midnight' : h == 12 ? 'noon' : (h % 12) + ' ' + (h < 12 ? 'a.m.' : 'p.m.');
+      sel.appendChild(o);
+    }
+    sel.value = sel.getAttribute('data-v');
+  });
+  $('setqgrace').value = $('setqgrace').getAttribute('data-v') || '120';
+  $('setqmode').value = $('setqmode').getAttribute('data-v') || 'warn';
+  function quietRows(){ $('setqstart').disabled = $('setqend').disabled = $('setqgrace').disabled = $('setqmode').disabled = !$('setquiet').checked; }
+  $('setquiet').onchange = quietRows; quietRows();
   $('ucost').oninput = $('uplan').oninput = $('uprice').oninput = $('uover').oninput = function(){ syncCostHint(); if (lastUsage) drawUsage(lastUsage); drawMom(); };
   // ---- Month over month: saved finished months, the rest read one at a time
   // A period is named by the month it STARTS in; with a cycle day of 18,
@@ -6659,7 +8331,7 @@ def admin_page():
         render(); return;
       }
       var g = ids[done];
-      $('nprogtxt').textContent = 'Reading ' + g.name + ' from PoweredByText (' + (done + 1) + ' of ' + ids.length + '), '
+      $('nprogtxt').textContent = 'Reading ' + g.name + ' (' + (done + 1) + ' of ' + ids.length + '), '
         + Math.round((Date.now() - t0) / 1000) + 's so far. Results fill in below as each group finishes.';
       post({action:'preview_group', gid:g.id}, function(r){
         if (r.success) {
@@ -6698,7 +8370,7 @@ def admin_page():
     all.forEach(function(r){ counts[r.action] = (counts[r.action] || 0) + 1; });
     $('cards').innerHTML =
       '<div class="card' + (filter ? '' : ' on') + '" data-a=""><b>' + all.length + '</b><span>Numbers</span></div>' +
-      ORDER.map(function(a){ return '<div class="card' + (filter == a ? ' on' : '') + '" data-a="' + a + '"><b>' + (counts[a] || 0) +
+      ORDER.concat(counts.owner ? ['owner'] : []).map(function(a){ return '<div class="card' + (filter == a ? ' on' : '') + '" data-a="' + a + '"><b>' + (counts[a] || 0) +
         '</b><span class="tag t-' + a + '">' + LABEL[a] + '</span><br><span>' + HELP[a] + '</span></div>'; }).join('') +
       (WRITES ? '' : '<div class="card' + (filter == 'multi' ? ' on' : '') + '" data-a="multi"><b>' + all.filter(multi).length +
         '</b><span class="tag t-multi">' + LABEL.multi + '</span><br><span>' + HELP.multi + '</span></div>');
@@ -6751,7 +8423,7 @@ def admin_page():
         st.innerHTML = 'Done: <span class="r-changed">' + tally.changed + ' changed</span>' +
           (tally.unconfirmed ? ', <span class="r-unconfirmed">' + tally.unconfirmed + ' not confirmed</span>' : '') +
           (tally.error ? ', <span class="r-error">' + tally.error + ' errors</span>' : '') +
-          (tally.skipped ? ', ' + tally.skipped + ' skipped' : '') + '. Every change is in the Change log.';
+          (tally.skipped ? ', ' + tally.skipped + ' skipped' : '') + '. Every change is on the Changes page.';
         return;
       }
       var job = jobs.shift(), byNum = {};
@@ -6822,13 +8494,13 @@ def admin_page():
   function hlist(){
     var q = ($('hq').value || '').toLowerCase();
     return hist.filter(function(e){
-      return !q || [e.when, e.by, e.num, e.group, e.before, e.after, e.result, e.msg].join(' ').toLowerCase().indexOf(q) >= 0; });
+      return !q || [e.when, e.by, e.kind == 'group' ? (e.what || 'group settings') : 'name', e.num, e.group, e.before, e.after, e.result, e.msg].join(' ').toLowerCase().indexOf(q) >= 0; });
   }
   function renderHistory(){
     var rows = hlist(), shown = rows.slice(0, 1000);
     $('hstatus').textContent = hist.length ? rows.length + ' of ' + hist.length + ' entries, newest first.' : 'No changes yet.';
     $('hrows').innerHTML = shown.map(function(e){
-      return '<tr><td>' + esc(e.when) + '</td><td>' + esc(e.by) + '</td><td>' + fmt(e.num) +
+      return '<tr><td>' + esc(e.when) + '</td><td>' + esc(e.by) + '</td><td>' + (e.kind == 'group' ? esc(e.what || 'Group settings') : 'Name') + '</td><td>' + fmt(e.num) +
         '</td><td class="who">' + esc(e.group) + '</td><td>' + esc(e.before) + '</td><td>' +
         (e.pid ? '<a href="/Person2/' + e.pid + '" target="_blank">' + esc(e.after) + '</a>' : esc(e.after)) +
         '</td><td class="r-' + esc(e.result) + '">' + (RESULT[e.result] || esc(e.result)) + '</td><td class="who">' + esc(e.msg) + '</td></tr>';
@@ -6836,8 +8508,8 @@ def admin_page():
   }
   $('hq').oninput = renderHistory;
   $('hcsv').onclick = function(){
-    csv('PBT-name-sync-log.csv', ['When','By','Where','Number','Group','Before','After','PeopleId','Result','Note'],
-      hlist().map(function(e){ return [e.when, e.by, e.source, e.num, e.group, e.before, e.after, e.pid || '', RESULT[e.result] || e.result, e.msg]; }));
+    csv('PBT-changes.csv', ['When','By','What','Where','Number','Group','Before','After','PeopleId','Result','Note'],
+      hlist().map(function(e){ return [e.when, e.by, e.kind == 'group' ? (e.what || 'Group settings') : 'Name', e.source, e.num, e.group, e.before, e.after, e.pid || '', RESULT[e.result] || e.result, e.msg]; }));
   };
   buttons();
 })();
@@ -6854,17 +8526,25 @@ if (window.location.pathname.indexOf('/PyScript/') > -1)
 </script>"""
 
 # Admin tools actions. Each one checks the Admin role itself (admin_post).
-ADMIN_ACTIONS = set(['preview_group', 'apply', 'usage_history', 'usage_month', 'usage_refresh', 'usage_refresh_plan',
+ADMIN_ACTIONS = set(['preview_group', 'apply', 'twilio_usage', 'usage_history', 'usage_month', 'usage_refresh', 'usage_refresh_plan',
                      'save_cost', 'drill', 'pbt_check', 'pbt_check_links', 'pbt_setup', 'pbt_setup_group', 'apply_update',
+                     'grp_me', 'grp_get', 'grp_save', 'grp_unpin', 'grp_tag_add', 'grp_create', 'grp_kw_check', 'grp_kw_add',
                      'trace', 'usage', 'log', 'save_settings'])
 
 # Admin menu: (group, [(page key, label, what it shows)]). 'people' is the
 # home screen's subscriber compare; the rest are the admin section's tabs.
+PBT_PAGES = ('subs', 'usage', 'setup', 'log')
+TW_PAGES = ('twusage',)
+# Grouped by service: the heading says which one a page is about. The 4th
+# item is the full name, shown where the heading is not (the folded menu).
 ADMIN_MENU = [
-    ('People and numbers', [('names', 'Names', 'sync'), ('subs', 'Subscribers', 'people')]),
-    ('Sending', [('delivery', 'Delivery', 'delivery'), ('usage', 'Usage and cost', 'usage')]),
-    ('Records', [('setup', 'PoweredByText setup', 'setup'), ('log', 'Change log', 'history'),
+    ('Texting', [('names', 'Names', 'sync'), ('delivery', 'Delivery', 'delivery'),
                  ('check', 'Connection check', 'check'), ('settings', 'Settings', 'settings')]),
+    ('PoweredByText', [('subs', 'Subscribers', 'people', 'PoweredByText subscribers'),
+                       ('usage', 'Usage and cost', 'usage', 'PoweredByText usage and cost'),
+                       ('setup', 'Setup', 'setup', 'PoweredByText setup'),
+                       ('log', 'Changes', 'history', 'Changes made in PoweredByText')]),
+    ('Twilio', [('twusage', 'Usage and cost', 'twusage', 'Twilio usage and cost')]),
 ]
 
 SHELL_CSS = """
@@ -6939,14 +8619,14 @@ SHELL_JS = r"""
     MENU.forEach(function(g){ g[1].forEach(function(it){ if (it[0] == page) item = it; }); });
     if (admin && !item) { page = 'names'; item = MENU[0][1][0]; }
     app.className = admin ? 'admin ' + (item[2] == 'people' ? 'on-tx' : 'on-pbt') : 'home';
-    if (admin) $('txmenulbl').textContent = item[1];
+    if (admin) $('txmenulbl').textContent = item[3] || item[1];
     $('txmenubtn').setAttribute('aria-expanded', 'false');
     Array.prototype.forEach.call(document.querySelectorAll('#txapp nav.adm a'), function(a){
       a.className = a.getAttribute('data-p') == page ? 'on' : ''; });
     $('txtoadmin').style.display = isAdmin && !admin ? '' : 'none';
     $('txtohome').style.display = admin && hasInbox ? '' : 'none';
     $('txtitle').textContent = admin ? 'Texting admin tools' : 'Texting';
-    $('txsub').textContent = admin ? 'Only people with the Admin role see these.' : 'Conversations from your PoweredByText groups';
+    $('txsub').textContent = admin ? 'Only people with the Admin role see these.' : 'Conversations from your texting groups';
     if (!admin) clickTab('#tabs a[data-t="inbox"]');
     else if (item[2] == 'people') clickTab('#tabs a[data-t="people"]');
     else clickTab('#pbt .tabs a[data-tab="' + item[2] + '"]');
@@ -7034,7 +8714,14 @@ def app_page():
             '<div class="apphead"><h2 id="txtitle">Texting</h2><span class="sub" id="txsub"></span><span class="sp"></span>'
             '<button type="button" id="txtoadmin" style="display:none">Admin tools</button>'
             '<button type="button" id="txtohome" style="display:none">Back to conversations</button></div>')
-    menu = [[g, [list(it) for it in items]] for g, items in ADMIN_MENU]
+    # Pages about one service show only when that service is set up (with
+    # neither set up, PoweredByText's show, so their messages say what is missing).
+    pbt_on, tw_on = pbt_configured(), twilio_configured()
+    pbt_page = pbt_on or not tw_on
+    menu = [[g, [list(it) for it in items
+                 if (it[0] not in PBT_PAGES or pbt_page) and (it[0] not in TW_PAGES or tw_on)]]
+            for g, items in ADMIN_MENU]
+    menu = [m for m in menu if m[1]]
     return (SHELL_CSS
             + '<div id="txapp" class="home" data-inbox="%s" data-admin="%s">' % ('1' if has_inbox else '0', '1' if is_admin else '0')
             + head + '<div class="body"><button type="button" class="menubtn" id="txmenubtn" aria-expanded="false" aria-controls="txnav">'
