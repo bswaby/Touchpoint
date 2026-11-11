@@ -50,6 +50,29 @@
 # OPEN IT AT /PyScriptForm/TPxi_Texting (not /PyScript/).
 #
 # VERSION HISTORY
+#   1.0.10 Fix: changing a PoweredByText group (from 1.0.8) could reset its
+#          staff to one Account Admin. Saves now send the staff back, refuse
+#          if PoweredByText did not list them, and check they match after.
+#          PoweredByText reports stay inside its 2-month limit.
+#          The inbox's time choices are now 30 days, 3 months, 6 months and
+#          1 year (from TouchPoint's own records, which have no 2-month limit).
+#          Fix: a text scheduled in TouchPoint showed on the day it was
+#          scheduled, and before it went out. The inbox, Group texts and
+#          Twilio By month now go by when it is sent, and leave out texts
+#          that have not gone out yet.
+#          PoweredByText setup: the group editor and New group now set Inbox
+#          and the automatic reply (Off, or On with your own message), read
+#          back after saving. Tags come from PoweredByText's own tag list.
+#          Twilio By month counts only people a group text went to (not
+#          numbers TouchPoint skipped as opted out or missing).
+#          Group texts refreshes like Conversations: a group text sent
+#          while the page is open shows up without reloading. It also lists
+#          group texts TouchPoint never recorded, read from PoweredByText
+#          (last 2 months): a leader who texts a message to the group's
+#          number sends it to everyone, and TouchPoint saw only their
+#          incoming text. These show as "<name>, by text".
+#          An open conversation shows those group texts for the last 2
+#          months (was 7 days), and marks where that stops.
 #   1.0.9  PoweredByText follows TouchPoint's own switch (PoweredByTextEnable):
 #          a church that turned it off but left its keys in is no longer
 #          read from PoweredByText, asked for a PBT plan, or flagged for
@@ -163,7 +186,7 @@ import json
 import re
 import datetime
 
-TEXTING_VERSION = '1.0.9'
+TEXTING_VERSION = '1.0.10'
 # Updates come from the same TPxi script service as the other TPxi tools:
 # the page asks DC_API_BASE which version is newest, and an admin's Update
 # pulls the new code from DC_API_WORKER and saves it over this script.
@@ -697,11 +720,11 @@ def broadcasts(gids, since):
     """{(gid, day, message[:200])} sent to 3+ numbers: announcements, not answers."""
     out = set()
     for r in q.QuerySql("""
-            SELECT l.SendGroupID G, CONVERT(varchar(10), l.Created, 120) D, LEFT(l.Message, 200) M
+            SELECT l.SendGroupID G, CONVERT(varchar(10), COALESCE(l.SendAt, l.Created), 120) D, LEFT(l.Message, 200) M
             FROM SMSList l WITH (NOLOCK) JOIN SMSItems i WITH (NOLOCK) ON i.ListID = l.Id
-            WHERE l.SendGroupID IN (%s) AND l.Created >= '%s'
-            GROUP BY l.SendGroupID, CONVERT(varchar(10), l.Created, 120), LEFT(l.Message, 200)
-            HAVING COUNT(DISTINCT i.Number) >= 3""" % (sql_ints(gids), since)):
+            WHERE l.SendGroupID IN (%s) AND COALESCE(l.SendAt, l.Created) >= '%s' AND COALESCE(l.SendAt, l.Created) <= '%s'
+            GROUP BY l.SendGroupID, CONVERT(varchar(10), COALESCE(l.SendAt, l.Created), 120), LEFT(l.Message, 200)
+            HAVING COUNT(DISTINCT i.Number) >= 3""" % (sql_ints(gids), since, client_now())):
         out.add((r.G, r.D, norm(r.M)))
     return out
 
@@ -732,12 +755,12 @@ def inbound_rows(where):
 
 def outbound_rows(where):
     return capped(q.QuerySql("""
-        SELECT TOP %d l.Id, CONVERT(varchar(19), l.Created, 120) T, l.SendGroupID G, l.SenderID Sender,
+        SELECT TOP %d l.Id, CONVERT(varchar(19), COALESCE(l.SendAt, l.Created), 120) T, l.SendGroupID G, l.SenderID Sender,
                l.Title, l.Message, l.ReplyToId, i.Number Num, i.PeopleID Pid, i.Sent,
                i.ResultStatus Status, ISNULL(i.NoOptIn, 0) NoOptIn
         FROM SMSList l WITH (NOLOCK) JOIN SMSItems i WITH (NOLOCK) ON i.ListID = l.Id
         WHERE %s
-        ORDER BY l.Created DESC""" % (OUT_CAP, where)), OUT_CAP)
+        ORDER BY COALESCE(l.SendAt, l.Created) DESC""" % (OUT_CAP, where)), OUT_CAP)
 
 
 def collapse(events):
@@ -787,7 +810,8 @@ def events_for(g, nums_filter, since, bcast, sp=None):
         for r in q.QuerySql("""
                 SELECT DISTINCT l.SendGroupID G, i.Number Num FROM SMSList l WITH (NOLOCK)
                 JOIN SMSItems i WITH (NOLOCK) ON i.ListID = l.Id
-                WHERE l.Title = '%s' AND l.Created >= '%s' AND l.SendGroupID IN (%s)""" % (SEND_TITLE, since, gids)):
+                WHERE l.Title = '%s' AND COALESCE(l.SendAt, l.Created) >= '%s' AND COALESCE(l.SendAt, l.Created) <= '%s'
+                  AND l.SendGroupID IN (%s)""" % (SEND_TITLE, since, client_now(), gids)):
             if r.Num and (r.G, r.Num) not in by:
                 by[(r.G, r.Num)] = []
                 nums_filter.append(r.Num)
@@ -798,7 +822,8 @@ def events_for(g, nums_filter, since, bcast, sp=None):
     # late and without a sender; the log has the real time and the name.
     sent_log = [e for e in load_sent() if e.get('b') and e.get('gid') in g]
     mark('incoming')
-    outs = outbound_rows("l.SendGroupID IN (%s) AND l.Created >= '%s'%s" % (gids, since, numsql))
+    outs = outbound_rows("l.SendGroupID IN (%s) AND COALESCE(l.SendAt, l.Created) >= '%s' AND COALESCE(l.SendAt, l.Created) <= '%s'%s"
+                         % (gids, since, client_now(), numsql))
     mark('outgoing read (%d rows)' % len(outs))
     # A busy period is thousands of rows but few distinct messages (one group
     # text is a row per person, several times over), so the work per message
@@ -1692,22 +1717,29 @@ def pbt_fix_times(g, num, evs, now):
     return evs
 
 
+# How far back an open conversation asks PoweredByText for group texts
+# TouchPoint never saw: all PBT reports (two months). Before that the
+# conversation says so at the cutoff.
+PBT_GT_DAYS = 59
+
+
 def pbt_group_texts(g, num, now, evs):
-    """Group texts this number got in the last 7 days that TouchPoint never
-    saw: ones sent from PoweredByText's own app are not reported back to
-    TouchPoint, so a reply like "Yes" would otherwise have nothing above it.
+    """Group texts this number got in the last two months that TouchPoint
+    never saw: one a leader sends by texting it to the group's number (and
+    some sent in PoweredByText's app) is not reported back to TouchPoint, so
+    a reply like "Yes" would otherwise have nothing above it.
     The report has one row per recipient, so it is read only when a
     conversation is opened (the page keeps the result), and only the texts
     this number actually received are returned. Nothing is stored."""
     end = parse_ts(now)
     zone, tz = church_offset()
     body = {'groupIds': [g['groupId']], 'pageNumber': 1, 'pageSize': 500,
-            'fromDate': (end - datetime.timedelta(days=7)).strftime('%Y-%m-%d'), 'toDate': end.strftime('%Y-%m-%d'),
-            'messageTypes': ['Broadcast', 'BroadcastMessage', 'ScheduledBroadcast']}
+            'fromDate': (end - datetime.timedelta(days=PBT_GT_DAYS)).strftime('%Y-%m-%d'), 'toDate': end.strftime('%Y-%m-%d'),
+            'messageTypes': PBT_BCAST_TYPES}
     if tz:
         body['timeZoneOffset'] = tz
     found = []
-    for _ in range(14):                 # up to 7,000 recipient rows
+    for _ in range(40):                 # up to 40,000 recipient rows
         res = pbt_post('/reports/message-reports', body)
         if res.get('isError'):
             if res.get('appCode') == 're.1006' and body['toDate'] == end.strftime('%Y-%m-%d'):
@@ -1788,7 +1820,9 @@ def act_thread():
         for og, (sub, opt) in f['target']['subs'].items():
             if og != gid and sub and not opt and og in mine and can_send_in(mine[og]):
                 also.append({'gid': og, 'name': mine[og]['name']})
-    return {'success': True, 'group': g['name'], 'gid': gid, 'num': num, 'alsoIn': sorted(also, key=lambda x: x['name']),
+    gt_from = ((parse_ts(now) - datetime.timedelta(days=PBT_GT_DAYS)).strftime('%Y-%m-%d')
+               if with_pbt and not is_twilio(g) and group_texts is not None else '')
+    return {'success': True, 'group': g['name'], 'gid': gid, 'num': num, 'alsoIn': sorted(also, key=lambda x: x['name']), 'gtFrom': gt_from,
             'events': [{'dir': e['dir'], 't': e['t'], 'body': e['body'],
                         'staff': e.get('staff') or ('PoweredByText' if e.get('pbt') else ''),
                         'broadcast': bool(e.get('broadcast')), 'status': e.get('status', ''),
@@ -2009,6 +2043,72 @@ def act_roster():
     return {'success': True, 'group': g['name'], 'people': rows}
 
 
+PBT_BCAST_TYPES = ['Broadcast', 'BroadcastMessage', 'ScheduledBroadcast']
+
+
+def pbt_broadcasts(groups, since, now, day=None):
+    """Group texts PoweredByText sent for these groups ({id: group}), read
+    from its report (one row per recipient). TouchPoint does not record them
+    all: one a leader sends by texting it to the group's number reaches
+    everyone but shows in TouchPoint only as that leader's incoming text.
+    PBT reports the last two months, so nothing older is asked for.
+    Returns {(gid, day, message[:200] normalized): {t, msg, nums}}."""
+    if not pbt_configured():
+        return {}
+    ext = dict((unicode(g.get('groupId') or '').lower(), gid) for gid, g in groups.items()
+               if not is_twilio(g) and g.get('groupId'))
+    if not ext:
+        return {}
+    end = parse_ts(now)
+    start = max(parse_ts(since), end - datetime.timedelta(days=59))
+    if day:
+        start = end = datetime.datetime.strptime(day, '%Y-%m-%d')
+    zone, tz = church_offset()
+    body = {'groupIds': [groups[gid]['groupId'] for gid in ext.values()], 'pageNumber': 1, 'pageSize': 1000,
+            'fromDate': start.strftime('%Y-%m-%d'), 'toDate': end.strftime('%Y-%m-%d'), 'messageTypes': PBT_BCAST_TYPES}
+    if tz:
+        body['timeZoneOffset'] = tz
+    out, lo = {}, (since if not day else day)
+    for _ in range(30):
+        res = pbt_post('/reports/message-reports', body)
+        if res.get('isError'):
+            if res.get('appCode') == 're.1006' and body['toDate'] == end.strftime('%Y-%m-%d'):
+                body['toDate'] = (end - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                if body['fromDate'] > body['toDate']:
+                    break
+                continue
+            break                       # includes re.1015, "no messages"
+        data = res.get('data') or {}
+        for r in data.get('data') or []:
+            gid = ext.get(unicode(r.get('groupId') or '').lower())
+            t = pbt_ts(r.get('timestamp'))
+            if not gid or not t or t < lo or not (r.get('direction') or '').lower().startswith('out'):
+                continue
+            msg = r.get('message') or ''
+            k = (gid, t[:10], norm(msg[:200]))
+            b = out.setdefault(k, {'t': t, 'msg': msg, 'nums': set()})
+            b['t'] = min(b['t'], t)
+            b['nums'].add(digits10(r.get('subscriberNo')))
+        if body['pageNumber'] >= (data.get('totalPages') or 1):
+            break
+        body['pageNumber'] += 1
+    return out
+
+
+def by_text_sender(gid, msg, t):
+    """Who texted this message in to the group just before it went out to
+    everyone (a leader sending a group text from their phone), or None."""
+    lo = (parse_ts(t) - datetime.timedelta(minutes=15)).strftime(TS)
+    hi = (parse_ts(t) + datetime.timedelta(minutes=2)).strftime(TS)
+    for r in q.QuerySql("""
+            SELECT r.FromPeopleId Pid, r.Body FROM SmsReceived r WITH (NOLOCK)
+            WHERE r.ToGroupId = %d AND r.DateReceived >= '%s' AND r.DateReceived <= '%s'
+            ORDER BY r.DateReceived DESC""" % (int(gid), lo, hi)):
+        if norm(r.Body)[:200] == norm(msg)[:200]:
+            return r.Pid or 0
+    return None
+
+
 def act_sends():
     """Texts that went to 3 or more numbers from one of my groups on the same
     day (the broadcast rule), newest first, with how many replied in the
@@ -2022,26 +2122,41 @@ def act_sends():
     gids = sql_ints(groups.keys())
     sends = {}
     for r in q.QuerySql("""
-            SELECT l.SendGroupID G, CONVERT(varchar(10), l.Created, 120) D, LEFT(l.Message, 200) M,
-                   MIN(CONVERT(varchar(19), l.Created, 120)) T, MAX(CAST(l.Message AS nvarchar(1600))) FullMsg,
+            SELECT l.SendGroupID G, CONVERT(varchar(10), COALESCE(l.SendAt, l.Created), 120) D, LEFT(l.Message, 200) M,
+                   MIN(CONVERT(varchar(19), COALESCE(l.SendAt, l.Created), 120)) T, MAX(CAST(l.Message AS nvarchar(1600))) FullMsg,
                    COUNT(DISTINCT i.Number) N, MIN(l.SenderID) Sender
             FROM SMSList l WITH (NOLOCK) JOIN SMSItems i WITH (NOLOCK) ON i.ListID = l.Id
-            WHERE l.SendGroupID IN (%s) AND l.Created >= '%s'
-            GROUP BY l.SendGroupID, CONVERT(varchar(10), l.Created, 120), LEFT(l.Message, 200)
-            HAVING COUNT(DISTINCT i.Number) >= 3""" % (gids, since)):
+            WHERE l.SendGroupID IN (%s) AND COALESCE(l.SendAt, l.Created) >= '%s' AND COALESCE(l.SendAt, l.Created) <= '%s'
+            GROUP BY l.SendGroupID, CONVERT(varchar(10), COALESCE(l.SendAt, l.Created), 120), LEFT(l.Message, 200)
+            HAVING COUNT(DISTINCT i.Number) >= 3""" % (gids, since, client_now())):
         sends[(r.G, r.D, norm(r.M))] = {'gid': r.G, 'group': groups[r.G]['name'], 'day': r.D, 'm': r.M or '',
                                         't': r.T, 'msg': r.FullMsg or '', 'n': r.N, 'sender': r.Sender, 'replied': 0}
+    # Group texts TouchPoint never recorded, from PoweredByText's own report.
+    pbt_to, note = {}, ''
+    if _param('pbt') == '1':
+        try:
+            have = set((k[0], k[2]) for k in sends)
+            for k, b in pbt_broadcasts(groups, since, now).items():
+                d0 = datetime.datetime.strptime(k[1], '%Y-%m-%d')
+                if k in sends or any((k[0], (d0 + datetime.timedelta(days=x)).strftime('%Y-%m-%d'), k[2]) in sends for x in (-1, 1)):
+                    continue
+                sends[k] = {'gid': k[0], 'group': groups[k[0]]['name'], 'day': k[1], 'm': b['msg'][:200], 't': b['t'],
+                            'msg': b['msg'], 'n': len(b['nums']), 'sender': None, 'replied': 0, 'pbt': True}
+                pbt_to[k] = b['nums']
+        except Exception as e:
+            note = 'PoweredByText could not be read, so group texts sent from it may be missing: %s' % unicode(e)[:120]
     if not sends:
         return {'success': True, 'sends': []}
     # Who each went to, and who texted the group afterwards.
     to = {}
     for r in q.QuerySql("""
-            SELECT DISTINCT l.SendGroupID G, CONVERT(varchar(10), l.Created, 120) D, LEFT(l.Message, 200) M, i.Number Num
+            SELECT DISTINCT l.SendGroupID G, CONVERT(varchar(10), COALESCE(l.SendAt, l.Created), 120) D, LEFT(l.Message, 200) M, i.Number Num
             FROM SMSList l WITH (NOLOCK) JOIN SMSItems i WITH (NOLOCK) ON i.ListID = l.Id
-            WHERE l.SendGroupID IN (%s) AND l.Created >= '%s'""" % (gids, since)):
+            WHERE l.SendGroupID IN (%s) AND COALESCE(l.SendAt, l.Created) >= '%s' AND COALESCE(l.SendAt, l.Created) <= '%s'""" % (gids, since, client_now())):
         k = (r.G, r.D, norm(r.M))
         if k in sends:
             to.setdefault(k, set()).add(r.Num)
+    to.update(pbt_to)
     ins = {}
     for r in q.QuerySql("""
             SELECT r.ToGroupId G, %s Num, CONVERT(varchar(19), r.DateReceived, 120) T
@@ -2049,7 +2164,10 @@ def act_sends():
             WHERE r.ToGroupId IN (%s) AND r.DateReceived >= '%s'""" % (NUM_SQL, gids, since)):
         ins.setdefault((r.G, r.Num), []).append(r.T)
     senders = {}
-    pids = set(v['sender'] for v in sends.values() if v['sender'])
+    for k, v in sends.items():
+        if v.get('pbt'):
+            v['byText'] = by_text_sender(v['gid'], v['msg'], v['t'])
+    pids = set(v['sender'] for v in sends.values() if v['sender']) | set(v['byText'] for v in sends.values() if v.get('byText'))
     if pids:
         for r in q.QuerySql("SELECT PeopleId, ISNULL(NULLIF(PreferredName, ''), FirstName) + ' ' + LastName N FROM People WHERE PeopleId IN (%s)" % sql_ints(pids)):
             senders[r.PeopleId] = r.N
@@ -2057,7 +2175,10 @@ def act_sends():
         end = (parse_ts(v['t']) + datetime.timedelta(days=7)).strftime(TS)
         v['replied'] = sum(1 for num in to.get(k, ()) if any(v['t'] < t < end for t in ins.get((v['gid'], num), ())))
         v['sender'] = senders.get(v['sender'], '')
-    return {'success': True, 'sends': sorted(sends.values(), key=lambda x: x['t'], reverse=True)}
+        if v.get('pbt'):
+            v['sender'] = ('%s, by text' % senders[v['byText']]) if v.get('byText') in senders else \
+                ('Texted in by someone' if v.get('byText') == 0 else 'Sent from PoweredByText')
+    return {'success': True, 'sends': sorted(sends.values(), key=lambda x: x['t'], reverse=True), 'note': note}
 
 
 def act_send_detail():
@@ -2072,12 +2193,18 @@ def act_send_detail():
         raise Exception('Unknown group text.')
     nums = {}
     for r in q.QuerySql("""
-            SELECT i.Number Num, MAX(i.PeopleID) Pid, MIN(CONVERT(varchar(19), l.Created, 120)) T
+            SELECT i.Number Num, MAX(i.PeopleID) Pid, MIN(CONVERT(varchar(19), COALESCE(l.SendAt, l.Created), 120)) T
             FROM SMSList l WITH (NOLOCK) JOIN SMSItems i WITH (NOLOCK) ON i.ListID = l.Id
-            WHERE l.SendGroupID = %d AND CONVERT(varchar(10), l.Created, 120) = '%s'
+            WHERE l.SendGroupID = %d AND CONVERT(varchar(10), COALESCE(l.SendAt, l.Created), 120) = '%s'
               AND LEFT(l.Message, 200) = N'%s'
             GROUP BY i.Number""" % (gid, day, m.replace("'", "''"))):
         nums[r.Num] = {'num': r.Num, 'pid': r.Pid, 't': r.T}
+    if not nums and _param('pbt') == '1' and not is_twilio(g):
+        # A group text TouchPoint never recorded: who it went to, from PoweredByText.
+        for k, b in pbt_broadcasts({gid: g}, day + ' 00:00:00', client_now(), day).items():
+            if k[2] == norm(m[:200]):
+                for n in b['nums']:
+                    nums[n] = {'num': n, 'pid': None, 't': b['t']}
     if not nums:
         raise Exception('That group text was not found.')
     first = min(v['t'] for v in nums.values())
@@ -2824,6 +2951,21 @@ def mb_install(script_name):
     model.WriteContentPython("MorningBatch", text.rstrip('\n') + '\n\n' + block + '\n')
 
 
+def mb_wanted(st):
+    """The MorningBatch block is needed only for morning name updates."""
+    return bool(st.get('auto') and NAME_WRITES)
+
+
+def mb_sync(st, script_name):
+    """Puts the MorningBatch block in or takes it out to match the settings."""
+    if mb_wanted(st):
+        if not re.match(r'^[\w\-. ]+$', script_name or ''):
+            raise Exception("Could not tell this script's name from the address bar.")
+        mb_install(script_name)
+    else:
+        mb_uninstall()
+
+
 def mb_uninstall():
     text = mb_read()
     if MB_START in text:
@@ -2975,6 +3117,9 @@ def report_rows(group_ids, start, end, types):
         q_from, q_to = start - datetime.timedelta(days=1), end + datetime.timedelta(days=1)
     else:
         q_from, q_to = start, end
+    # PBT refuses a window over 60 days or reaching back more than 2 months.
+    floor = datetime.datetime.now() - datetime.timedelta(days=PBT_KEEP_DAYS)
+    q_from = max(q_from, floor.replace(hour=0, minute=0, second=0, microsecond=0), q_to - datetime.timedelta(days=60))
     body = {'pageNumber': 1, 'pageSize': REPORT_PAGE, 'messageTypes': types,
             'fromDate': q_from.strftime('%Y-%m-%d'), 'toDate': q_to.strftime('%Y-%m-%d')}
     if group_ids:
@@ -3052,7 +3197,7 @@ def tp_sends_for(refs, group_ids_tp, start, end):
                 SELECT i.PbtReferenceId, i.ListID FROM SMSItems i WITH (NOLOCK)
                 WHERE i.PbtReferenceId IN (%s)""" % ','.join("'%s'" % x for x in chunk)):
             by_ref[str(r.PbtReferenceId)] = int(r.ListID)
-    where = "l.Created >= '%s' AND l.Created < '%s'" % (
+    where = "COALESCE(l.SendAt, l.Created) >= '%s' AND COALESCE(l.SendAt, l.Created) < '%s'" % (
         (start - datetime.timedelta(days=7)).strftime('%Y-%m-%d'), (end + datetime.timedelta(days=1)).strftime('%Y-%m-%d'))
     if group_ids_tp:
         where += " AND l.SendGroupID IN (%s)" % ','.join(str(int(x)) for x in group_ids_tp)
@@ -4284,7 +4429,7 @@ def pbt_setup():
         except Exception:
             pass
     return {'units': out_units, 'tpOnly': sorted(tp_only, key=lambda g: g['name'].lower()), 'accountTemplates': acct,
-            'accountAutoReply': acct_reply}
+            'accountAutoReply': acct_reply, 'tagList': sorted(pbt_tag_list())}
 
 
 def _hooks(d, list_key, url_key, on_key):
@@ -4356,7 +4501,7 @@ def pbt_setup_group(o, g):
 
 # ---------------------------------------------------------------- changing groups
 # Admin tools > PoweredByText setup can change a group: name, description,
-# tags and keywords.
+# tags, keywords, Inbox and AutoResponse.
 #
 # WHO: the Admin role, AND in PoweredByText an Account Admin (church_admin,
 # every group) or a Division Admin (campus_admin): every group in their
@@ -4371,22 +4516,25 @@ def pbt_setup_group(o, g):
 # on the page. The PBT role is read fresh every time, never stored.
 #
 # PBT's group edit IGNORES chatEnabled, autoReponse and autoResponseMessage
-# (tested 2026-11-10: "Updated successfully", nothing changed; their docs say
-# it should work, reported as a bug). A new group comes out with AutoResponse
-# ON and the standard message whatever is sent. So nothing here tries to set
-# them: the page shows the choices grayed out with a note, and saves resend
-# what PBT already has.
+# (tested 2026-11-10; PBT confirmed it 2026-11-11, a fix is "under review").
+# Inbox and AutoResponse have their own addresses instead, which work:
+# .../dialogue-settings {enabled} and .../autoresponse-settings {enabled,
+# message}, read with GET. PBT warned the AutoResponse one can answer
+# "success" when nothing was saved, so every change is read back.
 #
 # HOW: PBT's group edit replaces the whole group, and fields left out are
 # wiped (an edit without tags cleared a tag in testing). So every save reads
 # the group fresh, changes only what was edited, sends every field back, then
-# reads it again and checks. Webhooks, leaders, HELP/STOP/opt-in texts and
-# subscribers are never sent. PBT refuses a keyword already used on the same
+# reads it again and checks. Staff (userIds) are sent back exactly as read:
+# PBT resets a group to one Account Admin when they are missing (1.0.8 left
+# them out). Webhooks, HELP/STOP/opt-in texts and subscribers are never
+# sent. PBT refuses a keyword already used on the same
 # number ("Keyword already exists"), including another church's on 84727.
 EDITORS_CONTENT = 'TPxi_TextingGroupEditors'
-# PBT keeps a church tag list (/orgunit/{o}/tags), but it answers 403 to the
-# API key, so the pick list is the tags on groups plus every tag ever saved
-# from here, remembered in this Special Content.
+# PBT's tag list (/orgunit/{o}/tags, one per division) is readable by the
+# API key since PBT fixed a 403 on 2026-11-11. The pick list is that list,
+# plus the tags on groups and every tag typed here (remembered in this
+# Special Content), so a tag still shows if PBT refuses again.
 TAGS_CONTENT = 'TPxi_TextingTags'
 GROUP_CHANGES_CONTENT = 'TPxi_TextingGroupChanges'
 EDIT_ROLE = 'church_admin'          # every group
@@ -4591,6 +4739,9 @@ def act_grp_create(o, want):
             why = ('%s is already taken on this number, by another group or another church sharing it. '
                    'Add a different keyword with Edit.' % kw)
         steps.append({'step': 'Add keyword %s' % kw, 'ok': not why, 'msg': why or 'Saved'})
+    # PBT makes every group with AutoResponse on; set what was picked.
+    made = []
+    goal = set_replies(base, want, group_replies(base), steps, made)
     d = fresh_group(base)
     numbers = []
     try:
@@ -4599,11 +4750,16 @@ def act_grp_create(o, want):
     except Exception:
         pass
     view = group_view(d, fresh_keywords(base))
+    now_r = group_replies(base)
+    view.update(now_r or {})
+    bad = replies_problems(goal, now_r)
+    if bad:
+        steps.append({'step': 'Read back and check', 'ok': False, 'msg': 'Look in PoweredByText: ' + '; '.join(bad) + '.'})
     log = load_json_content(GROUP_CHANGES_CONTENT, [])
     me = my_name()
     log = [{'when': now_str(), 'by': (me.Name if me else '') or model.UserName or '', 'pid': int(ME), 'group': name, 'was': '',
             'o': o, 'g': gid, 'changes': [u'Group: (none) -> %s (created)' % name]
-            + ([u'Keyword: (none) -> %s' % kw] if kw and all(s2['ok'] for s2 in steps) else []),
+            + ([u'Keyword: (none) -> %s' % kw] if kw and all(s2['ok'] for s2 in steps) else []) + made,
             'ok': all(s2['ok'] for s2 in steps)}] + (log if isinstance(log, list) else [])
     model.WriteContentText(GROUP_CHANGES_CONTENT, safe_json(log[:300]), "")
     return {'steps': steps, 'created': True, 'groupId': gid, 'orgunitId': o, 'group': view, 'numbers': numbers}
@@ -4652,6 +4808,86 @@ def group_view(d, kws):
             'keywords': [{'name': k['name'], 'reply': k['reply']} for k in kws]}
 
 
+def pbt_tag_list():
+    """Every tag in PBT's own lists, all divisions, upper case. Empty when PBT
+    says no; the page then falls back to the tags it already knows."""
+    out = set()
+    try:
+        for u in pbt_pages('/orgunit'):
+            res = pbt_get('/orgunit/%s/tags?pageNumber=1&pageSize=%d' % (u.get('id'), PAGE_SIZE))
+            d = res.get('data') if not res.get('isError') else None
+            for t in (d.get('data') if isinstance(d, dict) else d) or []:
+                if isinstance(t, dict) and t.get('tagName'):
+                    out.add(unicode(t['tagName']).strip().upper())
+    except Exception:
+        pass
+    return out
+
+
+def group_replies(base):
+    """Inbox and AutoResponse as PBT keeps them, or None if it would not say."""
+    try:
+        a, c = pbt_get(base + '/autoresponse-settings'), pbt_get(base + '/dialogue-settings')
+    except Exception:
+        return None
+    ad = a.get('data') if not a.get('isError') else None
+    cd = c.get('data') if not c.get('isError') else None
+    if not isinstance(ad, dict) or not isinstance(cd, dict):
+        return None
+    return {'autoReply': bool(ad.get('enabled')), 'autoReplyText': unicode(ad.get('message') or ''),
+            'chat': bool(cd.get('enabled'))}
+
+
+def set_replies(base, want, have, steps, changes):
+    """Saves Inbox and AutoResponse where want (chat, autoReply,
+    autoReplyText; a missing one is left alone) differs from have. Returns
+    what they should be now, for the read-back check."""
+    if have is None:
+        if want.get('chat') is not None or want.get('autoReply') is not None:
+            steps.append({'step': 'Inbox and AutoResponse', 'ok': False,
+                          'msg': 'PoweredByText would not say how they are set, so they were left alone.'})
+        return None
+    goal = dict(have)
+    chat = want.get('chat')
+    if chat is not None and bool(chat) != have['chat']:
+        why = pbt_refused(pbt_post(base + '/dialogue-settings', {'enabled': bool(chat)}))
+        steps.append({'step': 'Inbox', 'ok': not why, 'msg': why or ('Turned on' if chat else 'Turned off')})
+        if not why:
+            goal['chat'] = bool(chat)
+            changes.append(u'Inbox: %s -> %s' % ('on' if have['chat'] else 'off', 'on' if chat else 'off'))
+    auto = want.get('autoReply')
+    if auto is not None:
+        auto = bool(auto)
+        # Turning it off keeps the message, so turning it back on later has it.
+        text = unicode(want.get('autoReplyText') or '').strip() if auto else have['autoReplyText']
+        if auto and not text:
+            steps.append({'step': 'AutoResponse', 'ok': False, 'msg': 'Type the reply it should send, or turn it off.'})
+        elif auto != have['autoReply'] or text != have['autoReplyText']:
+            why = pbt_refused(pbt_post(base + '/autoresponse-settings', {'enabled': auto, 'message': text}))
+            steps.append({'step': 'AutoResponse', 'ok': not why, 'msg': why or 'Saved'})
+            if not why:
+                goal['autoReply'], goal['autoReplyText'] = auto, text
+                if auto != have['autoReply']:
+                    changes.append(u'AutoResponse: %s -> %s' % ('on' if have['autoReply'] else 'off', 'on' if auto else 'off'))
+                if auto and text != have['autoReplyText']:
+                    changes.append(u'AutoResponse reply: %s -> %s' % (have['autoReplyText'] or '(blank)', text))
+    return goal
+
+
+def replies_problems(goal, now):
+    """What did not stick, comparing what was saved with a fresh read."""
+    if goal is None:
+        return []
+    if now is None:
+        return ['Inbox and AutoResponse could not be read back']
+    out = []
+    if now['chat'] != goal['chat']:
+        out.append('Inbox is %s' % ('on' if now['chat'] else 'off'))
+    if now['autoReply'] != goal['autoReply'] or (goal['autoReply'] and now['autoReplyText'] != goal['autoReplyText']):
+        out.append('AutoResponse did not save (PoweredByText can say it saved when it did not)')
+    return out
+
+
 def act_grp_get(o, g):
     base = check_group_ids(o, g)
     d = fresh_group(base)
@@ -4661,7 +4897,10 @@ def act_grp_get(o, g):
     for u in pbt_pages('/orgunit'):
         for x in pbt_pages('/orgunit/%s/groups' % u.get('id')):
             tags.update(t.upper() for t in _strs(x.get('tags')))
-    return {'group': group_view(d, fresh_keywords(base)), 'tagChoices': sorted(tags)}
+    tags.update(pbt_tag_list())
+    view = group_view(d, fresh_keywords(base))
+    view.update(group_replies(base) or {})
+    return {'group': view, 'tagChoices': sorted(tags)}
 
 
 def remember_tags(tags):
@@ -4776,19 +5015,27 @@ def act_grp_save(o, g, want):
 
     steps, changes = [], []
     before = group_view(d, old_kw)
+    have = group_replies(base)
+    before.update(have or {})
     payload = {'name': name, 'description': unicode(want.get('description') or '').strip(),
                'info': bool(d.get('info')), 'whatsapp': bool(d.get('whatsapp')),
                'notificationMobileNos': _strs(d.get('notificationMobileNos')),
                'notificationEmails': _strs(d.get('notificationEmails')),
                'chatEnabled': bool(d.get('chatEnabled')), 'autoReponse': bool(d.get('autoReponse')),
                'autoResponseMessage': d.get('autoResponseMessage') or '',
-               'tags': tags, 'groupTrackingCode': d.get('groupTrackingCode') or ''}
+               'tags': tags, 'groupTrackingCode': d.get('groupTrackingCode') or '',
+               # PBT resets the group's staff to one Account Admin when userIds
+               # is left out or empty (PBT, 2026-11-11), so always send them back.
+               'userIds': _strs(d.get('userIds'))}
     for key, label, old, new in (('name', 'Name', before['name'], payload['name']),
                                  ('description', 'Description', before['description'], payload['description']),
                                  ('tags', 'Tags', ', '.join(before['tags']), ', '.join(tags))):
         if old != new:
             changes.append(u'%s: %s -> %s' % (label, old if old not in ('', None) else '(blank)', new if new not in ('', None) else '(blank)'))
     group_changed = bool(changes)
+    if group_changed and not payload['userIds']:
+        raise Exception('PoweredByText did not list this group\'s staff, and saving without them would '
+                        'leave it with one Account Admin. Nothing was changed; try again, or change it in PoweredByText.')
     if group_changed:
         why = pbt_refused(pbt_send_json('PUT', base, payload))
         steps.append({'step': 'Group settings', 'ok': not why, 'msg': why or 'Saved'})
@@ -4830,21 +5077,21 @@ def act_grp_save(o, g, want):
         if not why and not renamed:
             changes.append(u'Keyword: %s -> (removed)' % old_by[nm]['name'])
 
+    goal = set_replies(base, want, have, steps, changes)
+
     # Read it back and check nothing else moved.
     after_d = fresh_group(base)
     after = group_view(after_d, fresh_keywords(base))
-    problems = []
+    now_r = group_replies(base)
+    after.update(now_r or {})
+    problems = replies_problems(goal, now_r)
     if group_changed:
         if after['name'] != payload['name'] or after['description'] != payload['description']:
             problems.append('the name or description did not save as typed')
         if sorted(t.upper() for t in after['tags']) != sorted(tags):
             problems.append('the tags are %s' % (', '.join(after['tags']) or 'none'))
-        if after['chat'] != before['chat']:
-            problems.append('Inbox changed')
-        if after['autoReply'] != before['autoReply'] or after['autoReplyText'] != before['autoReplyText']:
-            problems.append('AutoResponse changed')
-    if len(after_d.get('userIds') or []) != len(d.get('userIds') or []):
-        problems.append('the number of leaders changed')
+    if sorted(_strs(after_d.get('userIds'))) != sorted(_strs(d.get('userIds'))):
+        problems.append('the group\'s staff changed')
     if hooks_count(after_d) != hooks_count(d):
         problems.append('the webhook list changed')
     steps.append({'step': 'Read back and check', 'ok': not problems,
@@ -5232,11 +5479,12 @@ def tw_months(n):
                 for gid, name in groups)
     for r in q.QuerySql("""
             SELECT G, M, COUNT(*) Sends, SUM(N) Reached FROM (
-                SELECT l.SendGroupID G, CONVERT(varchar(7), l.Created, 120) M, CONVERT(varchar(10), l.Created, 120) D,
+                SELECT l.SendGroupID G, CONVERT(varchar(7), COALESCE(l.SendAt, l.Created), 120) M, CONVERT(varchar(10), COALESCE(l.SendAt, l.Created), 120) D,
                        LEFT(l.Message, 200) Msg, COUNT(DISTINCT i.Number) N
                 FROM SMSList l WITH (NOLOCK) JOIN SMSItems i WITH (NOLOCK) ON i.ListID = l.Id
-                WHERE l.SendGroupID IN (%s) AND l.Created >= '%s'
-                GROUP BY l.SendGroupID, CONVERT(varchar(7), l.Created, 120), CONVERT(varchar(10), l.Created, 120), LEFT(l.Message, 200)
+                WHERE l.SendGroupID IN (%s) AND COALESCE(l.SendAt, l.Created) >= '%s'
+                  AND ISNULL(i.NoNumber, 0) = 0 AND ISNULL(i.NoOptIn, 0) = 0
+                GROUP BY l.SendGroupID, CONVERT(varchar(7), COALESCE(l.SendAt, l.Created), 120), CONVERT(varchar(10), COALESCE(l.SendAt, l.Created), 120), LEFT(l.Message, 200)
                 HAVING COUNT(DISTINCT i.Number) >= 3) x
             GROUP BY G, M""" % (ids, start)):
         cell = data.get(r.G, {}).get('m', {}).get(r.M)
@@ -5478,7 +5726,7 @@ def admin_post():
             end = parse_day(_param('to'), today)
             if end < start:
                 start, end = end, start
-            if (end - start).days > 61:
+            if (end - start).days > PBT_KEEP_DAYS:
                 raise Exception('Reports cover at most 2 months at a time.')
             gid = int(_param('gid', '0') or 0)
             res = trace(gid, start, end) if action == 'trace' else usage(gid, start, end)
@@ -5520,12 +5768,7 @@ def admin_post():
             s['auto'] = _param('auto') == '1' and NAME_WRITES
             s['groups'] = [int(x) for x in _param('groups').split(',') if x.isdigit()]
             name = _param('script_name')
-            if s['auto']:
-                if not re.match(r'^[\w\-. ]+$', name or ''):
-                    raise Exception("Could not tell this script's name from the address bar.")
-                mb_install(name)
-            else:
-                mb_uninstall()
+            mb_sync(s, name)
             save_settings(s)
             print safe_json({'success': True, 'installed': MB_START in mb_read()})
         else:
@@ -5745,7 +5988,7 @@ def inbox_page():
         <button class="ghost" id="newbtn" title="Text someone"__NEWHIDE__>New text</button>
         <button class="ghost" id="gbtn" title="Text everyone in a group"__NEWHIDE__>Group text</button>
         <select id="grp"><option value="">All my groups</option></select>
-        <select id="days"><option value="30">30 days</option><option value="90" selected>90 days</option><option value="365">1 year</option></select>
+        <select id="days"><option value="30">30 days</option><option value="90" selected>3 months</option><option value="180">6 months</option><option value="365">1 year</option></select>
         <input id="q" placeholder="Search name, number or text">
         <a href="#" id="howlink" style="font-size:12px;align-self:center">Help</a>
         <div class="seg" id="seg"><a href="#" data-f="all" class="on">All</a><a href="#" data-f="new">New</a><a href="#" data-f="notanswered">Not answered</a><a href="#" data-f="done">Done</a></div>
@@ -5880,6 +6123,7 @@ def inbox_page():
   // (how did last week's text do); conversations at 90, so an unanswered text does not drop off.
   function daysFor(v){ return store('days.' + v) || (v == 'sends' ? '30' : '90'); }
   function setView(v){
+    if (v == 'sends' && view != 'sends' && sends !== null) refreshSends();
     view = v;
     Array.prototype.forEach.call(document.querySelectorAll('#view a'), function(a){ a.className = a.getAttribute('data-v') == v ? 'on' : ''; });
     // The conversation filters mean nothing for group texts.
@@ -6063,10 +6307,10 @@ def inbox_page():
       if (sendsDays != 'loading') {
         sendsDays = 'loading';
         $('list').innerHTML = '<div class="empty">Loading group texts...</div>';
-        post({action:'sends', days:days}, function(r){
+        post({action:'sends', days:days, pbt:'1'}, function(r){
           sendsDays = days;
           if (!r.success) { sends = []; $('list').innerHTML = '<div class="empty">' + esc(r.message) + '</div>'; return; }
-          sends = r.sends; renderSends();
+          sends = keepPbt(r, true); sendsNote = r.note || ''; renderSends();
         });
       }
       return;
@@ -6076,8 +6320,9 @@ def inbox_page():
       if (g && String(x.gid) != g) return false;
       return !q || (x.msg + ' ' + x.group + ' ' + x.sender).toLowerCase().indexOf(q) >= 0;
     });
-    if (!rows.length) { $('list').innerHTML = '<div class="empty">No group texts in this period.</div>'; return; }
-    $('list').innerHTML = rows.map(function(x, i){
+    var top = sendsNote ? '<div class="capnote">' + esc(sendsNote) + '</div>' : '';
+    if (!rows.length) { $('list').innerHTML = top + '<div class="empty">No group texts in this period.</div>'; return; }
+    $('list').innerHTML = top + rows.map(function(x, i){
       return '<div class="th' + (curSend && curSend.gid == x.gid && curSend.day == x.day && curSend.m == x.m ? ' on' : '') + '" data-i="' + sends.indexOf(x) + '">' +
         '<span class="av">&#9993;</span><div class="top"><span class="nm">' + esc(x.group) + ' &middot; ' + x.n + ' people</span><span class="tm">' + when(x.t) + '</span></div>' +
         '<div class="pv">' + esc(x.msg) + '</div>' +
@@ -6088,13 +6333,36 @@ def inbox_page():
       el.onclick = function(){ openSend(sends[+el.getAttribute('data-i')]); };
     });
   }
+  // The group texts list is read once; a refresh reads it again quietly and
+  // redraws only if something changed, so a group text sent while the page
+  // is open shows up without reloading.
+  // Group texts TouchPoint never recorded come from PoweredByText, which is
+  // asked at most every 5 minutes; refreshes in between keep the last answer.
+  var pbtSends = [], pbtAt = 0, sendsNote = '';
+  function keepPbt(r, fresh){
+    if (fresh) { pbtSends = r.sends.filter(function(x){ return x.pbt; }); pbtAt = Date.now(); return r.sends; }
+    var have = {};
+    r.sends.forEach(function(x){ have[x.gid + '|' + x.day + '|' + x.m] = 1; });
+    return r.sends.concat(pbtSends.filter(function(x){ return !have[x.gid + '|' + x.day + '|' + x.m]; }))
+      .sort(function(a, b){ return a.t < b.t ? 1 : a.t > b.t ? -1 : 0; });
+  }
+  function refreshSends(){
+    if (sends === null || sendsDays == 'loading') return;
+    var days = sendsDays, fresh = Date.now() - pbtAt > 5 * 60000;
+    post({action:'sends', days:days, pbt:fresh ? '1' : '0'}, function(r){
+      if (!r.success || view != 'sends' || sendsDays != days) return;
+      var was = JSON.stringify(sends.map(function(x){ return [x.gid, x.day, x.m, x.n, x.replied]; }));
+      sends = keepPbt(r, fresh);
+      if (JSON.stringify(sends.map(function(x){ return [x.gid, x.day, x.m, x.n, x.replied]; })) != was) renderSends();
+    });
+  }
   function openSend(x){
     cur = null; tabKey(''); curSend = x;
     $('wrap').className = 'wrap open';
     $('right').innerHTML = '<div class="empty">Loading...</div>';
     renderSends();
     var enc = x.m.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    post({action:'send_detail', gid:x.gid, day:x.day, m:enc}, function(r){
+    post({action:'send_detail', gid:x.gid, day:x.day, m:enc, pbt:x.pbt ? '1' : '0'}, function(r){
       if (curSend !== x) return;
       if (!r.success) { $('right').innerHTML = '<div class="empty">' + esc(r.message) + '</div>'; return; }
       var replies = r.people.filter(function(p){ return p.reply; });
@@ -6143,7 +6411,7 @@ def inbox_page():
       curData = r; renderThread(keep, claim === true || atBottom);
       if (wantGT) post({action:'thread', gid:gid, num:num, claim:'read', gt:'1'}, function(r2){
         if (!cur || cur.key != key || !r2.success) return;
-        curGT = {key: key, list: r2.groupTexts || []};
+        curGT = {key: key, list: r2.groupTexts || [], from: r2.gtFrom || ''};
         var keep2 = $('msg') ? $('msg').value : '';
         var atBottom2 = !$('msgs') || ($('msgs').scrollHeight - $('msgs').scrollTop - $('msgs').clientHeight < 40);
         curData = r2; renderThread(keep2, atBottom2);
@@ -6174,9 +6442,14 @@ def inbox_page():
         evs.push({dir:'out', t:g.t, body:g.body, broadcast:true, app:true, status:''});
     });
     evs.sort(function(a, b){ return a.t < b.t ? -1 : a.t > b.t ? 1 : 0; });
+    // Group texts sent outside TouchPoint come from PoweredByText, which keeps
+    // two months. Older ones are not shown: say where that line is.
+    var gtFrom = curGT.key == cur.key ? curGT.from || '' : '', cutShown = !gtFrom || !evs.length || evs[0].t >= gtFrom;
     var lastDay = '', msgs = evs.map(function(e){
       var d = toDate(e.t).toDateString(), sep = '';
-      if (d != lastDay) { lastDay = d; sep = '<div class="day">' + toDate(e.t).toLocaleDateString([], {weekday:'long', month:'long', day:'numeric'}) + '</div>'; }
+      if (!cutShown && e.t >= gtFrom) { cutShown = true;
+        sep += '<div class="day" style="color:#92400e">Group texts sent from PoweredByText, not TouchPoint, show from here on. Earlier ones are not available.</div>'; }
+      if (d != lastDay) { lastDay = d; sep += '<div class="day">' + toDate(e.t).toLocaleDateString([], {weekday:'long', month:'long', day:'numeric'}) + '</div>'; }
       var cls = e.dir + (e.broadcast ? ' bc' : '') + (e.auto ? ' auto' : '') + (e.reaction ? ' rx' : '') + (e.stop ? ' stop' : '');
       var info = toDate(e.t).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
       if (e.dir == 'out') info = (e.auto ? 'Automatic reply' : e.app ? 'Group text sent in PoweredByText' : e.broadcast ? 'Group text' + (e.staff && e.staff != 'PoweredByText' ? ' from ' + esc(e.staff) : '')
@@ -6671,6 +6944,7 @@ def inbox_page():
       lastPoll = Date.now();
       loadThreads();
       if (cur) openThread(cur.gid, cur.num, 'read');
+      if (view == 'sends') refreshSends();
     }
     pollTimer = setTimeout(poll, pollDelay());
   }
@@ -6726,8 +7000,8 @@ def admin_page():
         warn += ('<div class="warn" id="setupwarn"><b>Finish setting up.</b> Enter ' + ' and '.join(need) +
                  ' under Settings, so plan use, pace and dollars are right. '
                  '<button type="button" class="ghost" id="setupgo">Open Settings</button></div>')
-    if settings.get('auto') and not installed:
-        warn += ('<div class="warn">Morning updates are turned on, but the block in the MorningBatch script is '
+    if mb_wanted(settings) and not installed:
+        warn += ('<div class="warn">A morning step is turned on, but the block in the MorningBatch script is '
                  'missing (someone may have edited it). Save the setting again to put it back.</div>')
 
     last = settings.get('last_auto') or {}
@@ -7052,14 +7326,16 @@ def admin_page():
       <p><b>Who can.</b> Admins in TouchPoint, with the rights they have in PoweredByText: an Account Admin can change any
       group and add groups anywhere, a Division Admin the groups in their divisions (and add groups there), a Group Admin only
       the groups they are assigned. People are matched by the email they sign in to TouchPoint with.</p>
-      <p><b>Changing a group</b> (open it, then Edit): name, description, tags, and keywords with the reply each one sends.
+      <p><b>Changing a group</b> (open it, then Edit): name, description, tags, keywords with the reply each one sends,
+      the automatic reply, and Inbox (two way texting).
       Each save reads the group fresh from PoweredByText, changes only what you edited, then reads it again to check, and is
-      listed on the Changes page. Not here, because PoweredByText does not allow it from outside: Inbox and AutoResponse
-      (the gear on the group in PoweredByText, then Direct Chat), leaders (PoweredByText's Users page), and webhooks.
+      listed on the Changes page. Not here, because PoweredByText does not allow it from outside: leaders (PoweredByText's
+      Users page) and webhooks.
       Renaming changes PoweredByText's name only; TouchPoint keeps its own name in
       <a href="/SMSManagement" target="_blank">SMS Management</a>.</p>
       <p><b>Adding a group</b> (New PoweredByText group, then pick the division): this makes it in PoweredByText, with its tags and keyword. PoweredByText
-      gives it the division's numbers, makes the Account Admin its leader and turns AutoResponse on. Then, in TouchPoint:
+      gives it the division's numbers and makes the Account Admin its leader; the automatic reply and Inbox are set as you
+      chose. Then, in TouchPoint:
       open <a href="/SMSManagement" target="_blank">SMS Management</a>, Add New Group, pick the Campus (the division) and
       Select Group, then add the Users who should read and send from it. Until then TouchPoint cannot text from it or show its
       replies. The page lists these steps again after you add one.</p>
@@ -7830,13 +8106,17 @@ def admin_page():
     if (!u) return;
     var choices = [];
     SU.units.forEach(function(x){ x.groups.forEach(function(g){ g.tags.forEach(function(t){ t = String(t).toUpperCase(); if (choices.indexOf(t) < 0) choices.push(t); }); }); });
-    GED = {unit: u, tags: [], choices: choices.sort(), name: '', description: '', keyword: '', reply: ''};
+    (SU.tagList || []).forEach(function(t){ if (choices.indexOf(t) < 0) choices.push(t); });
+    GED = {unit: u, tags: [], choices: choices.sort(), name: '', description: '', keyword: '', reply: '',
+           autoReply: false, autoReplyText: '', chat: true};
     gnewDraw(); gedPlace();
   }
   function gnewKeep(){
     if (!GED || !GED.unit || !$('gnname')) return;
     GED.name = gedVal('gnname'); GED.description = gedVal('gndesc'); GED.keyword = gedVal('gnkw'); GED.reply = gedVal('gnreply');
     SU.units.forEach(function(x){ if (x.id == gedVal('gndiv')) GED.unit = x; });
+    var rv = gedRepliesVal('gn');
+    if (rv) { GED.autoReply = rv.autoReply; GED.autoReplyText = rv.autoReplyText; GED.chat = rv.chat; }
   }
   function gnewDraw(){
     var h = [];
@@ -7859,7 +8139,7 @@ def admin_page():
     h.push('<div class="kw"><input class="t" id="gnkw" maxlength="12" value="' + esc(GED.keyword) + '" aria-label="Keyword">'
       + '<textarea id="gnreply" placeholder="Reply when someone texts this word" aria-label="Reply">' + esc(GED.reply) + '</textarea><span></span></div>'
       + '<div class="note" id="gnkwst"></div>');
-    h.push(gedAutoBlock('std', '', true));
+    h.push(gedReplies('gn', GED.autoReply, GED.autoReplyText, GED.chat));
     h.push('<div class="bar" style="margin-top:14px"><button type="button" class="go" id="gnsave">Add the group in PoweredByText</button>'
       + '<button type="button" class="ghost" id="gncancel">Close</button><span class="status" id="gnstatus"></span></div>');
     h.push('<div class="steps" id="gnsteps"></div></div>');
@@ -7879,6 +8159,7 @@ def admin_page():
       if (t && GED.tags.indexOf(t) < 0) { gnewKeep(); GED.tags.push(t); }
       gnewDraw();
     };
+    gedRepliesBind('gn', gnewKeep);
     $('gndiv').onchange = function(){ gnewKeep(); gnewDraw(); };
     $('gnkw').onchange = function(){ kwCheck(this, $('gnkwst'), ''); };
     if (GED.keyword) kwCheck($('gnkw'), $('gnkwst'), '');
@@ -7891,10 +8172,11 @@ def admin_page():
     if (!GED.name.trim()) { $('gnstatus').textContent = 'The group needs a name.'; return; }
     if (GED.keyword.trim() && !/^[A-Za-z0-9]{2,12}$/.test(GED.keyword.trim())) { $('gnstatus').textContent = 'A keyword is 2 to 12 letters and numbers, no spaces.'; return; }
     if ($('gntagnew').style.display == '' && $('gntagnew').value.trim()) { $('gnstatus').textContent = 'Press Enter in the new tag box to add it, or clear it.'; return; }
+    if (GED.autoReply && !GED.autoReplyText.trim()) { $('gnstatus').textContent = 'Type the automatic reply, or turn it off.'; return; }
     btn.disabled = true; $('gnstatus').textContent = 'Adding...'; $('gnsteps').innerHTML = '';
     var u = GED.unit;
     post({action:'grp_create', o:u.id, gdata: JSON.stringify({name: GED.name, description: GED.description, tags: GED.tags,
-          keyword: GED.keyword, reply: GED.reply})}, function(r){
+          keyword: GED.keyword, reply: GED.reply, chat: GED.chat, autoReply: GED.autoReply, autoReplyText: GED.autoReplyText})}, function(r){
       btn.disabled = false;
       if (!r.success) { $('gnstatus').textContent = ''; $('gnsteps').innerHTML = '<div class="bad">' + esc(r.message) + '</div>'; return; }
       var steps = r.steps.map(function(x){ return '<div class="' + (x.ok ? 'ok' : 'bad') + '">' + (x.ok ? '&#10003; ' : '&#10007; ')
@@ -7912,8 +8194,6 @@ def admin_page():
         + 'If it is not in the list yet, press <b>Sync PBT</b> first. Linking also points the group\\'s replies at TouchPoint.</li>'
         + '<li><b>Give people access.</b> In the same group on SMS Management, add the <b>Users</b> who should read its replies and send from it '
         + '(sending also needs the SendSMS role).</li>'
-        + (g.autoReply ? '<li><b>Auto reply.</b> The group starts with AutoResponse on and PoweredByText\\'s standard message. '
-          + 'To turn it off or use your own message: on PoweredByText\\'s website, open the group, the gear, then Direct Chat.</li>' : '')
         + '<li><b>Leaders in PoweredByText</b>, if anyone besides the Account Admin should manage it there: PoweredByText\\'s Users page.</li>'
         + '<li><b>Check it.</b> Press <b>Load the setup</b> again: the group should show its TouchPoint group, staff and the TouchPoint webhook.</li></ol>'
         + '<div class="bar"><button type="button" class="ghost" id="gndone">Close</button></div></div>';
@@ -7934,18 +8214,24 @@ def admin_page():
       }
     });
   }
-  // Auto reply and Inbox, grayed out: PBT's API ignores them (see the server
-  // notes), so they are shown, not sent. pick: 'off', 'std' or 'own'.
-  function gedAutoBlock(pick, text, isNew){
-    var h = ['<label class="f">Auto reply</label><div class="off">'];
-    [['off', 'Off: replies come to the inbox for someone to answer'], ['std', 'On, with PoweredByText\\'s standard message'],
-     ['own', 'On, with a message of our own']].forEach(function(o){
-      h.push('<label class="chk"><input type="radio" disabled' + (pick == o[0] ? ' checked' : '') + '> ' + esc(o[1]) + '</label>'); });
-    if (pick != 'off' && text) h.push('<div class="box" style="margin:6px 0">' + esc(text) + '</div>');
-    h.push('</div><p class="note">Grayed out because PoweredByText does not save this from outside its website right now, even though its '
-      + 'documentation says it should. We have reported it to them. ' + (isNew ? 'Every new group starts with AutoResponse on and the standard message. ' : '')
-      + 'To change it, open the group on PoweredByText\\'s website, the gear, then Direct Chat.</p>');
-    return h.join('');
+  // Auto reply and Inbox. p is the id prefix ('ge' edit, 'gn' new group).
+  function gedReplies(p, auto, text, chat){
+    return '<label class="f">Auto reply</label>'
+      + '<label class="chk"><input type="radio" name="' + p + 'auto" id="' + p + 'auto0" value="0"' + (auto ? '' : ' checked') + '> Off: texts wait for someone to answer them</label>'
+      + '<label class="chk"><input type="radio" name="' + p + 'auto" id="' + p + 'auto1" value="1"' + (auto ? ' checked' : '') + '> On: every text that comes in gets this reply</label>'
+      + '<textarea id="' + p + 'autotext" aria-label="Automatic reply"' + (auto ? '' : ' style="display:none"') + '>' + esc(text || '') + '</textarea>'
+      + '<p class="note">Each automatic reply uses a credit. Words in braces, like {ChurchName}, are filled in by PoweredByText.</p>'
+      + '<label class="f">Inbox</label><label class="chk"><input type="checkbox" id="' + p + 'chat"' + (chat ? ' checked' : '') + '> Two way texting (Direct Chat): replies can be read and answered</label>'
+      + '<p class="note">Leave this on for any group people text back to.</p>';
+  }
+  function gedRepliesBind(p, keep){
+    [$(p + 'auto0'), $(p + 'auto1')].forEach(function(r){ r.onchange = function(){
+      $(p + 'autotext').style.display = $(p + 'auto1').checked ? '' : 'none';
+      if ($(p + 'auto1').checked) $(p + 'autotext').focus(); keep(); }; });
+  }
+  function gedRepliesVal(p){
+    if (!$(p + 'auto1')) return null;
+    return {autoReply: $(p + 'auto1').checked, autoReplyText: $(p + 'autotext').value, chat: $(p + 'chat').checked};
   }
   // ---- Changing a group (by the person's PBT rights; the server checks too)
   var ME_ED = null, GED = null;
@@ -8011,6 +8297,8 @@ def admin_page():
     if (!GED || !$('gename')) return;
     GED.cur.name = gedVal('gename'); GED.cur.description = gedVal('gedesc');
     GED.kws.forEach(function(k, i){ k.name = gedVal('gekn' + i); k.reply = gedVal('gekr' + i); });
+    var rv = gedRepliesVal('ge');
+    if (rv) { GED.cur.autoReply = rv.autoReply; GED.cur.autoReplyText = rv.autoReplyText; GED.cur.chat = rv.chat; }
   }
   function gedDraw(){
     var c = GED.cur, h = [];
@@ -8025,9 +8313,8 @@ def admin_page():
     var left = GED.choices.filter(function(t){ return GED.tags.indexOf(t) < 0; });
     h.push('<div class="bar"><select id="getagpick"><option value="">Add a tag...</option>' + left.map(function(t){ return '<option>' + esc(t) + '</option>'; }).join('')
       + '<option value="*">A new tag...</option></select><input class="t" id="getagnew" placeholder="New tag, then Enter" maxlength="15" style="display:none;width:200px"></div>'
-      + '<p class="note">PoweredByText does not share its tag list, so this list is the tags on any of your groups plus every tag typed here. A tag PoweredByText has that no group uses yet will not show until you type it once; after that it stays.</p>');
-    h.push(gedAutoBlock(c.autoReply ? (/sorry, but we don.t monitor/i.test(c.autoReplyText || '') ? 'std' : 'own') : 'off', c.autoReplyText, false));
-    h.push('<p class="note">Inbox (two way texting) is <b>' + (c.chat ? 'on' : 'off') + '</b>, and can also only be changed on PoweredByText\\'s website.</p>');
+      + '<p class="note">The list is PoweredByText\\'s own tag list, plus any tag typed here.</p>');
+    h.push(gedReplies('ge', c.autoReply, c.autoReplyText, c.chat));
     h.push('<label class="f">Keywords</label><p class="note">A word people text in to join this group, with the reply they get. '
       + 'Keywords are shared with everyone on the same number (on 84727, other churches too), so PoweredByText turns away a word already in use.</p>');
     h.push(GED.kws.map(function(k, i){
@@ -8056,6 +8343,7 @@ def admin_page():
       if (t && GED.tags.indexOf(t) < 0) { gedKeep(); GED.tags.push(t); }
       gedDraw();
     };
+    gedRepliesBind('ge', gedKeep);
     GED.kws.forEach(function(k, i){ $('gekn' + i).onchange = function(){ kwCheck(this, $('geks' + i), GED.src.id, k.orig); }; });
     $('gekwadd').onclick = function(){ gedKeep(); GED.kws.push({name: '', reply: '', orig: ''}); gedDraw(); $('gekn' + (GED.kws.length - 1)).focus(); };
     $('gecancel').onclick = function(){ $('suedit').innerHTML = ''; GED = null; $('suedithome').appendChild($('suedit')); };
@@ -8067,9 +8355,11 @@ def admin_page():
     var pending = $('getagnew') && $('getagnew').style.display == '' && $('getagnew').value.trim();
     if (pending) { $('gestatus').textContent = 'Press Enter in the new tag box to add it, or clear it.'; return; }
     if (!c.name.trim()) { $('gestatus').textContent = 'The group needs a name.'; return; }
+    if (c.autoReply && !(c.autoReplyText || '').trim()) { $('gestatus').textContent = 'Type the automatic reply, or turn it off.'; return; }
     var kws = GED.kws.filter(function(k){ return k.name.trim() || k.orig; });
     btn.disabled = true; $('gestatus').textContent = 'Saving...'; $('gesteps').innerHTML = '';
-    var data = {modifiedOn: c.modifiedOn, name: c.name, description: c.description, tags: GED.tags, keywords: kws};
+    var data = {modifiedOn: c.modifiedOn, name: c.name, description: c.description, tags: GED.tags, keywords: kws,
+                chat: c.chat, autoReply: c.autoReply, autoReplyText: c.autoReplyText};
     post({action:'grp_save', o:GED.src.o, g:GED.src.id, gdata: JSON.stringify(data)}, function(r){
       btn.disabled = false;
       if (!r.success) { $('gestatus').textContent = ''; $('gesteps').innerHTML = '<div class="bad">' + esc(r.message) + '</div>'; return; }
