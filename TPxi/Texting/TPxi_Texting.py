@@ -3855,13 +3855,35 @@ def current_period_key(day=None):
 
 
 # ---------------------------------------------------------------- updates
+def dc_headers():
+    """Sent with the update download: this church's TouchPoint address and the
+    script and version, so the DisplayCache traffic page can say who is on
+    what. No person, nothing from the database. The admin setting
+    TPxiSendHost = 0 turns it off (shared with the other TPxi scripts)."""
+    h = {}
+    try:
+        if str(model.Setting("TPxiSendHost", "1")).strip() in ("0", "false", "False"):
+            return h
+    except Exception:
+        pass
+    try:
+        host = str(model.CmsHost or "").strip()
+    except Exception:
+        host = ""
+    if host:
+        h["X-CmsHost"] = host
+    h["X-TPxi-Script"] = DC_SCRIPT_ID
+    h["X-TPxi-Version"] = TEXTING_VERSION
+    return h
+
+
 def apply_update():
     """Admin only (checked by admin_post). Saves the newest TPxi Texting over
     this script, under whatever name it was saved as, so saved data (kept in
     Special Content under its own names) is untouched."""
     name = re.sub(r'[^\w.\- ]', '', _param('script_name') or '') or DC_SCRIPT_ID
     try:
-        code = model.RestGet(DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID, {}) or ''
+        code = model.RestGet(DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID, dc_headers()) or ''
     except Exception as e:
         return {'success': False, 'message': 'Could not download the update: %s' % e}
     code = unicode(code)
