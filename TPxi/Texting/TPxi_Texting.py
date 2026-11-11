@@ -50,6 +50,20 @@
 # OPEN IT AT /PyScriptForm/TPxi_Texting (not /PyScript/).
 #
 # VERSION HISTORY
+#   1.0.9  PoweredByText follows TouchPoint's own switch (PoweredByTextEnable):
+#          a church that turned it off but left its keys in is no longer
+#          read from PoweredByText, asked for a PBT plan, or flagged for
+#          missing PBT groups, and the inbox and Group texts list only its
+#          Twilio groups; the Connection check says it is turned off.
+#          Twilio's "Replies reaching TouchPoint" check now accepts the
+#          church's TouchPoint address (<church>.tpsdb.com) as well as its
+#          own domain, and checks the route is TouchPoint's /incomingsms.
+#          Admin tools > Twilio > By month: each Twilio group month by month
+#          (last 6 or 12) with group texts and the people they reached,
+#          texts in and from how many people, and Twilio's cost; cost fills
+#          in a month at a time (ended months are saved). CSV download.
+#          The inbox's Group texts now opens at 30 days and Conversations
+#          stays at 90; each list remembers its own choice.
 #   1.0.8  Change and add PoweredByText groups from Admin tools >
 #          PoweredByText setup, without signing in to PoweredByText.
 #          WHO: TouchPoint Admins, by their rights in PoweredByText.
@@ -149,7 +163,7 @@ import json
 import re
 import datetime
 
-TEXTING_VERSION = '1.0.8'
+TEXTING_VERSION = '1.0.9'
 # Updates come from the same TPxi script service as the other TPxi tools:
 # the page asks DC_API_BASE which version is newest, and an admin's Update
 # pulls the new code from DC_API_WORKER and saves it over this script.
@@ -479,10 +493,12 @@ def my_groups():
                                   JOIN Users u ON u.UserId = gm.UserID
                                   WHERE u.PeopleId = %d) THEN 1 ELSE 0 END Member
         FROM SMSGroups g
-        WHERE g.GroupType IN ('PoweredByText', 'Twilio') AND g.IsDeleted = 0
+        WHERE g.GroupType IN (%s) AND g.IsDeleted = 0
           AND ISNULL(g.isDisabled, 0) = 0 AND ISNULL(g.OneTimeCodeFlag, 0) = 0
           AND ISNULL(g.SystemFlag, 0) = 0
-        ORDER BY g.Name""" % int(ME))
+        ORDER BY g.Name""" % (int(ME),
+                              # PoweredByText groups only while PoweredByText is in use (TouchPoint's switch).
+                              "'PoweredByText', 'Twilio'" if pbt_configured() else "'Twilio'"))
     out = {}
     for r in rows:
         if SKIP_NAME.search(r.Name or '') or not (r.Member or see_all):
@@ -2460,7 +2476,10 @@ def now_str():
 def pbt_groups(include_system=False):
     """PBT groups known to TouchPoint. include_system adds the one-time code
     and system groups: no one needs a name there, but their texts still use
-    credits, so the Usage and Delivery tabs count them."""
+    credits, so the Usage and Delivery tabs count them. None when PoweredByText
+    is not in use (turned off in TouchPoint, or no keys)."""
+    if not pbt_configured():
+        return []
     rows = q.QuerySql("""
         SELECT ID, Name, ExternalId, ExternalId2
         FROM SMSGroups
@@ -3928,19 +3947,23 @@ def twilio_check():
             add('Texting numbers', 'warn', 'No number is added to %s yet, so it cannot send. Add one on SMS Management.' % ', '.join(no_number))
         else:
             add('Texting numbers', 'ok', 'Every number on a Twilio group is in this Twilio account.')
-        host = (model.Setting('DefaultHost', '') or '').split('//')[-1].strip('/').lower()
+        # TouchPoint answers at its own address (<church>.tpsdb.com) and at the
+        # DefaultHost address (a church's own domain); its Twilio route is /incomingsms.
+        host = (model.Setting('DefaultHost', '') or '').split('//')[-1].strip('/').split('/')[0].lower()
+        hosts = [x for x in (host, tp_host()) if x]
         wrong = []
         for g in groups:
             for num in g['numbers']:
                 n = have.get(digits10(num))
                 url = ((n or {}).get('sms_url') or '').lower()
-                if n and (not url or (host and host not in url)):
+                url_host = url.split('//')[-1].split('/')[0]
+                if n and (not url or (hosts and url_host not in hosts) or '/incomingsms' not in url):
                     wrong.append('%s goes to %s' % (num, url or 'nowhere'))
         if wrong:
             add('Replies reaching TouchPoint', 'bad', 'Texts people send to these numbers do not go to TouchPoint: %s. '
                 'In Twilio, set the number\'s incoming message address to TouchPoint.' % '; '.join(wrong[:5]))
         else:
-            add('Replies reaching TouchPoint', 'ok', 'Each number sends incoming texts to TouchPoint (%s).' % (host or 'TouchPoint'))
+            add('Replies reaching TouchPoint', 'ok', 'Each number sends incoming texts to TouchPoint (%s).' % (' or '.join(hosts) or 'TouchPoint'))
     nums = [num for g in groups for num in g['numbers']]
     if nums:
         since = (datetime.datetime.utcnow() - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
@@ -3978,6 +4001,10 @@ def pbt_check():
     if not model.Setting('PBTClientID', '') or not model.Setting('PBTClientSecret', ''):
         add('PoweredByText keys', 'bad', 'PBTClientID or PBTClientSecret is empty in TouchPoint Settings. '
             'Nothing can reach PoweredByText until both are filled in.')
+        return checks
+    if not pbt_switch_on():
+        add('PoweredByText turned on', 'info', 'PoweredByText is turned off in TouchPoint (the PoweredByTextEnable setting), '
+            'so TPxi Texting leaves it out. Its keys are still filled in; clear them too if PoweredByText is no longer used.')
         return checks
     add('PoweredByText keys', 'ok', 'Both are filled in under TouchPoint Settings.')
     try:
@@ -5048,12 +5075,32 @@ TW_LINES = [
 ]
 
 
+def tp_host():
+    """This church's own TouchPoint address, <name>.tpsdb.com, from the database name (CMS_<name>)."""
+    try:
+        r = q.QuerySqlTop1("SELECT DB_NAME() AS n")
+        name = (str(r.n) if r else '').strip()
+        if name.upper().startswith('CMS_'):
+            return name[4:].lower() + '.tpsdb.com'
+    except Exception:
+        pass
+    return ''
+
+
 def twilio_configured():
     return bool(model.Setting("TwilioSID", "") and model.Setting("TwilioToken", ""))
 
 
+def pbt_switch_on():
+    """TouchPoint's own on/off for PoweredByText (Settings: PoweredByTextEnable).
+    TouchPoint treats it as off unless it is true, so this does too."""
+    return str(model.Setting("PoweredByTextEnable", "") or "").strip().lower() in ("true", "1", "yes")
+
+
 def pbt_configured():
-    return bool(model.Setting("PBTClientID", ""))
+    """PoweredByText is in use: its keys are filled in AND TouchPoint has it
+    turned on. A church that turned it off but left the keys is not using it."""
+    return bool(model.Setting("PBTClientID", "") and model.Setting("PBTClientSecret", "")) and pbt_switch_on()
 
 
 def money(v):
@@ -5138,6 +5185,50 @@ def twilio_usage(month, refresh=False):
     rec = dict(rec)
     rec['saved'] = False
     return rec
+
+
+def tw_months(n):
+    """For each Twilio group, month by month (the last n months): group texts
+    sent (a text to 3 or more numbers on one day, the same rule as Group
+    texts), people they reached, texts received, and the people who sent
+    them. From TouchPoint's own records; cost comes from twilio_usage."""
+    n = max(1, min(int(n or 6), 12))
+    today = datetime.date.today()
+    months = []
+    y, mo = today.year, today.month
+    for _ in range(n):
+        months.append('%04d-%02d' % (y, mo))
+        y, mo = (y - 1, 12) if mo == 1 else (y, mo - 1)
+    months.reverse()
+    start = months[0] + '-01'
+    groups = [(r.Id, r.Name) for r in q.QuerySql("""
+        SELECT Id, Name FROM SMSGroups WHERE GroupType = 'Twilio' AND IsDeleted = 0 ORDER BY Name""")]
+    if not groups:
+        return {'months': months, 'groups': []}
+    ids = sql_ints([g[0] for g in groups])
+    data = dict((gid, {'id': gid, 'name': name, 'm': dict((m, {'sends': 0, 'reached': 0, 'received': 0, 'from': 0}) for m in months)})
+                for gid, name in groups)
+    for r in q.QuerySql("""
+            SELECT G, M, COUNT(*) Sends, SUM(N) Reached FROM (
+                SELECT l.SendGroupID G, CONVERT(varchar(7), l.Created, 120) M, CONVERT(varchar(10), l.Created, 120) D,
+                       LEFT(l.Message, 200) Msg, COUNT(DISTINCT i.Number) N
+                FROM SMSList l WITH (NOLOCK) JOIN SMSItems i WITH (NOLOCK) ON i.ListID = l.Id
+                WHERE l.SendGroupID IN (%s) AND l.Created >= '%s'
+                GROUP BY l.SendGroupID, CONVERT(varchar(7), l.Created, 120), CONVERT(varchar(10), l.Created, 120), LEFT(l.Message, 200)
+                HAVING COUNT(DISTINCT i.Number) >= 3) x
+            GROUP BY G, M""" % (ids, start)):
+        cell = data.get(r.G, {}).get('m', {}).get(r.M)
+        if cell is not None:
+            cell['sends'], cell['reached'] = int(r.Sends or 0), int(r.Reached or 0)
+    for r in q.QuerySql("""
+            SELECT r.ToGroupId G, CONVERT(varchar(7), r.DateReceived, 120) M, COUNT(*) Received, COUNT(DISTINCT %s) Senders
+            FROM SmsReceived r WITH (NOLOCK)
+            WHERE r.ToGroupId IN (%s) AND r.DateReceived >= '%s'
+            GROUP BY r.ToGroupId, CONVERT(varchar(7), r.DateReceived, 120)""" % (NUM_SQL, ids, start)):
+        cell = data.get(r.G, {}).get('m', {}).get(r.M)
+        if cell is not None:
+            cell['received'], cell['from'] = int(r.Received or 0), int(r.Senders or 0)
+    return {'months': months, 'groups': [data[g[0]] for g in groups]}
 
 
 # ================================================================ pages and actions
@@ -5374,6 +5465,10 @@ def admin_post():
             print safe_json(res)
         elif action == 'twilio_usage':
             res = twilio_usage(_param('month'), _param('refresh') == '1')
+            res['success'] = True
+            print safe_json(res)
+        elif action == 'tw_months':
+            res = tw_months(_param('n') or '6')
             res['success'] = True
             print safe_json(res)
         elif action == 'log':
@@ -5755,15 +5850,20 @@ def inbox_page():
   var base = window.location.pathname.replace('/PyScript/', '/PyScriptForm/');
   var shownRows = [];
   var threads = [], groups = [], filt = 'all', cur = null, curData = null, busy = false;
-  var capped = false, sends = null, sendsDays = '', curSend = null, view = 'conv';
+  var capped = false, sends = null, sendsDays = '', curSend = null, view = 'conv', threadsDays = '';
   // What the server said the inbox looked like last time; a refresh with
   // nothing new comes back 'same' and the page keeps what it shows.
   var listMark = '', threadMark = {};
+  // How far back each list looks: its own choice, remembered. Group texts start at 30 days
+  // (how did last week's text do); conversations at 90, so an unanswered text does not drop off.
+  function daysFor(v){ return store('days.' + v) || (v == 'sends' ? '30' : '90'); }
   function setView(v){
     view = v;
     Array.prototype.forEach.call(document.querySelectorAll('#view a'), function(a){ a.className = a.getAttribute('data-v') == v ? 'on' : ''; });
     // The conversation filters mean nothing for group texts.
     $('seg').style.display = $('markall').style.display = v == 'sends' ? 'none' : '';
+    $('days').value = daysFor(v);
+    if (v == 'conv' && threadsDays && threadsDays != $('days').value) { loadThreads(true); return; }
     renderList();
   }
   var curGT = {key: null, list: []};   // group texts sent in PoweredByText's app, read once per open
@@ -5864,7 +5964,8 @@ def inbox_page():
   // ------------------------------------------------ list
   function loadThreads(fresh){
     if (fresh) listMark = '';
-    post({action:'threads', days:$('days').value, mark:listMark}, function(r){
+    threadsDays = $('days').value;
+    post({action:'threads', days:threadsDays, mark:listMark}, function(r){
       if (!r.success) { $('list').innerHTML = '<div class="empty">' + esc(r.message) + '</div>'; return; }
       if (r.same) return;
       listMark = r.mark || '';
@@ -6520,11 +6621,15 @@ def inbox_page():
       renderList(); };
   });
   $('grp').onchange = function(){ store('grp', this.value); renderList(); };
-  $('days').onchange = function(){ loadThreads(true); if (view == 'sends') renderList(); };
+  $('days').onchange = function(){
+    store('days.' + view, this.value);
+    if (view == 'sends') renderList(); else loadThreads(true);
+  };
   Array.prototype.forEach.call(document.querySelectorAll('#view a'), function(a){
     a.onclick = function(e){ e.preventDefault(); setView(a.getAttribute('data-v')); };
   });
   $('q').oninput = renderList;
+  $('days').value = daysFor('conv');
   loadThreads();
   // Refresh pace: every 30 seconds while you are on the page, 60 after 5
   // minutes with no clicks or typing. Nothing refreshes while the tab is
@@ -6577,20 +6682,23 @@ def admin_page():
     groups = pbt_list + tw_list
     settings = load_settings()
     saved_groups = set(settings.get('groups') or [])
-    configured = bool(model.Setting("PBTClientID", "")) and bool(model.Setting("PBTClientSecret", ""))
+    configured = pbt_configured()
     installed = MB_START in mb_read()
     opts = ''.join(
         '<label class="g"><input type="checkbox" value="%d"%s> %s</label>' % (
             g['id'], '' if saved_groups and g['id'] not in saved_groups else ' checked',
             (g['name'] or '').replace('&', '&amp;').replace('<', '&lt;') + (' (Twilio)' if is_twilio(g) else ''))
         for g in groups)
-    warn = '' if configured or twilio_configured() else \
-        '<div class="warn">PBTClientID or PBTClientSecret is missing in Settings, so this cannot reach PoweredByText.</div>'
-    # Settings an admin has to fill in before usage numbers mean anything.
+    warn = '' if configured or twilio_configured() else (
+        '<div class="warn">PoweredByText is turned off in TouchPoint (PoweredByTextEnable), so it is left out here.</div>'
+        if model.Setting("PBTClientID", "") and not pbt_switch_on() else
+        '<div class="warn">PBTClientID or PBTClientSecret is missing in Settings, so this cannot reach PoweredByText.</div>')
+    # Settings an admin has to fill in before usage numbers mean anything
+    # (PoweredByText's plan: only asked for when PoweredByText is in use).
     need = []
-    if not settings.get('plan_credits') or not settings.get('plan_price'):
+    if configured and (not settings.get('plan_credits') or not settings.get('plan_price')):
         need.append('your PBT plan (credits included and price)')
-    if not settings.get('cycle_day'):
+    if configured and not settings.get('cycle_day'):
         need.append('the day your PBT billing period starts')
     if need:
         warn += ('<div class="warn" id="setupwarn"><b>Finish setting up.</b> Enter ' + ' and '.join(need) +
@@ -6704,7 +6812,7 @@ def admin_page():
     body = """
 <div id="pbt" data-writes="__WRITES__">
   __WARN__
-  <div class="tabs"><a href="#" data-tab="sync" class="on">Names</a><a href="#" data-tab="history">Changes</a><a href="#" data-tab="delivery">Delivery</a><a href="#" data-tab="usage">Usage</a><a href="#" data-tab="twusage">Twilio usage</a><a href="#" data-tab="settings">Settings</a><a href="#" data-tab="setup">PoweredByText setup</a><a href="#" data-tab="check">Connection check</a></div>
+  <div class="tabs"><a href="#" data-tab="sync" class="on">Names</a><a href="#" data-tab="history">Changes</a><a href="#" data-tab="delivery">Delivery</a><a href="#" data-tab="usage">Usage</a><a href="#" data-tab="twusage">Twilio usage</a><a href="#" data-tab="twmonths">Twilio by month</a><a href="#" data-tab="settings">Settings</a><a href="#" data-tab="setup">PoweredByText setup</a><a href="#" data-tab="check">Connection check</a></div>
 
   <div id="tab-sync">
   <p class="lede writes-only">Gives each texting number in PoweredByText the name of the person it belongs to in TouchPoint.
@@ -6981,6 +7089,21 @@ def admin_page():
     <div id="twout"></div>
   </div>
 
+  <div id="tab-twmonths" style="display:none">
+    <p class="lede">Each Twilio texting group month by month: group texts sent (a text to 3 or more people on one day), texts that came
+    back in, and what Twilio charged. Group texts and replies come from TouchPoint; cost comes from Twilio, a month at a time, so the
+    columns fill in as Twilio answers (months that have ended are saved after the first look).</p>
+    <div class="bar">
+      <select id="tmn" aria-label="How many months"><option value="6">Last 6 months</option><option value="12">Last 12 months</option></select>
+      <select id="tmshow" aria-label="Show"><option value="all">Group texts, replies and cost</option><option value="sends">Group texts</option>
+        <option value="received">Replies</option><option value="cost">Cost</option></select>
+      <button id="tmload">Show</button>
+      <button id="tmcsv" class="ghost">Download CSV</button>
+      <span class="status" id="tmstatus"></span>
+    </div>
+    <div id="tmout" style="overflow-x:auto;"></div>
+  </div>
+
   <div id="tab-history" style="display:none">
     <div class="bar">
       <input class="filter" id="hq" placeholder="Filter the log">
@@ -7077,6 +7200,8 @@ def admin_page():
       $('tab-usage').style.display = t == 'usage' ? '' : 'none';
       $('tab-twusage').style.display = t == 'twusage' ? '' : 'none';
       if (t == 'twusage' && !twShown) loadTwilio(false);
+      $('tab-twmonths').style.display = t == 'twmonths' ? '' : 'none';
+      if (t == 'twmonths' && !tmData) loadMonths();
       $('tab-settings').style.display = t == 'settings' ? '' : 'none';
       $('tab-check').style.display = t == 'check' ? '' : 'none';
       $('tab-setup').style.display = t == 'setup' ? '' : 'none';
@@ -7097,6 +7222,94 @@ def admin_page():
     $('twmonth').innerHTML = opts.join('');
   })();
   function usd(x){ return '$' + (x || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+  // Twilio groups by month: TouchPoint's counts at once, then each month's cost from Twilio, one month at a time.
+  var tmData = null, tmCost = {}, tmRun = 0;
+  function loadMonths(){
+    var run = ++tmRun;
+    tmCost = {};
+    $('tmstatus').textContent = 'Reading TouchPoint...'; $('tmout').innerHTML = '';
+    post({action:'tw_months', n:$('tmn').value}, function(r){
+      if (run != tmRun) return;
+      if (!r.success) { $('tmstatus').textContent = r.message; return; }
+      tmData = r;
+      drawMonths();
+      var left = r.months.slice().reverse(), done = 0;  // newest first, so the month in progress shows soonest
+      (function next(){
+        if (run != tmRun) return;
+        if (!left.length) { $('tmstatus').textContent = 'Done. Cost is what Twilio charged for each group\\'s texts.'; return; }
+        var m = left.shift();
+        $('tmstatus').textContent = 'Reading Twilio cost: ' + (done + 1) + ' of ' + r.months.length + ' months...';
+        post({action:'twilio_usage', month:m, refresh:'0'}, function(u){
+          if (run != tmRun) return;
+          done++;
+          tmCost[m] = u.success ? u : {failed: u.message || 'not read'};
+          drawMonths();
+          next();
+        });
+      })();
+    });
+  }
+  function monthLabel(m){ var p = m.split('-'); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+p[1] - 1] + ' ' + p[0].slice(2); }
+  function costOf(m, g){
+    var u = tmCost[m];
+    if (!u) return null;  // not read yet
+    if (u.failed) return undefined;
+    var hit = (u.groups || []).filter(function(x){ return x.group == g.name; })[0];
+    return hit ? hit.cost : 0;
+  }
+  function drawMonths(){
+    var r = tmData; if (!r) return;
+    if (!r.groups.length) { $('tmout').innerHTML = '<p>There are no Twilio texting groups.</p>'; return; }
+    var show = $('tmshow').value, R = ' style="text-align:right;white-space:nowrap"';
+    var cellOf = function(m, g){
+      var c = g.m[m], cost = costOf(m, g), parts = [];
+      if (show == 'all' || show == 'sends') parts.push(c.sends ? '<b>' + n(c.sends) + '</b> <span class="tm">to ' + n(c.reached) + '</span>' : '<span class="tm">0</span>');
+      if (show == 'all' || show == 'received') parts.push(c.received ? n(c.received) + ' in <span class="tm">from ' + n(c.from) + '</span>' : '<span class="tm">0 in</span>');
+      if (show == 'all' || show == 'cost') parts.push(cost === null ? '<span class="tm">&hellip;</span>' : cost === undefined ? '<span class="tm">?</span>' : usd(cost));
+      return parts.join('<br>');
+    };
+    var h = '<table><thead><tr><th>Group</th>' + r.months.map(function(m){ return '<th' + R + '>' + monthLabel(m) + '</th>'; }).join('') + '<th' + R + '>Total</th></tr></thead><tbody>';
+    var tot = {}; r.months.forEach(function(m){ tot[m] = {sends: 0, reached: 0, received: 0, from: 0, cost: 0, costKnown: true}; });
+    r.groups.forEach(function(g){
+      var all = {sends: 0, reached: 0, received: 0, from: 0, cost: 0}, known = true;
+      h += '<tr><td>' + esc(g.name) + '</td>';
+      r.months.forEach(function(m){
+        var c = g.m[m], cost = costOf(m, g);
+        h += '<td' + R + '>' + cellOf(m, g) + '</td>';
+        ['sends', 'reached', 'received', 'from'].forEach(function(k){ all[k] += c[k]; tot[m][k] += c[k]; });
+        if (cost === null || cost === undefined) { known = false; tot[m].costKnown = false; } else { all.cost += cost; tot[m].cost += cost; }
+      });
+      h += '<td' + R + '>' + [show == 'all' || show == 'sends' ? '<b>' + n(all.sends) + '</b> <span class="tm">to ' + n(all.reached) + '</span>' : '',
+                             show == 'all' || show == 'received' ? n(all.received) + ' in' : '',
+                             show == 'all' || show == 'cost' ? (known ? usd(all.cost) : '<span class="tm">&hellip;</span>') : ''].filter(Boolean).join('<br>') + '</td></tr>';
+    });
+    h += '<tr style="font-weight:600;border-top:2px solid #e2e8f0"><td>All groups</td>';
+    r.months.forEach(function(m){
+      var t = tot[m];
+      h += '<td' + R + '>' + [show == 'all' || show == 'sends' ? n(t.sends) + ' <span class="tm">to ' + n(t.reached) + '</span>' : '',
+                             show == 'all' || show == 'received' ? n(t.received) + ' in' : '',
+                             show == 'all' || show == 'cost' ? (t.costKnown ? usd(t.cost) : '<span class="tm">&hellip;</span>') : ''].filter(Boolean).join('<br>') + '</td>';
+    });
+    h += '<td></td></tr></tbody></table>';
+    h += '<p class="lede"><b>Group texts</b>: texts to 3 or more people from a group on one day, and how many people they reached. '
+      + '<b>In</b>: texts people sent to the group&rsquo;s numbers, and from how many people. <b>Cost</b>: what Twilio charged for the group&rsquo;s '
+      + 'texts both ways; carrier fees and number rent are on the account bill (Usage and cost), not here. Texts sent from the Twilio website, not TouchPoint, '
+      + 'are not counted as group texts but are in the cost.</p>';
+    $('tmout').innerHTML = h;
+  }
+  function monthsCsv(){
+    var r = tmData; if (!r) return;
+    var rows = [];
+    r.groups.forEach(function(g){ r.months.forEach(function(m){
+      var c = g.m[m], cost = costOf(m, g);
+      rows.push([g.name, m, c.sends, c.reached, c.received, c.from, (cost === null || cost === undefined) ? '' : cost.toFixed(2)]);
+    }); });
+    csv('Twilio groups by month.csv', ['Group', 'Month', 'Group texts', 'People reached', 'Texts in', 'People who texted in', 'Cost'], rows);
+  }
+  $('tmload').onclick = loadMonths;
+  $('tmshow').onchange = drawMonths;
+  $('tmcsv').onclick = monthsCsv;
+
   function loadTwilio(refresh){
     twShown = true;
     $('twstatus').textContent = 'Reading Twilio...'; $('twout').innerHTML = '';
@@ -8526,7 +8739,7 @@ if (window.location.pathname.indexOf('/PyScript/') > -1)
 </script>"""
 
 # Admin tools actions. Each one checks the Admin role itself (admin_post).
-ADMIN_ACTIONS = set(['preview_group', 'apply', 'twilio_usage', 'usage_history', 'usage_month', 'usage_refresh', 'usage_refresh_plan',
+ADMIN_ACTIONS = set(['preview_group', 'apply', 'twilio_usage', 'tw_months', 'usage_history', 'usage_month', 'usage_refresh', 'usage_refresh_plan',
                      'save_cost', 'drill', 'pbt_check', 'pbt_check_links', 'pbt_setup', 'pbt_setup_group', 'apply_update',
                      'grp_me', 'grp_get', 'grp_save', 'grp_unpin', 'grp_tag_add', 'grp_create', 'grp_kw_check', 'grp_kw_add',
                      'trace', 'usage', 'log', 'save_settings'])
@@ -8534,7 +8747,7 @@ ADMIN_ACTIONS = set(['preview_group', 'apply', 'twilio_usage', 'usage_history', 
 # Admin menu: (group, [(page key, label, what it shows)]). 'people' is the
 # home screen's subscriber compare; the rest are the admin section's tabs.
 PBT_PAGES = ('subs', 'usage', 'setup', 'log')
-TW_PAGES = ('twusage',)
+TW_PAGES = ('twusage', 'twmonths')
 # Grouped by service: the heading says which one a page is about. The 4th
 # item is the full name, shown where the heading is not (the folded menu).
 ADMIN_MENU = [
@@ -8544,7 +8757,8 @@ ADMIN_MENU = [
                        ('usage', 'Usage and cost', 'usage', 'PoweredByText usage and cost'),
                        ('setup', 'Setup', 'setup', 'PoweredByText setup'),
                        ('log', 'Changes', 'history', 'Changes made in PoweredByText')]),
-    ('Twilio', [('twusage', 'Usage and cost', 'twusage', 'Twilio usage and cost')]),
+    ('Twilio', [('twusage', 'Usage and cost', 'twusage', 'Twilio usage and cost'),
+                ('twmonths', 'By month', 'twmonths', 'Twilio groups by month')]),
 ]
 
 SHELL_CSS = """
