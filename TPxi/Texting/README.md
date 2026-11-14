@@ -1,54 +1,76 @@
-### 💬 [TPxi Texting (PoweredByText inside TouchPoint)](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Texting)
+### 💬 [TPxi Texting](https://github.com/bswaby/Touchpoint/tree/main/TPxi/TPxi%20Texting)
+**Answer your church's texts without leaving TouchPoint.**
 
-Read and answer the texts people send to your church's PoweredByText groups, right inside TouchPoint. Staff don't need a PoweredByText login, and every reply is matched to the person in TouchPoint. Admins also get tools that show who each texting number belongs to, how fast group texts really go out, and where your texting credits go.
+Read and reply to the texts people send your PoweredByText and Twilio groups, right inside TouchPoint. Staff need no PoweredByText login, every text is matched to the person in TouchPoint, and admins see who each number belongs to, how fast group texts go out, and where the credits and dollars go.
 
 - ⚙️ **Implementation Level:** Easy
 - 🧩 **Installation:** Single script. Paste it into Special Content > Python as `TPxi_Texting` and open `/PyScriptForm/TPxi_Texting`.
 
-<!-- Screenshot: conversations screen -->
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-01-hero.png" width="760">
+</p>
 
-<summary><strong>For staff: Conversations</strong></summary>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-02-idea.png" width="760">
+</p>
 
-- **One inbox for your groups.** You see the conversations for the texting groups you are listed in on TouchPoint's SMS settings.
-- **Know what needs you.** Each conversation is marked **New** (they texted since you last looked), **Not answered**, **Answered** or **Done**. New is yours alone; the rest everyone shares.
-- **Reply in one step.** Replies go from the group the person texted, so they land in the same conversation on their phone. Quick replies, an emoji picker and a credit counter are built in.
-- **Pictures and files.** Attach a picture or PDF. Big phone photos are shrunk to fit automatically, and people whose phones can't show pictures get a plain text with a link instead.
-- **Safe links.** Long links are shortened with PoweredByText's own short links. Public shorteners like bit.ly, which carriers block, are caught before sending.
-- **New text and Group text.** Start a conversation with anyone subscribed to your groups, or text a whole group with the people count and credits shown before you send.
-- **Search the way you think.** "sar whit" finds Sarah Whitaker. It searches first names, goes-by names, last names, numbers and message text.
-- **Stays current.** New texts appear on their own, and the page works on a phone.
-- **Built-in help.** A Help page explains every label and what each "can't send" message means.
+<hr>
 
-<!-- Screenshot: admin tools, usage and cost -->
+## For staff: a day in the inbox
+You see the conversations for the groups you are listed in on TouchPoint's SMS settings. The pictures use made-up people.
 
-<summary><strong>For admins: Admin tools</strong></summary>
+<summary><strong>1. See what needs you</strong></summary>
+<p>Each conversation is marked New, Not answered, Answered or Done. New is yours alone; the rest everyone shares. Search the way you think: "sar whit" finds Sarah Whitaker.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-03-step1.png" width="760">
+</p>
 
+<summary><strong>2. Reply in one step</strong></summary>
+<p>Replies go from the group they texted, so they land in the same conversation on their phone. Quick replies, emoji, a credit counter, pictures and PDFs (PoweredByText groups), and safe short links are built in.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-04-step2.png" width="760">
+</p>
+
+<summary><strong>3. Text someone new, or a whole group</strong></summary>
+<p>New text starts a conversation with anyone subscribed to your groups. Group text shows how many people it reaches and what it costs before you send. Group texts lists what went out, even a text a leader sent to the group's number from their own phone.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-05-step3.png" width="760">
+</p>
+
+<summary><strong>4. Respect quiet hours</strong></summary>
+<p>Admins set quiet hours and whether staff are warned or cannot send until they end. Nothing is ever held and sent later, and anyone who texted STOP cannot be texted.</p>
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-06-step4.png" width="760">
+</p>
+
+<hr>
+
+## For admins: Admin tools
 Only people with the Admin role see these.
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-07-admin.png" width="760">
+</p>
 
-- **Names:** who each texting number belongs to in TouchPoint, using the same rules for shared family phones every time. It also shows which records need fixing, including phone numbers that sit on more than one record. Each copy of a group text to those numbers costs a credit. Changing names in PoweredByText is on hold until PoweredByText allows it, so this page is a report.
-- **Subscribers:** TouchPoint's subscriber list next to PoweredByText's, so you can spot people who opted out in one but still get texts from the other.
-- **Delivery:** when each group text actually went out, how long it took to reach everyone, and who it failed for. Late answers from carriers (a phone that was off for a day or two) stay with their send instead of making it look slow.
-- **Usage and cost:** credits by billing period and group, how much of your plan you've used and your pace for the period, and waste: texts not delivered, emoji that doubled a text's cost, and the same person getting a text twice. Click any number to see the texts and people behind it.
-- **Connection check:** checks each step between TouchPoint and PoweredByText, so you can tell where a problem is.
-- **Settings:** your plan and billing period, whether staff may use emoji and attachments, and whether admins can see every group.
+- **Names:** who each texting number belongs to, and which records need fixing, such as a phone number on more than one record (each copy of a group text to it costs a credit).
+- **Subscribers:** TouchPoint's subscriber list next to PoweredByText's.
+- **Delivery:** when each group text went out, how long it took to reach everyone, and who it failed for.
+- **Usage and cost:** PoweredByText credits by period and group, your pace, and waste. Twilio's bill by month, and each Twilio group month by month, with a spreadsheet download.
+- **PoweredByText setup:** every number, group, keyword and automatic reply, with problems flagged. Change or add groups without signing in to PoweredByText, by the rights you have there.
+- **Changes:** every group and name change made from here, with who, when, and before and after.
+- **Connection check** and **Settings** (plan and billing day, quiet hours, emoji and attachments).
 
-<summary><strong>What it changes</strong></summary>
+<hr>
 
-- **Texts go out only when someone presses Send.** Nothing is sent automatically. Quiet hours (9 p.m. to 8 a.m.) are respected, and anyone who texted STOP can't be texted.
-- **Nothing in TouchPoint's records is changed.** The admin pages only read.
-- **It keeps its own settings, read marks and usage counts** in TouchPoint. It does not store phone numbers or message text of its own.
+## What it changes, and before you start
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-08-changes.png" width="760">
+</p>
 
-<summary><strong>Before you start</strong></summary>
+1. PoweredByText or Twilio must already be connected to TouchPoint. There are no new keys to enter.
+2. Staff need TouchPoint's **SendSMS** or **ManageSMS** role, and to be assigned to a group in TouchPoint's SMS settings to send to that group.
+3. After installing, an admin opens **Admin tools > Settings** to enter the plan and billing day, then runs **Connection check**.
+4. The first time **Usage and cost** opens, press **Count now**. It reads the last two months from PoweredByText (about a minute) and saves them. After that it reads only what is new.
 
-- PoweredByText must already be connected to TouchPoint. There are no keys to enter.
-- Staff need the **Access** role to open it. To send, they also need the **SendSMS** role and to be listed in the group on TouchPoint's SMS settings.
-- After installing, an admin should open **Admin tools > Settings** to enter the plan and billing day, then run **Connection check**.
-- The first time **Usage and cost** opens, press **Count now**. It reads the last two months from PoweredByText, which takes about a minute, and saves them. After that it only reads what's new.
+**Updates:** when a new version is out, admins see a notice at the top of the page. **Update now** installs it in place, and settings, conversations and saved counts are kept.
 
-<summary><strong>Updates</strong></summary>
-
-When a new version is out, admins see a notice at the top of the page. **Update now** installs it in place, and your settings, conversations and saved counts are kept.
-
-<summary><strong>On your phone</strong></summary>
-
-The page works in a phone browser. [TPxi Go](https://tpxigo.com), an app for TouchPoint, brings texting to your phone.
+**On your phone:** the page works in a phone browser. [TPxi Go](https://tpxigo.com), an app for TouchPoint, brings the same texting to your phone, with an alert when someone texts in.
