@@ -1,4 +1,4 @@
-### 💬 [TPxi Texting](https://github.com/bswaby/Touchpoint/tree/main/TPxi/TPxi%20Texting)
+### 💬 [TPxi Texting](https://github.com/bswaby/Touchpoint/tree/main/TPxi/Texting)
 **Answer your church's texts without leaving TouchPoint.**
 
 Read and reply to the texts people send your PoweredByText and Twilio groups, right inside TouchPoint. Staff need no PoweredByText login, every text is matched to the person in TouchPoint, and admins see who each number belongs to, how fast group texts go out, and where the credits and dollars go.
@@ -7,11 +7,11 @@ Read and reply to the texts people send your PoweredByText and Twilio groups, ri
 - 🧩 **Installation:** Single script. Paste it into Special Content > Python as `TPxi_Texting` and open `/PyScriptForm/TPxi_Texting`.
 
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-01-hero.png" width="760">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Texting/Texting-01-hero.png" width="760">
 </p>
 
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-02-idea.png" width="760">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Texting/Texting-02-idea.png" width="760">
 </p>
 
 <hr>
@@ -22,25 +22,25 @@ You see the conversations for the groups you are listed in on TouchPoint's SMS s
 <summary><strong>1. See what needs you</strong></summary>
 <p>Each conversation is marked New, Not answered, Answered or Done. New is yours alone; the rest everyone shares. Search the way you think: "sar whit" finds Sarah Whitaker.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-03-step1.png" width="760">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Texting/Texting-03-step1.png" width="760">
 </p>
 
 <summary><strong>2. Reply in one step</strong></summary>
 <p>Replies go from the group they texted, so they land in the same conversation on their phone. Quick replies, emoji, a credit counter, pictures and PDFs (PoweredByText groups), and safe short links are built in.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-04-step2.png" width="760">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Texting/Texting-04-step2.png" width="760">
 </p>
 
 <summary><strong>3. Text someone new, or a whole group</strong></summary>
 <p>New text starts a conversation with anyone subscribed to your groups. Group text shows how many people it reaches and what it costs before you send. Group texts lists what went out, even a text a leader sent to the group's number from their own phone.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-05-step3.png" width="760">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Texting/Texting-05-step3.png" width="760">
 </p>
 
 <summary><strong>4. Respect quiet hours</strong></summary>
 <p>Admins set quiet hours and whether staff are warned or cannot send until they end. Nothing is ever held and sent later, and anyone who texted STOP cannot be texted.</p>
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-06-step4.png" width="760">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Texting/Texting-06-step4.png" width="760">
 </p>
 
 <hr>
@@ -48,7 +48,7 @@ You see the conversations for the groups you are listed in on TouchPoint's SMS s
 ## For admins: Admin tools
 Only people with the Admin role see these.
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-07-admin.png" width="760">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Texting/Texting-07-admin.png" width="760">
 </p>
 
 - **Names:** who each texting number belongs to, and which records need fixing, such as a phone number on more than one record (each copy of a group text to it costs a credit).
@@ -63,7 +63,7 @@ Only people with the Admin role see these.
 
 ## What it changes, and before you start
 <p align="center">
-  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/TPxi%20Texting/Texting-08-changes.png" width="760">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Texting/Texting-08-changes.png" width="760">
 </p>
 
 1. PoweredByText or Twilio must already be connected to TouchPoint. There are no new keys to enter.
