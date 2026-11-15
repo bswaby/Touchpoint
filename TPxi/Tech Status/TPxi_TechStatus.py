@@ -1,25 +1,47 @@
-# Written By: Ben Swaby (TPxi Software, LLC)
-# Email: bswaby@fbchtn.org                                                                                                      
-# Website: https://tpxisoftware.com
-# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)                                                                
-# ----------------------------------------------------------------                                                              
-# These tools are free because they should be.
-# If they've saved you time or helped your team, and you want to                                                                
-# support continued development, check out:                                                                                     
+#--------------------------------------------------------------------
+# TPxi Technical Status
+# Tool to help troubleshoot basic issues: print queue, kiosk printing,
+# failed logins and script activity.
 #
-# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)                                                  
-# https://displaycache.com                                
+# Written By: Ben Swaby (TPxi Software, LLC)
+# Email: bswaby@fbchtn.org
+# Website: https://tpxisoftware.com
+# GitHub: https://github.com/bswaby/Touchpoint  (50+ free tools)
+# ----------------------------------------------------------------
+# These tools are free because they should be.
+# If they've saved you time or helped your team, and you want to
+# support continued development, check out:
+#
+# DisplayCache(TM) - church digital signage that integrates with TouchPoint(R)
+# https://displaycache.com
 #
 # TPxi Go(TM) - your church contacts, wherever you work.
-# Look up anyone in TouchPoint(R), log calls and emails from Outlook                                                            
+# Look up anyone in TouchPoint(R), log calls and emails from Outlook
 # or your phone. No tab switching, no lost context.
-# https://tpxigo.com                                                                                                            
+# https://tpxigo.com
 # ----------------------------------------------------------------
-
+#
+# Version history
+#   2.0.0  2026-11-15  Auto-update: Admins see Update now / Later when a newer
+#                      version is published; the download sends this site's address, the
+#                      script and its version (no person; TPxiSendHost = 0
+#                      turns it off). Print Queue Details rebuilt (below).
+#   2.0.1  2026-11-15  Opens on Overview; #prints, #login, #scripts or #users in
+#                      the address opens that tab (it used to reopen the last
+#                      tab viewed).
+#   2.0.2  2026-11-15  TouchPoint's plain page title is hidden; the dashboard's
+#                      own header is the only title.
+#
+# Print Queue Details (2026-11-15): each waiting job now shows what is in it,
+# flags label designs with no fields (they can never print and jam the print
+# service), and shows the printer's label size setting when TouchPoint has it
+# (who and which class for Admins, the label settings and designs) instead
+# of a link to a page that does not exist. A job waiting 2 minutes or more
+# is "Stuck". One stuck job can hold up every station on the same print
+# service; scripts cannot clear it (see the note on the Print Queue tab).
 #--------------------------------------------------------------------
 ####REPORT INFORMATION####
 #--------------------------------------------------------------------
-#Tool to help aide troubleshooting basic issues
 #
 #Add all this code to a single Python Script
 #1. Navigate to Admin ~ Advanced ~ Special Content ~ Python Scripts
@@ -30,7 +52,118 @@
 #--------------------------------------------------------------------
 ####USER CONFIG FIELDS
 #--------------------------------------------------------------------
-model.Header = 'Technical Status Dashboard'
+model.Header = ''          # the page draws its own title; TouchPoint's is hidden in the CSS
+
+# --- Version / Auto-update -------------------------------------------
+# Admins see a banner when a newer version is published, and Update now
+# installs it in place.
+import json
+import re
+APP_VERSION = '2.0.2'                              # bump on each release published
+DC_SCRIPT_ID = 'TPxi_TechnicalStatus'
+# scripts.displaycache.com is the public domain for browser-side version checks.
+# workers.dev is used for server-side fetches (bypasses Cloudflare Bot Fight Mode).
+DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint'
+DC_API_WORKER = 'https://touchpoint-scripts.bswaby.workers.dev/api/touchpoint'
+
+
+def get_script_name():
+    """The name this script is installed under (an admin may have renamed it):
+    the posted script_name, then the URL, then the default."""
+    try:
+        if hasattr(Data, 'script_name') and Data.script_name:
+            sn = str(Data.script_name).strip()
+            if sn:
+                return sn
+    except:
+        pass
+    try:
+        url = str(getattr(model, 'URL', '') or '')
+        m = re.search(r'/PyScript(?:Form)?/([^/?#&]+)', url)
+        if m:
+            return m.group(1)
+    except:
+        pass
+    return DC_SCRIPT_ID
+
+
+def dc_headers():
+    """Sent with the update download: this church's TouchPoint address and the
+    script and version, so the DisplayCache traffic page can say who is on
+    what. No person, nothing from the database. The admin setting
+    TPxiSendHost = 0 turns it off (shared with the other TPxi scripts)."""
+    h = {}
+    try:
+        if str(model.Setting("TPxiSendHost", "1")).strip() in ("0", "false", "False"):
+            return h
+    except Exception:
+        pass
+    try:
+        host = str(model.CmsHost or "").strip()
+    except Exception:
+        host = ""
+    if host:
+        h["X-CmsHost"] = host
+    h["X-TPxi-Script"] = DC_SCRIPT_ID
+    h["X-TPxi-Version"] = APP_VERSION
+    return h
+
+
+def _ts_is_admin():
+    try:
+        return model.UserIsInRole('Admin')
+    except:
+        return False
+
+
+def apply_update():
+    """Fetch the published code, check it really is this script, write it
+    over the installed copy, and confirm the new version landed. Admins only:
+    WriteContentPython itself checks no role."""
+    if not _ts_is_admin():
+        return {'success': False, 'message': 'Only Admins can update this script.'}
+    target_name = re.sub(r'[^\w.\- ]', '', get_script_name() or '') or DC_SCRIPT_ID
+    fetch_url = DC_API_WORKER + '/scripts/' + DC_SCRIPT_ID
+    try:
+        new_code = model.RestGet(fetch_url, dc_headers())
+    except Exception as fe:
+        return {'success': False, 'message': "Couldn't reach the update server. " + str(fe) + ' | Manual install: ' + fetch_url}
+    new_code = str(new_code or '')
+    if len(new_code) < 500:
+        return {'success': False, 'message': 'The update server sent ' + str(len(new_code)) +
+                ' bytes, too small to be the script. Try again in a minute, or use the manual link: ' + fetch_url}
+    m = re.search(r"APP_VERSION = '([0-9.]+)'", new_code)
+    if 'TPxi Technical Status' not in new_code or not m:
+        return {'success': False, 'message': "The update didn't look like Technical Status code; the update server may be "
+                'returning an error page. Manual install: ' + fetch_url}
+    new_version = m.group(1)
+    try:
+        model.WriteContentPython(target_name, new_code)
+    except Exception as we:
+        return {'success': False, 'message': 'Write failed: ' + str(we) + ' | Paste the latest code from ' + fetch_url +
+                ' into Admin > Advanced > Special Content > Python > ' + target_name + '.'}
+    try:
+        written = str(model.PythonContent(target_name) or '')
+        if ("APP_VERSION = '" + new_version + "'") not in written:
+            return {'success': False, 'message': "Wrote to '" + target_name + "' but it does not show v" + new_version +
+                    '. The script is probably installed under another name. Find it under Admin > Advanced > Special Content > Python '
+                    'and paste the latest code from ' + fetch_url + ' into it.'}
+    except:
+        pass   # the read-back is best effort; the write itself succeeded
+    return {'success': True, 'message': 'Updated ' + target_name + ' from v' + APP_VERSION + ' to v' + new_version + '. Reloading...'}
+
+
+_ts_ajax_done = False
+try:
+    _ts_action = str(Data.action) if hasattr(Data, 'action') and Data.action else ''
+except:
+    _ts_action = ''
+if model.HttpMethod == 'post' and _ts_action == 'apply_update':
+    try:
+        print(json.dumps(apply_update()))
+    except Exception as e:
+        print(json.dumps({'success': False, 'message': 'Update failed: ' + str(e)}))
+    _ts_ajax_done = True
 
 #--------------------------------------------------------------------
 ####START OF CODE.  No configuration should be needed beyond this point
@@ -45,12 +178,78 @@ GROUP BY DATEPART(HOUR, Stamp)
 ORDER BY [Hour];
 '''
 
-# Print jobs still in queue
+# Print jobs still in queue. A blank Id means the label already printed.
+# Each row says what is in the job: the label settings and designs, and
+# (for Admins only) who and which class. Bad JSON never breaks the page.
 sqlPrintsInQueue = """
-SELECT Id, Stamp 
-FROM PrintJob 
-WHERE Id <> ''
+WITH jobs AS (
+  SELECT pj.Id, pj.Stamp,
+         DATEDIFF(minute, pj.Stamp, GETDATE()) AgeMin,
+         CASE WHEN DATEDIFF(minute, pj.Stamp, GETDATE()) >= 2 THEN 1 ELSE 0 END IsStuck,
+         CASE WHEN pj.Id LIKE 'PTDRY%' THEN 1 ELSE 0 END IsPractice,
+         CASE WHEN pj.JsonData IS NULL OR ISJSON(pj.JsonData) = 0 THEN 1 ELSE 0 END IsOldFormat,
+         {who} Who,
+         (SELECT STRING_AGG(CAST(k.[key] COLLATE DATABASE_DEFAULT + ': ' + ISNULL(l.name, CONCAT('#', k.value COLLATE DATABASE_DEFAULT))
+                     + CASE WHEN l.active = 0 THEN ' (inactive)' ELSE '' END
+                     + CASE WHEN l.id IS NOT NULL AND fc.n = 0 THEN ' (NO FIELDS)' ELSE '' END AS varchar(max)), '; ')
+            FROM OPENJSON(j.J, '$.kioskLabels') k
+            LEFT JOIN CheckInLabel l ON l.id = TRY_CAST(k.value AS int)
+            OUTER APPLY (SELECT COUNT(*) n FROM CheckInLabelEntry e WHERE e.labelID = l.id) fc) Designs,
+         (SELECT STRING_AGG(CAST(k.[key] COLLATE DATABASE_DEFAULT + ': ' + l.name AS varchar(max)), '; ')
+            FROM OPENJSON(j.J, '$.kioskLabels') k
+            JOIN CheckInLabel l ON l.id = TRY_CAST(k.value AS int)
+            WHERE NOT EXISTS (SELECT 1 FROM CheckInLabelEntry e WHERE e.labelID = l.id)) EmptyDesigns,
+         (SELECT TOP 1 cp.Id + '/' + ISNULL(JSON_VALUE(cp.Data, '$.userName'), '')
+            FROM CheckInPrinters cp WITH (NOLOCK)
+            CROSS APPLY OPENJSON(CASE WHEN ISJSON(cp.Data) = 1 THEN cp.Data ELSE '{}' END, '$.printers') WITH (kioskName nvarchar(200)) pr
+            WHERE REPLACE(pr.kioskName, ' ', '') COLLATE DATABASE_DEFAULT = pj.Id COLLATE DATABASE_DEFAULT) Service,
+         (SELECT TOP 1 CONCAT(cp.Id, ISNULL(' (' + JSON_VALUE(cp.Data, '$.userName') + ')', ''),
+                       ', label size setting ', ISNULL(CAST(pr.labelSizeIndex AS varchar(10)), 'not set'),
+                       ', print service last signed in ', CONVERT(varchar(16), cp.UpdatedDate, 120))
+            FROM CheckInPrinters cp WITH (NOLOCK)
+            CROSS APPLY OPENJSON(CASE WHEN ISJSON(cp.Data) = 1 THEN cp.Data ELSE '{}' END, '$.printers')
+                 WITH (kioskName nvarchar(200), labelSizeIndex int) pr
+            WHERE REPLACE(pr.kioskName, ' ', '') COLLATE DATABASE_DEFAULT = pj.Id COLLATE DATABASE_DEFAULT) Printer,
+         CONCAT('Security labels: ',
+                CASE JSON_VALUE(j.J, '$.securityLabels') WHEN '0' THEN 'none' WHEN '1' THEN 'one per meeting'
+                     WHEN '2' THEN 'one per child' WHEN '3' THEN 'one per family' ELSE 'not set' END,
+                '. Guest labels: ', ISNULL(JSON_VALUE(j.J, '$.guestLabels'), 'not set'),
+                '. Location labels: ', CASE JSON_VALUE(j.J, '$.locationLabels') WHEN '0' THEN 'never' WHEN '1' THEN 'default'
+                     WHEN '2' THEN 'always' ELSE 'not set' END,
+                '. QR code labels: ', ISNULL(JSON_VALUE(j.J, '$.printQrCodeLabels'), 'not set'), '.') Settings
+  FROM PrintJob pj WITH (NOLOCK)
+  CROSS APPLY (SELECT CASE WHEN ISJSON(pj.JsonData) = 1 THEN pj.JsonData ELSE '{}' END J) j
+  WHERE LEN(LTRIM(RTRIM(ISNULL(pj.Id, '')))) > 0
+)
+SELECT a.*,
+       CASE WHEN a.EmptyDesigns IS NOT NULL THEN 1 ELSE 0 END CannotPrint,
+       b.BlockerAt, b.BlockerStation,
+       CASE WHEN a.EmptyDesigns IS NULL AND b.BlockerAt IS NOT NULL THEN 1 ELSE 0 END HeldUp,
+       (SELECT STRING_AGG(CAST(cp.Id + ISNULL(' (' + JSON_VALUE(cp.Data, '$.userName') + ')', '') AS varchar(max)), ', ')
+          FROM CheckInPrinters cp WITH (NOLOCK) WHERE ISNULL(cp.Id, '') <> '') ListedServices
+FROM jobs a
+OUTER APPLY (
+  SELECT TOP 1 CONCAT((DATEPART(hour, x.Stamp) + 11) % 12 + 1, ':', RIGHT('0' + CAST(DATEPART(minute, x.Stamp) AS varchar(2)), 2),
+                      ':', RIGHT('0' + CAST(DATEPART(second, x.Stamp) AS varchar(2)), 2),
+                      CASE WHEN DATEPART(hour, x.Stamp) < 12 THEN ' AM' ELSE ' PM' END) BlockerAt, x.Id BlockerStation
+  FROM jobs x
+  WHERE x.EmptyDesigns IS NOT NULL AND x.Stamp <= GETDATE()
+    AND (x.Id = a.Id OR (x.Service IS NOT NULL AND x.Service = a.Service))
+  ORDER BY x.Stamp
+) b
+ORDER BY a.Id, a.Stamp
 """
+# Who and which class: Admins only (children's names).
+sqlPrintJobWho = """(SELECT STRING_AGG(CAST(ISNULL(p.Name, CONCAT('#', a.peopleID)) + ISNULL(' (' + o.OrganizationName + ')', '') AS varchar(max)), '; ')
+          FROM OPENJSON(j.J, '$.attendances') WITH (peopleID int, groups nvarchar(max) AS JSON) a
+          OUTER APPLY OPENJSON(a.groups) WITH (groupID int) g
+          LEFT JOIN People p ON p.PeopleId = a.peopleID
+          LEFT JOIN Organizations o ON o.OrganizationId = g.groupID)"""
+try:
+    _canSeeWho = model.UserIsInRole('Admin')
+except Exception:
+    _canSeeWho = False
+sqlPrintsInQueue = sqlPrintsInQueue.replace('{who}', sqlPrintJobWho if _canSeeWho else 'NULL')
 
 # Failed login statistics from the last 72 hours - LIMITED to top 10
 sqlFailedLoginStats = '''
@@ -278,6 +477,7 @@ template = '''
     <!-- AG Grid for User Accounts -->
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise/dist/ag-grid-enterprise.js"></script>
     <style>
+        .page-header{display:none!important}
         :root {
             --primary: #4F46E5;
             --primary-dark: #4338CA;
@@ -899,6 +1099,7 @@ template = '''
 </head>
 <body>
     <div class="dashboard">
+        <div id="appUpdateBanner" style="display:none;gap:12px;align-items:center;background:#EAF3FC;border:1px solid #9CC4EC;border-radius:8px;padding:10px 14px;margin-bottom:14px"></div>
         <div class="dashboard-header">
             <h1 class="dashboard-title">
                 <i class="fas fa-server"></i> Technical Status Dashboard
@@ -1056,10 +1257,18 @@ template = '''
                     <h2><i class="fas fa-tasks"></i> Print Queue Details</h2>
                 </div>
                 <div class="card-body">
+                    {{#if printsinqueueCount}}
+                    <div style="background:#FFF8EA;border:1px solid #E5B567;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:14px;line-height:1.5">
+                        <b>About stuck jobs.</b> A print service asks for the labels of all its stations at once, so one job that cannot be built holds up
+                        every station on that print service, not just its own. Scripts cannot remove print jobs. TouchPoint's nightly cleanup removes jobs
+                        older than 12 hours, or TouchPoint support can delete them now. To free the other stations sooner, take the stuck station off its
+                        print service and restart that service. Open <i>What's in it</i> to see which settings or label designs the job used.
+                    </div>
+                    {{/if}}
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>Job ID</th>
+                                <th>Station</th>
                                 <th>Created</th>
                                 <th>Status</th>
                             </tr>
@@ -1068,16 +1277,22 @@ template = '''
                             {{#each printsinqueue}}
                             <tr>
                                 <td>
-                                    <a href="/PrintJobs#{{Id}}" target="_blank">
-                                        <code>{{Id}}</code>
-                                    </a>
+                                    <code>{{Id}}</code>
+                                    {{#if IsPractice}}<div style="font-size:12px;color:#6b7280;margin-top:4px">OneVisit practice build: blocks nothing, cleared tonight</div>{{/if}}
                                 </td>
-                                <td>{{Stamp}}</td>
+                                <td>{{Stamp}}<div style="font-size:12px;color:#6b7280">{{AgeMin}} min ago</div></td>
                                 <td>
-                                    <span class="badge badge-warning">Stuck in Queue</span>
-                                    <a href="/PrintJobs#{{Id}}" class="btn btn-sm" style="padding: 2px 8px; margin-left: 8px;">
-                                        <i class="fas fa-external-link-alt"></i> View
-                                    </a>
+                                    {{#if CannotPrint}}<span class="badge badge-danger">Cannot print</span>{{else}}{{#if HeldUp}}<span class="badge badge-info">Held up</span>{{else}}{{#if IsStuck}}<span class="badge badge-warning">Stuck in Queue</span>{{else}}<span class="badge badge-info">Waiting to print</span>{{/if}}{{/if}}{{/if}}
+                                    {{#if HeldUp}}<div style="font-size:13px;margin-top:4px">Waiting behind the {{BlockerAt}} job on {{BlockerStation}} that cannot print. This one is fine and prints once that job is removed.</div>{{/if}}
+                                    <details style="margin-top:6px"><summary style="cursor:pointer">What's in it</summary>
+                                        <div style="font-size:13px;margin-top:6px;line-height:1.5">
+                                            {{#if EmptyDesigns}}<div style="color:#9B2C2C;font-weight:600">Cannot print: {{EmptyDesigns}} has no fields. This job will hold up its print service until it is removed.</div>{{/if}}
+                                            {{#if Who}}<div><b>For:</b> {{Who}}</div>{{/if}}
+                                            <div><b>Printer:</b> {{#if Printer}}{{Printer}}{{else}}settings not available right now. TouchPoint keeps one set of printer settings per print server computer, and when several print services share a computer, only the last one to sign in is kept. It currently holds: {{ListedServices}}. This station prints fine; only its settings cannot be shown.{{/if}}</div>
+                                            {{#if IsOldFormat}}<div>Older kiosk format; the details cannot be read here.</div>{{else}}<div>{{Settings}}</div>{{/if}}
+                                            {{#if Designs}}<div><b>Label designs:</b> {{Designs}}</div>{{/if}}
+                                        </div>
+                                    </details>
                                 </td>
                             </tr>
                             {{/each}}
@@ -1596,9 +1811,6 @@ template = '''
                 contentElement.classList.add('active');
             }
             
-            // Save the active tab to localStorage
-            localStorage.setItem('activeTab', tabName);
-            
             // Initialize charts and grids when tab becomes visible
             if (tabName === 'overview') {
                 setTimeout(() => {
@@ -1627,32 +1839,14 @@ template = '''
         const tabs = document.querySelectorAll('.tab');
         const tabContents = document.querySelectorAll('.tab-content');
         
-        // Check URL hash first, then localStorage, default to "overview"
-        let currentTab = 'overview';
-        
-        // Get tab from hash (without the # symbol)
-        const hashTab = window.location.hash.substring(1);
-        if (hashTab && document.querySelector(`.tab[data-tab="${hashTab}"]`)) {
-            currentTab = hashTab;
-        } 
-        // If no hash or invalid hash, check localStorage
-        else {
-            const savedTab = localStorage.getItem('activeTab');
-            if (savedTab && document.querySelector(`.tab[data-tab="${savedTab}"]`)) {
-                currentTab = savedTab;
-            }
+        // The address decides the tab: #prints, #login, #scripts or #users opens
+        // that tab, and no # (or one that is not a tab) opens Overview.
+        function tabFromHash() {
+            const hashTab = window.location.hash.substring(1);
+            return hashTab && document.querySelector(`.tab[data-tab="${hashTab}"]`) ? hashTab : 'overview';
         }
-        
-        // Activate the determined tab
-        activateTab(currentTab);
-        
-        // Initialize overview charts if on overview tab
-        if (currentTab === 'overview') {
-            setTimeout(() => {
-                initPrintChartOverview();
-                initFailureTrendsChartOverview();
-            }, 100);
-        }
+        activateTab(tabFromHash());
+        window.addEventListener('hashchange', () => activateTab(tabFromHash()));
         
         // Add click event listeners to tabs
         tabs.forEach(tab => {
@@ -2060,11 +2254,61 @@ template = '''
         });
     }
 </script>
+<script>
+(function(){
+    // AUTO-UPDATE. Only Admins see the banner.
+    var APP_VERSION = '{{appVersion}}', DC_SCRIPT_ID = 'TPxi_TechnicalStatus', IS_ADMIN = '{{isAdmin}}' === '1';
+    var DC_API_BASE = 'https://scripts.displaycache.com/api/touchpoint', LATEST = '';
+    var SCRIPT_NAME = (function(){ var m = (location.pathname || '').match(/\\/PyScript(?:Form)?\\/([^\\/?#]+)/); return m ? m[1] : DC_SCRIPT_ID; })();
+    function newer(pub, mine){
+        var a = String(pub || '').split('.'), b = String(mine || '').split('.');
+        for (var i = 0; i < Math.max(a.length, b.length); i++){ var x = parseInt(a[i], 10) || 0, y = parseInt(b[i], 10) || 0; if (x !== y) return x > y; }
+        return false;
+    }
+    function banner(){
+        var b = document.getElementById('appUpdateBanner'); if (!b) return;
+        b.innerHTML = '<div style="flex:1;font-size:13px;color:#0B5394"><strong>A newer Technical Status is out.</strong> You have ' + APP_VERSION +
+            ', the newest is ' + LATEST + '. <span id="appUpdateSt"></span></div>' +
+            '<button id="appUpdateBtn" type="button" style="white-space:nowrap;padding:6px 14px;background:#0078d4;color:#fff;border:0;border-radius:4px;cursor:pointer">Update now</button>' +
+            '<button id="appUpdateLater" type="button" style="white-space:nowrap;padding:6px 14px;background:#fff;color:#0078d4;border:1px solid #0078d4;border-radius:4px;cursor:pointer">Later</button>';
+        b.style.display = 'flex';
+        document.getElementById('appUpdateBtn').onclick = applyUpdate;
+        document.getElementById('appUpdateLater').onclick = function(){ try { sessionStorage.setItem('tsupdate.later', LATEST); } catch(e) {} b.style.display = 'none'; };
+    }
+    function applyUpdate(){
+        if (!confirm('Update Technical Status from ' + APP_VERSION + ' to ' + LATEST + '?')) return;
+        var btn = document.getElementById('appUpdateBtn'), st = document.getElementById('appUpdateSt');
+        btn.disabled = true; st.textContent = 'Updating...';
+        var x = new XMLHttpRequest(), path = location.pathname.replace('/PyScript/', '/PyScriptForm/');
+        x.open('POST', path, true); x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        x.onload = function(){
+            var t = x.responseText || '', i = t.indexOf('{'), j = t.lastIndexOf('}'), d = null;
+            try { d = JSON.parse(t.slice(i, j + 1)); } catch(e) {}
+            st.textContent = (d && d.message) || 'Unexpected reply from TouchPoint.';
+            if (d && d.success) setTimeout(function(){ location.reload(); }, 800); else btn.disabled = false;
+        };
+        x.onerror = function(){ btn.disabled = false; st.textContent = 'Network error.'; };
+        x.send('action=apply_update&script_name=' + encodeURIComponent(SCRIPT_NAME));
+    }
+    if (!IS_ADMIN) return;
+    var skip = ''; try { skip = sessionStorage.getItem('tsupdate.later') || ''; } catch(e) {}
+    try {
+        var x = new XMLHttpRequest(); x.open('GET', DC_API_BASE + '/script-versions', true); x.timeout = 5000;
+        x.onreadystatechange = function(){
+            if (x.readyState !== 4 || x.status !== 200) return;
+            try { var v = JSON.parse(x.responseText)[DC_SCRIPT_ID]; if (v && newer(v, APP_VERSION) && skip != v) { LATEST = v; banner(); } } catch(e) {}
+        };
+        x.send();
+    } catch(e) {}
+})();
+</script>
 </body>
 </html>
 '''
 
 # Pass the loadUserAccounts flag and counts to the template
+Data.appVersion = APP_VERSION
+Data.isAdmin = '1' if _ts_is_admin() else '0'
 Data.loadUserAccounts = loadUserAccounts
 Data.printsinqueueCount = Data.printsinqueueCount
 Data.scriptCount = Data.scriptCount
@@ -2078,5 +2322,6 @@ Data.successCount = Data.successCount
 Data.failureCount = Data.failureCount
 
 # Render the template with our data
-dashboardReport = model.RenderTemplate(template)
-print(dashboardReport)
+if not _ts_ajax_done:
+    dashboardReport = model.RenderTemplate(template)
+    print(dashboardReport)
