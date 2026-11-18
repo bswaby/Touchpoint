@@ -117,12 +117,24 @@
 #          no TouchPoint login can now get a secure message: sending makes
 #          them a plain member login (a role is added and taken off at once,
 #          the way TouchPoint makes logins), and their link signs them in.
+#   0.4.1  A new request now emails the main routers at the next 15-minute
+#          run (the form is filled in TouchPoint, so nothing in the tool set
+#          off a notice; it only showed in the daily list). A decision or a
+#          handoff ask also goes to the router who gave the case out, even a
+#          backup router. New churches start with a case given out, someone
+#          brought in, a decision and a handoff ask sent right away (at the
+#          click); a church that already chose keeps its choices. Settings,
+#          Emails counts ScheduledTasks' runs over the
+#          last day and warns when it skips them (notices wait for a run), and
+#          the email log says who got what. On the decision, Show the call
+#          notes (above the Why) opens the call's answers, notes and tries,
+#          read-only, to look at while writing.
 #####################################################################
 
 import re
 import datetime
 
-BEN_VERSION = '0.4.0'
+BEN_VERSION = '0.4.1'
 # Updates come from the same TPxi script service as TPxi Texting and the other
 # TPxi tools: the page asks DC_API_BASE which version is newest (admins only),
 # and an admin's Update now pulls the new code from DC_API_WORKER and saves it
@@ -343,7 +355,8 @@ DEFAULT_SETTINGS = {
     'notify_assigned': True, 'notify_shared': True, 'notify_decision': True, 'notify_handoff': True,
     'notify_docs': True, 'notify_paid': False,
     # When each goes out: 'run' (the next 15-minute run, batched) or 'now' (at the click).
-    'notify_when': {},
+    # People waiting on each other hear at once; the rest can wait for a run.
+    'notify_when': {'assigned': 'now', 'shared': 'now', 'decision': 'now', 'handoff': 'now'},
     'email_secure_when': 'later',   # 'later': 10 to 25 minutes if unread; 'now': at once if they are not in the tool
     'away': {},                     # {'pid': 'YYYY-MM-DD'} away until
     'affirm_on': True, 'affirm_required': False, 'handoff_on': True,
@@ -744,10 +757,11 @@ def next_number(records):
 # What each right-away notice says (request number and what happened; never
 # the person's name, needs or amounts), and who it goes to.
 NOTICES = [
+    ('new', 'A new request comes in (checked every 15-minute run)', 'the main routers', '{what}'),
     ('assigned', 'A request is given to someone, or passed on to someone else', 'that committee member', '#{num} was given to you'),
     ('shared', 'Someone is brought in on a case, or asked to affirm a decision', 'that person', '#{num}: {by} {what}'),
-    ('decision', 'A decision is sent back (help or decline)', 'the main routers', '#{num}: {by} sent their decision'),
-    ('handoff', 'A member asks to hand a request off', 'the main routers', '#{num}: {by} asked to hand it off'),
+    ('decision', 'A decision is sent back (help or decline)', 'the main routers and whoever gave it out', '#{num}: {by} sent their decision'),
+    ('handoff', 'A member asks to hand a request off', 'the main routers and whoever gave it out', '#{num}: {by} asked to hand it off'),
     ('docs', 'Documents come in for a request', 'the case worker', '#{num}: documents came in'),
     ('paid', 'Payouts are confirmed, or it is picked up', 'the case worker', '#{num}: {what}'),
     ('nudge', 'The router checks on a request that has stalled', 'the case worker', '#{num}: {by} is checking on it'),
@@ -791,7 +805,14 @@ def notify(r, kind, to, what='', rid=''):
             email_log('notice failed: %s' % unicode(ex)[:120])
     if sent:
         e['sent'] = sent
-        email_log('right-away notices sent at once: %d' % len(sent))
+        email_log('right-away notice at the click to %d: %s' % (len(sent), text))
+
+
+def gave_out(r):
+    """[pid] of the router who gave this case to its member (a backup router
+    who gave it out waits on the decision too), or []."""
+    by = int(((r.get('assigned') or [{}])[-1]).get('by') or 0)
+    return [by] if by and by in router_ids() else []
 
 
 def main_routers(st):
@@ -3785,7 +3806,7 @@ def act_save_settings(st):
                       'decisions': ['affirm_on', 'affirm_required', 'handoff_on', 'req_why_help', 'req_talked_help', 'req_pickup', 'req_why_decline', 'earlier_on', 'router_decide', 'stuck_days', 'affirm_over', 'decline_reasons', 'referrals',
                                     'pickup_places', 'help_kinds'],
                       'emails': ['email_on', 'email_router', 'email_committee', 'email_secure', 'notify_assigned', 'notify_shared',
-                                 'notify_decision', 'notify_handoff', 'notify_docs', 'notify_paid', 'notify_nudge', 'notify_resent', 'email_secure_when', 'email_time', 'email_days',
+                                 'notify_decision', 'notify_handoff', 'notify_docs', 'notify_paid', 'notify_nudge', 'notify_resent', 'notify_new', 'notify_combined_away', 'email_secure_when', 'email_time', 'email_days',
                                  'email_backup_days', 'email_from', 'email_from_name', 'email_tagline'],
                       'texts': ['text_group', 'text_church', 'text_phone', 'text_autosignin', 'text_secure', 'text_docs']}
     sent = set(SECTION_FIELDS.get(_param('s_section'), []))
@@ -3810,7 +3831,7 @@ def act_save_settings(st):
         gl = _param('s_go_live')
         st['go_live'] = gl if re.match(r'^\d{4}-\d{2}-\d{2}$', gl) else ''
     for k in ('affirm_on', 'affirm_required', 'handoff_on', 'email_on', 'email_router', 'email_committee', 'email_secure',
-              'notify_assigned', 'notify_shared', 'notify_decision', 'notify_handoff', 'notify_docs', 'notify_paid', 'notify_nudge', 'notify_resent',
+              'notify_assigned', 'notify_shared', 'notify_decision', 'notify_handoff', 'notify_docs', 'notify_paid', 'notify_nudge', 'notify_resent', 'notify_new', 'notify_combined_away',
               'req_why_help', 'req_talked_help', 'req_pickup', 'req_why_decline', 'earlier_on'):
         if has(k):
             st[k] = _param('s_' + k) == '1'
@@ -4298,7 +4319,7 @@ def decision_card(st, s, r, f, show_acct=False):
             '<div id="ddecline"><label>Why <select id="dreason">%s</select></label> '
             '<label>Send them to <select id="dref">%s</select></label>'
             '<div class="muted">The reason goes to the router and the timeline, never to them by email.</div></div>'
-            '<div><b>Why (the router sees this; it stays in their timeline)</b>%s</div>'
+            '%s<div><b>Why (the router sees this; it stays in their timeline)</b>%s</div>'
             '<div class="shform" id="dchk"><b>Before you can send</b><ul id="dchkl" style="margin:0;padding-left:4px;list-style:none"></ul></div>'
             '<div class="bvr" style="justify-content:flex-start"><button type="button" class="btn green" id="dsend">Send to the router</button>'
             '<span class="muted">Not ready? Just leave. Everything is saved and stays on your list.</span></div>%s</div>'
@@ -4372,7 +4393,7 @@ def decision_card(st, s, r, f, show_acct=False):
         ' checked' if choice == 'help' else '', ' checked' if choice == 'decline' else '',
         ''.join(rows), pickup_hint(st),
         'Set where and when you agreed with them. The router confirms it when the payouts go out.' if st.get('req_pickup') else
-        'If you agreed on where and when, set it here (optional). The router confirms it, or sets it, with the payouts.', places, esc(d.get('pickup_day') or ''), esc(d.get('pickup_time') or ''), reasons, refs, rich_box(d.get('reason') or '', '', 100),
+        'If you agreed on where and when, set it here (optional). The router confirms it, or sets it, with the payouts.', places, esc(d.get('pickup_day') or ''), esc(d.get('pickup_time') or ''), reasons, refs, call_peek(st, r), rich_box(d.get('reason') or '', '', 100),
         ('<div class="muted">%s run it by another committee member: <a href="#people">Case management</a>, Bring in a teammate, To affirm my decision.</div>' % (
             'Before you send it,' if st.get('affirm_required') else 'If you like,')) if st.get('affirm_on') and not (r.get('affirm') or {}).get('pid') else '',
         kinds_js, safe_json(decision_rules(st, r)),
@@ -5065,7 +5086,7 @@ def act_dec_send(st, role):
         raise Exception(miss[0] if len(miss) == 1 else 'Before sending: ' + ' '.join(miss))
     d.update({'saved': now_str(), 'sent': now_str(), 'by': int(ME)})
     r['decision'] = d
-    notify(r, 'decision', main_routers(st), rid=s.Rid)
+    notify(r, 'decision', main_routers(st) + gave_out(r), rid=s.Rid)
     if d['choice'] == 'help':
         r['status'] = 'approved'
         total = sum(to_number(x['amount']) or 0 for x in d['items'] if x['help'])
@@ -6570,7 +6591,7 @@ def act_handoff_ask(st, role):
         raise Exception('Pick a reason.')
     r['handoff'] = {'t': now_str(), 'by': int(ME), 'reason': reason, 'note': _param('note')[:300]}
     add_history(r, 'Asked to hand it off: %s' % reason, esc(r['handoff']['note']))
-    notify(r, 'handoff', main_routers(st), rid=s.Rid)
+    notify(r, 'handoff', main_routers(st) + gave_out(r), rid=s.Rid)
     save_record(s.Pid, rec)
     return {'success': True}
 
@@ -6726,6 +6747,20 @@ def call_questions_card(st):
             '<div class="muted">Now: %d topics, %d questions (%s).</div>') % (
         esc(st.get('call_questions') or ''), len(topics), sum(len(t['qs']) for t in topics),
         esc(', '.join(t['name'] for t in topics)))
+
+
+def call_peek(st, r):
+    """Above the Why on the decision: the call (answers, notes, tries to
+    reach them), read-only and folded away, to look back at while writing.
+    It stays open next time if left open."""
+    body = call_answers(st, r) if call_started(r) else ''
+    tries = ('<div><b>Tries to reach them</b>%s</div>' % contacts_list(r)) if r.get('contacts') else ''
+    if not (body or tries):
+        return ''
+    return ('<details class="shform" id="dpeek"><summary><b>Show the call notes</b> <span class="muted">to look at while you write the Why</span></summary>'
+            '<div style="max-height:360px;overflow:auto;margin-top:8px">%s%s</div></details>'
+            '<script>(function(){var g=document.getElementById("dpeek"); try{if(localStorage.getItem("bv.peekopen")=="1") g.open=true;}catch(e){}'
+            'g.addEventListener("toggle",function(){try{localStorage.setItem("bv.peekopen",g.open?"1":"0");}catch(e){}});})();</script>') % (body, tries)
 
 
 def call_summary(st, r):
@@ -7444,6 +7479,52 @@ def event_notices(st, since, upto):
     return out
 
 
+def new_request_notices(st):
+    """Email the main routers about request forms that came in since the last
+    run and are still new. The first run only sets the mark, so turning this on
+    never sends a pile of old ones."""
+    cut = st.get('email_new_cut')
+    if not cut:
+        st['email_new_cut'] = now_str()
+        return
+    # compared to the second, the way the mark is kept (the dates have fractions of a second)
+    subs = submissions(st, "AND CONVERT(varchar(19), ISNULL(rp.CompletedDate, r.CompletedDate), 120) > '%s'" % sql_str(cut), 50)
+    if not subs:
+        return
+    st['email_new_cut'] = max(x.T for x in subs)
+    records = all_records()
+    fresh = [x for x in subs if ((records.get(x.Pid) or {}).get(x.Rid) or {}).get('status') in (None, 'new')]
+    if not fresh:
+        return
+    newest = max(x.T for x in fresh)
+    lines = ['A new request came in %s' % when_words(x.T) for x in sorted(fresh, key=lambda x: x.T)]
+    subject = 'Benevolence: a new request came in' if len(fresh) == 1 else 'Benevolence: %d new requests came in' % len(fresh)
+    names = names_for(main_routers(st))
+    sent = 0
+    for pid in main_routers(st):
+        if ((team_of(pid).get('here') or {}).get('*') or '') >= newest:
+            continue          # in the tool since it came in: they have seen it on their home page
+        try:
+            send_email(st, pid, subject, email_html('Hi %s,' % (names.get(pid) or '').split(' ')[0], [('Just now', lines + ['It is on your home page, ready to give out.'])],
+                                                    'view=home', 'Open Benevolence'))
+            sent += 1
+        except Exception as ex:
+            email_log('new request notice failed: %s' % unicode(ex)[:120])
+    if sent:
+        email_log('new request notices sent: %d (%d new)' % (sent, len(fresh)))
+
+
+def when_words(ts):
+    """'at 10:12 AM', or 'yesterday at 4:05 PM' / 'Nov 16 at 9:00 AM'."""
+    try:
+        d = datetime.datetime.strptime((ts or '')[:19], TS)
+    except Exception:
+        return ''
+    hm = (d.strftime('%I:%M %p').lstrip('0'))
+    day = (datetime.date.today() - d.date()).days
+    return 'at ' + hm if day <= 0 else ('yesterday at ' + hm if day == 1 else '%s %d at %s' % (d.strftime('%b'), d.day, hm))
+
+
 def with_tagline(st, html):
     """The church's tag line (Settings, Emails) at the foot of every email,
     e.g. that the sending mailbox is not monitored."""
@@ -7482,9 +7563,10 @@ def church_now(server=None):
 def email_tick(st):
     """Run by ScheduledTasks every 15 minutes."""
     now = datetime.datetime.now()
-    if (st.get('email_last_tick') or '')[:13] != now_str()[:13]:
-        st['email_last_tick'] = now_str()
-        save_settings(st)
+    day_ago = (now - datetime.timedelta(hours=24)).strftime(TS)
+    st['email_runs'] = ([x for x in st.get('email_runs') or [] if x >= day_ago] + [now_str()])[-120:]
+    st['email_last_tick'] = now_str()
+    save_settings(st)
     try:
         docs_sweep(st)
     except Exception:
@@ -7510,16 +7592,23 @@ def email_tick(st):
     ev_upto = now_str()
     ev_since = st.get('email_ev_cut') or ev_upto
     if ev_since <= ev_upto:
-        sent = 0
-        for pid, subject, html in event_notices(st, ev_since, ev_upto):
+        evs = event_notices(st, ev_since, ev_upto)
+        first = names_for([x[0] for x in evs])
+        for pid, subject, html in evs:
             try:
                 send_email(st, pid, subject, html)
-                sent += 1
+                email_log('notice to %s: %s' % ((first.get(pid) or unicode(pid)).split(' ')[0], subject.replace('Benevolence: ', '')))
             except Exception as e:
                 email_log('notice failed: %s' % unicode(e)[:120])
-        if sent:
-            email_log('right-away notices sent: %d' % sent)
     st['email_ev_cut'] = ev_upto
+    # New requests: the form is filled in TouchPoint, outside this tool, so no
+    # click here sets off a notice. Each run looks for forms that came in since
+    # the last one and tells the main routers.
+    if st.get('notify_new', True):
+        try:
+            new_request_notices(st)
+        except Exception as ex:
+            email_log('new request notice failed: %s' % unicode(ex)[:120])
     # The daily emails: on the first run at or after the set time, once per
     # church day. A late or skipped run just means a later run sends it; an
     # early one waits for the next.
@@ -7553,6 +7642,7 @@ def email_tick(st):
             if e:
                 send_email(st, pid, e[0], e[1])
                 sent += 1
+                email_log('daily list to %s: %s' % ((names.get(pid) or unicode(pid)).split(' ')[0], e[0].replace('Benevolence: ', '')))
             else:
                 skipped += 1
         except Exception as ex:
@@ -7605,7 +7695,7 @@ def notices_block(st, chk):
             'catches anything left waiting.</div>%s</div>') % ''.join(
         '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">%s%s</div>' % (
             chk('notify_' + k, '%s <span class="muted">(goes to %s)</span>' % (esc(w), esc(who)), k != 'paid'),
-            when_select('nw_' + k, when.get(k) or 'run', NOTICE_WHEN)) for k, w, who, _ in NOTICES)
+            when_select('nw_' + k, when.get(k) or 'run', NOTICE_WHEN) if k != 'new' else '') for k, w, who, _ in NOTICES)
 
 
 def who_gets_what(st):
@@ -7615,10 +7705,31 @@ def who_gets_what(st):
             ('Secure message notices', 'Whoever a team or private message went to',
              'Right away if they are not in the tool (at most one every 30 minutes per chat)' if st.get('email_secure_when') == 'now'
              else 'About 10 to 25 minutes later, only if still unread and they have not been back')]
-    rows += [(w, who[:1].upper() + who[1:], 'Right away' if when.get(k) == 'now' else 'At the next 15-minute run')
+    rows += [(w, who[:1].upper() + who[1:], 'Right away' if when.get(k) == 'now' and k != 'new' else 'At the next 15-minute run')
              for k, w, who, _ in NOTICES if st.get('notify_' + k, k != 'paid')]
     return ('<table class="cmp"><thead><tr><th>When</th><th>Who gets it</th><th>Sent</th></tr></thead><tbody>%s</tbody></table>') % ''.join(
         '<tr><td data-l="When">%s</td><td data-l="Who">%s</td><td data-l="Sent">%s</td></tr>' % (esc(a), esc(b), esc(c)) for a, b, c in rows)
+
+
+def runs_line(st):
+    """How many times ScheduledTasks reached Benevolence in the last 24 hours
+    (it should be about every 15 minutes), and the longest wait between runs.
+    Notices and the daily list only go out on a run, so missing runs mean late
+    emails."""
+    day_ago = (datetime.datetime.now() - datetime.timedelta(hours=24)).strftime(TS)
+    runs = sorted(x for x in st.get('email_runs') or [] if x >= day_ago)
+    if len(runs) < 2:
+        return '<span class="muted">Counting its runs; check back in an hour.</span>'
+    ts = [datetime.datetime.strptime(x, TS) for x in runs] + [datetime.datetime.now()]
+    gap, at = max((ts[i + 1] - ts[i], ts[i]) for i in range(len(ts) - 1))
+    mins = int(gap.total_seconds() // 60)
+    gap_txt = ('%d hour%s %d minutes' % (mins // 60, '' if mins // 60 == 1 else 's', mins % 60)) if mins >= 60 else '%d minutes' % mins
+    line = '%d runs since %s; the longest wait between runs was %s (after the one %s).' % (
+        len(runs), when_words(runs[0]), gap_txt, when_words(at.strftime(TS)))
+    if mins > 40:
+        return ('<div class="bvc bvwarn" style="margin-top:8px"><b>ScheduledTasks is skipping runs.</b> %s It should come every 15 minutes, '
+                'and notices and the daily list wait for it. Look in TouchPoint\'s ScheduledTasks for a line above Benevolence\'s that stops with an error.</div>') % line
+    return '<span class="muted">%s</span>' % line
 
 
 def page_emails_section(st):
@@ -7630,6 +7741,8 @@ def page_emails_section(st):
               else '<span class="pill p-bad">Out of date</span> Press Save to update its line in ScheduledTasks.' if on and state == 'old'
               else '<span class="pill p-bad">Not in ScheduledTasks</span> Press Save to add it.' if on
               else '<span class="pill p-grey">Off</span>')
+    if on and state == 'ok':
+        status += ' ' + runs_line(st)
     if st.get('mode') != 'live':
         status += ' <b>Testing mode: nothing is sent until you go live.</b> Use the preview below.'
     people = team_people(st)
