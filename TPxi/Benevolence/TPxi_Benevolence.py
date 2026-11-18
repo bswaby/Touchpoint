@@ -102,12 +102,27 @@
 #   0.3.0  Updates like TPxi Texting: admins see when a newer version is
 #          published and Update now saves it over this script; the version
 #          shows at the bottom of every page.
+#   0.3.1  When TouchPoint gives no answer at all, the message says so and
+#          what to try (it used to say only "Could not reach TouchPoint"),
+#          a request that hangs gives up after 2 minutes with its own
+#          message, and the browser console notes which action failed.
+#   0.4.0  Fits forms that ask in a sentence: a new choice, "What they need,
+#          in their own words" (one written answer becomes the need, and the
+#          amount after it is its amount). Reading your form now opens with
+#          the two questions that matter (what they need, how much), with the
+#          full list under Fine-tune each question, and shows made-up sample
+#          answers until the first real request comes in. Files uploaded on
+#          the request form itself open from the case page. With no total
+#          question, the total is the needs' amounts added up. Someone with
+#          no TouchPoint login can now get a secure message: sending makes
+#          them a plain member login (a role is added and taken off at once,
+#          the way TouchPoint makes logins), and their link signs them in.
 #####################################################################
 
 import re
 import datetime
 
-BEN_VERSION = '0.3.0'
+BEN_VERSION = '0.4.0'
 # Updates come from the same TPxi script service as TPxi Texting and the other
 # TPxi tools: the page asks DC_API_BASE which version is newest (admins only),
 # and an admin's Update now pulls the new code from DC_API_WORKER and saves it
@@ -938,6 +953,13 @@ def answers_for(st, rids):
         mine = ans.get(rid, {})
         out[rid] = parse_answers([(qq.Qid, qq.T, qq.Label, mine.get(qq.Qid.upper()), qq.Opt) for qq in _QUESTIONS[org]],
                                  st.get('form_words'), st.get('form_map'))
+    files = [x for f in out.values() for sec in f['sections'] for i in sec['items'] for x in i.get('files') or []]
+    if files:
+        ids = dict((x.ImageId, x.DocumentId) for x in q.QuerySql(
+            "SELECT ImageId, DocumentId FROM OrgMemberDocuments WHERE OrganizationId = %d AND ImageId IN (%s)" % (
+                org, ','.join(str(int(x['image'])) for x in files))))
+        for x in files:
+            x['doc'] = ids.get(x['image'])
     return out
 
 
@@ -950,6 +972,7 @@ def form_questions(org):
 
 # What a question on the request form is (Settings, Reading your form).
 FORM_ROLES = [('need', 'A need (Yes or No)'), ('needs', 'A list of needs (each choice picked is one)'),
+              ('need_text', 'What they need, in their own words'),
               ('amount', 'Amount for the need above'), ('payee', 'Who the need above is paid to'),
               ('address', 'Payee address for the need above'), ('account', 'Account or loan number for the need above (routers only)'),
               ('detail', 'More about the need above'), ('total', 'Total asked for'), ('people', 'People in the home'),
@@ -1002,7 +1025,7 @@ def form_layout(questions, words=None, fmap=None):
             role = auto
         out.append({'qid': (qid or '').upper(), 't': t, 'label': label, 'role': role, 'auto': auto, 'owner': None, 'opts': opts})
     index = dict((x['qid'], i) for i, x in enumerate(out) if x['qid'])
-    starts = [i for i, x in enumerate(out) if x['role'] in ('need', 'needs')]
+    starts = [i for i, x in enumerate(out) if x['role'] in ('need', 'needs', 'need_text')]
     for n, i in enumerate(starts):
         nxt = starts[n + 1] if n + 1 < len(starts) else len(out)
         end = index.get(skip_target(out[i]['opts'])) if out[i]['role'] == 'need' else None
@@ -1056,6 +1079,31 @@ def answer_list(raw):
     return [x.strip() for x in v.split(',') if x.strip()] if v else []
 
 
+def short_need(text):
+    """A written need for the lists and Reports: its first line, at most 60
+    characters, cut at a word."""
+    t = re.sub(r'\s+', ' ', (text or '').strip().split('\n')[0]).strip()
+    if len(t) <= 60:
+        return t or 'Need'
+    cut = t[:60].rsplit(' ', 1)[0]
+    return (cut if len(cut) > 20 else t[:60]).rstrip(',.;:') + u'\u2026'
+
+
+def upload_list(raw):
+    """The files on a file question's answer: [{'image', 'name', 'doc'}]."""
+    import json
+    try:
+        v = json.loads(raw)
+    except Exception:
+        v = raw
+    out = []
+    for one in (v if isinstance(v, list) else [v]):
+        img, _, name = unicode(one or '').partition(':')
+        if img.strip().isdigit():
+            out.append({'image': int(img), 'name': name.strip(), 'doc': None})
+    return out
+
+
 def parse_answers(rows, words=None, fmap=None):
     """rows: [(qid, QuestionTypeId, Label, AnswerValue, Options)] in form
     order (or the older [(QuestionTypeId, Label, AnswerValue)]). words: the
@@ -1084,6 +1132,10 @@ def parse_answers(rows, words=None, fmap=None):
             by_q[i] = need
             if need['yes']:
                 needs.append(need)
+        elif role == 'need_text':
+            if val:
+                needs.append({'need': short_need(val), 'yes': True, 'amount': None, 'payee': '', 'address': '', 'account': ''})
+            by_q[i] = needs[-1] if val else {'yes': False}
         elif role == 'needs':
             picked = answer_list(raw)
             for v in picked:
@@ -1112,9 +1164,17 @@ def parse_answers(rows, words=None, fmap=None):
             elsewhere_who = val
         if not val or t == 5 or role in ('hide', 'person'):
             continue
-        cur['items'].append({'q': label, 'a': val, 'private': role in ('private', 'account')})
+        item = {'q': label, 'a': val, 'private': role in ('private', 'account')}
+        if t == 7:
+            # a file uploaded on the request form itself ("ImageId:name", or a list of them)
+            item['files'] = upload_list(raw)
+            item['a'] = ', '.join(x['name'] or 'File' for x in item['files']) or val
+        cur['items'].append(item)
     if cur['items']:
         sections.append(cur)
+    if total is None and not any(x['role'] == 'total' for x in lay):
+        amounts = [n['amount'] for n in needs if n['amount']]
+        total = sum(amounts) if amounts else None    # no total question: the needs added up
     return {'sections': sections, 'needs': needs, 'total': total, 'people': people,
             'elsewhere': elsewhere, 'elsewhere_who': elsewhere_who}
 
@@ -1356,7 +1416,14 @@ PAGE_JS = r"""
     x.onload = function(){ var r; try { r = JSON.parse(x.responseText); } catch(e) {
       r = {success: false, message: x.status == 200 ? 'TouchPoint answered with a page, not data: you may need to sign in again.' : 'TouchPoint error ' + x.status}; }
       cb(r); };
-    x.onerror = function(){ cb({success: false, message: 'Could not reach TouchPoint.'}); };
+    // No answer at all (status 0): the request never got a reply. Usually a
+    // browser extension, the network's filter, or the connection dropping.
+    x.timeout = 120000;
+    x.ontimeout = function(){ try { console.error('TPxi Benevolence: no answer in 2 minutes', data.action, base); } catch(e){}
+      cb({success: false, message: 'TouchPoint took more than 2 minutes to answer. Reload the page to see whether it saved.'}); };
+    x.onerror = function(){ try { console.error('TPxi Benevolence: no answer', data.action, base); } catch(e){}
+      cb({success: false, message: 'TouchPoint did not answer at all, so nothing was saved. Reload the page and try again. If it keeps happening, try another browser, '
+        + 'or another network: a browser extension or the network\'s web filter can block the request.'}); };
     x.send(Object.keys(data).map(function(k){ return k + '=' + encodeURIComponent(data[k]); }).join('&'));
   };
   window.bvB64 = function(s){ return btoa(unescape(encodeURIComponent(s || ''))); };
@@ -2344,10 +2411,18 @@ def form_sections(f, show_private, open_all=False):
     """The form's answers, one collapsible block per section."""
     secs = []
     for sec in f['sections']:
-        items = ''.join('<span>%s</span><span class="a">%s</span>' % (esc(i['q']), esc(i['a']) if (show_private or not i['private']) else '<i>private</i>')
-                        for i in sec['items'])
+        items = ''.join('<span>%s</span><span class="a">%s</span>' % (
+            esc(i['q']), file_links(i['files']) if i.get('files') else esc(i['a']) if (show_private or not i['private']) else '<i>private</i>')
+            for i in sec['items'])
         secs.append('<details%s><summary>%s</summary><div class="qa">%s</div></details>' % (' open' if open_all else '', esc(sec['name']), items))
     return ''.join(secs)
+
+
+def file_links(files):
+    """Files uploaded on the request form, each with an Open button."""
+    return ' '.join(('<b>%s</b> <a class="btn ghost" target="_blank" rel="noopener" href="/OrgMemberDialog/DocumentDownload/%d">Open</a>' % (
+        esc(x['name'] or 'File'), x['doc'])) if x.get('doc') else '<b>%s</b> <span class="muted">not found in TouchPoint</span>' % esc(x['name'] or 'File')
+        for x in files)
 
 
 def compare_rows(f):
@@ -3408,26 +3483,68 @@ def posted_form_map(st, words):
     return fmap, list(auto)
 
 
+SAMPLE = {'need_text': "Help paying this month's rent", 'amount': '450', 'total': '450', 'payee': 'Main Street Apartments',
+          'address': '100 Main St', 'account': '000123', 'detail': 'This month', 'people': '3', 'elsewhere': 'Yes',
+          'elsewhere_who': 'County community services', 'private': 'A private answer'}
+
+
+def sample_answers(st):
+    """Made-up answers to the request form, so Reading your form can show
+    what it reads before any real request comes in."""
+    import json
+    words = st.get('form_words')
+    qs = form_questions(st['form_org'])
+    lay = form_layout([(x.Qid, x.T, x.Label, x.Opt) for x in qs], words, st.get('form_map'))
+    rows, yes = [], 0
+    for x in lay:
+        role, t, val = x['role'], x['t'], ''
+        try:
+            first = [o.get('Text') or o.get('Value') for o in json.loads(x['opts'] or '[]') or [] if (o.get('Text') or o.get('Value'))]
+        except Exception:
+            first = []
+        if role in ('section', 'notice', 'person', 'hide') or t == 7:
+            val = ''
+        elif role == 'need':
+            yes += 1
+            val = 'Yes' if yes <= 2 else 'No'
+        elif role == 'needs':
+            val = first[0] if first else 'Rent'
+        elif role in SAMPLE:
+            val = SAMPLE[role]
+        elif first:
+            val = first[0]
+        else:
+            val = '100' if t == 11 else 'Their answer'
+        rows.append((x['qid'], t, x['label'], val or None, x['opts']))
+    return parse_answers(rows, words, st.get('form_map'))
+
+
 def form_preview_html(st, rid):
     """One request read with st's form settings: what the lists, cards and
-    Reports take from it, and what a committee member sees on the case page."""
-    sub = find_submission(st, rid)
-    if not sub:
-        return '<div class="muted">That request was not found.</div>'
+    Reports take from it, and what a committee member sees on the case page.
+    rid 'sample' reads made-up answers instead of a real request."""
     _QUESTIONS.pop(int(st['form_org']), None)
-    f = answers_for(st, [sub.Rid]).get(sub.Rid.upper()) or parse_answers([], st.get('form_words'))
+    if rid == 'sample':
+        f = sample_answers(st)
+        head = '<b>Made-up answers</b>, to show how your settings read the form. Not a real request.'
+    else:
+        sub = find_submission(st, rid)
+        if not sub:
+            return '<div class="muted">That request was not found.</div>'
+        f = answers_for(st, [sub.Rid]).get(sub.Rid.upper()) or parse_answers([], st.get('form_words'))
+        head = '%s, %s' % (esc(sub.Name), nice_date(sub.T))
     needs = ''.join('<li>%s%s%s%s</li>' % (esc(n['need']), (' · paid to ' + esc(n['payee'])) if n['payee'] else '',
                                            (' at ' + esc(n['address'])) if n.get('address') else '',
                                            ((' · ' + money(n['amount'])) if n['amount'] else ' · <span class="muted">no amount</span>') +
                                            (' · account on file' if n.get('account') else '')) for n in f['needs'])
     priv = sum(1 for sec in f['sections'] for i in sec['items'] if i['private'])
-    return ('<div class="muted">%s, %s</div>'
+    return ('<div class="muted">%s</div>'
             '<h3 style="margin:10px 0 4px">On the lists, the cards and in Reports</h3>'
             '<div>Asked for:</div><ul style="margin:4px 0">%s</ul>'
             '<div>Total asked: <b>%s</b> · People in the home: <b>%s</b> · Asked others for help: <b>%s</b>%s</div>'
             '<h3 style="margin:14px 0 4px">On the case page</h3>'
             '<div class="muted">What a committee member sees. %d private answer%s show only to routers.</div>%s') % (
-        esc(sub.Name), nice_date(sub.T), needs or '<li><b>No needs found.</b> Mark the questions that ask about a need.</li>',
+        head, needs or '<li><b>No needs found.</b> Pick the question that says what they need.</li>',
         money(f['total']) or 'not found', esc(f['people'] or 'not found'), esc(f['elsewhere'] or 'not found'),
         (' (' + esc(f['elsewhere_who']) + ')') if f['elsewhere_who'] else '', priv, '' if priv == 1 else 's',
         form_sections(f, False) or '<div class="muted">No answers to show.</div>')
@@ -3436,7 +3553,7 @@ def form_preview_html(st, rid):
 def act_form_preview(st):
     """The live preview on Reading your form, with the choices on the page
     (not saved). Routers only: it shows a real request."""
-    if not (ME and int(ME) in router_ids()):
+    if _param('rid') != 'sample' and not (ME and int(ME) in router_ids()):
         return {'success': True, 'html': '<div class="muted">Only routers see a preview from real requests.</div>'}
     if not int(st.get('form_org') or 0):
         return {'success': True, 'html': ''}
@@ -3447,6 +3564,45 @@ def act_form_preview(st):
             words[k] = v[:300]
     fmap, _ = posted_form_map(st, words)
     return {'success': True, 'html': form_preview_html(dict(st, form_words=words, form_map=fmap), _param('rid'))}
+
+
+def form_glance(lay, words):
+    """The top of Reading your form: what the form asks that matters most.
+    A form asking each need as its own Yes/No question is described; any
+    other form gets two choices (what they need, how much), which set the
+    questions below (saved with Save, like the rest)."""
+    yn = [x for x in lay if x['role'] == 'need']
+    tot = [x for x in lay if x['role'] == 'total']
+    if yn:
+        names = [need_name(x['label'], words) for x in yn]
+        return ('<div class="bvc"><b>Your form asks each need as its own Yes/No question</b>'
+                '<div>%d needs found: %s%s. Each need\'s amount, payee and account come from the questions after it.%s</div>'
+                '<div class="muted">To change any of this, open Fine-tune each question.</div></div>') % (
+            len(yn), esc(', '.join(names[:6])), ', ...' if len(names) > 6 else '',
+            (' The total asked for comes from "%s"' % esc(tot[0]['label'][:80].rstrip('?:. '))) + '.' if tot else '')
+    qs = [(i, x) for i, x in enumerate(lay) if x['t'] not in (4, 5)]
+    need_q = [x['qid'] for _, x in qs if x['role'] in ('need_text', 'needs')][:1]
+    amt_q = [x['qid'] for _, x in qs if x['role'] in ('amount', 'total')][:1]
+
+    def opts(cur):
+        return '<option value="">Pick a question</option>' + ''.join(
+            '<option value="%s"%s>%d. %s</option>' % (x['qid'].replace('-', ''), ' selected' if x['qid'] in cur else '', i + 1, esc(x['label'][:80]))
+            for i, x in qs)
+    return ('<div class="bvc" id="fmglance"><b>The two answers that matter</b>'
+            '<label>Which question says what they need? <select id="fmneed">%s</select></label>'
+            '<label>Which question is the amount? <select id="fmamt">%s</select></label>'
+            '<div class="muted">A written answer becomes the need on the lists and in Reports (its first 60 characters). '
+            'A question with choices (check all that apply) makes each choice picked its own need.</div></div>'
+            '<script>(function(){var f=document.getElementById("setf");'
+            'function sel(k){return k?f.querySelector("select[name=fm_"+k+"]"):null;}'
+            'function set(s,v){if(s&&s.value!=v){s.value=v;s.dispatchEvent(new Event("change",{bubbles:true}));}}'
+            'function back(k,roles){var s=sel(k); if(s&&roles.indexOf(s.value)>-1) set(s,s.getAttribute("data-auto"));}'
+            'var n=document.getElementById("fmneed"), a=document.getElementById("fmamt"), pn=n.value, pa=a.value;'
+            'function amt(){var s=sel(a.value); if(!s) return; var ns=sel(n.value);'
+            ' set(s, ns&&+ns.getAttribute("data-i")<+s.getAttribute("data-i")?"amount":"total");}'
+            'n.onchange=function(){back(pn,["need_text","needs"]); pn=n.value; var s=sel(n.value);'
+            ' if(s) set(s, ["2","3","6"].indexOf(s.getAttribute("data-t"))>-1?"needs":"need_text"); amt();};'
+            'a.onchange=function(){back(pa,["amount","total"]); pa=a.value; amt();};})();</script>') % (opts(need_q), opts(amt_q))
 
 
 def form_match_card(st):
@@ -3516,9 +3672,9 @@ def form_match_card(st):
             g['open'] = True
         ex = example.get(x['qid'], '')
         ex = '(private)' if ex and x['role'] == 'private' else ex[:80]
-        g['rows'].append('<tr><td data-l="Question"%s>%d. %s%s%s%s%s</td>%s<td data-l="This is"><select name="fm_%s">%s</select></td></tr>' % (
+        g['rows'].append('<tr><td data-l="Question"%s>%d. %s%s%s%s%s</td>%s<td data-l="This is"><select name="fm_%s" data-auto="%s" data-t="%d" data-i="%d">%s</select></td></tr>' % (
             ' style="padding-left:28px"' if x['owner'] is not None else '', i + 1, esc(x['label'][:140]), badge, changed, part, sk,
-            ('<td data-l="Latest answer" class="muted">%s</td>' % esc(ex)) if see else '', x['qid'].replace('-', ''), opts))
+            ('<td data-l="Latest answer" class="muted">%s</td>' % esc(ex)) if see else '', x['qid'].replace('-', ''), x['auto'], x['t'], i, opts))
     cols = ('<colgroup><col style="width:48%%"><col style="width:24%%"><col></colgroup>' if see
             else '<colgroup><col style="width:66%%"><col></colgroup>')
     sect = []
@@ -3540,11 +3696,18 @@ def form_match_card(st):
     news = ('<div class="bvc" style="border-color:#C98A12"><b>%d new question%s on your form since you last saved here.</b> '
             'Check what the tool takes %s to be, then Save.</div>') % (len(new), '' if len(new) == 1 else 's', 'it' if len(new) == 1 else 'them') if new else ''
     preview = ''
-    if see and latest:
-        recent = submissions(st, '', 12)
-        pick = ''.join('<option value="%s">%s, %s</option>' % (x.Rid, esc(x.Name), nice_date(x.T)) for x in recent)
+    if True:
+        if see and latest:
+            recent = submissions(st, '', 12)
+            pick = ''.join('<option value="%s">%s, %s</option>' % (x.Rid, esc(x.Name), nice_date(x.T)) for x in recent)
+            pick = '<select id="fmrid" title="Request to preview">%s<option value="sample">Made-up sample answers</option></select>' % pick
+            first = latest[0].Rid
+        else:
+            pick = ('<span class="muted">%s</span><input type="hidden" id="fmrid" value="sample">' % (
+                'No requests yet, so this uses made-up answers.' if see else 'Made-up answers (only routers see real requests here).'))
+            first = 'sample'
         preview = ('<div class="fmprev bvc"><div class="bvr" style="justify-content:space-between;flex-wrap:wrap"><b>Preview</b>'
-                   '<select id="fmrid" title="Request to preview">%s</select></div>'
+                   '%s</div>'
                    '<div class="muted">Updates as you change the choices, before you save. Nothing here is saved.</div>'
                    '<div id="fmprev">%s</div></div>'
                    '<script>(function(){var f=document.getElementById("setf"), out=document.getElementById("fmprev"), t=null;'
@@ -3553,15 +3716,17 @@ def form_match_card(st):
                    ' out.style.opacity=".5"; bvPost(d,function(r){out.style.opacity="1"; if(r.success) out.innerHTML=r.html;});}'
                    'function soon(){clearTimeout(t); t=setTimeout(go,250);}'
                    'f.addEventListener("change",function(e){if(e.target.name&&(e.target.name.indexOf("fm_")==0||e.target.name.indexOf("fw_")==0)) soon();});'
-                   'document.getElementById("fmrid").onchange=go;})();</script>') % (pick, form_preview_html(st, latest[0].Rid))
-    return ('<div><b>Reading your form</b><div class="muted">What the tool takes each question on your request form to be. '
-            'It works this out from the form itself (question types, sections and skip logic), so most churches only check it. '
-            'Change any that are wrong, then Save. If your form asks for needs as one list (check all that apply), mark that '
-            'question <b>A list of needs</b>. The documents form has its own tab: '
+                   'document.getElementById("fmrid").onchange=go;})();</script>') % (pick, form_preview_html(st, first))
+    fine = ('<details class="bvc" id="fmfine"%s><summary><b>Fine-tune each question</b> <span class="muted">(%d questions; '
+            'what the tool takes each one to be)</span></summary>%s</details>') % (
+        ' open' if new else '', sum(1 for x in lay if x['t'] not in (4, 5)), table)
+    return ('<div><b>Reading your form</b><div class="muted">What the tool reads from your request form. Most forms only need '
+            'the two answers below: what they need and how much. Every other question shows on the case page as they answered it. '
+            'Change anything, then Save. The documents form has its own tab: '
             '<a href="?view=settings&amp;sec=docs">Documents form</a>.%s</div>'
-            '<div class="fmtools">%s%s</div>%s<div class="fmgrid"><div class="fmlist">%s</div>%s</div></div>') % (
+            '<div class="fmtools">%s%s</div>%s<div class="fmgrid"><div class="fmlist">%s%s</div>%s</div></div>') % (
         '' if see else ' Only routers see answers from real requests here.',
-        phrases, starter_form_card(), news, table, preview)
+        phrases, starter_form_card(), news, form_glance(lay, words), fine, preview)
 
 
 def kind_row(k):
@@ -5771,10 +5936,11 @@ def send_ways(st, pid):
     return out, c
 
 
-def text_link(st, pid, url):
-    """The link for a text. Signs them in only when an admin turned that on,
-    and never in Testing (it would let a tester in as them)."""
-    if st.get('text_autosignin') and st.get('mode') == 'live':
+def text_link(st, pid, url, signin=False):
+    """The link for a text. Signs them in when an admin turned that on, or
+    (signin) when this tool made their login, since they have no password.
+    Never in Testing (it would let a tester in as them)."""
+    if (signin or st.get('text_autosignin')) and st.get('mode') == 'live':
         try:
             return model.GetAuthenticatedUrl(int(pid), url, True)
         except Exception:
@@ -5786,15 +5952,15 @@ EMAIL_SUBJECTS = {'secure': '{church}: a message about your request for help',
                   'docs': '{church}: documents for your request for help'}
 
 
-def send_to_them(st, s, r, kind, url, ways):
+def send_to_them(st, s, r, kind, url, ways, signin=False):
     """Text, email or both. Each carries only the fixed line and the link,
     never what was written. Returns {'text': sent?, 'email': sent?}; in
     Testing nothing goes out."""
     out = {}
     if 'text' in ways:
-        out['text'] = send_text(st, s, r, kind, url)
+        out['text'] = send_text(st, s, r, kind, url, signin)
     if 'email' in ways:
-        link = text_link(st, s.Pid, url)
+        link = text_link(st, s.Pid, url, signin)
         line = esc(st.get('text_secure' if kind == 'secure' else 'text_docs') or DEFAULT_SETTINGS['text_' + kind]).replace('{church}', esc(church_name(st)))
         line = line.replace('{link}', '<a href="%s">%s</a>' % (esc(link), esc(link)))
         line = line.replace('Replies to this number are not monitored.', '')
@@ -5810,10 +5976,10 @@ def by_words(ways):
     return ' and '.join({'text': 'text', 'email': 'email'}[w] for w in ways)
 
 
-def send_text(st, s, r, kind, url):
+def send_text(st, s, r, kind, url, signin=False):
     """Text them. In Testing nothing is sent; the entry says so."""
     msg = (st.get('text_secure' if kind == 'secure' else 'text_docs') or DEFAULT_SETTINGS['text_' + kind])
-    msg = msg.replace('{church}', church_name(st)).replace('{link}', text_link(st, s.Pid, url))
+    msg = msg.replace('{church}', church_name(st)).replace('{link}', text_link(st, s.Pid, url, signin))
     if st.get('mode') != 'live':
         return False
     model.SendSms(str(int(s.Pid)), int(st['text_group']), 'Benevolence #%s' % (r.get('num') or ''), msg[:1600])
@@ -5859,8 +6025,8 @@ def texts_body(st, s, r, role, inner):
     pick = ''.join('<label class="pick"><input type="radio" name="txby" value="%s"%s> %s</label>' % (w, ' checked' if w == ways[0] else '', labels[w]) for w in ways)
     if len(ways) == 2:
         pick += '<label class="pick"><input type="radio" name="txby" value="both"> Both</label>'
-    warn = '' if c['login'] else ('<div class="bvc bvwarn" style="padding:8px 12px">They have no TouchPoint login, so they could not open a secure message. '
-                                  'Call them instead.%s</div>' % (' The documents link still works: the form lets them fill it out without one.' if st.get('docs_org') else ''))
+    warn = '' if c['login'] else ('<div class="muted">They have no TouchPoint login yet. Sending makes them a plain member login '
+                                  '(only their own information, like anyone\'s My Data), and the link signs them straight in.</div>')
     docs = (('<button type="button" class="btn ghost" id="txdocs">Send them the documents link</button>')
             if int(st.get('docs_org') or 0) else '<span class="muted">The documents form is not set up yet.</span>')
     return (head + '<div class="bvr" style="justify-content:flex-start;flex-wrap:wrap"><b>Send by</b>%s</div>'
@@ -5877,8 +6043,8 @@ def texts_body(st, s, r, role, inner):
             ' go({action:"text_secure",rid:"%s",text:bvB64(t)});};'
             'var dd=document.getElementById("txdocs"); if(dd) dd.onclick=function(){ go({action:"text_docs",rid:"%s"}); };})();</script>') % (
         pick, (' (questions go to %s)' % esc(st['text_phone'])) if st.get('text_phone') else '', warn,
-        ('<textarea id="txtext" rows="3" style="width:100%%;border-color:#1E6B45" placeholder="Write to %s. This is exactly what they will read."></textarea>' % who) if c['login'] else '',
-        ('<button type="button" class="btn" id="txgo" style="background:#1E6B45">Send to %s</button>' % who) if c['login'] else '', docs,
+        ('<textarea id="txtext" rows="3" style="width:100%%;border-color:#1E6B45" placeholder="Write to %s. This is exactly what they will read."></textarea>' % who),
+        ('<button type="button" class="btn" id="txgo" style="background:#1E6B45">Send to %s</button>' % who), docs,
         rows, s.Rid, s.Rid)
 
 
@@ -5902,17 +6068,46 @@ def text_target(st, role):
     return s, rec, r, c['login'], chosen
 
 
+LOGIN_ROLE = 'OrgLeadersOnly'   # added and taken off at once: TouchPoint makes a login only while adding a role
+
+
+def make_login(pid):
+    """Give someone with no TouchPoint login a plain member login (no roles,
+    like anyone's My Data), so a secure message can sign them in. TouchPoint
+    makes a login only while adding a role, so a role is added and taken off
+    in the same moment; it fails loudly if the role is still there."""
+    who = 'PeopleId = %d' % int(pid)
+    model.AddRole(who, LOGIN_ROLE)
+    model.RemoveRole(who, LOGIN_ROLE)
+    row = q.QuerySqlTop1("""
+        SELECT COUNT(*) U, SUM(CASE WHEN ro.RoleName = '%s' THEN 1 ELSE 0 END) R
+        FROM Users u LEFT JOIN UserRole ur ON ur.UserId = u.UserId LEFT JOIN Roles ro ON ro.RoleId = ur.RoleId
+        WHERE u.PeopleId = %d""" % (LOGIN_ROLE, int(pid)))
+    if row and (row.R or 0):
+        model.RemoveRole(who, LOGIN_ROLE)
+        raise Exception('Their login was made, but TouchPoint did not take off the %s role. Nothing was sent; '
+                        'ask an admin to remove it from their user in TouchPoint.' % LOGIN_ROLE)
+    if not (row and row.U):
+        raise Exception('TouchPoint did not make a login for them, so nothing was sent. Call them instead.')
+
+
 def act_text_secure(st, role):
     s, rec, r, login, ways = text_target(st, role)
-    if not login:
-        raise Exception('They have no TouchPoint login, so they could not read it. Call them instead.')
     text = from_b64(_param('text')).strip()[:2000]
     if not text:
         raise Exception('Write the message first.')
-    res = send_to_them(st, s, r, 'secure', site_link('view=letter&rid=%s' % s.Rid), ways)
+    made = ''
+    if not login and st.get('mode') == 'live':
+        make_login(s.Pid)
+        rec['login_made'] = now_str()
+        made = ' (made them a TouchPoint login to read it)'
+    elif not login:
+        made = ' (Testing: a login would be made for them in Live)'
+    signin = bool(rec.get('login_made'))
+    res = send_to_them(st, s, r, 'secure', site_link('view=letter&rid=%s' % s.Rid), ways, signin)
     test = not any(res.values())
     r.setdefault('texts', []).append({'t': now_str(), 'by': int(ME), 'kind': 'secure', 'text': text, 'test': test, 'via': ways})
-    add_history(r, 'Sent them a secure message by %s%s' % (by_words(ways), ' (Testing: not sent)' if test else ''), text_html(text))
+    add_history(r, 'Sent them a secure message by %s%s%s' % (by_words(ways), ' (Testing: not sent)' if test else '', made), text_html(text))
     save_record(s.Pid, rec)
     return {'success': True}
 
@@ -7387,7 +7582,7 @@ def page_texts_section(st):
             '<div>Off (safer): the link opens the page and TouchPoint asks them to sign in. '
             'On: the link signs them straight in, but it works for 7 days, more than once, into their whole TouchPoint account, '
             'and TouchPoint keeps every text in its texting history, where anyone who can read texts could use it. '
-            'Either way, they need a TouchPoint login to read a secure message.</div></div>') % (
+            'Someone with no TouchPoint login gets a plain member login when a secure message is sent, and their link always signs them in, since they have no password.</div></div>') % (
         opts, esc(st.get('text_church') or ''), esc(church_name(dict(st, text_church=''))), esc(st.get('text_phone') or ''),
         esc(st.get('text_secure') or DEFAULT_SETTINGS['text_secure']), esc(st.get('text_docs') or DEFAULT_SETTINGS['text_docs']),
         ' checked' if st.get('text_autosignin') else '')
@@ -7721,7 +7916,7 @@ PAGE_HELP = {
         '<b>Who can get in</b> spells out the three gates (routers, the committee involvement, admins) with today\'s names, and flags a router missing the access role.',
         '<b>Who can see the form\'s answers</b> checks each form\'s involvement is limited to the access role, that its directory and chat are off, and who has the role. Going live waits until the forms are locked.',
         '<b>Forms and people</b>: the forms, the committee involvement, the access role, and who routes. Routers also need the access role.',
-        '<b>Reading your form</b>: words the tool looks for in your form\'s questions. Check the preview after any change to the form.',
+        '<b>Reading your form</b>: which question says what they need and which is the amount (any form: Yes/No per need, a list to check, or a written answer), with every question under Fine-tune each question. Check the preview after any change to the form.',
         'Settings opens on <b>Getting started</b> until setup is done. The other sections: <b>Setup</b> (mode, forms, people), <b>Reading your form</b>, <b>Documents form</b>, <b>The call</b> (the phone questions), <b>Decisions</b> (kinds of help, pickup, reasons, what routers can decide) and <b>Emails</b> (when they go out, who gets what, and a preview), and <b>Texting them</b>.',
         'Each section saves on its own with its Save button.'],
 }
@@ -8256,8 +8451,8 @@ def guide_admin(st):
         _sec('Getting started, in order',
              _ol(['<b>Make the access role</b> and protect the data. Only routers get it.',
                   '<b>Pick your request form and lock it</b>, so its answers are hidden behind the access role.',
-                  '<b>Check how the tool reads your form</b> (Reading your form): which questions are needs, amounts, people in the home and private answers, with a live preview '
-                  'that follows your form\'s skip logic.',
+                  '<b>Check how the tool reads your form</b> (Reading your form): pick the question that says what they need and the one with the amount; '
+                  'everything else shows as they answered it. The preview uses made-up answers until your first request comes in.',
                   '<b>Your documents form</b> (optional), read the same way.',
                   '<b>Pick the committee</b> involvement and <b>choose your routers</b>.',
                   '<b>Write the call questions</b> committee members ask on the phone.',
