@@ -71,6 +71,27 @@ The pictures below are the real screens with made-up people.
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Benevolence/Benevolence-11-private.png" width="760">
 </p>
 
+## Two forms, and why they are separate
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Benevolence/Benevolence-14-twoforms.png" width="760">
+</p>
+
+- **The request form** is how someone asks for help. It is an ordinary TouchPoint form you build (or start from the one included).
+- **The documents form** is optional and short: a few file uploads with a note on each. It is only used when a committee member needs more, like a bill or an ID. They send the link from the request by text or email, and whatever comes back is attached to that person's open request on its own.
+- **Use two different involvements.** If the documents link pointed at the request form, every upload would arrive as a brand-new request, land in the router's new requests, and make the family fill out the whole form again.
+
+## How it stays private
+<p align="center">
+  <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Benevolence/Benevolence-15-whosees.png" width="760">
+</p>
+
+- **Lock both forms.** Everyone who fills out a form is added to that form's involvement. Left open, the involvement is a list of everyone who asked for help, with their answers and files, that anyone who can look up involvements can open. On each form's involvement set **Limit To Role** to your Benevolence role, and turn off its member directory and chat. Settings checks all of this, and going live waits until it is right.
+- **Only routers hold that role.** Routers see every request. Committee members see only the ones given to them. Being a TouchPoint admin opens Settings, not anyone's request.
+- **Secure messages.** When a committee member writes to the person who asked, the text or email only says there is a message, with a link. They read it after signing in to TouchPoint. If they have no login, the tool makes a plain one with no roles, like anyone gets for My Data.
+- **Team emails hold no details.** No name, need, amount or message: just a request number and a link.
+- **The team chat never reaches the person asking.**
+- Request details are kept in a protected extra value on the person, never in Special Content. Anyone with SQL report rights can still read form answers, so keep that right to people you would trust with this.
+
 ## Keeping it moving
 <p align="center">
   <img src="https://github.com/bswaby/Touchpoint/raw/main/TPxi/Benevolence/Benevolence-12-move.png" width="760">
@@ -87,18 +108,12 @@ The pictures below are the real screens with made-up people.
 2. Open **`/PyScriptForm/TPxi_Benevolence`** (not `/PyScript/`). Settings opens on **Getting started**, a checklist that says what is done and what is next.
 3. Create a TouchPoint role named **Benevolence** (or pick one you already use) and give it to your **routers only**. Committee members do not need it.
 4. On your request form's involvement, set **Limit To Role** to that role. Going live waits until this is done.
-5. Pick your committee involvement and your routers, write your call questions, and set your kinds of help.
-6. Try it in **Testing** mode (nothing is emailed), then press **Go live**. Turning on emails adds its own line to TouchPoint's scheduled tasks.
+5. Using a documents form? Make it its own involvement and lock it the same way.
+6. Pick your committee involvement and your routers, write your call questions, and set your kinds of help.
+7. Try it in **Testing** mode (nothing is emailed), then press **Go live**. Turning on emails adds its own line to TouchPoint's scheduled tasks.
 
 **What you need:** a request form built with TouchPoint's newer registration forms (no form yet? the tool includes a starter form), an involvement for your committee, and a role for your routers.
 
 **Help inside the tool:** How it works has a guide for each role. Routers see the overview, the router guide and the committee guide; committee members see only theirs; admins also see the admin guide.
 
-<hr>
-
-<summary><strong>Privacy notes for admins</strong></summary>
-
-- The tool checks who can get in on every page and every action. A `#Roles` line does not keep anyone out of `/PyScriptForm`, so the access role and the committee involvement are the real gates.
-- Being a TouchPoint admin opens Settings only, not anyone's request. List yourself as a router for that.
-- Request details are kept in a protected extra value on the person who asked, never in Special Content.
-- Anyone with SQL report rights in TouchPoint can still read form answers and extra values, so keep that right to people you would trust with this.
+**Note for admins:** a `#Roles` line in CustomReports does not keep anyone out of `/PyScriptForm`. The tool checks the access role and the committee involvement itself on every page and action.
