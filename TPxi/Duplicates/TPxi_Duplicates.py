@@ -90,6 +90,15 @@
 #     - Afterward: checks that gifts, attendance, involvements, logins, checks
 #       and notes all landed, reports a changed name, and moves people into the
 #       family chosen (TouchPoint's own Person > Family > Add).
+#   Merge log
+#     - Each merge keeps, on the person kept: when, who, what the deleted record
+#       held (name, birthday, contact, address, family, membership dates), the
+#       choices made, and what happened or needs checking. Each Not the same
+#       keeps who and when, on both people. Read it under Merge log on the list.
+#     - Seen only by Admin and Manager2: the extra value is registered as a
+#       standard extra value with those Visibility Roles (StandardExtraValues2),
+#       which an Admin opening the page sets up; until then nothing is logged.
+#     - Never includes giving: no gift counts, statements, envelopes or cards.
 #
 # INSTALL: paste as Special Content > Python named TPxi_Duplicates, then open
 # /PyScriptForm/TPxi_Duplicates.
@@ -98,6 +107,7 @@
 #   1.0.0  2026-11-19  Initial release.
 #####################################################################
 import re
+import datetime
 
 VERSION = '1.0.0'
 # Updates come from the same TPxi script service as the other TPxi tools: the page asks
@@ -1104,11 +1114,172 @@ def person_values(pid):
     return out
 
 
+# ---------------------------------------------------------------- the merge log
+# One log per person kept: a person extra value, registered in StandardExtraValues2 with
+# VisibilityRoles so only Admin and Manager2 see it on a profile (the TPxi Benevolence way).
+# An Admin opening the page registers it (and the Not the same marks) when needed; until it is
+# registered nothing is logged. Never Special Content: TouchPoint serves that with no sign-in.
+# It never keeps giving: no gift counts, statements, envelopes or cards.
+LOG_FIELD = 'TPxiDuplicatesLog'
+LOG_NAMES = [LOG_FIELD, LOG_FIELD + '_mv', LOG_FIELD + '_mv_mv']          # a merge renames a second copy
+OWN_FIELDS = LOG_NAMES + [NOT_SAME, NOT_SAME + '_mv', NOT_SAME + '_mv_mv']
+SEV_CONTENT = 'StandardExtraValues2'
+GIVING = re.compile(r'gift|giving|contribut|envelope|statement|pledge|\bfunds?\b|card|bank|routing', re.I)
+
+
+def sev_xml():
+    try:
+        return unicode(model.TextContent(SEV_CONTENT) or '')
+    except Exception:
+        return ''
+
+
+def log_protected():
+    """Every name we keep is registered as seen only by the tool's roles."""
+    xml = sev_xml()
+    allowed = [r.lower() for r in ROLES]
+    for name in OWN_FIELDS:
+        m = re.search(r'<Value\s+Name="%s"[^>]*>' % re.escape(name), xml)
+        roles = re.search(r'VisibilityRoles="([^"]*)"', m.group(0)) if m else None
+        have = [x.strip().lower() for x in roles.group(1).split(',') if x.strip()] if roles else []
+        if not have or any(h not in allowed for h in have):
+            return False
+    return True
+
+
+def protect_now():
+    """Admin: register (or fix) our extra value names in StandardExtraValues2 as seen only by
+    the tool's roles, leaving every other entry as it was."""
+    xml = sev_xml() or '<?xml version="1.0" encoding="utf-16"?>\n<Views>\n</Views>'
+    for name in OWN_FIELDS:
+        line = '<Value Name="%s" Type="Text" VisibilityRoles="%s" />' % (name, ','.join(ROLES))
+        pat = re.compile(r'<Value\s+Name="%s"[^>]*?/>' % re.escape(name))
+        if pat.search(xml):
+            xml = pat.sub(line, xml, 1)
+            continue
+        std = re.search(r'<View\s+Table="People"\s+Location="Standard"[^>]*>', xml)
+        if std:
+            xml = xml[:std.end()] + '\n    ' + line + xml[std.end():]
+        else:
+            xml = xml.replace('</Views>', '  <View Table="People" Location="Standard">\n    %s\n  </View>\n</Views>' % line)
+    model.WriteContentText(SEV_CONTENT, xml, "")
+
+
+def me():
+    try:
+        pid = to_int(model.UserPeopleId)   # a property, not a method
+    except Exception:
+        pid = 0
+    r = q.QuerySqlTop1('SELECT Name FROM dbo.People WITH (NOLOCK) WHERE PeopleId = %d' % pid) if pid else None
+    return pid, (s(r.Name) if r else '')
+
+
+def now_text():
+    return datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+
+
+def log_read(pid):
+    """All entries on a person, from the log and any copies a merge renamed, oldest first."""
+    entries, names = [], []
+    for r in q.QuerySql("SELECT Field, ISNULL(Data, '') D FROM dbo.PeopleExtra WITH (NOLOCK) WHERE PeopleId = %d AND Field IN (%s)" % (
+            pid, ','.join("'%s'" % n for n in LOG_NAMES))):
+        names.append(s(r.Field))
+        entries += load_json(s(r.D), {}).get('entries') or []
+    seen, out = set(), []
+    for e in sorted(entries, key=lambda e: e.get('t') or ''):
+        if e.get('id') in seen:
+            continue
+        seen.add(e.get('id'))
+        out.append(e)
+    return out, names
+
+
+def log_write(pid, entries, names):
+    who = 'PeopleId = %d' % pid
+    model.AddExtraValueText(who, LOG_FIELD, safe_json({'v': 1, 'entries': entries[-40:]}))
+    for n in names:
+        if n != LOG_FIELD:
+            model.DeleteExtraValue(who, n)
+
+
+def log_add(pid, entry):
+    entries, names = log_read(pid)
+    entries.append(entry)
+    log_write(pid, entries, names)
+
+
+def snapshot(pid):
+    """What the record to be deleted holds that the merge does not keep anywhere else: who it
+    was, how to reach them, and their family. Nothing about giving."""
+    r = q.QuerySqlTop1("""SELECT p.Name, ISNULL(p.FirstName, '') F, ISNULL(p.NickName, '') Nk, ISNULL(p.MiddleName, '') Mi, ISNULL(p.LastName, '') L,
+          ISNULL(p.MaidenName, '') Mn, p.BirthMonth BM, p.BirthDay BD, p.BirthYear BYr, ISNULL(g.Description, '') G, ISNULL(mar.Description, '') Mar,
+          ISNULL(ms.Description, '') MS, ISNULL(p.EmailAddress, '') E, ISNULL(p.EmailAddress2, '') E2, ISNULL(p.CellPhone, '') C, ISNULL(p.WorkPhone, '') W,
+          ISNULL(f.HomePhone, '') H, ISNULL(f.AddressLineOne, '') A1, ISNULL(f.AddressLineTwo, '') A2, ISNULL(f.CityName, '') City,
+          ISNULL(f.StateCode, '') St, ISNULL(f.ZipCode, '') Zip, CONVERT(varchar(10), p.CreatedDate, 120) Added,
+          CONVERT(varchar(10), p.JoinDate, 120) Joined, CONVERT(varchar(10), p.BaptismDate, 120) Baptized,
+          ISNULL(o.Description, '') O, ISNULL(ep.Description, '') EP, p.FamilyId Fam
+        FROM dbo.People p WITH (NOLOCK) JOIN dbo.Families f WITH (NOLOCK) ON f.FamilyId = p.FamilyId
+        LEFT JOIN lookup.Gender g ON g.Id = p.GenderId LEFT JOIN lookup.MaritalStatus mar ON mar.Id = p.MaritalStatusId
+        LEFT JOIN lookup.MemberStatus ms ON ms.Id = p.MemberStatusId LEFT JOIN lookup.Origin o ON o.Id = p.OriginId
+        LEFT JOIN lookup.EntryPoint ep ON ep.Id = p.EntryPointId
+        WHERE p.PeopleId = %d""" % pid)
+    if not r:
+        return {'pid': pid}
+    bd = '/'.join(unicode(x) for x in (r.BM, r.BD, r.BYr) if x)
+    addr = ', '.join(x for x in (s(r.A1), s(r.A2), ' '.join(y for y in (s(r.City), s(r.St), s(r.Zip)) if y)) if x)
+    fam = ['%s%s%s' % (x['name'], ', %s' % x['age'] if x['age'] is not None else '', ', ' + x['position'] if x['position'] else '')
+           for x in family_of(to_int(r.Fam), (pid,)) if not x['self']]
+    d = {'pid': pid, 'name': s(r.Name), 'first': s(r.F), 'nick': s(r.Nk), 'middle': s(r.Mi), 'last': s(r.L), 'former': s(r.Mn),
+         'birthday': bd, 'gender': s(r.G), 'marital': s(r.Mar), 'member': s(r.MS), 'email': s(r.E), 'email2': s(r.E2),
+         'cell': s(r.C), 'work': s(r.W), 'home': s(r.H), 'address': addr, 'added': s(r.Added), 'joined': s(r.Joined),
+         'baptized': s(r.Baptized), 'how': clean_how(r.O, r.EP), 'family': fam}
+    return dict((k, v) for k, v in d.items() if v)
+
+
+def act_log():
+    """After the merge: what happened, step by step, onto the entry the before step started."""
+    keep, eid = to_int(_param('keep')), _param('id')
+    if not keep or not eid or not log_protected():
+        return {'success': True}
+    steps, problems = [], []
+    for x in load_json(_param('lines'), [])[:80]:
+        text = unicode((x or {}).get('text') or '')[:300]
+        if not text or GIVING.search(text):
+            continue
+        (problems if x.get('cls') == 'bad' else steps).append(text)
+    entries, names = log_read(keep)
+    for e in entries:
+        if e.get('id') == eid:
+            e['status'] = 'check' if problems else 'done'
+            e['steps'], e['problems'] = steps, problems
+    log_write(keep, entries, names)
+    return {'success': True}
+
+
+def act_merges():
+    """The newest entries across everyone, for the Merge log on the list."""
+    if not log_protected():
+        return {'success': True, 'on': False, 'entries': []}
+    out, seen = [], set()
+    for r in q.QuerySql("""SELECT TOP 500 e.PeopleId, p.Name, ISNULL(e.Data, '') D FROM dbo.PeopleExtra e WITH (NOLOCK)
+            JOIN dbo.People p WITH (NOLOCK) ON p.PeopleId = e.PeopleId WHERE e.Field IN (%s)""" % ','.join("'%s'" % n for n in LOG_NAMES)):
+        for e in load_json(s(r.D), {}).get('entries') or []:
+            if e.get('id') in seen:
+                continue
+            seen.add(e.get('id'))
+            e['at'] = {'pid': r.PeopleId, 'name': s(r.Name)}
+            out.append(e)
+    out.sort(key=lambda e: e.get('t') or '', reverse=True)
+    return {'success': True, 'on': True, 'entries': out[:40]}
+
+
 def value_plan(keep, lose):
     """TouchPoint moves the other record's extra values, but a field the kept person already
     has comes over renamed Field_mv. Same value on both: the copy is just clutter. Different
     values: someone should choose."""
-    kv, lv = person_values(keep), person_values(lose)
+    # this tool's own values (the merge log, Not the same) are settled by it, never offered as a choice
+    kv = dict((k, v) for k, v in person_values(keep).items() if k not in OWN_FIELDS)
+    lv = dict((k, v) for k, v in person_values(lose).items() if k not in OWN_FIELDS)
     conflicts, dups, moves = [], [], []
     for f, o in sorted(lv.items()):
         if f == NOT_SAME:
@@ -1183,15 +1354,29 @@ def act_before():
             model.AddTag('PeopleId IN (%s)' % ','.join(str(i) for i in ids), t['name'], keep)
             log.append('Rebuilt the tag %s (%d people), now owned by the person kept' % (t['name'], len(ids)))
     lp = q.QuerySqlTop1('SELECT FamilyId F FROM dbo.People WITH (NOLOCK) WHERE PeopleId = %d' % lose)
-    snapshot = family_values(lp.F) if lp else []
+    fam_snap = family_values(lp.F) if lp else []
     # where the values go back: anyone else still in that family (its own family), else the person kept
     anchor = 0
     if lp:
         a = q.QuerySqlTop1('SELECT TOP 1 PeopleId P FROM dbo.People WITH (NOLOCK) WHERE FamilyId = %d AND PeopleId NOT IN (%d, %d) ORDER BY PositionInFamilyId, PeopleId' % (lp.F, keep, lose))
         anchor = a.P if a else 0
     keep_fields = [s(r.Field) for r in q.QuerySql('SELECT Field FROM dbo.PeopleExtra WITH (NOLOCK) WHERE PeopleId = %d' % keep)]
-    return {'success': True, 'log': log, 'familyValues': snapshot, 'anchor': anchor, 'expect': union_counts(keep, lose), 'keepFields': keep_fields,
-            'carry': carry_plan(keep, lose)}
+    # the merge log: started now, with what the record to be deleted holds, so it survives the delete
+    log_id = ''
+    if log_protected():
+        pid, nm = me()
+        kn = q.QuerySqlTop1('SELECT Name FROM dbo.People WITH (NOLOCK) WHERE PeopleId = %d' % keep)
+        log_id = 'm%s-%d' % (datetime.datetime.now().strftime('%Y%m%d%H%M%S'), lose)
+        picks = [x for x in load_json(_param('picks'), []) if isinstance(x, dict) and not GIVING.search(unicode(x.get('field') or ''))][:60]
+        try:
+            log_add(keep, {'id': log_id, 't': now_text(), 'kind': 'merge', 'status': 'started', 'by': nm, 'byId': pid, 'v': VERSION,
+                           'into': {'pid': keep, 'name': s(kn.Name) if kn else ''}, 'from': snapshot(lose), 'picks': picks,
+                           'move': _param('move')[:300]})
+        except Exception as e:
+            log_id = ''
+            log.append('The merge log could not be started: %s' % unicode(e)[:120])
+    return {'success': True, 'log': log, 'familyValues': fam_snap, 'anchor': anchor, 'expect': union_counts(keep, lose), 'keepFields': keep_fields,
+            'carry': carry_plan(keep, lose), 'logId': log_id}
 
 
 def act_after():
@@ -1416,6 +1601,16 @@ def act_notsame():
         if str(y) not in have:
             have.append(str(y))
         model.AddExtraValueText('PeopleId = %d' % x, NOT_SAME, ',' + ','.join(have[-200:]) + ',')
+    if log_protected():
+        pid, nm = me()
+        nmz = dict((r.PeopleId, s(r.Name)) for r in q.QuerySql('SELECT PeopleId, Name FROM dbo.People WITH (NOLOCK) WHERE PeopleId IN (%d, %d)' % (a, b)))
+        eid = 'n%s-%d-%d' % (datetime.datetime.now().strftime('%Y%m%d%H%M%S'), min(a, b), max(a, b))
+        for x, y in ((a, b), (b, a)):
+            try:
+                log_add(x, {'id': eid, 't': now_text(), 'kind': 'notsame', 'by': nm, 'byId': pid, 'v': VERSION,
+                            'other': {'pid': y, 'name': nmz.get(y, '')}})
+            except Exception:
+                pass
     return {'success': True}
 
 
@@ -1467,7 +1662,8 @@ def handle_post():
         return
     try:
         fn = {'find': act_find, 'lookup': act_lookup, 'pair': act_pair, 'before': act_before, 'after': act_after,
-              'verify': act_verify, 'notsame': act_notsame, 'detail': act_detail, 'values': act_values}.get(_param('action'))
+              'verify': act_verify, 'notsame': act_notsame, 'detail': act_detail, 'values': act_values,
+              'log': act_log, 'merges': act_merges}.get(_param('action'))
         res = fn() if fn else {'success': False, 'message': 'Unknown action.'}
         print safe_json(res)
     except Exception as e:
@@ -1563,6 +1759,7 @@ HTML = """
   <div class="muted">Strong: same birthday, and names alike (including nicknames and misspellings). Name changed: same birthday and first name,
    a different last name, and a shared email, cell or address. No birthday: names alike and a shared email or cell. Twins, Jr. and Sr., different genders,
    and pairs marked Not the same are left out. Nothing merges until you review a pair and press Merge.</div>
+  <details class="card" id="mglogwrap"><summary style="font-weight:700;cursor:pointer">Merge log</summary><div id="mglog" class="stack" style="gap:8px;margin-top:8px"></div></details>
   <details class="card" id="mgsrcwrap"><summary style="font-weight:700;cursor:pointer">Where duplicates come from, and who keeps getting duplicated</summary><div id="mgsrc" class="stack" hidden></div></details>
   <div class="card"><div class="pairs" id="mgpairs"><div class="busy"><span class="spin"></span>Looking for likely duplicates across everyone in TouchPoint...</div></div></div>
   <div class="card">
@@ -2236,7 +2433,15 @@ JS = r"""<script>
     var k = CUR.data.keep, l = CUR.data.lose;
     show('mgdone'); $('mgdtitle').textContent = 'Merging ' + l.name + ' into ' + k.name + '...'; $('mgdlog').innerHTML = ''; $('mgdbtns').hidden = true;
     $('mgdopen').href = '/Person2/' + k.pid;
-    function finish(title){ $('mgdtitle').textContent = title; $('mgdbtns').hidden = false; }
+    // the merge log: the before step starts it; finishing adds what happened (never giving)
+    var LOGID = '';
+    function finish(title){ $('mgdtitle').textContent = title; $('mgdbtns').hidden = false;
+      if (!LOGID) return;
+      var lines = []; Array.prototype.forEach.call($('mgdlog').children, function(d){ if (/^(ok|bad|muted)$/.test(d.className)) lines.push({cls: d.className, text: d.textContent}); });
+      post({action: 'log', keep: k.pid, id: LOGID, lines: JSON.stringify(lines)}, function(){}); LOGID = ''; }
+    function pickSummary(){ return FIELDS.filter(function(f){ return (f.pick != f.def || f.pick == '2') && !/envelope|statement|contribut|giving/i.test(f.label); })
+      .map(function(f){ return {field: f.label, chose: f.pick == '0' ? 'from the deleted record' : (f.pick == '2' ? 'typed' : 'kept'),
+        value: String((f.pick == '0' ? f.other : (f.pick == '2' ? f.custom : f.keep)) || '').slice(0, 200)}; }); }
     // 1. a fresh copy of TouchPoint's merge form, before anything changes
     getMergeForm(function(err, form){
       if (err) { logLine('bad', err); finish('Not merged'); return; }
@@ -2257,9 +2462,11 @@ JS = r"""<script>
       for (var tn in typedVal) pairs.push([tn, typedVal[tn]]);
       pairs.push(['DeleteDuplicate', 'true']);
       // 2. what this page saves first
-      post({action: 'before', keep: k.pid, lose: l.pid}, function(b){
+      post({action: 'before', keep: k.pid, lose: l.pid, picks: JSON.stringify(pickSummary()),
+            move: CUR.joinFamily ? 'moved into the family with ' + names(CUR.data.loss.leavesFamily) : ''}, function(b){
         if (!b.success) { logLine('bad', 'Stopped before merging: ' + b.message); finish('Not merged'); return; }
-        b.log.forEach(function(t){ logLine('ok', t); });
+        LOGID = b.logId || '';
+        b.log.forEach(function(t){ logLine(/could not/.test(t) ? 'bad' : 'ok', t); });
         if (!b.log.length) logLine('muted', 'No tags needed saving.');
         // 3. TouchPoint's own merge
         var m = logLine('busy', "TouchPoint is merging (this can take a minute)..."); m.insertBefore(el('span', {'class': 'spin'}), m.firstChild);
@@ -2366,6 +2573,39 @@ JS = r"""<script>
   }
   $('mgdnext').onclick = function(){ show('mglist'); draw(); };
 
+  // ---- the merge log (each merge and Not the same made here, newest first)
+  var SNAP = [['birthday', 'Birthday'], ['gender', 'Gender'], ['marital', 'Marital status'], ['member', 'Member status'], ['email', 'Email'], ['email2', 'Email 2'],
+    ['cell', 'Cell'], ['work', 'Work phone'], ['home', 'Home phone'], ['address', 'Address'], ['added', 'Added'], ['how', 'How added'], ['joined', 'Joined'],
+    ['baptized', 'Baptized'], ['former', 'Former name'], ['family', 'Family']];
+  function drawMerges(r){ var box = $('mglog'); box.innerHTML = '';
+    if (!r.success) { box.appendChild(el('span', {'class': 'bad', text: r.message})); return; }
+    if (!r.on) { box.appendChild(el('div', {'class': 'muted', text: 'The merge log is off until an Admin opens this page: it first makes the log visible only to Admin and Manager2 (Standard extra values).' + (UPD.logErr ? ' Last try: ' + UPD.logErr : '')})); return; }
+    box.appendChild(el('div', {'class': 'muted', text: 'Each merge and Not the same made here, newest first. Kept on the person, seen only by Admin and Manager2. It never includes giving.'}));
+    if (!r.entries.length) { box.appendChild(el('div', {'class': 'muted', text: 'Nothing yet.'})); return; }
+    r.entries.forEach(function(e){
+      var head = e.kind == 'notsame' ? 'Marked ' + e.at.name + ' #' + e.at.pid + ' and ' + (e.other || {}).name + ' #' + (e.other || {}).pid + ' not the same'
+        : ((e.from || {}).name || 'A record') + ' #' + (e.from || {}).pid + ' merged into ' + e.at.name + ' #' + e.at.pid;
+      var det = el('div', {'class': 'detail'}); det.hidden = true;
+      var btn = el('button', {type: 'button', 'class': 'linkbtn', text: head}); btn.onclick = function(){ det.hidden = !det.hidden; };
+      var st = e.status == 'check' ? el('span', {'class': 'tag bad', style: 'margin-left:6px', text: 'something to check'}) : (e.status == 'started' ? el('span', {'class': 'tag warn', style: 'margin-left:6px', text: 'did not finish'}) : null);
+      if (e.kind == 'merge') {
+        var f = e.from || {};
+        det.appendChild(el('b', {text: 'The deleted record, #' + f.pid + ' ' + (f.name || '')}));
+        SNAP.forEach(function(x){ var v = f[x[0]]; if (v && v.length) det.appendChild(el('div', {'class': 'item'}, [el('span', {'class': 'muted', text: x[1] + ': '}), Array.isArray(v) ? v.join('; ') : String(v)])); });
+        if ((e.picks || []).length) { det.appendChild(el('b', {style: 'display:block;margin-top:8px', text: 'Choices'}));
+          e.picks.forEach(function(x){ det.appendChild(el('div', {'class': 'item', text: x.field + ': ' + (x.value || '(blank)') + ' (' + x.chose + ')'})); }); }
+        if (e.move) det.appendChild(el('div', {'class': 'item', text: 'Family: ' + e.move}));
+        if ((e.problems || []).length) { det.appendChild(el('b', {style: 'display:block;margin-top:8px', text: 'To check'}));
+          e.problems.forEach(function(x){ det.appendChild(el('div', {'class': 'item bad', text: x})); }); }
+        if ((e.steps || []).length) { det.appendChild(el('b', {style: 'display:block;margin-top:8px', text: 'What happened'}));
+          e.steps.forEach(function(x){ det.appendChild(el('div', {'class': 'item', text: x})); }); }
+      }
+      box.appendChild(el('div', {}, [el('div', {'class': 'row', style: 'gap:6px'}, [el('span', {'class': 'muted', text: e.t + (e.by ? ' \u00b7 ' + e.by : '')}), btn, st]), det]));
+    });
+  }
+  $('mglogwrap').addEventListener('toggle', function(){ if (!$('mglogwrap').open) return;
+    $('mglog').innerHTML = busy('Reading the merge log...'); post({action: 'merges'}, drawMerges); });
+
   // ---- updates: an Admin is told when a newer TPxi Duplicates is out
   var UPD = __UPD__;
   function newer(pub, mine){ var a = String(pub || '').split('.'), b = String(mine || '').split('.');
@@ -2399,9 +2639,12 @@ JS = r"""<script>
 </script>"""
 
 
+PROTECT_ERROR = ''
+
+
 def page():
     return REDIRECT_JS + CSS + (HTML % VERSION) + JS.replace('__UPD__', safe_json(
-        {'version': VERSION, 'id': DC_SCRIPT_ID, 'api': DC_API_BASE, 'admin': _in_role('Admin')}))
+        {'version': VERSION, 'id': DC_SCRIPT_ID, 'api': DC_API_BASE, 'admin': _in_role('Admin'), 'logErr': PROTECT_ERROR}))
 
 
 # ---------------------------------------------------------------- run
@@ -2412,6 +2655,11 @@ elif not can_use():
 else:
     try:
         model.Header = ''
+        if _in_role('Admin') and not log_protected():
+            try:
+                protect_now()
+            except Exception as e:
+                PROTECT_ERROR = unicode(e)[:200]
         model.Form = page()
     except Exception as e:
         model.Form = REDIRECT_JS + CSS + '<div id="mg"><h1>TPxi Duplicates</h1><p class="bad">Something went wrong: %s</p></div>' % esc(repr(e))
