@@ -2,7 +2,7 @@
 
 A friendlier way to find and merge people who are in TouchPoint twice. TouchPoint still does the merge; this page finds the pairs, compares them, catches what TouchPoint's merge would leave behind, and checks the result.
 
-**Beta.** Try it on a test pair before a real one. The screenshots below are sample data: made-up people, not real records.
+Try it on a test pair before a real one. The screenshots below are sample data: made-up people, not real records.
 
 ```mermaid
 flowchart LR
@@ -25,16 +25,16 @@ It looks across the whole church, not one person at a time:
 
 Each pair says why it matched. Jr. and Sr., different genders, and pairs marked **Not the same** are left out. Likely twins, a parent and child with the same name, and a record a form wrote someone else over get their own groups, so they are not merged by mistake.
 
-**Where duplicates come from** shows how each newer record was added (a registration, a check-in) and by whom, and who keeps getting duplicated, so the cause can be fixed.
+**Where duplicates come from** shows how each newer record was added and who keeps getting duplicated, so the cause can be fixed.
 
 ## 2. Compare side by side
 
 ![Both records side by side](2-side-by-side.png)
 
-- **What each record holds:** giving, attendance, involvements, login, notes, tags, photo, extra values, medical info and a timeline of changes. Click a row to see what is in it for both.
-- **The original record stays.** Its record number, added date and membership history stay with it. If the newer record is the one living with the family, the original moves into that family right after the merge, bringing its own children if you choose. A child is not moved in with grandparents unless you check it.
+- **What each record holds,** from giving and attendance to notes, tags, photo, medical info and a timeline. Click a row to see what is in it for both.
+- **The original record stays,** with its record number and membership history. If the newer record is the one in the family, the original moves into that family, bringing its own children if you choose.
 - **More than two records?** The page says so, and after the merge it offers the next comparison.
-- **Both families are shown**, with anyone else who looks like they are in both, and a button to compare them.
+- **Both families are shown**, with a Compare button for anyone who looks like they are in both.
 
 ## 3. Choose what to keep
 
@@ -53,24 +53,23 @@ You can change any pick or type a value neither record has.
 
 ![Before you merge](4-before-you-merge.png)
 
-What TouchPoint moves, what this page saves that TouchPoint's merge would drop, and what is gone for good. There is no undo, so you confirm first.
+What TouchPoint moves, what this page saves that the merge would drop, and what is gone for good. There is no undo.
 
 ## 5. Merged, and checked
 
 ![Merged and checked](5-merged-and-checked.png)
 
-The merge runs as you, so it is in TouchPoint's merge history under your name. Afterward the page checks that everything from both records landed on the person kept, and offers what to compare next.
+The merge runs as you, so it is in TouchPoint's merge history under your name. The page checks that everything landed and offers what to compare next.
 
 ## What changes in TouchPoint
 
 - When you press **Merge**, TouchPoint merges the two people and **deletes** the duplicate, exactly as its own merge screen does.
 - The person kept is added to the duplicate's tags. Tags the duplicate owned are rebuilt under the person kept.
 - TouchPoint deletes a family's extra values when it deletes anyone in that family. This page puts them back.
-- When both records have the same extra value, you choose which one stays, so no leftover copy ending in _mv is left behind.
+- When both records have the same extra value, you choose which stays, so no copy ending in _mv is left behind.
 - The **check-in note** and the **MinistrySafe account link** are not on TouchPoint's merge screen, so this page carries them over.
 - When both records have medical info, TouchPoint keeps the duplicate's. You are warned first.
-- Moving someone into a family uses TouchPoint's own **Person > Family > Add**.
-- **Not the same** is saved as an extra value on both people (TPxiMergeNotSame).
+- **A merge log** is kept on the person: when, who, what the deleted record held, the choices made, and anything to check (see **Merge log** on the list). **Not the same** records who and when. Both are seen only by **Admin** and **Manager2**, set up the first time an Admin opens the page. The log never includes giving.
 
 Nothing changes until you press Merge. No emails or texts are sent.
 
@@ -84,9 +83,12 @@ Nothing changes until you press Merge. No emails or texts are sent.
    <Report name="TPxi_Duplicates" type="PyScript" role="Admin" />
    ```
 
-Only the **Admin** and **Manager2** roles can use it. These are the roles TouchPoint lets delete a duplicate during a merge.
+Only the **Admin** and **Manager2** roles can use it. These are the roles TouchPoint lets delete a duplicate during a merge. People without the **Finance** role see giving as hidden; the merge still moves every gift.
+
+## Updates
+
+When a newer version is out, an Admin sees a banner with **Update now**. It saves the new version over the script, and saved marks stay as they are.
 
 ## Good to know
 
 - **Compare any two people** at the bottom of the list picks any two by name or record number.
-- **If a merge is interrupted,** the check at the end shows what landed.
