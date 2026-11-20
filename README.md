@@ -143,6 +143,7 @@ For a searchable version with a longer write-up on each one, see the
 | [Access Audit](TPxi/Access%20Audit) `new` | Understand and manage roles/acces |
 | [API Explorer](TPxi/API%20Explorer) | Try TouchPoint® API calls live |
 | [SQL Query Explorer](TPxi/SQL%20Query%20Explorer) | Run SQL against your database directly |
+| &#9733; [Duplicates](/TPxi/Duplicates) | A friendlier way to find and merge people who are in TouchPoint twice |
 | [Email Technical Diagnostics](TPxi/Email%20Technical%20Diagnostics) | What sent, what bounced, and why |
 | [Account Security Monitor](TPxi/Account%20Security%20Monitor) | Login, role and access analytics |
 | [Dashboards](TPxi/Dashboards) `new` | Create custom and template dashboards |
