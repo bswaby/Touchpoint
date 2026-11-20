@@ -2,7 +2,7 @@
 
 A friendlier way to find and merge people who are in TouchPoint twice. TouchPoint still does the merge; this page finds the pairs, compares them, catches what TouchPoint's merge would leave behind, and checks the result.
 
-**Beta.** Try it on a test pair before a real one. The screenshots below use made-up people.
+**Beta.** Try it on a test pair before a real one. The screenshots below are sample data: made-up people, not real records.
 
 ```mermaid
 flowchart LR
@@ -15,7 +15,7 @@ flowchart LR
 
 ## 1. Find likely duplicates
 
-![The list of likely duplicates](screenshots/1-list.png)
+![The list of likely duplicates](1-list.png)
 
 It looks across the whole church, not one person at a time:
 
@@ -29,7 +29,7 @@ Each pair says why it matched. Jr. and Sr., different genders, and pairs marked 
 
 ## 2. Compare side by side
 
-![Both records side by side](screenshots/2-side-by-side.png)
+![Both records side by side](2-side-by-side.png)
 
 - **What each record holds:** giving, attendance, involvements, login, notes, tags, photo, extra values, medical info and a timeline of changes. Click a row to see what is in it for both.
 - **The original record stays.** Its record number, added date and membership history stay with it. If the newer record is the one living with the family, the original moves into that family right after the merge, bringing its own children if you choose. A child is not moved in with grandparents unless you check it.
@@ -38,26 +38,26 @@ Each pair says why it matched. Jr. and Sr., different genders, and pairs marked 
 
 ## 3. Choose what to keep
 
-![Where they differ](screenshots/3-where-they-differ.png)
+![Where they differ](3-where-they-differ.png)
 
 Only the fields that differ are shown, already picked sensibly:
 
 - the newer cell and email, but never an address that has been bouncing
 - the spelling the family uses, or the usual spelling when the other is a typo
-- a nickname saved as **Goes By** (Katherine, goes by Katie)
+- a nickname saved as **Goes By** (Rebecca, goes by Becky)
 - a married name, with the old last name saved as **Former Name**
 
 You can change any pick or type a value neither record has.
 
 ## 4. See what happens before you merge
 
-![Before you merge](screenshots/4-before-you-merge.png)
+![Before you merge](4-before-you-merge.png)
 
 What TouchPoint moves, what this page saves that TouchPoint's merge would drop, and what is gone for good. There is no undo, so you confirm first.
 
 ## 5. Merged, and checked
 
-![Merged and checked](screenshots/5-merged-and-checked.png)
+![Merged and checked](5-merged-and-checked.png)
 
 The merge runs as you, so it is in TouchPoint's merge history under your name. Afterward the page checks that everything from both records landed on the person kept, and offers what to compare next.
 
