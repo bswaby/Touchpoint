@@ -40,11 +40,24 @@ Classes come from your check-in rules (birthday range or grade). Labels print th
 
 ## Receiving screens
 
-Open OneVisit with **#receive** on a screen in a ministry area: who is on the way, first-time guests, allergies, pickup notes, and everyone here today by class.
+Open OneVisit with **#receive** on a ministry area's screen: who is on the way, first-time guests, allergies, pickup notes, and who is here by class.
 
 ## Phone sign-up (add-on)
 
 Families fill in the form on their phone from a QR code at the door or a texted link, and it lands under **In progress**. It is a paid confsched add-on, with a 30-day free trial in **Church setup > Phone sign-up**. Sign-ups wait at confsched only until your TouchPoint collects them.
+
+## Workflows: sign-ups with their own steps
+
+A gym membership or volunteer onboarding: a desk works the steps, and OneVisit does the rest. Build one in **Church setup > Workflows and desks**, starting from a template.
+
+![A workflow's setup: how it starts, its steps, and the whole process as a map](screenshots/workflow-setup.png)
+
+- **Starts when** says what brings someone in: the forms that start it, and the desks that offer them (typed at the desk, on a tablet, or on their own phone).
+- **Each step reads as plain sentences:** automatic, a decision at a desk, a check that decides by itself, or waiting on the family (a form, a payment).
+- **The process** draws every path, and **Try it with a test person** shows what each step would do, writing nothing.
+- **If nobody decides,** a step can email the team and move the sign-up on.
+
+More, with every building block: **[OneVisit workflows](Workflow-Functions.md)**
 
 ## What changes in TouchPoint
 
@@ -53,13 +66,15 @@ Families fill in the form on their phone from a QR code at the door or a texted 
 - **"OK to text"** is set on adults the desk just added, when the family says yes.
 - **Special Content files starting TPxiOneVisit_:** families in progress (cleared once saved, never kept past 30 days), the phone sign-up key, and the installed copy. Church setup is the setting TPxiOneVisitConfig, with no personal information.
 - **Extra values:** a linked card as a scrambled key, never the card number, and what Coming up showed each family.
+- **Workflows** change involvements, member types, tags, extra values and tasks only as their steps say, keep each sign-up's progress on the person who signed up (an extra value starting TPxiOVFlow_), and save desk photos to the person's record.
 
 ## What sends a text or email
 
-Only these, and only when a volunteer or family taps the button:
+Only these:
 
 - **Text it** sends the sign-up link to the number typed, from the texting group Church setup picks (your own PoweredByText or Twilio account). The same number gets at most one text every 2 minutes.
 - **Coming up** can text or email one event to one person, and **Send me these** emails one summary to the person who asked.
+- **Workflows** send the texts and emails their steps say (a thank-you, a form link, a reminder, a welcome), written by an admin in Church setup. They can also email the team (an involvement, its leaders, a saved search or people picked, at most 25), for example when a sign-up has waited too long at the desk.
 
 ## Install
 
