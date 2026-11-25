@@ -64,6 +64,8 @@
 #     - Both families, with anyone else who looks like they are in both (a
 #       birthday a digit off or missing too) and a Compare button.
 #     - More than two records: flagged, and the result offers the next pair.
+#     - The record that stays is a blue circle and the one merged in an orange
+#       square, wherever its number shows, so two similar numbers are not mixed up.
 #   Choosing fields (read from TouchPoint's own merge screen)
 #     - The newer cell and email, but never an address that bounced, was
 #       blocked or reported spam in the last year. A phone typo is one digit off.
@@ -76,7 +78,8 @@
 #     - Values TouchPoint or a kiosk fills in by itself (Just Added, Unknown,
 #       not specified, "Added during online registration") give way to real
 #       ones. Origin and entry point stay the original's; member status follows
-#       the membership history; any text field can take a typed value.
+#       the membership history; any text field can take a typed value, even one
+#       both records leave blank (a nickname). Name rows always show.
 #   Around TouchPoint's merge (what it would otherwise lose)
 #     - Re-adds the duplicate's tags and rebuilds the tags it owned.
 #     - Puts back family extra values, which TouchPoint deletes along with
@@ -105,11 +108,18 @@
 #
 # VERSION HISTORY
 #   1.0.0  2026-11-19  Initial release.
+#   1.1.0  2026-11-24  The two records look different wherever their numbers show: the
+#                      one that stays is a blue circle, the one merged in and deleted an
+#                      orange square, and their columns are tinted to match. Every text
+#                      field can take a typed value, even when both records match or are
+#                      blank (a nickname neither has), and the name rows always show. A
+#                      first name that is really a nickname: Put the other first name in
+#                      Goes By. The update check says which script and version it is.
 #####################################################################
 import re
 import datetime
 
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 # Updates come from the same TPxi script service as the other TPxi tools: the page asks
 # DC_API_BASE which version is newest, and an Admin's Update pulls the new code from
 # DC_API_WORKER and saves it over this script.
@@ -1721,6 +1731,15 @@ CSS = """<style>
 #mg table.fields td:first-child{width:24%;min-width:150px}
 #mg table.fields label > span:first-of-type{flex:1 1 160px;min-width:0}
 #mg table.fields tr.same{display:none}
+#mg .pid{white-space:nowrap;font-weight:700;border-radius:4px;padding:0 4px}
+#mg .pid.k{color:#1F5A8A;background:#E4EEF7}
+#mg .pid.l{color:#9A3F17;background:#FBE9DD}
+#mg .pid.k::before{content:"\\25CF\\00a0"}
+#mg .pid.l::before{content:"\\25A0\\00a0"}
+#mg .holds .ck,#mg table.fields td.ck,#mg table.fields th.ck{background:#F3F7FB}
+#mg .holds .cl,#mg table.fields td.cl,#mg table.fields th.cl{background:#FDF5F0}
+#mg .holds .ck,#mg .holds .cl{border-radius:4px;padding:2px 6px}
+#mg .colhead.lose{border-color:#9A3F17}
 #mg table.fields.all tr.same{display:table-row;color:#5B6461}
 #mg .box{border:2px solid #E9C77F;background:#FFFBF2;border-radius:12px;padding:12px 14px}
 #mg ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
@@ -1801,6 +1820,21 @@ JS = r"""<script>
     for (var k in attrs){ if (k == 'text') e.textContent = attrs[k]; else if (k == 'html') e.innerHTML = attrs[k]; else if (k.slice(0,2) == 'on') e[k] = attrs[k]; else e.setAttribute(k, attrs[k]); }
     (kids || []).forEach(function(c){ if (c != null) e.appendChild(typeof c == 'string' ? document.createTextNode(c) : c); }); return e; }
   function show(id){ ['mglist','mgreview','mgpreview','mgdone'].forEach(function(s){ $(s).hidden = s != id; }); window.scrollTo(0, 0); }
+  // The record that stays and the one merged in look different wherever their numbers show (a
+  // blue circle and an orange square, with words for screen readers), so #57681 and #56372 are
+  // told apart at a glance. Only those two numbers are marked, whole numbers only.
+  function markSides(root, kp, lp){
+    if (!root || !kp || !lp) return;
+    var want = {}; want['#' + kp] = 'k'; want['#' + lp] = 'l';
+    var walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false), nodes = [], n;
+    while ((n = walk.nextNode())) if (/#\d/.test(n.nodeValue) && !(n.parentNode && n.parentNode.closest && n.parentNode.closest('.pid,option,textarea,script,style'))) nodes.push(n);
+    nodes.forEach(function(t){
+      var parts = t.nodeValue.split(/(#\d+)/), hit = false, frag = document.createDocumentFragment();
+      parts.forEach(function(x){ var c = want[x];
+        if (c) { hit = true; frag.appendChild(el('span', {'class': 'pid ' + c, title: c == 'k' ? 'Stays' : 'Merged in, then deleted', text: x})); }
+        else if (x) frag.appendChild(document.createTextNode(x)); });
+      if (hit && t.parentNode) t.parentNode.replaceChild(frag, t); });
+  }
   function busy(t){ return '<div class="busy"><span class="spin"></span><span>' + String(t).replace(/</g, '&lt;') + '</span></div>'; }
   function names(list){ var n = list.map(function(x){ return x.name + (x.age != null ? ' (' + x.age + ')' : ''); });
     return n.length < 2 ? n.join('') : n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1]; }
@@ -1857,8 +1891,9 @@ JS = r"""<script>
         ns.disabled = true; post({action: 'notsame', a: p.keep.pid, b: p.lose.pid}, function(r){
           if (!r.success) { ns.textContent = r.message; return; }
           PAIRS = PAIRS.filter(function(x){ return x !== p; }); draw(); }); };
-      box.appendChild(el('div', {'class': 'pair'}, [who(p.keep, hist(p.keep)), who(p.lose, hist(p.lose)), tags,
-        el('div', {'class': 'row', style: 'justify-content:flex-end'}, [el('button', {type: 'button', 'class': 'btn', text: 'Review', onclick: function(){ review(p.keep.pid, p.lose.pid); }}), ns])]));
+      var prow = el('div', {'class': 'pair'}, [who(p.keep, hist(p.keep)), who(p.lose, hist(p.lose)), tags,
+        el('div', {'class': 'row', style: 'justify-content:flex-end'}, [el('button', {type: 'button', 'class': 'btn', text: 'Review', onclick: function(){ review(p.keep.pid, p.lose.pid); }}), ns])]);
+      box.appendChild(prow); markSides(prow, p.keep.pid, p.lose.pid);
     });
   }
   function drawSources(r){
@@ -1884,6 +1919,12 @@ JS = r"""<script>
     b.onclick = function(){ TIER = b.getAttribute('data-tier');
       Array.prototype.forEach.call(document.querySelectorAll('#mgtiers .chip[data-tier]'), function(x){ x.classList.toggle('on', x === b); }); draw(); }; });
   $('mgdays').onchange = load;
+  var MARKQ = null;
+  try {
+    var markObs = new MutationObserver(function(){ if (MARKQ || !CUR) return;
+      MARKQ = setTimeout(function(){ MARKQ = null; if (!CUR) return; ['mgreview', 'mgpreview', 'mgdone'].forEach(function(id){ markSides($(id), CUR.keep, CUR.lose); }); }, 0); });
+    ['mgreview', 'mgpreview', 'mgdone'].forEach(function(id){ if ($(id)) markObs.observe($(id), {childList: true, subtree: true, characterData: true}); });
+  } catch(e) {}
 
   // ---- compare any two by hand
   $('mgqgo').onclick = function(){ var t = $('mgq').value.trim(); if (!t) return;
@@ -1907,7 +1948,7 @@ JS = r"""<script>
   }
   $('mgswap').onclick = function(){ if (CUR) review(CUR.lose, CUR.keep); };
   $('mgback1').onclick = function(){ show('mglist'); };
-  function line(label, a, b){ return [el('span', {'class': 'h', text: label}), el('span', {text: a == null || a === '' ? 'none' : String(a)}), el('span', {text: b == null || b === '' ? 'none' : String(b)})]; }
+  function line(label, a, b){ return [el('span', {'class': 'h', text: label}), el('span', {'class': 'ck', text: a == null || a === '' ? 'none' : String(a)}), el('span', {'class': 'cl', text: b == null || b === '' ? 'none' : String(b)})]; }
   function drawReview(r){
     var k = r.keep, l = r.lose, kc = k.counts, lc = l.counts;
     $('mgrtitle').textContent = k.name + ' #' + k.pid + ' and ' + l.name + ' #' + l.pid;
@@ -1950,7 +1991,7 @@ JS = r"""<script>
       '. Merge this pair first; afterward this page offers the next comparison with the record kept.']));
     var holds = el('div', {'class': 'holds'}, [el('span', {'class': 'eyebrow', style: 'align-self:end', text: 'What each holds'}),
       el('div', {'class': 'colhead keep'}, [el('div', {'class': 'eyebrow', style: 'color:#1F5A8A', text: 'Stays'}), el('b', {text: k.name + ' #' + k.pid})]),
-      el('div', {'class': 'colhead'}, [el('div', {'class': 'eyebrow', text: 'Moved into them, then deleted'}), el('b', {text: l.name + ' #' + l.pid})])]);
+      el('div', {'class': 'colhead lose'}, [el('div', {'class': 'eyebrow', style: 'color:#9A3F17', text: 'Moved into them, then deleted'}), el('b', {text: l.name + ' #' + l.pid})])]);
     function add(cells, kind){
       if (kind) {   // a row that opens to show what is in it, for both records
         var label = cells[0].textContent, det = el('div', {'class': 'detail'}); det.hidden = true;
@@ -2041,13 +2082,13 @@ JS = r"""<script>
     body.appendChild(famCard);
     CUR.evPick = {};
     if (V.conflicts.length) {
-      var et = el('table', {'class': 'fields'}, [el('tr', {}, [el('th', {text: 'Extra value'}), el('th', {text: 'Keep #' + k.pid + "'s"}), el('th', {text: 'Use #' + l.pid + "'s"})])]);
+      var et = el('table', {'class': 'fields'}, [el('tr', {}, [el('th', {text: 'Extra value'}), el('th', {'class': 'ck', text: 'Keep #' + k.pid}), el('th', {'class': 'cl', text: 'Use #' + l.pid})])]);
       V.conflicts.forEach(function(c){
         var pick = c.keep ? 'keep' : 'other'; CUR.evPick[c.field] = c.settable ? pick : 'both';
         function opt(v, value){ var i = el('input', {type: 'radio', name: 'mgev_' + c.field, value: v}); if (pick == v) i.checked = true; i.onchange = function(){ CUR.evPick[c.field] = v; };
           return el('label', {}, [i, el('span', {text: value || '(blank)'})]); }
         et.appendChild(el('tr', {}, [el('td', {}, [el('b', {text: c.field})]),
-          c.settable ? el('td', {}, [opt('keep', c.keep)]) : el('td', {text: c.keep}), c.settable ? el('td', {}, [opt('other', c.other)]) : el('td', {}, [el('span', {text: c.other}), el('div', {'class': 'muted', style: 'font-size:12px', text: 'Kept as ' + c.field + '_mv (this kind of value cannot be set here)'})])]));
+          c.settable ? el('td', {'class': 'ck'}, [opt('keep', c.keep)]) : el('td', {'class': 'ck', text: c.keep}), c.settable ? el('td', {'class': 'cl'}, [opt('other', c.other)]) : el('td', {'class': 'cl'}, [el('span', {text: c.other}), el('div', {'class': 'muted', style: 'font-size:12px', text: 'Kept as ' + c.field + '_mv (this kind of value cannot be set here)'})])]));
       });
       body.appendChild(el('div', {'class': 'card'}, [el('h2', {text: 'Extra values on both records'}),
         el('div', {'class': 'muted', text: 'TouchPoint keeps #' + k.pid + "'s value and saves #" + l.pid + "'s as a second field named with _mv, which reports never read. Choose which value #" + k.pid + ' should have; the other is removed.' +
@@ -2260,7 +2301,7 @@ JS = r"""<script>
         }
         FIELDS.push({name: name, label: label, keep: v1, other: v0, pick: pick, def: def, family: family, newer: LOSE_NEWER && differs && (contact || family), ph1: ph1 && !!v1, ph0: ph0 && !!v0, mem: memField, typo: typo, more: more,
           customName: customName, custom: custom, married: married, former: formerSet, goesBy: goesBy, note: note, newerName: newerName,
-          isLast: isLast, isFormer: /^former name/i.test(label)});
+          isLast: isLast, isFirst: isFirst, isFormer: /^former name/i.test(label)});
       });
       // Former Name follows the last name: when the last name kept drops a different one (a marriage,
       // a name change), the dropped one is typed into Former Name, unless a record already has one
@@ -2281,9 +2322,14 @@ JS = r"""<script>
         var sm = FF.keep.toLowerCase() == FF.other.toLowerCase() && FF.pick != '2'; u.row.className = sm ? 'same' : ''; u.typed.className = sm ? 'same' : ''; }
       syncFormer();
       var diff = FIELDS.filter(function(f){ return f.keep.toLowerCase() != f.other.toLowerCase(); });
-      var table = el('table', {'class': 'fields'}, [el('tr', {}, [el('th', {text: 'Field'}), el('th', {text: 'Keep ' + CUR.data.keep.name + "'s"}), el('th', {text: 'Use ' + CUR.data.lose.name + "'s"})])]);
+      // the two records by number (their names are often the same), tinted like What each holds
+      var table = el('table', {'class': 'fields'}, [el('tr', {}, [el('th', {text: 'Field'}), el('th', {'class': 'ck', text: 'Keep #' + CUR.data.keep.pid}), el('th', {'class': 'cl', text: 'Use #' + CUR.data.lose.pid})])]);
+      // Goes By (Nick Name), for a first name that is really a nickname
+      var NF = FIELDS.filter(function(f){ return /^nick name/i.test(f.label) && f.customName; })[0];
       FIELDS.forEach(function(f){
         var same = f.keep.toLowerCase() == f.other.toLowerCase();
+        // the names always show, so a nickname neither record has can be typed in
+        var nameRow = /^(first name|nick name|last name)/i.test(f.label);
         function opt(v, value){ var i = el('input', {type: 'radio', name: 'mg_' + f.name, value: v}); if (f.pick == v) i.checked = true;
           i.onchange = function(){ f.pick = v; if (f.isFormer) f.touched = true; if (f.isLast) refreshFormer(); };
           (f.ui = f.ui || {})['r' + v] = i;
@@ -2296,22 +2342,30 @@ JS = r"""<script>
             v == '0' && f.more ? el('span', {'class': 'tag', style: 'margin-left:6px', text: 'more complete'}) : null,
             v == '0' && f.married ? el('span', {'class': 'tag', style: 'margin-left:6px', text: 'current: the family it joins'}) : null,
             ph ? el('span', {'class': 'muted', style: 'margin-left:6px;font-size:12px', text: 'a default, not information'}) : null]); }
-        var mainRow = el('tr', {'class': same && f.pick != '2' ? 'same' : ''}, [el('td', {}, [el('b', {text: f.label}), f.family ? el('div', {'class': 'muted', style: 'font-size:12px', text: CUR.joinFamily ? 'Not used: #' + CUR.data.keep.pid + ' takes the ' + (LAST_L ? LAST_L + ' ' : 'other ') + 'family\'s address and home phone' : 'Belongs to the whole family'}) : null,
+        var mainRow = el('tr', {'class': same && f.pick != '2' && !nameRow ? 'same' : ''}, [el('td', {}, [el('b', {text: f.label}), f.family ? el('div', {'class': 'muted', style: 'font-size:12px', text: CUR.joinFamily ? 'Not used: #' + CUR.data.keep.pid + ' takes the ' + (LAST_L ? LAST_L + ' ' : 'other ') + 'family\'s address and home phone' : 'Belongs to the whole family'}) : null,
             f.mem ? el('div', {'class': 'muted', style: 'font-size:12px', text: 'Brings that record\'s join, decision, baptism and drop dates with it'}) : null,
             CUR.joinFamily && /^position in family/i.test(f.label) ? el('div', {'class': 'muted', style: 'font-size:12px', text: 'Set by the family #' + CUR.data.keep.pid + ' joins (adult or child by age)'}) : null,
             /^(origin|entry point|interest point)/i.test(f.label) ? el('div', {'class': 'muted', style: 'font-size:12px', text: 'How each record was made; the original\'s stays'}) : null,
-            f.customName && f.pick != '2' && (!same || /^former name/i.test(f.label)) && !(f.family && CUR.joinFamily) ? (function(){ var lb = el('button', {type: 'button', 'class': 'linkbtn', style: 'display:block;font-size:12px;margin-top:2px;padding:0', text: 'Type another value'});
-              lb.onclick = function(){ lb.hidden = true; typed.hidden = false; tin.focus(); }; return lb; })() : null]),
-          el('td', {}, [opt('1', f.keep)]), el('td', {}, [opt('0', f.other)])]);
+            // any text field can take a typed value, even when both records match or are blank
+            f.customName && f.pick != '2' && !(f.family && CUR.joinFamily) ? (function(){ var lb = el('button', {type: 'button', 'class': 'linkbtn', style: 'display:block;font-size:12px;margin-top:2px;padding:0', text: 'Type another value'});
+              lb.onclick = function(){ lb.hidden = true; typed.hidden = false; tin.focus(); }; return lb; })() : null,
+            f.isFirst && !same && f.keep && f.other && NF && !NICK ? (function(){ var gb = el('button', {type: 'button', 'class': 'linkbtn', style: 'display:block;font-size:12px;margin-top:2px;padding:0', text: 'Put the other first name in Goes By'});
+              gb.onclick = function(){
+                var other = f.pick == '0' ? f.keep : (f.pick == '2' ? (String(f.custom).toLowerCase() == f.keep.toLowerCase() ? f.other : f.keep) : f.other);
+                NF.pick = '2'; NF.custom = other; var u = NF.ui || {};
+                if (u.tin) { u.tin.value = other; u.tr2.checked = true; u.typed.hidden = false; u.typed.className = ''; u.row.className = ''; u.lbl.textContent = 'Goes by ' + other; }
+                gb.textContent = other + ' goes in Goes By'; }; return gb; })() : null]),
+          el('td', {'class': 'ck'}, [opt('1', f.keep)]), el('td', {'class': 'cl'}, [opt('0', f.other)])]);
         table.appendChild(mainRow);
         // a value neither record has (fixing a typo, or a former name), using TouchPoint's own typed-value column
         if (f.customName) {
           var tr2 = el('input', {type: 'radio', name: 'mg_' + f.name, value: '2'}); if (f.pick == '2') tr2.checked = true;
           var tin = el('input', {type: 'text', value: f.custom || '', style: 'max-width:260px', 'aria-label': f.label + ', typed value'});
-          tr2.onchange = function(){ f.pick = '2'; if (f.isFormer) f.touched = true; if (f.isLast) refreshFormer(); };
-          tin.oninput = function(){ f.custom = tin.value; f.pick = '2'; tr2.checked = true; if (f.isFormer) f.touched = true; if (f.isLast) refreshFormer(); };
+          // a field with a typed value always shows, even under Show only differences
+          tr2.onchange = function(){ f.pick = '2'; mainRow.className = ''; typed.className = ''; if (f.isFormer) f.touched = true; if (f.isLast) refreshFormer(); };
+          tin.oninput = function(){ f.custom = tin.value; f.pick = '2'; tr2.checked = true; mainRow.className = ''; typed.className = ''; if (f.isFormer) f.touched = true; if (f.isLast) refreshFormer(); };
           var lbl = el('span', {'class': 'muted', style: 'font-size:12px', text: f.former ? f.formerWhy : (f.goesBy ? 'Goes by ' + NICK.short + ' (the first name on #' + (NICK.formalSide == 'keep' ? CUR.data.lose.pid : CUR.data.keep.pid) + ')' : (f.note && f.note.v == '2' ? f.note.text : 'Typed value'))});
-          var typed = el('tr', {'class': same && f.pick != '2' ? 'same' : ''}, [el('td', {}, [lbl]), el('td', {colspan: '2'}, [el('label', {}, [tr2, tin])])]);
+          var typed = el('tr', {'class': same && f.pick != '2' && !nameRow ? 'same' : ''}, [el('td', {}, [lbl]), el('td', {colspan: '2'}, [el('label', {}, [tr2, tin])])]);
           typed.hidden = f.pick != '2';
           table.appendChild(typed);
           f.ui = f.ui || {}; f.ui.tin = tin; f.ui.tr2 = tr2; f.ui.typed = typed; f.ui.lbl = lbl; f.ui.row = mainRow;
@@ -2614,7 +2668,7 @@ JS = r"""<script>
   function scriptName(){ var m = location.pathname.match(/\/PyScript(?:Form)?\/([^\/?#]+)/); return m ? decodeURIComponent(m[1]) : UPD.id; }
   if (UPD.admin) {
     var skip = ''; try { skip = sessionStorage.getItem('mgupdate.later') || ''; } catch(e) {}
-    var vx = new XMLHttpRequest(); vx.open('GET', UPD.api + '/script-versions', true); vx.timeout = 5000;
+    var vx = new XMLHttpRequest(); vx.open('GET', UPD.api + '/script-versions?s=' + encodeURIComponent(UPD.id) + '&v=' + encodeURIComponent(UPD.version), true); vx.timeout = 5000;
     vx.onload = function(){ try {
       var latest = JSON.parse(vx.responseText)[UPD.id];
       if (!latest || !newer(latest, UPD.version) || skip == latest) return;
