@@ -29,9 +29,8 @@
 # ADMIN TOOLS, for the Admin role only (checked on the server for every
 # admin action, not just hidden on the page). PoweredByText setup can also
 # change groups, by the same rights the person has in PoweredByText:
-#   Names        who each texting number belongs to in TouchPoint, and which
-#                records need fixing. Changing names in PBT is on hold until
-#                PBT allows it (NAME_WRITES).
+#   Names        who each texting number belongs to in TouchPoint, which
+#                records need fixing, and the name to give each number in PBT.
 #   Subscribers  TouchPoint's subscriber list next to PBT's, by cell number.
 #   Delivery     when each group text went out and how long it took.
 #   Usage        credits, plan used, waste, and what is behind each number.
@@ -50,6 +49,22 @@
 # OPEN IT AT /PyScriptForm/TPxi_Texting (not /PyScript/).
 #
 # VERSION HISTORY
+#   1.0.11 Names: changing names in PoweredByText is on. PoweredByText added a
+#          way to update a contact (November 2026). Each change reads the
+#          contact's whole record, sends all of it back with the new name
+#          (PoweredByText clears anything left out), then reads it again. If
+#          anything besides the name changed, every change stops and stays
+#          stopped until an admin looks and allows changes again; the log
+#          keeps the old value of whatever changed. Tested live: group
+#          subscriptions, gender, address and the custom fields their screen
+#          uses (email, city, date of birth, notes) all stay.
+#          PoweredByText setup: the group editor can add and take off a
+#          group's leaders, and delete a group, by the same rights the person
+#          has in PoweredByText: Account Admins any group; Division Admins
+#          groups in their divisions (leaders from that division only, and
+#          never taking off an Account Admin); Group Admins neither. A group
+#          always keeps a leader. Deleting is refused while TouchPoint still
+#          uses the group, needs the group's name typed, and is logged.
 #   1.0.10 Fix: changing a PoweredByText group (from 1.0.8) could reset its
 #          staff to one Account Admin. Saves now send the staff back, refuse
 #          if PoweredByText did not list them, and check they match after.
@@ -186,7 +201,7 @@ import json
 import re
 import datetime
 
-TEXTING_VERSION = '1.0.10'
+TEXTING_VERSION = '1.0.11'
 # Updates come from the same TPxi script service as the other TPxi tools:
 # the page asks DC_API_BASE which version is newest, and an admin's Update
 # pulls the new code from DC_API_WORKER and saves it over this script.
@@ -2544,17 +2559,21 @@ PBT_TEST_PAGE = """
 #
 # The decision is made again on the server at the moment of writing, from a
 # fresh read of PBT, so a row that turned into Keep since the preview is
-# skipped. Names go to PBT's contact record for the brand (POST /contacts),
-# never through the group subscribe call, which would send an opt-in text.
+# skipped. Names go to PBT's contact record (PUT /contacts/{id}), never
+# through the group subscribe call, which would send an opt-in text. The PUT
+# replaces the whole record and clears anything left out, so the record is
+# read first and sent back whole, then read again: anything else that changed
+# stops every further change (NameStop, saved in settings as name_stop) until
+# an admin allows changes again on the Names tab. A number with no contact
+# record yet gets one (POST /contacts).
 # The TouchPoint PeopleId is stored on the contact as the custom field
 # TouchPointPeopleId.
 #
 # EVERY CHANGE IS LOGGED to Special Content text TPxi_PBTNameSyncLog (newest
 # LOG_KEEP entries) with the name before and after, so it can be undone.
 #
-# NAME CHANGES ARE ON HOLD (NAME_WRITES below): PBT has no way yet for an
-# outside system to set a contact's name. The Names tab still shows who
-# owns each number and which TouchPoint records need fixing.
+# NAME_WRITES below can turn name changes off: the Names tab then only
+# shows who owns each number and which TouchPoint records need fixing.
 #
 # MORNING BATCH: turning on "Update names every morning" on the page adds a
 # small managed block to the MorningBatch script (and turning it off removes
@@ -2579,10 +2598,10 @@ PBT_TEST_PAGE = """
 PAGE_SIZE = 1000          # PBT maximum
 TEEN_AGE = 13             # an only-child number at this age or older is the teen's own
 AUTO_MAX = 300            # a morning run that would change more than this changes nothing
-# PBT does not yet let an outside system set a contact's name, so changing
-# names is off: no Change buttons, no morning renames, and the apply action
-# refuses. The Names tab is a report of what is off until PBT adds it.
-NAME_WRITES = False
+# False turns name changes off: no Change buttons, no morning renames, and the
+# apply action refuses. (It was False until PoweredByText added contact updates.)
+NAME_WRITES = True
+APPLY_BATCH = 25          # numbers per page request: each is three PoweredByText calls
 LOG_KEEP = 3000           # log entries kept
 PEOPLEID_PARAM = 'TouchPointPeopleId'
 
@@ -2662,24 +2681,114 @@ def pbt_subscribers(orgunit_id, group_id):
     return subs
 
 
-def pbt_set_name(orgunit_id, mobile, first, last, pid):
-    """Writes the name on the brand's contact record. Returns a note ('' when all went in)."""
+class NameStop(Exception):
+    """A read-back showed more than the name changed. Every further change stops."""
+    pass
+
+
+# What a contact update takes besides the name and custom fields. Anything a
+# PUT leaves out is cleared, so each of these is sent back as it was read.
+CONTACT_KEEP = ('gender', 'age', 'region', 'imageUrl')
+
+
+def pbt_find_contact(orgunit_id, num):
+    """The brand's contact record for a 10-digit number, or None."""
+    res = pbt_get("/orgunit/%s/contact?search=%s&pageNumber=1&pageSize=20" % (orgunit_id, num))
+    d = res.get('data') if isinstance(res, dict) else None
+    for c in ((d.get('data') or []) if isinstance(d, dict) else []):
+        if isinstance(c, dict) and digits10(c.get('mobileNo')) == num and c.get('id'):
+            return c
+    if isinstance(res, dict) and res.get('isError'):
+        raise Exception(res.get('message') or res.get('appCode') or 'PoweredByText would not look the contact up')
+    return None
+
+
+def _contact_params(c, pid):
+    """The contact's own custom fields exactly as read (their screen keeps email,
+    city, date of birth and notes there), with ours set when pid is given."""
+    keep = [{'name': p.get('name'), 'value': p.get('value')} for p in (c.get('customParams') or [])
+            if isinstance(p, dict) and p.get('name')]
+    if not pid:
+        return keep
+    return [p for p in keep if p['name'] != PEOPLEID_PARAM] + [{'name': PEOPLEID_PARAM, 'value': str(pid)}]
+
+
+def _contact_body(c, first, last, params):
+    body = {'firstName': first, 'lastName': last, 'mobileNo': c.get('mobileNo')}
+    for k in CONTACT_KEEP:
+        if c.get(k) not in (None, ''):
+            body[k] = c[k]
+    if isinstance(c.get('address'), dict) and c['address']:
+        body['address'] = c['address']
+    body['customParams'] = params
+    return body
+
+
+def _contact_lost(before, after, ours):
+    """[(what, before, after)] for anything besides the name that is not as it
+    was. relations is left out: the update cannot send it and it is always
+    empty. ours: our PeopleId field was sent, so it may differ."""
+    out = []
+    for k in sorted(set(before.keys()) | set(after.keys())):
+        if k in ('firstName', 'lastName', 'customParams', 'relations'):
+            continue
+        if before.get(k) != after.get(k):
+            out.append((k, before.get(k), after.get(k)))
+    now = dict((p.get('name'), p.get('value')) for p in (after.get('customParams') or []) if isinstance(p, dict))
+    for p in before.get('customParams') or []:
+        if not isinstance(p, dict) or (ours and p.get('name') == PEOPLEID_PARAM):
+            continue
+        if now.get(p.get('name')) != p.get('value'):
+            out.append(('custom field ' + unicode(p.get('name')), p.get('value'), now.get(p.get('name'))))
+    return out
+
+
+def pbt_new_contact(orgunit_id, mobile, first, last, pid):
+    """A number with no contact record yet: create one with the name."""
     body = {'firstName': first, 'lastName': last, 'mobileNo': mobile}
-    if pid and not _conn.get('no_custom'):
+    if pid:
         body['customParams'] = [{'name': PEOPLEID_PARAM, 'value': str(pid)}]
     res = pbt_post("/orgunit/%s/contacts" % orgunit_id, body)
     if res.get('isError') and 'customParams' in body:
-        # A brand may not allow a custom field we have not set up there. The
-        # name matters more than the id, so try once more without it.
         first_msg = res.get('message') or res.get('appCode') or ''
         del body['customParams']
         res = pbt_post("/orgunit/%s/contacts" % orgunit_id, body)
         if not res.get('isError'):
-            _conn['no_custom'] = True
             return "PeopleId not stored (%s)" % first_msg
     if res.get('isError'):
         raise Exception(res.get('message') or res.get('appCode') or 'PBT refused the change')
     return ''
+
+
+def pbt_set_name(orgunit_id, mobile, first, last, pid):
+    """Sets the name on the brand's contact record. Returns (note, shows): note
+    is '' when all went in, shows is the name PoweredByText has afterward.
+    Raises NameStop when anything besides the name changed."""
+    num = digits10(mobile)
+    c = pbt_find_contact(orgunit_id, num)
+    if c is None:
+        note = pbt_new_contact(orgunit_id, mobile, first, last, pid)
+        c2 = pbt_find_contact(orgunit_id, num)
+        return note, ((c2.get('firstName') or '') + ' ' + (c2.get('lastName') or '')).strip() if c2 else None
+    path = "/orgunit/%s/contacts/%s" % (orgunit_id, c['id'])
+    note, ours = '', bool(pid)
+    why = pbt_refused(pbt_send_json('PUT', path, _contact_body(c, first, last, _contact_params(c, pid))))
+    if why and pid:
+        # The name matters more than our id: once more, with only their own fields.
+        why2 = pbt_refused(pbt_send_json('PUT', path, _contact_body(c, first, last, _contact_params(c, None))))
+        if why2:
+            raise Exception(why2)
+        note, ours = 'PeopleId not stored (%s)' % why, False
+    elif why:
+        raise Exception(why)
+    after = pbt_find_contact(orgunit_id, num)
+    if after is None:
+        raise NameStop('PoweredByText took the change but the contact could not be read back afterward')
+    lost = _contact_lost(c, after, ours)
+    if lost:
+        raise NameStop('Besides the name, PoweredByText changed ' + '; '.join(
+            '%s (was %s, now %s)' % (k, safe_json(x), safe_json(y)) for k, x, y in lost))
+    return note, ((after.get('firstName') or '') + ' ' + (after.get('lastName') or '')).strip()
 
 
 # ---------------------------------------------------------------- TouchPoint side
@@ -2808,9 +2917,12 @@ def apply_group(g, only_nums, source, who):
         by_num.setdefault(r['num'], r)
     targets = only_nums if only_nums is not None else \
         [n for n, r in by_num.items() if r['action'] in ('set', 'fix')]
-    results, wrote = [], []
+    results, stop = [], ''
     for num in targets:
         r = by_num.get(num)
+        if stop:
+            results.append({'num': num, 'result': 'skipped', 'msg': 'Not tried: changes stopped'})
+            continue
         if not r:
             results.append({'num': num, 'result': 'skipped', 'msg': 'No longer in this group'})
             continue
@@ -2818,29 +2930,22 @@ def apply_group(g, only_nums, source, who):
             results.append({'num': num, 'result': 'skipped',
                             'msg': 'Now "%s", so it was left alone' % r['action']})
             continue
+        new = (r['first'] + ' ' + r['last']).strip()
+        base = {'num': num, 'before': r['pbt'], 'after': new, 'pid': r['pid']}
         try:
-            note = pbt_set_name(g['orgunitId'], r['mobile'], r['first'], r['last'], r['pid'])
-            wrote.append((r, note))
-        except Exception as e:
-            results.append({'num': num, 'result': 'error', 'msg': unicode(e)[:200],
-                            'before': r['pbt'], 'after': (r['first'] + ' ' + r['last']).strip(), 'pid': r['pid']})
-    if wrote:
-        after = {}
-        try:
-            for s in pbt_subscribers(g['orgunitId'], g['groupId']):
-                after.setdefault(digits10(s.get('mobileNo')),
-                                 ((s.get('firstName') or '') + ' ' + (s.get('lastName') or '')).strip())
-        except Exception:
-            after = None
-        for r, note in wrote:
-            new = (r['first'] + ' ' + r['last']).strip()
-            ok = after is not None and norm(after.get(r['num'])) == norm(new)
-            msg = note if ok else ('PBT accepted it but still shows "%s"' % (after.get(r['num']) or '')
-                                   if after is not None else 'Sent; could not read PBT back to confirm')
+            note, shows = pbt_set_name(g['orgunitId'], r['mobile'], r['first'], r['last'], r['pid'])
+            ok = shows is not None and norm(shows) == norm(new)
+            msg = note if ok else ('PoweredByText took it but shows "%s"' % (shows or '')
+                                   if shows is not None else 'Sent; could not read it back to confirm')
             if note and not ok:
                 msg = note + '. ' + msg
-            results.append({'num': r['num'], 'result': 'changed' if ok else 'unconfirmed', 'msg': msg,
-                            'before': r['pbt'], 'after': new, 'pid': r['pid']})
+            results.append(dict(base, result='changed' if ok else 'unconfirmed', msg=msg))
+        except NameStop as e:
+            stop = unicode(e)
+            results.append(dict(base, result='stopped', msg=stop))
+            name_stop_set(g['name'], num, stop, who)
+        except Exception as e:
+            results.append(dict(base, result='error', msg=unicode(e)[:200]))
     entries = []
     stamp = now_str()
     for x in results:
@@ -2850,6 +2955,24 @@ def apply_group(g, only_nums, source, who):
                         'num': x['num'], 'before': x.get('before', ''), 'after': x.get('after', ''),
                         'pid': x.get('pid'), 'result': x['result'], 'msg': x.get('msg', '')})
     return results, entries
+
+
+def name_stop():
+    """Why name changes are stopped ({when, group, num, msg, by}), or None."""
+    st = load_settings().get('name_stop')
+    return st if isinstance(st, dict) and st.get('msg') else None
+
+
+def name_stop_set(group, num, msg, who):
+    st = load_settings()
+    st['name_stop'] = {'when': now_str(), 'group': group, 'num': num, 'msg': msg[:600], 'by': who}
+    model.WriteContentText(SETTINGS_CONTENT, safe_json(st), "")
+
+
+def name_stop_text(st):
+    return ('Name changes stopped on %s: changing %s in %s, %s. Look at that contact in PoweredByText, put back '
+            'anything missing, then press Allow name changes again on the Names tab.'
+            % (st.get('when'), st.get('num'), st.get('group'), st.get('msg')))
 
 
 # ---------------------------------------------------------------- settings + morning batch
@@ -3003,6 +3126,9 @@ def morning_run():
                             'result': 'stopped', 'msg': summary['stopped']})
         else:
             for g, nums in plan:
+                if name_stop():
+                    summary['stopped'] = name_stop_text(name_stop())
+                    break
                 results, e = apply_group(g, nums, 'Morning batch', 'Morning batch')
                 entries.extend(e)
                 for x in results:
@@ -3010,7 +3136,7 @@ def morning_run():
                         summary['changed'] += 1
                     elif x['result'] == 'unconfirmed':
                         summary['unconfirmed'] += 1
-                    elif x['result'] == 'error':
+                    elif x['result'] in ('error', 'stopped'):
                         summary['errors'] += 1
     except Exception as e:
         summary['stopped'] = 'Error: ' + unicode(e)[:300]
@@ -4970,6 +5096,207 @@ def hooks_count(d):
     return len(w.get('callbackUrlSettings') or []), len(w.get('statusUrlSettings') or [])
 
 
+# ---------------------------------------------------------------- leaders and deleting
+# WHO, by the scope PoweredByText gives each role (read fresh every time; the
+# person must also pass group_editor above):
+#   Leaders  Account Admins: any group, any active PoweredByText user.
+#            Division Admins: groups in their divisions, with users of that
+#            division; they cannot take off someone they could not add (an
+#            Account Admin, or a user from another division).
+#            Group Admins: cannot change leaders.
+#   Delete   Account Admins: any group. Division Admins: groups in their
+#            divisions. Group Admins: never. Never a group TouchPoint still
+#            uses (SMS Management), and only after the group's name is typed.
+# A group always keeps at least one leader: PoweredByText puts one Account
+# Admin back when the list is empty. Leaders are saved with the same whole-group
+# PUT as the editor (every field sent back), then read back and checked.
+def pbt_users():
+    """Active PoweredByText users by id: name, role and divisions."""
+    out = {}
+    for u in pbt_pages('/users'):
+        if not u.get('id') or u.get('active') is False:
+            continue
+        rd = u.get('roleDetail') or {}
+        role = unicode(u.get('role') or '')
+        out[unicode(u['id'])] = {
+            'id': unicode(u['id']), 'role': role,
+            'name': (u'%s %s' % (u.get('firstName') or '', u.get('lastName') or '')).strip() or unicode(u.get('email') or ''),
+            'roleName': PBT_ROLE_NAMES.get(role) or unicode(rd.get('displayName') or role),
+            'divisionIds': [unicode(c.get('id') or '').lower() for c in u.get('campusDetails') or [] if isinstance(c, dict)]}
+    return out
+
+
+def may_manage(ed, o):
+    """Leaders and deleting: Account Admins anywhere, Division Admins in their divisions."""
+    return ed['ok'] and (ed['all'] or unicode(o or '').lower() in ed['divisionIds'])
+
+
+def leader_reach(ed, o, users):
+    """The users this person may add to, or take off, a group in division o."""
+    o = unicode(o or '').lower()
+    if not may_manage(ed, o):
+        return set()
+    if ed['all']:
+        return set(users.keys())
+    return set(k for k, u in users.items() if o in u['divisionIds'] and u['role'] != EDIT_ROLE)
+
+
+def tp_uses_group(g):
+    """TouchPoint's name for this PoweredByText group in SMS Management, or ''."""
+    for r in q.QuerySql("SELECT TOP 1 Name FROM SMSGroups WHERE ISNULL(IsDeleted, 0) = 0 AND LOWER(ExternalId) = '%s'"
+                        % unicode(g or '').lower().replace("'", "")):
+        return r.Name or 'a group'
+    return ''
+
+
+def _hidden_ids(d):
+    return set(unicode(x.get('id')) for x in d.get('users') or [] if isinstance(x, dict) and x.get('hidden'))
+
+
+def group_manage(ed, o, g, d=None):
+    """What the editor shows for leaders and deleting, for this person."""
+    base = check_group_ids(o, g)
+    d = d or fresh_group(base)
+    can = may_manage(ed, o)
+    users = pbt_users()
+    reach = leader_reach(ed, o, users)
+    hidden = _hidden_ids(d)
+    named = dict((unicode(x.get('id')), (u'%s %s' % (x.get('firstName') or '', x.get('lastName') or '')).strip())
+                 for x in d.get('users') or [] if isinstance(x, dict))
+    cur = [i for i in _strs(d.get('userIds')) if i not in hidden]
+    leaders = [{'id': i, 'name': (users.get(i) or {}).get('name') or named.get(i) or 'A user no longer active',
+                'role': (users.get(i) or {}).get('roleName') or '', 'canRemove': i in reach} for i in cur]
+    choices = sorted([{'id': k, 'name': u['name'], 'role': u['roleName']} for k, u in users.items()
+                      if k in reach and k not in cur], key=lambda x: x['name'].lower())
+    out = {'name': d.get('name') or '', 'modifiedOn': unicode(d.get('modifiedOn') or ''),
+           'leaders': leaders, 'choices': choices, 'canLead': can,
+           'leadWhy': '' if can else 'Only PoweredByText Account Admins, and Division Admins for groups in their divisions, can change leaders.',
+           'canDelete': False, 'deleteWhy': '', 'subscribers': None,
+           'keywords': [unicode(k.get('name') or '') for k in d.get('keywords') or [] if isinstance(k, dict) and k.get('name')]}
+    if not can:
+        out['deleteWhy'] = 'Only PoweredByText Account Admins, and Division Admins for groups in their divisions, can delete groups.'
+        return out
+    tp = tp_uses_group(g)
+    if tp:
+        out['deleteWhy'] = ('TouchPoint still uses this group (%s, in SMS Management). Remove it there first, '
+                            'then come back to delete it here.' % tp)
+        return out
+    out['canDelete'] = True
+    try:
+        res = pbt_get(base + '/subscribers?pageNumber=1&pageSize=1')
+        out['subscribers'] = (res.get('data') or {}).get('totalCount') if isinstance(res.get('data'), dict) else None
+    except Exception:
+        pass
+    return out
+
+
+def group_payload(d, user_ids):
+    """The whole group as read, for a PUT (PoweredByText clears what is left out)."""
+    return {'name': d.get('name') or '', 'description': d.get('description') or '',
+            'info': bool(d.get('info')), 'whatsapp': bool(d.get('whatsapp')),
+            'notificationMobileNos': _strs(d.get('notificationMobileNos')),
+            'notificationEmails': _strs(d.get('notificationEmails')),
+            'chatEnabled': bool(d.get('chatEnabled')), 'autoReponse': bool(d.get('autoReponse')),
+            'autoResponseMessage': d.get('autoResponseMessage') or '',
+            'tags': _strs(d.get('tags')), 'groupTrackingCode': d.get('groupTrackingCode') or '',
+            'userIds': user_ids}
+
+
+def _group_log(o, g, name, was, changes, ok):
+    log = load_json_content(GROUP_CHANGES_CONTENT, [])
+    me = my_name()
+    log = [{'when': now_str(), 'by': (me.Name if me else '') or model.UserName or '', 'pid': int(ME),
+            'group': name, 'was': was, 'o': o, 'g': g, 'changes': changes, 'ok': ok}] + (log if isinstance(log, list) else [])
+    model.WriteContentText(GROUP_CHANGES_CONTENT, safe_json(log[:300]), "")
+
+
+def act_grp_leaders(ed, o, g, want):
+    """want: {modifiedOn, ids: [PoweredByText user ids, in order]}."""
+    base = check_group_ids(o, g)
+    if not may_manage(ed, o):
+        raise Exception('Only PoweredByText Account Admins, and Division Admins for groups in their divisions, can change leaders.')
+    d = fresh_group(base)
+    if unicode(want.get('modifiedOn') or '') != unicode(d.get('modifiedOn') or ''):
+        raise Exception('Someone changed this group in PoweredByText after you opened it. Nothing was saved. '
+                        'Close and open it again to see the latest.')
+    cur = _strs(d.get('userIds'))
+    if not cur:
+        raise Exception('PoweredByText did not list this group\'s leaders, so nothing was changed. Try again, or change them in PoweredByText.')
+    users = pbt_users()
+    reach = leader_reach(ed, o, users)
+    hidden = _hidden_ids(d)
+    new = []
+    for i in _strs(want.get('ids')):
+        if i and i not in new and i not in hidden:
+            new.append(i)
+    nm = lambda i: (users.get(i) or {}).get('name') or 'that user'
+    for i in new:
+        if i not in cur and i not in reach:
+            raise Exception('You cannot add %s to this group: PoweredByText does not give you that user here. Nothing was changed.' % nm(i))
+    for i in cur:
+        if i not in new and i not in hidden and i not in reach:
+            raise Exception('You cannot take %s off this group: PoweredByText does not give you that user here. Nothing was changed.' % nm(i))
+    if not new:
+        raise Exception('A group needs at least one leader (PoweredByText would put an Account Admin back). Nothing was changed.')
+    final = [i for i in cur if i in hidden] + new
+    if sorted(final) == sorted(cur):
+        return {'steps': [], 'changed': False, 'manage': group_manage(ed, o, g, d)}
+    why = pbt_refused(pbt_send_json('PUT', base, group_payload(d, final)))
+    steps = [{'step': 'Leaders', 'ok': not why, 'msg': why or 'Saved'}]
+    if why:
+        return {'steps': steps, 'changed': False, 'manage': group_manage(ed, o, g, d)}
+    after = fresh_group(base)
+    problems = []
+    if sorted(_strs(after.get('userIds'))) != sorted(final):
+        problems.append('the leaders are not what was saved')
+    if (after.get('name') or '') != (d.get('name') or '') or (after.get('description') or '') != (d.get('description') or ''):
+        problems.append('the name or description changed')
+    if sorted(t.upper() for t in _strs(after.get('tags'))) != sorted(t.upper() for t in _strs(d.get('tags'))):
+        problems.append('the tags changed')
+    if hooks_count(after) != hooks_count(d):
+        problems.append('the webhook list changed')
+    steps.append({'step': 'Read back and check', 'ok': not problems,
+                  'msg': 'Everything matches.' if not problems else 'Look in PoweredByText: ' + '; '.join(problems) + '.'})
+    names = lambda ids: ', '.join(nm(i) for i in ids if i not in hidden) or '(none)'
+    _group_log(o, g, d.get('name') or '', d.get('name') or '', [u'Leaders: %s -> %s' % (names(cur), names(final))], not problems)
+    return {'steps': steps, 'changed': True, 'manage': group_manage(ed, o, g, after)}
+
+
+def act_grp_delete(ed, o, g, typed):
+    base = check_group_ids(o, g)
+    if not may_manage(ed, o):
+        raise Exception('Only PoweredByText Account Admins, and Division Admins for groups in their divisions, can delete groups.')
+    d = fresh_group(base)
+    name = d.get('name') or ''
+    tp = tp_uses_group(g)
+    if tp:
+        raise Exception('TouchPoint still uses this group (%s, in SMS Management). Remove it there first. Nothing was deleted.' % tp)
+    if norm(typed) != norm(name) or not name:
+        raise Exception('Type the group\'s name, %s, exactly to delete it. Nothing was deleted.' % name)
+    kws = [unicode(k.get('name') or '') for k in d.get('keywords') or [] if isinstance(k, dict) and k.get('name')]
+    subs = None
+    try:
+        res = pbt_get(base + '/subscribers?pageNumber=1&pageSize=1')
+        subs = (res.get('data') or {}).get('totalCount') if isinstance(res.get('data'), dict) else None
+    except Exception:
+        pass
+    res = pbt_send_json('DELETE', base + '/delete-group', None)
+    why = pbt_refused(res)
+    if why:
+        if 'prd.1002' in unicode(res.get('appCode') or '') or 'integration' in why.lower():
+            why = ('PoweredByText will not delete a group linked to an active integration. Disconnect it there first. (%s)' % why)
+        raise Exception(why + ' Nothing was deleted.')
+    gone = False
+    try:
+        r2 = pbt_get(base)
+        gone = bool(r2.get('isError')) or not isinstance(r2.get('data'), dict)
+    except Exception:
+        gone = True
+    _group_log(o, g, name, name, [u'Deleted the group (%s subscribers; keywords: %s)' % (
+        subs if subs is not None else 'unknown', ', '.join(kws) or 'none')], True)
+    return {'deleted': True, 'gone': gone, 'name': name}
+
+
 def act_grp_save(o, g, want):
     """want: {modifiedOn, name, description, tags,
     keywords: [{name, reply, orig}]} (orig = name when
@@ -5565,14 +5892,27 @@ def admin_post():
             print safe_json({'success': True, 'group': g['name'], 'orgunitId': g['orgunitId'], 'rows': rows})
         elif action == 'apply':
             if not NAME_WRITES:
-                raise Exception('Changing names in PoweredByText is on hold until PoweredByText adds a way to do it.')
-            nums = [n for n in _param('nums').split(',') if re.match(r'^\d{10}$', n)]
+                raise Exception('Changing names in PoweredByText is turned off in this script (NAME_WRITES).')
+            if name_stop():
+                print safe_json({'success': False, 'stopped': True, 'message': name_stop_text(name_stop())})
+                return
+            nums = [n for n in _param('nums').split(',') if re.match(r'^\d{10}$', n)][:APPLY_BATCH * 2]
             if not nums:
                 raise Exception("No numbers given.")
             who = model.UserName or 'Unknown'
             results, entries = apply_group(g, nums, 'Page', who)
             write_log(entries)
-            print safe_json({'success': True, 'results': results})
+            st = name_stop()
+            print safe_json({'success': True, 'results': results, 'stopped': name_stop_text(st) if st else ''})
+        elif action == 'name_stop_clear':
+            st = load_settings()
+            old = st.pop('name_stop', None)
+            model.WriteContentText(SETTINGS_CONTENT, safe_json(st), "")
+            if old:
+                write_log([{'when': now_str(), 'by': model.UserName or 'Unknown', 'source': 'Page', 'group': old.get('group', ''),
+                            'num': old.get('num', ''), 'before': '', 'after': '', 'pid': None, 'result': 'allowed',
+                            'msg': 'Name changes allowed again after: ' + (old.get('msg') or '')[:300]}])
+            print safe_json({'success': True})
         elif action == 'usage_history':
             hist = load_json_content(USAGE_CONTENT, {})
             print safe_json({'success': True, 'months': hist if isinstance(hist, dict) else {},
@@ -5614,12 +5954,32 @@ def admin_post():
                                 % (', '.join(ed['groupNames']) or 'none'))
             if action == 'grp_get':
                 r = act_grp_get(_param('o'), _param('g'))
+                try:
+                    r['manage'] = group_manage(ed, _param('o'), _param('g'))
+                except Exception as e:
+                    r['manage'] = {'error': unicode(e)[:200]}
             else:
                 try:
                     want = json.loads(_param('gdata') or '{}')
                 except Exception:
                     raise Exception('The changes could not be read.')
                 r = act_grp_save(_param('o'), _param('g'), want)
+            r['success'] = True
+            print safe_json(r)
+        elif action in ('grp_leaders', 'grp_delete'):
+            ed = group_editor()
+            if not ed['ok']:
+                raise Exception(ed['reason'])
+            if not may_edit(ed, _param('g')):
+                raise Exception('PoweredByText does not give you this group.')
+            if action == 'grp_leaders':
+                try:
+                    want = json.loads(_param('gdata') or '{}')
+                except Exception:
+                    raise Exception('The leaders could not be read.')
+                r = act_grp_leaders(ed, _param('o'), _param('g'), want)
+            else:
+                r = act_grp_delete(ed, _param('o'), _param('g'), _param('typed'))
             r['success'] = True
             print safe_json(r)
         elif action == 'grp_create':
@@ -7085,6 +7445,11 @@ def admin_page():
 @media (max-width:600px){#pbt .ged .kw{grid-template-columns:1fr auto}#pbt .ged .kw textarea{grid-column:1 / -1}}
 #pbt .ged .steps div{margin:3px 0}
 #pbt .ged .ok{color:#1d6b2c}#pbt .ged .bad{color:#9b1c1c}
+#pbt .ged .gedel{margin-top:18px;border-top:1px solid #e5e5e5;padding-top:10px}
+#pbt .ged .gedel summary{color:#9b1c1c;font-weight:600;cursor:pointer}
+#pbt .ged #gedelgo{background:#9b1c1c;color:#fff;border-color:#9b1c1c}
+#pbt .ged #gedelgo:disabled{opacity:.45;cursor:not-allowed}
+#pbt .ged .chip .role{color:#5a6b7d;font-size:12px;margin-left:4px}
 #pbt .k-delivered{color:#1d6b2c}
 #pbt .k-failed{color:#a12a22;font-weight:600}
 #pbt .k-other{color:#8a5a00}
@@ -7111,13 +7476,13 @@ def admin_page():
   <div class="tabs"><a href="#" data-tab="sync" class="on">Names</a><a href="#" data-tab="history">Changes</a><a href="#" data-tab="delivery">Delivery</a><a href="#" data-tab="usage">Usage</a><a href="#" data-tab="twusage">Twilio usage</a><a href="#" data-tab="twmonths">Twilio by month</a><a href="#" data-tab="settings">Settings</a><a href="#" data-tab="setup">PoweredByText setup</a><a href="#" data-tab="check">Connection check</a></div>
 
   <div id="tab-sync">
+  <div id="namestop" class="box" style="display:none;border-left:4px solid #b3261e"></div>
   <p class="lede writes-only">Gives each texting number in PoweredByText the name of the person it belongs to in TouchPoint.
   Nothing changes until you pick rows and press a Change button, or turn on morning updates.</p>
   <p class="lede writes-off-only">Shows who each texting number in PoweredByText belongs to in TouchPoint, and which
   TouchPoint records need fixing. Read only.</p>
   <div class="box writes-off-only" style="border-left:4px solid #c98a00">
-    <b>Changing names in PoweredByText is on hold.</b> PoweredByText does not yet let TouchPoint set a contact's name.
-    Until it does, this tab is a report, and the data is still worth acting on:
+    <b>Changing names in PoweredByText is turned off in this script.</b> This tab is a report, and the data is still worth acting on:
     <ul style="margin:6px 0 0 18px">
       <li><b>On more than one record:</b> TouchPoint sends a group text once per person, so a parent's cell phone that is
         also on the children gets the same text two or three times, and each copy costs a credit. Take the number off
@@ -7153,6 +7518,11 @@ def admin_page():
     </dl>
     <p>To change who gets a number, change the records in TouchPoint, not this page.
     Each change also stores the person's TouchPoint ID on the PoweredByText contact.</p>
+    <p class="writes-only"><b>Nothing else on the contact changes.</b> PoweredByText clears anything an update leaves out,
+    so each change reads the contact's whole record first (gender, address, and the email, city, date of birth and notes
+    from their Contact Details screen), sends all of it back with the new name, and reads it again. If anything besides
+    the name came back different, every change stops right there, the Changes page shows the old value, and nothing more
+    changes (the morning run too) until you press <b>Allow name changes again</b>.</p>
   </details>
 
   <div class="box">
@@ -7449,7 +7819,7 @@ def admin_page():
   var HELP = {set:'PBT has no name', fix:'PBT has another family member\\'s name', same:'Nothing to change',
               keep:'Typed in PBT; never overwritten', review:'Clean up in TouchPoint first', notfound:'Not in TouchPoint',
               owner:'Twilio has no names; this is who TouchPoint texts'};
-  var RESULT = {changed:'Changed', unconfirmed:'Not confirmed', error:'Error', skipped:'Skipped', stopped:'Stopped'};
+  var RESULT = {changed:'Changed', unconfirmed:'Not confirmed', error:'Error', skipped:'Skipped', stopped:'Stopped', allowed:'Allowed again'};
   var ORDER = ['set','fix','review','keep','same','notfound'];
   var WRITES = document.getElementById('pbt').getAttribute('data-writes') == 'on';
   if (!WRITES) {
@@ -8288,6 +8658,7 @@ def admin_page():
       if (!r.success) { $('suedit').innerHTML = '<div class="ged"><p class="bad">' + esc(r.message) + '</p></div>'; return; }
       GED = {src: g, cur: r.group, tags: r.group.tags.slice(), choices: r.tagChoices,
              kws: r.group.keywords.map(function(k){ return {name: k.name, reply: k.reply, orig: k.name}; })};
+      gedSetManage(r.manage);
       gedDraw();
     });
   }
@@ -8304,7 +8675,8 @@ def admin_page():
     var c = GED.cur, h = [];
     h.push('<div class="ged"><h4>Edit ' + esc(GED.src.name) + '</h4>');
     h.push('<p class="note">' + (c.info ? 'Info group' : c.whatsapp ? 'WhatsApp group' : 'Subscription group')
-      + (c.leaders.length ? ' &middot; Leaders in PoweredByText: ' + esc(c.leaders.join(', ')) + ' (change leaders in PoweredByText)' : '') + '</p>');
+      + '</p>');
+    h.push(gedLeaders());
     h.push('<label class="f" for="gename">Name</label><input class="t" id="gename" value="' + esc(c.name) + '">');
     h.push('<p class="note">Renaming here changes the name in PoweredByText only. TouchPoint keeps its own name for the group in SMS Management.</p>');
     h.push('<label class="f" for="gedesc">Description</label><textarea id="gedesc">' + esc(c.description) + '</textarea>');
@@ -8324,8 +8696,10 @@ def admin_page():
     h.push('<p><button type="button" class="ghost" id="gekwadd">Add a keyword</button></p>');
     h.push('<div class="bar" style="margin-top:14px"><button type="button" class="go" id="gesave">Save to PoweredByText</button>'
       + '<button type="button" class="ghost" id="gecancel">Close</button><span class="status" id="gestatus"></span></div>');
-    h.push('<div class="steps" id="gesteps"></div></div>');
+    h.push('<div class="steps" id="gesteps"></div>');
+    h.push(gedDelete() + '</div>');
     $('suedit').innerHTML = h.join('');
+    gedManageBind();
     Array.prototype.forEach.call(document.querySelectorAll('#suedit [data-untag]'), function(b){
       b.onclick = function(){ gedKeep(); GED.tags.splice(+this.getAttribute('data-untag'), 1); gedDraw(); }; });
     Array.prototype.forEach.call(document.querySelectorAll('#suedit [data-kwx]'), function(b){
@@ -8348,6 +8722,87 @@ def admin_page():
     $('gekwadd').onclick = function(){ gedKeep(); GED.kws.push({name: '', reply: '', orig: ''}); gedDraw(); $('gekn' + (GED.kws.length - 1)).focus(); };
     $('gecancel').onclick = function(){ $('suedit').innerHTML = ''; GED = null; $('suedithome').appendChild($('suedit')); };
     $('gesave').onclick = gedSave;
+  }
+  // Leaders and deleting. The server decides who may do what (by the person's
+  // role in PoweredByText) and checks again on every save; the page only
+  // shows what the server allowed.
+  function gedSetManage(m){
+    GED.manage = m && !m.error ? m : null; GED.manageErr = m && m.error ? m.error : '';
+    GED.lead = GED.manage ? GED.manage.leaders.map(function(l){ return {id: l.id, name: l.name, role: l.role, canRemove: l.canRemove}; }) : [];
+  }
+  function gedLeadChanged(){
+    var a = GED.manage.leaders.map(function(l){ return l.id; }).sort().join(','), b = GED.lead.map(function(l){ return l.id; }).sort().join(',');
+    return a != b;
+  }
+  function gedLeaders(){
+    var m = GED.manage;
+    if (!m) return GED.manageErr ? '<p class="note">Leaders could not be read: ' + esc(GED.manageErr) + '</p>' : '';
+    var h = ['<label class="f">Leaders in PoweredByText</label><div>'];
+    h.push(GED.lead.length ? GED.lead.map(function(l, i){
+      return '<span class="chip">' + esc(l.name) + (l.role ? '<span class="role">' + esc(l.role) + '</span>' : '')
+        + (m.canLead && l.canRemove ? '<button type="button" data-unlead="' + i + '" aria-label="Take off ' + esc(l.name) + '">&times;</button>' : '') + '</span>';
+    }).join('') : '<span class="note">None listed.</span>');
+    h.push('</div>');
+    if (m.canLead) {
+      var left = m.choices.filter(function(c){ return !GED.lead.some(function(l){ return l.id == c.id; }); });
+      h.push('<div class="bar"><select id="geleadpick"><option value="">Add a leader...</option>' + left.map(function(c){
+        return '<option value="' + esc(c.id) + '">' + esc(c.name) + (c.role ? ' (' + esc(c.role) + ')' : '') + '</option>'; }).join('') + '</select>'
+        + '<button type="button" class="ghost" id="geleadsave"' + (gedLeadChanged() ? '' : ' disabled') + '>Save leaders</button>'
+        + '<span class="status" id="geleadst"></span></div>');
+      h.push('<p class="note">Leaders see and answer this group in PoweredByText. A group always keeps at least one leader.'
+        + (ME_ED && !ME_ED.all ? ' As a Division Admin you can add and take off users of this group&#39;s division.' : '') + '</p>');
+    } else h.push('<p class="note">' + esc(m.leadWhy) + '</p>');
+    return h.join('');
+  }
+  function gedDelete(){
+    var m = GED.manage;
+    if (!m) return '';
+    if (!m.canDelete) return '<details class="gedel"><summary>Delete this group</summary><p class="note">' + esc(m.deleteWhy) + '</p></details>';
+    var n = m.subscribers, kw = m.keywords || [];
+    return '<details class="gedel"><summary>Delete this group</summary>'
+      + '<p class="bad"><b>This cannot be undone.</b> PoweredByText deletes ' + esc(m.name) + ', '
+      + (n == null ? 'its subscribers' : n + ' subscriber' + (n == 1 ? '' : 's'))
+      + (kw.length ? ', and its keyword' + (kw.length == 1 ? '' : 's') + ' ' + esc(kw.join(', ')) : '')
+      + '. Nobody is told, and they stop getting texts from it.</p>'
+      + '<label class="f" for="gedelname">Type the group name, ' + esc(m.name) + ', to delete it</label>'
+      + '<input class="t" id="gedelname" autocomplete="off" spellcheck="false">'
+      + '<div class="bar" style="margin-top:8px"><button type="button" id="gedelgo" disabled>Delete it from PoweredByText</button>'
+      + '<span class="status" id="gedelst"></span></div></details>';
+  }
+  function gedManageBind(){
+    var m = GED.manage;
+    if (!m) return;
+    Array.prototype.forEach.call(document.querySelectorAll('#suedit [data-unlead]'), function(b){
+      b.onclick = function(){
+        if (GED.lead.length < 2) { $('geleadst').textContent = 'A group needs at least one leader. Add the new one first.'; return; }
+        gedKeep(); GED.lead.splice(+this.getAttribute('data-unlead'), 1); gedDraw(); }; });
+    if ($('geleadpick')) $('geleadpick').onchange = function(){
+      var id = this.value, c = m.choices.filter(function(x){ return x.id == id; })[0];
+      if (c) { gedKeep(); GED.lead.push({id: c.id, name: c.name, role: c.role, canRemove: true}); gedDraw(); } };
+    if ($('geleadsave')) $('geleadsave').onclick = function(){
+      var btn = this; btn.disabled = true; $('geleadst').textContent = 'Saving...';
+      post({action:'grp_leaders', o:GED.src.o, g:GED.src.id, gdata: JSON.stringify({modifiedOn: m.modifiedOn, ids: GED.lead.map(function(l){ return l.id; })})}, function(r){
+        if (!r.success) { btn.disabled = false; $('geleadst').textContent = r.message; return; }
+        var bad = r.steps.filter(function(x){ return !x.ok; });
+        var msg = !r.changed && !bad.length ? 'Nothing to change.' : bad.length ? bad.map(function(x){ return x.step + ': ' + x.msg; }).join(' ') : 'Saved and checked.';
+        gedKeep(); gedSetManage(r.manage);
+        if (r.manage && r.manage.modifiedOn) GED.cur.modifiedOn = r.manage.modifiedOn;
+        gedDraw(); $('geleadst').textContent = msg;
+      });
+    };
+    if ($('gedelname')) $('gedelname').oninput = function(){
+      $('gedelgo').disabled = this.value.trim().toLowerCase() != String(m.name).trim().toLowerCase(); };
+    if ($('gedelgo')) $('gedelgo').onclick = function(){
+      var btn = this; btn.disabled = true; $('gedelst').textContent = 'Deleting...';
+      post({action:'grp_delete', o:GED.src.o, g:GED.src.id, typed:$('gedelname').value}, function(r){
+        if (!r.success) { btn.disabled = false; $('gedelst').textContent = r.message; return; }
+        var id = String(GED.src.id).toLowerCase();
+        SU.units.forEach(function(u){ u.groups = u.groups.filter(function(x){ return String(x.id).toLowerCase() != id; }); });
+        $('suedit').innerHTML = ''; GED = null; $('suedithome').appendChild($('suedit'));
+        suDraw();
+        $('sustatus').textContent = 'Deleted ' + r.name + ' from PoweredByText' + (r.gone ? '.' : ', though it still reads back; check PoweredByText.') + ' It is on the Changes page.';
+      });
+    };
   }
   function gedSave(){
     gedKeep();
@@ -8375,6 +8830,7 @@ def admin_page():
         g.name = a.name; g.description = a.description; g.tags = a.tags; g.chat = a.chat; g.autoReply = a.autoReply;
         g.autoReplyText = a.autoReplyText; g.keywords = a.keywords.map(function(k){ return {name: k.name, onContact: k.reply, emails: [], phones: []}; });
         GED.cur = a; GED.tags = a.tags.slice();
+        if (GED.manage) { GED.manage.modifiedOn = a.modifiedOn; GED.manage.name = a.name; }
         GED.kws = a.keywords.map(function(k){ return {name: k.name, reply: k.reply, orig: k.name}; });
         var keep = $('gesteps').innerHTML, st = $('gestatus').textContent;
         suDraw(); gedDraw();
@@ -8928,9 +9384,11 @@ def admin_page():
     var keep = this.checked; render(); $('selall').checked = keep;
   };
 
-  // Sends the chosen rows one group at a time, 100 numbers per request. The
+  // Sends the chosen rows one group at a time, __BATCH__ numbers per request. The
   // server reads PoweredByText again and re-decides before writing, so a row
-  // that became Keep since the preview is skipped, not overwritten.
+  // that became Keep since the preview is skipped, not overwritten. If the
+  // server stops (something besides the name changed on a contact), the rest
+  // are not sent and the page shows why.
   function apply(rows){
     if (!rows.length || busy) return;
     var byGroup = {};
@@ -8938,17 +9396,19 @@ def admin_page():
     var jobs = [];
     Object.keys(byGroup).forEach(function(gid){
       var rs = byGroup[gid];
-      for (var i = 0; i < rs.length; i += 100) jobs.push({gid:gid, rows:rs.slice(i, i + 100)});
+      for (var i = 0; i < rs.length; i += __BATCH__) jobs.push({gid:gid, rows:rs.slice(i, i + __BATCH__)});
     });
     busy = true; buttons(); $('run').disabled = true;
-    var done = 0, tally = {changed:0, unconfirmed:0, error:0, skipped:0}, st = $('applystatus');
+    var done = 0, tally = {changed:0, unconfirmed:0, error:0, skipped:0, stopped:0}, st = $('applystatus');
     (function next(){
+      if (jobs.length && stopMsg) jobs = [];
       if (!jobs.length) {
         busy = false; $('run').disabled = false; render();
         st.innerHTML = 'Done: <span class="r-changed">' + tally.changed + ' changed</span>' +
           (tally.unconfirmed ? ', <span class="r-unconfirmed">' + tally.unconfirmed + ' not confirmed</span>' : '') +
           (tally.error ? ', <span class="r-error">' + tally.error + ' errors</span>' : '') +
           (tally.skipped ? ', ' + tally.skipped + ' skipped' : '') + '. Every change is on the Changes page.';
+        showStop();
         return;
       }
       var job = jobs.shift(), byNum = {};
@@ -8961,7 +9421,9 @@ def admin_page():
             r.result = x.result; r.msg = x.msg; tally[x.result] = (tally[x.result] || 0) + 1;
             if (x.result == 'changed') { r.pbt = x.after; sel[r.key] = false; }
           });
+          if (res.stopped) stopMsg = res.stopped;
         } else {
+          if (res.stopped) stopMsg = res.message;
           job.rows.forEach(function(r){ r.result = 'error'; r.msg = res.message; });
           tally.error += job.rows.length;
         }
@@ -8969,6 +9431,20 @@ def admin_page():
       });
     })();
   }
+  // Name changes stop when a contact came back with more than its name changed,
+  // and stay stopped (for the morning run too) until an admin allows them again.
+  var stopMsg = __STOP__;
+  function showStop(){
+    var box = $('namestop'); if (!box) return;
+    box.style.display = stopMsg ? '' : 'none'; if (!stopMsg) return;
+    box.innerHTML = '';
+    var p = document.createElement('div'); p.textContent = stopMsg; box.appendChild(p);
+    var b = document.createElement('button'); b.className = 'ghost'; b.textContent = 'Allow name changes again'; b.style.marginTop = '8px';
+    b.onclick = function(){ if (!confirm('Did you check that contact in PoweredByText and put back anything missing?')) return;
+      b.disabled = true; post({action:'name_stop_clear'}, function(res){ if (res.success) { stopMsg = ''; showStop(); } else { b.disabled = false; p.textContent = res.message; } }); };
+    box.appendChild(b);
+  }
+  showStop();
   $('applysel').onclick = function(){
     var rows = Object.keys(sel).filter(function(k){ return sel[k] && merged[k] && changeable(merged[k]); })
       .map(function(k){ return merged[k]; });
@@ -9040,6 +9516,9 @@ def admin_page():
 })();
 </script>"""
 
+    # The script has its own placeholders: the page's .replace chain above fills only body.
+    js = (js.replace('__BATCH__', str(APPLY_BATCH))
+            .replace('__STOP__', safe_json(name_stop_text(name_stop()) if name_stop() else '')))
     return css + body + js
 
 
@@ -9051,9 +9530,9 @@ if (window.location.pathname.indexOf('/PyScript/') > -1)
 </script>"""
 
 # Admin tools actions. Each one checks the Admin role itself (admin_post).
-ADMIN_ACTIONS = set(['preview_group', 'apply', 'twilio_usage', 'tw_months', 'usage_history', 'usage_month', 'usage_refresh', 'usage_refresh_plan',
+ADMIN_ACTIONS = set(['preview_group', 'apply', 'name_stop_clear', 'twilio_usage', 'tw_months', 'usage_history', 'usage_month', 'usage_refresh', 'usage_refresh_plan',
                      'save_cost', 'drill', 'pbt_check', 'pbt_check_links', 'pbt_setup', 'pbt_setup_group', 'apply_update',
-                     'grp_me', 'grp_get', 'grp_save', 'grp_unpin', 'grp_tag_add', 'grp_create', 'grp_kw_check', 'grp_kw_add',
+                     'grp_me', 'grp_get', 'grp_save', 'grp_leaders', 'grp_delete', 'grp_unpin', 'grp_tag_add', 'grp_create', 'grp_kw_check', 'grp_kw_add',
                      'trace', 'usage', 'log', 'save_settings'])
 
 # Admin menu: (group, [(page key, label, what it shows)]). 'people' is the
@@ -9186,7 +9665,7 @@ SHELL_JS = r"""
   if (isAdmin) {
     var skip = ''; try { skip = sessionStorage.getItem('txupdate.later') || ''; } catch(e) {}
     var vx = new XMLHttpRequest();
-    vx.open('GET', UPD.api + '/script-versions', true); vx.timeout = 5000;
+    vx.open('GET', UPD.api + '/script-versions?s=' + encodeURIComponent(UPD.id) + '&v=' + encodeURIComponent(UPD.version), true); vx.timeout = 5000;
     vx.onload = function(){
       try {
         var latest = JSON.parse(vx.responseText)[UPD.id];
